@@ -9,12 +9,15 @@ import type { PluginSkill } from "./types";
 const h = vi.hoisted(() => ({
   handlers: new Map<string, (...a: unknown[]) => unknown>(),
   openPath: vi.fn(async (_p: string) => ""),
+  // builtinSkillsRoot() dev 态 = <appPath>/resources/skills。测试里指向临时目录,
+  // 故 getAppPath 不能写死常量,由 beforeAll 赋值。
+  appPath: "/app",
 }));
 
 vi.mock("electron", () => ({
   ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, fn) },
   shell: { openPath: h.openPath },
-  app: { isPackaged: false, getAppPath: () => "/app", getPath: () => "/userData" },
+  app: { isPackaged: false, getAppPath: () => h.appPath, getPath: () => "/userData" },
 }));
 
 import { registerSkillsHandlers } from "./skills";
@@ -28,6 +31,7 @@ function makeSkill(root: string, name: string): void {
 let base: string;
 let globalRoot: string;
 let proj: string;
+let builtinRoot: string;
 
 beforeAll(() => {
   base = mkdtempSync(join(tmpdir(), "skills-ipc-"));
@@ -35,6 +39,16 @@ beforeAll(() => {
   proj = join(base, "proj");
   makeSkill(globalRoot, "code-review");
   makeSkill(join(proj, ".cortex-desktop", "skills"), "ws-skill");
+
+  // 内置默认 skill 根（= resources/skills）。放两个白名单内的、两个白名单外的,
+  // 用来验证「只并入白名单」而非整根并入。
+  h.appPath = join(base, "app");
+  builtinRoot = join(h.appPath, "resources", "skills");
+  makeSkill(builtinRoot, "incident-apology-report");
+  makeSkill(builtinRoot, "contract-review-report");
+  makeSkill(builtinRoot, "ce-work");
+  makeSkill(builtinRoot, "design");
+
   registerSkillsHandlers();
 });
 
@@ -61,6 +75,37 @@ describe("pi-skills:list", () => {
   it("workspaceEnabled=false → 不含工作区 skill", async () => {
     const skills = await list({ globalRoots: [globalRoot], workspaceEnabled: false, workspaceDir: proj });
     expect(skills.some((s) => s.scope === "workspace")).toBe(false);
+  });
+});
+
+describe("内置默认 skill 并入", () => {
+  it("白名单内的内置 skill 以 global scope 并入;白名单外的(ce-*/design/slides)不并入", async () => {
+    const skills = await list({ rootSpecs: [], workspaceEnabled: false });
+    const names = skills.map((s) => s.name);
+    expect(names).toContain("incident-apology-report");
+    expect(names).toContain("contract-review-report");
+    // ce-* 与 design/slides 只走「按名硬编码取用」(notes.ts / artifactDispatch.ts),
+    // 不该出现在 /skill: 菜单里 —— design/slides 是 artifact 派发专用 stub,手选无意义。
+    expect(names).not.toContain("ce-work");
+    expect(names).not.toContain("design");
+    expect(skills.find((s) => s.name === "incident-apology-report")!.scope).toBe("global");
+  });
+
+  it("用户根有同名 skill 时,内置版排在前面(渲染端 last-global-wins → 用户版胜出)", async () => {
+    // 顺序契约:filterEnabledPiSkills / resolveEnabledSkillRecords 都是「后扫到的 global 覆盖前者」。
+    // 内置根若排在用户根之后,就会反过来盖掉用户的自定义版本,用户改不掉。
+    const userRoot = join(base, "user-override");
+    makeSkill(userRoot, "incident-apology-report");
+    const skills = await list({
+      rootSpecs: [{ path: userRoot, scope: "global", origin: "shared" }],
+      workspaceEnabled: false,
+    });
+    const hits = skills
+      .map((s, i) => ({ i, dir: s.dir, name: s.name }))
+      .filter((x) => x.name === "incident-apology-report");
+    expect(hits).toHaveLength(2);
+    expect(hits[0].dir).toBe(join(builtinRoot, "incident-apology-report"));
+    expect(hits[1].dir).toBe(join(userRoot, "incident-apology-report"));
   });
 });
 

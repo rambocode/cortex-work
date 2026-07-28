@@ -59,8 +59,36 @@ describe("SceneChips", () => {
     expect(screen.getByRole("button", { name: "深度研究" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "写作" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "自动化" })).toBeInTheDocument();
+    // 内置文书类 skill(随安装包分发,见 resources/skills/SOURCE.md)也在日常办公场景里。
+    expect(screen.getByRole("button", { name: "故障致歉" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "合同审查" })).toBeInTheDocument();
     // 设计创意专属 chip 此时不在
     expect(screen.queryByRole("button", { name: "设计稿" })).toBeNull();
+  });
+
+  it("点「故障致歉」→ 预置 /skill:incident-apology-report pill", () => {
+    renderChips(FULL_BRIDGE);
+    fireEvent.click(screen.getByRole("button", { name: "故障致歉" }));
+    const insert = usePersonalStore.getState().composerInsert;
+    expect(insert?.skill).toEqual({ cmd: "/skill:incident-apology-report", displayName: "故障致歉" });
+    expect(insert?.text).toBe("");
+    expect(insert?.submit).toBeFalsy();
+  });
+
+  it("点「合同审查」→ 预置 /skill:contract-review-report pill", () => {
+    renderChips(FULL_BRIDGE);
+    fireEvent.click(screen.getByRole("button", { name: "合同审查" }));
+    const insert = usePersonalStore.getState().composerInsert;
+    expect(insert?.skill).toEqual({ cmd: "/skill:contract-review-report", displayName: "合同审查" });
+    expect(insert?.text).toBe("");
+  });
+
+  // 文书类 skill 不依赖任何后端子域(只要有桥能扫到内置根就行),不该跟着研究/自动化一起消失。
+  it("桥缺 research/automation/workflow 子域 → 文书类 chip 仍在", () => {
+    renderChips(fakeBridge());
+    expect(screen.getByRole("button", { name: "故障致歉" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "合同审查" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "深度研究" })).toBeNull();
   });
 
   it("切到「设计创意」→ chips 换成该场景", () => {
@@ -187,12 +215,122 @@ describe("SceneChips", () => {
     expect(screen.queryByRole("button", { name: "像素风介绍 PPT" })).toBeNull();
   });
 
+  // 故障致歉的示例覆盖五类模板场景里最常见的四类,每条都是能直接回车的完整故障描述——
+  // 这个 skill 缺了时间段就必须反问用户,示例写成半句话等于白点一下。
+  it("选中故障致歉后展示其示例,点一下插入完整故障描述", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:incident-apology-report", displayName: "故障致歉" },
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "演示文稿" })).toBeNull();
+    const example = screen.getByRole("button", { name: "平台服务中断" });
+    expect(example).toHaveAttribute("title", expect.stringContaining("无法访问"));
+
+    fireEvent.click(example);
+    const insert = usePersonalStore.getState().composerInsert;
+    expect(insert?.text).toContain("23:05");
+    expect(insert?.skill).toBeUndefined();
+    expect(insert?.submit).toBeFalsy();
+  });
+
+  // 合同在 Cortex 里是**拖进输入框的附件**(agent 经 extract_document 读 files[].path),
+  // 不是用户手打的路径 —— 示例只说视角与关注点,绝不能写 ./合同.pdf 这种假路径,
+  // 否则用户点完示例、又拖了附件,输入框里会同时出现一个不存在的路径。
+  it("选中合同审查后展示其示例,示例只给视角不写文件路径", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:contract-review-report", displayName: "合同审查" },
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "平台服务中断" })).toBeNull();
+    const example = screen.getByRole("button", { name: "乙方视角审查" });
+    fireEvent.click(example);
+    const text = usePersonalStore.getState().composerInsert?.text ?? "";
+    expect(text).toContain("乙方");
+    expect(text).not.toMatch(/\.pdf|\.docx|\.\//);
+  });
+
+  it("合同审查的四条示例都不含文件路径", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:contract-review-report", displayName: "合同审查" },
+      }),
+    );
+    for (const label of ["乙方视角审查", "甲方视角审查", "找出不利条款", "缺失条款检测"]) {
+      const btn = screen.getByRole("button", { name: label });
+      expect(btn.getAttribute("title")).not.toMatch(/\.pdf|\.docx|\.\//);
+    }
+  });
+
   it("非产物类 skill(无示例表)不渲染示例区,chips 保持完整", () => {
     renderChips(FULL_BRIDGE);
     act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:code-review", displayName: "Code Review" } }));
     expect(screen.queryByText("像素风介绍 PPT")).toBeNull();
     expect(screen.queryByText("产品落地页")).toBeNull();
     expect(screen.getByRole("button", { name: "深度研究" })).toBeInTheDocument();
+  });
+
+  // 切场景 tab = 「我要换一批入口」,不是「继续看上一个 skill 的示例」。
+  // 不收起的话会出现:点了「设计创意」,底下却还挂着故障致歉的示例(用户反馈的现象)。
+  it("展示示例时切场景 tab → 回到该场景的 chips 列表", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:incident-apology-report", displayName: "故障致歉" },
+      }),
+    );
+    expect(screen.getByRole("button", { name: "平台服务中断" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "设计创意" }));
+    expect(screen.queryByRole("button", { name: "平台服务中断" })).toBeNull();
+    expect(screen.getByRole("button", { name: "设计稿" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Loop 工作流" })).toBeInTheDocument();
+  });
+
+  // 输入框里的 pill 是用户的输入内容,换 tab 只影响这一行的展示,不该顺手清掉它。
+  it("切场景 tab 不清空输入框里的 skill pill", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:incident-apology-report", displayName: "故障致歉" },
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "设计创意" }));
+    expect(usePersonalStore.getState().composerSkill?.cmd).toBe("/skill:incident-apology-report");
+  });
+
+  it("切 tab 收起示例后,再点某个 skill chip → 示例重新出现", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:incident-apology-report", displayName: "故障致歉" },
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "设计创意" }));
+    fireEvent.click(screen.getByRole("button", { name: "设计稿" }));
+    // pill 由 ComposerShell 单向镜像回 store,测试里手动同步这一步
+    act(() => usePersonalStore.setState({ composerSkill: { cmd: "/skill:design", displayName: "设计稿" } }));
+    expect(screen.getByRole("button", { name: "产品落地页" })).toBeInTheDocument();
+  });
+
+  // 切走再切回来时,若「同一个 skill 已被收起」的状态没在重新点选时解除,
+  // 用户会发现点了 chip 却没反应(pill 本来就在,cmd 没变)。
+  it("切 tab 后切回原场景,重新点同一个 skill chip → 示例仍能出现", () => {
+    renderChips(FULL_BRIDGE);
+    act(() =>
+      usePersonalStore.setState({
+        composerSkill: { cmd: "/skill:incident-apology-report", displayName: "故障致歉" },
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "设计创意" }));
+    fireEvent.click(screen.getByRole("tab", { name: "日常办公" }));
+    expect(screen.getByRole("button", { name: "故障致歉" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "故障致歉" }));
+    expect(screen.getByRole("button", { name: "平台服务中断" })).toBeInTheDocument();
   });
 
   it("清空 pill 后 chips 恢复完整,示例消失", () => {

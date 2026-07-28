@@ -119,6 +119,32 @@ describe("会话自动标题", () => {
     expect(oneshotCli).not.toHaveBeenCalled();
   });
 
+  // presetSessionTitle 只覆盖「派发处主动先占位」的产物 skill;pi 会话是把
+  // `/skill:<name> …` 原样透传给 CLI 的，没有占位那一步，标题直接由 autoTitle 从
+  // 发送文本派生 → 会话列表里就出现「/skill:incident-…」(用户实测)。
+  // 前缀是派发指令不是内容，标题派生要统一把它剥掉，与哪个 skill、哪个 agent 无关。
+  it("autoTitle 从 /skill: 文本派生标题时剥掉前缀", () => {
+    usePersonalStore.setState({ sessions: [baseSession] });
+    // 这里标题仍是默认值 → autoTitle 会真的去跑 haiku 概括,桩必须返回 Promise。
+    const oneshotCli = vi.fn().mockResolvedValue({ ok: false, text: "" });
+    __autoTitleForTest(
+      { oneshotCli } as unknown as DesktopBridge,
+      baseSession,
+      "/skill:incident-apology-report 昨晚 23:05 到今天 01:10 平台无法访问",
+    );
+    const title = usePersonalStore.getState().sessions[0]?.title ?? "";
+    expect(title).not.toContain("/skill:");
+    expect(title.startsWith("昨晚 23:05")).toBe(true);
+  });
+
+  it("presetSessionTitle 也剥前缀(派发处直接传了原始文本时的兜底)", () => {
+    usePersonalStore.setState({ sessions: [baseSession] });
+    presetSessionTitle(baseSession, "/skill:contract-review-report 审查这份合同,我方是乙方");
+    const title = usePersonalStore.getState().sessions[0]?.title ?? "";
+    expect(title).not.toContain("/skill:");
+    expect(title.startsWith("审查这份合同")).toBe(true);
+  });
+
   it("presetSessionTitle 不动用户手改过的标题,空文本也不动", () => {
     const edited = { ...baseSession, title: "我的海报", titleManuallyEdited: true };
     usePersonalStore.setState({ sessions: [edited] });

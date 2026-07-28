@@ -27,7 +27,7 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
-import { isOrchestrationSend, renderSkillBlock, resolveEnabledSkillRecords, type InjectableSkill } from "./skill-injection";
+import { isOrchestrationSend, renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -2331,7 +2331,11 @@ export async function forkPiAtEditedMessage(
 const DEFAULT_TITLE = /^Session \d+$/;
 
 function fallbackTitle(text: string): string {
-  const clean = text.replace(/\s+/g, " ").trim();
+  // 先剥 `/skill:<name>` 派发前缀:pi 会话把整条命令原样透传给 CLI,标题若直接从发送文本
+  // 派生,会话列表里就成了「/skill:incident-…」。这里是所有标题派生路径的必经点
+  //(autoTitle / presetSessionTitle / appendLocalUserMessage 都经 applyFallbackTitle 到这)，
+  // 剥在这一处就够,不必让每个派发方各自记得先处理。
+  const clean = stripSkillDirective(text).replace(/\s+/g, " ").trim();
   return clean.length > 16 ? clean.slice(0, 16) + "…" : clean || t("chat:core.newSession");
 }
 

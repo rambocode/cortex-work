@@ -75,6 +75,21 @@ export function parseSkillSlash(text: string): { name: string; args: string } | 
   return { name, args: (m[2] ?? "").trim() };
 }
 
+/// 去掉 `/skill:<name>` 派发前缀,只留用户真正写的内容。**显示与标题派生专用**。
+///
+/// 前缀是派发指令、不是内容:显示出来是噪音,还会让会话标题变成「/skill:incident-…」
+///(用户实测)。pi 会话尤其明显——它把整条 `/skill:name args` 原样透传给 CLI,
+/// 存储与发送是同一份文本,不像 claude/codex 在发送侧就已改写掉。
+///
+/// **只用于显示层**:存储与编辑重发必须保留原文,否则「编辑后重发」会把 skill 静默丢掉
+///(editResend 要把文本重新过 prepareArtifactDispatch / parseResearchSkill 才知道派发到哪)。
+///
+/// 无参数(只敲了命令)时原样返回:剥干净会得到空串,空气泡/空标题比露出前缀更糟。
+export function stripSkillDirective(text: string): string {
+  const parsed = parseSkillSlash(text);
+  return parsed?.args ? parsed.args : text;
+}
+
 // U5:claude 原生 slash 命令名的「纯 slug 化」步骤(无兜底/无碰撞消歧)。规则:小写化 + 换行/空格/
 // 路径分隔符/`..`/控制字符等一切非 [a-z0-9] 归一为连字符 + 折叠并去首尾连字符。可能产出空串
 // (如纯非 ASCII 名),空串兜底与同批次碰撞消歧交给 resolveClaudeSlashName(不能在此处独立兜底——

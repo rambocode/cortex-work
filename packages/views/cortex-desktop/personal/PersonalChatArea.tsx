@@ -18,6 +18,7 @@ import {
   useDesktopBridge,
   usePersonalActions,
   presetSessionTitle,
+  stripSkillDirective,
   usePersonalBranches,
   usePersonalChat,
   usePersonalStore,
@@ -275,12 +276,36 @@ export function PersonalChatArea({
   const scrollStickKey = showHiddenHistory
     ? `all:${messageScrollSignature(allMessages)}`
     : `${win.stickKey}:${messageScrollSignature(rendered)}`;
+  // 会话流里的用户消息只显示内容,不显示 `/skill:<name>` 派发前缀——前缀是派发指令不是内容
+  //(与 core 侧 fallbackTitle 剥标题同一口径、同一个 stripSkillDirective)。pi 会话尤其需要:
+  // 它把整条命令原样透传给 CLI,存储与发送是同一份文本,不像 claude/codex 在发送侧已改写掉。
+  //
+  // **只改显示,不动存储**:编辑重发要把原文重新过 prepareArtifactDispatch / parseResearchSkill
+  // 才知道派发到哪,剥了原文会让「编辑后重发」静默丢掉 skill。renderTextTail 因此另经
+  // rawTextByUid 取原文(见下)。agent 侧文本不碰——它可能正在讲解 `/skill:xxx` 怎么用。
+  const displayMessages = useMemo(
+    () =>
+      rendered.map((m) =>
+        m.kind === "text" && m.who === "me" && typeof m.text === "string"
+          ? { ...m, text: stripSkillDirective(m.text) }
+          : m,
+      ),
+    [rendered],
+  );
+  // uid → 原始文本。编辑重发要拿没剥过的原文,而 renderTextTail 收到的是上面剥过的消息。
+  const rawTextByUid = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of rendered) {
+      if (m.kind === "text" && m.who === "me" && m.uid && typeof m.text === "string") map.set(m.uid, m.text);
+    }
+    return map;
+  }, [rendered]);
   const convo: Conversation | null = useMemo(
     () =>
-      rendered.length > 0 || hiddenCount > 0
-        ? { headerStatus: { dot: "online", text: "" }, metaRow: [], messages: rendered }
+      displayMessages.length > 0 || hiddenCount > 0
+        ? { headerStatus: { dot: "online", text: "" }, metaRow: [], messages: displayMessages }
         : null,
-    [rendered, hiddenCount],
+    [displayMessages, hiddenCount],
   );
 
   // 下面的回调用 useCallback 稳定引用,使 ChatArea 的消息组件 React.memo 在流式逐字更新时
@@ -373,7 +398,9 @@ export function PersonalChatArea({
   const renderTextTail = useCallback(
     (m: Extract<Message, { kind: "text" }>) => {
       if (typeof m.text !== "string" || !session || !project) return null;
-      const msgText = m.text;
+      // 编辑重发用**原文**(带 /skill: 前缀),不用气泡上剥过的显示文本:
+      // editResend 要把文本重新过派发解析,少了前缀就等于静默取消了这次 skill 调用。
+      const msgText = (m.uid ? rawTextByUid.get(m.uid) : undefined) ?? m.text;
       if (m.who === "me") {
         // 用户消息:重发 / 编辑重发 / 复制。运行中或无 uid(极老消息)时只显示时间。
         const editable = !running && !!m.uid;

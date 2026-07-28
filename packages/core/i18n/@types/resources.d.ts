@@ -2442,10 +2442,30 @@ export default interface Resources {
       "scene": {
         "automation": "自动化",
         "chipsLabel": "快捷能力",
+        "contract": "合同审查",
+        "contractHint": "预置合同审查 skill,把合同拖进输入框、说清视角即可开审",
         "creative": "设计创意",
         "design": "设计稿",
         "designHint": "预置设计稿 skill,补一句需求即可生成",
         "examples": {
+          "contract-review-report": {
+            "missing": {
+              "label": "缺失条款检测",
+              "prompt": "检查这份合同缺了哪些应有条款(保密、争议解决、不可抗力、终止退出),并补出建议条文"
+            },
+            "partya": {
+              "label": "甲方视角审查",
+              "prompt": "审查这份合同,我方是甲方,重点看交付范围、知识产权归属和数据安全条款"
+            },
+            "partyb": {
+              "label": "乙方视角审查",
+              "prompt": "审查这份合同,我方是乙方,重点看回款节奏、验收标准和违约责任,给出风险分级与谈判优先级"
+            },
+            "pitfall": {
+              "label": "找出不利条款",
+              "prompt": "这份合同有什么坑?逐条列出对我方不利的条款,标注严重程度并给出改写建议"
+            }
+          },
           "design": {
             "dashboard": {
               "label": "数据看板",
@@ -2462,6 +2482,42 @@ export default interface Resources {
             "poster": {
               "label": "活动海报",
               "prompt": "设计一张线下技术沙龙的活动海报,信息层级清楚,主视觉抢眼"
+            }
+          },
+          "incident-apology-report": {
+            "dataloss": {
+              "label": "数据永久缺失",
+              "prompt": "7 月 20 日 14:00-18:00 部分测点数据丢失且无法补录,写一份给客户的说明,要能作为对方审计时的偏差说明附件"
+            },
+            "falsealarm": {
+              "label": "报警误报",
+              "prompt": "今天上午系统重复误发了十几条报警,实际指标一切正常,写一份简短的情况说明发给受影响客户"
+            },
+            "missedalarm": {
+              "label": "报警漏发",
+              "prompt": "昨天下午 14:00 到 17:00 报警通知没能发出,该时段是否超限仍在逐一核查,写一份说明并提醒客户自查该时段数据"
+            },
+            "outage": {
+              "label": "平台服务中断",
+              "prompt": "昨晚 23:05 到今天 01:10 平台无法访问、报警通知也没发出,设备端数据采集正常且已全部回传补齐,写一份给全体客户的情况说明"
+            }
+          },
+          "research": {
+            "compare": {
+              "label": "竞品逐项对比",
+              "prompt": "对比 Notion、Obsidian 与 Craft 的定位、核心能力与定价,给出适用场景建议"
+            },
+            "market": {
+              "label": "行业市场调研",
+              "prompt": "调研 2026 年国内 AI 编程助手的市场格局、主要玩家与商业模式"
+            },
+            "policy": {
+              "label": "政策合规要求",
+              "prompt": "梳理国内生成式 AI 应用上线需要满足的备案与合规要求,以及各环节的时间成本"
+            },
+            "tech": {
+              "label": "技术选型对比",
+              "prompt": "对比 Postgres、MySQL 与 SQLite 在中小型 SaaS 后端上的选型取舍,给出结论与理由"
             }
           },
           "slides": {
@@ -2483,8 +2539,11 @@ export default interface Resources {
             }
           }
         },
+        "incident": "故障致歉",
+        "incidentHint": "预置故障致歉 skill,说清故障经过即可生成 Word 报告",
         "office": "日常办公",
         "research": "深度研究",
+        "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",
         "slides": "演示文稿",
         "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
         "title": "场景",

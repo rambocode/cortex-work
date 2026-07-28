@@ -1519,6 +1519,52 @@ describe("PersonalChatArea 空会话落地内容", () => {
   });
 });
 
+// `/skill:<name>` 是派发指令不是内容。pi 会话把整条命令原样透传给 CLI（存储 == 发送文本），
+// 于是气泡里就露出「/skill:incident-apology-report 昨晚…」（用户实测）。这里守显示层剥前缀，
+// 与 core 侧 fallbackTitle 剥标题是同一口径、同一个 stripSkillDirective。
+describe("PersonalChatArea 会话流不显示 /skill: 派发前缀", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "pi", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      runningBySession: {},
+    });
+  });
+
+  it("用户消息只显示内容,不显示 /skill:<name>", async () => {
+    renderAreaWithChat([
+      {
+        kind: "text",
+        who: "me",
+        time: "11:19",
+        uid: "u1",
+        text: "/skill:incident-apology-report 昨晚 23:05 到今天 01:10 平台无法访问",
+      },
+    ]);
+    expect(await screen.findByText(/昨晚 23:05 到今天 01:10 平台无法访问/)).toBeInTheDocument();
+    expect(screen.queryByText(/\/skill:incident-apology-report/)).toBeNull();
+  });
+
+  // 只敲命令没写内容时剥干净会得到空气泡 —— 那比露出前缀更糟,保持原样。
+  it("无参数的 /skill: 消息原样显示(不产出空气泡)", async () => {
+    renderAreaWithChat([{ kind: "text", who: "me", time: "11:20", uid: "u1", text: "/skill:design" }]);
+    expect(await screen.findByText("/skill:design")).toBeInTheDocument();
+  });
+
+  // agent 侧文本不碰:它可能在正常讲解「用 /skill:xxx 可以……」,剥掉就改写了 agent 的话。
+  it("agent 侧消息里的 /skill: 文本不动", async () => {
+    renderAreaWithChat([
+      { kind: "text", who: "pi", time: "11:21", uid: "a1", text: "/skill:design 是创建设计稿的命令" },
+    ]);
+    expect(await screen.findByText(/\/skill:design 是创建设计稿的命令/)).toBeInTheDocument();
+  });
+});
+
 // /skill:research 分叉：研究由 CRE 引擎跑，**这条路径绝不能走到 agent 上**。
 //
 // 守两件事：一是不 spawn CLI（走上 send 的老路会让每次发起研究白烧一轮 agent 的钱，

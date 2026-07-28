@@ -10,7 +10,13 @@ import { ipcMain, shell } from "electron";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { getBuiltinSkill, getSkill, listSkills, scanSkillRoots } from "../skills/registry";
-import { expandTilde, expandRootSpecs, pluginSkillRoots, type ScanRoot } from "../skills/locate";
+import {
+  builtinSkillsRoot,
+  expandTilde,
+  expandRootSpecs,
+  pluginSkillRoots,
+  type ScanRoot,
+} from "../skills/locate";
 import { agentNativePluginRoots } from "../skills/agent-native";
 import { installedPluginsRoot } from "../plugins/locate";
 import type { AgentKind, PluginSkill, SkillMeta, SkillScope } from "./types";
@@ -48,6 +54,27 @@ interface CreateSkillArgs {
   description: string;
   body: string;
   allowedRoots: string[];
+}
+
+// 「系统默认集成」的内置 skill 白名单（resources/skills 下的目录名）。
+//
+// 为什么要这份白名单、而不是把整个 builtinSkillsRoot() 并进扫描链：resources/skills 里同时住着
+// 两类东西——`ce-*` 六个（闪记深化按名取用,见 core/personal/notes.ts）与 `design`/`slides`
+// （artifact 派发专用 stub,见 views 的 artifactDispatch.ts）。它们都只走「按名硬编码取用」,
+// 一旦整根并入就会全部涌进 `/skill:` 菜单；design/slides 脱离 artifact 上下文被用户手选毫无意义
+// （其 SKILL.md 开头即「Treat the artifact context supplied by Cortex as authoritative」）。
+// 故只显式放行确实要给用户直接选用的这几个。
+const DEFAULT_BUILTIN_SKILLS = ["incident-apology-report", "contract-review-report"] as const;
+
+// 白名单内置 skill 的扫描根。逐个 skill 目录作为一个根传入——readRoot 对「顶层直接含 SKILL.md」
+// 的目录按单 skill 处理,正好只取白名单这几个,无需再过滤。
+function defaultBuiltinSkillRoots(): ScanRoot[] {
+  const root = builtinSkillsRoot();
+  return DEFAULT_BUILTIN_SKILLS.map((name) => ({
+    path: join(root, name),
+    scope: "global" as SkillScope,
+    origin: "shared" as const,
+  }));
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -96,6 +123,11 @@ export function registerSkillsHandlers(): void {
     }
     // agent 自身「已装插件 / vendor 内置」skill 根(claude/codex CLI 自带)。绝对路径,直接并入。
     if (args.agent) roots.push(...agentNativePluginRoots(args.agent));
+    // 「系统默认集成」的内置 skill:随安装包分发,使其出现在 /skill: 菜单并参与注入。
+    // ⚠️ 必须 unshift 到最前,不能 push。注入侧 resolveEnabledSkillRecords 与菜单侧
+    // filterEnabledPiSkills 的同名去重都是「后扫到的 global 覆盖前者」——排在后面会让内置版
+    // 反过来盖掉用户放在 ~/.cortex-desktop/skills 的同名 skill,用户想改都改不掉。
+    roots.unshift(...defaultBuiltinSkillRoots());
     return scanSkillRoots(roots);
   });
 

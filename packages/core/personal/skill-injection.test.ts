@@ -11,6 +11,7 @@ import {
   resolveClaudeSlashName,
   resolveEnabledPluginSkillDirs,
   sanitizeSkillCommandName,
+  stripSkillDirective,
   type InjectableSkill,
 } from "./skill-injection";
 import type { DesktopBridge } from "../desktop/bridge";
@@ -85,6 +86,30 @@ describe("parseSkillSlash", () => {
     expect(parseSkillSlash("/clear")).toBeNull();
     expect(parseSkillSlash("讲个笑话")).toBeNull();
     expect(parseSkillSlash("/skill")).toBeNull();
+  });
+});
+
+describe("stripSkillDirective", () => {
+  it("去掉 /skill:<name> 前缀,只留用户写的内容", () => {
+    expect(stripSkillDirective("/skill:incident-apology-report 昨晚服务器挂了两小时")).toBe(
+      "昨晚服务器挂了两小时",
+    );
+  });
+
+  it("多行内容只吃掉命令本身", () => {
+    expect(stripSkillDirective("/skill:foo 第一行\n第二行")).toBe("第一行\n第二行");
+  });
+
+  // 只敲了命令没写内容:剥干净就成了空串,气泡/标题会变空白——那比露出前缀更糟,原样返回。
+  it("无参数时原样返回(不产出空串)", () => {
+    expect(stripSkillDirective("/skill:design")).toBe("/skill:design");
+    expect(stripSkillDirective("  /skill:design  ")).toBe("  /skill:design  ");
+  });
+
+  it("非 skill 文本原样返回", () => {
+    expect(stripSkillDirective("讲个笑话")).toBe("讲个笑话");
+    expect(stripSkillDirective("/clear")).toBe("/clear");
+    expect(stripSkillDirective("")).toBe("");
   });
 });
 

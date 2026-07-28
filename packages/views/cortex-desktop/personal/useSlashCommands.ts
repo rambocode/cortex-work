@@ -55,10 +55,38 @@ const RESEARCH_SKILL_COMMAND: SlashCommand = {
   kind: "skill",
 };
 
+// 文书类内置 skill(随安装包分发,见 apps/desktop/resources/skills/SOURCE.md)。
+//
+// 与 design/slides 的差别:这两个是**真的会被扫到**的 skill(主进程 ipc/skills.ts 的
+// DEFAULT_BUILTIN_SKILLS 白名单把它们并入了扫描根),所以它们本来就会以扫描项身份进 slash 菜单。
+// 在这里再声明一遍,是为了盖掉扫描项那份默认展示:skillTitleCase 会给出英文
+// 「Incident Apology Report」,来源标签也会算成「个人」——两者在中文界面里都不对。
+// useSlashCommands 末尾按 cmd 去重(系统项优先),故不会出现两条。
+//
+// 门控与产物类同源(受会话级 useOwnSkills 约束):它们要 agent 读 SKILL.md、跑 scripts/ 里的脚本,
+// 用户关掉 skills 就是不想让 agent 加载这些,该一起消失。
+const DOC_SKILL_COMMANDS: SlashCommand[] = [
+  {
+    cmd: "/skill:incident-apology-report",
+    displayName: "故障致歉",
+    tag: "系统",
+    desc: "把故障经过写成可直接发客户的情况说明及致歉报告",
+    kind: "skill",
+  },
+  {
+    cmd: "/skill:contract-review-report",
+    displayName: "合同审查",
+    tag: "系统",
+    desc: "按甲方/乙方/中性视角审查合同风险并生成分级报告",
+    kind: "skill",
+  },
+];
+
 // 全部系统 skill 定义。**与门控无关**,给落地页场景 chip 按 cmd 反查展示名用
 // (chip 预置 pill 时要拿到与 slash 菜单一致的 displayName,避免两处双写漂移)。
 export const SYSTEM_SKILL_COMMANDS: SlashCommand[] = [
   ...ARTIFACT_SKILL_COMMANDS,
+  ...DOC_SKILL_COMMANDS,
   RESEARCH_SKILL_COMMAND,
 ];
 
@@ -91,7 +119,7 @@ export function useSlashCommands(session: SessionMeta | undefined): SlashCommand
   }));
   const builtins = session?.agent === "pi" ? [...SLASH_COMMANDS, ...PI_SLASH_COMMANDS] : SLASH_COMMANDS;
   const systemSkills = [
-    ...(session && session.useOwnSkills !== false ? ARTIFACT_SKILL_COMMANDS : []),
+    ...(session && session.useOwnSkills !== false ? [...ARTIFACT_SKILL_COMMANDS, ...DOC_SKILL_COMMANDS] : []),
     ...(researchAvailable ? [RESEARCH_SKILL_COMMAND] : []),
   ];
   // 去重集合按**实际启用的**系统 skill 算,不是按全量定义算:某个系统 skill 这会儿没上菜单时,

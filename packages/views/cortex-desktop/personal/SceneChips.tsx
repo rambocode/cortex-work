@@ -8,7 +8,7 @@
 // 它要求桥有 research 子域且设置里两个研究开关都开)。不满足时整条 chip 不渲染——
 // 入口不该出现在一个后端根本没起来的功能上。
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -29,6 +29,11 @@ const SKILL_EXAMPLES: Record<string, string[]> = {
   // 研究示例是完整可跑的研究目标（市场 / 技术选型 / 政策合规 / 竞品），
   // 点一下就能直接回车——深度研究没有「补一个词」的用法，目标写得含糊等于白跑几分钟。
   [RESEARCH_SKILL_CMD]: ["market", "tech", "policy", "compare"],
+  // 文书类同样是「完整句」型示例，理由与研究一致：这两个 skill 缺了关键信息就必须反问用户
+  //（故障致歉缺时间段、合同审查缺文件路径与视角），示例写成半句话等于白点一下。
+  // 故障示例覆盖 assets/templates 五类场景里最常见的四类。
+  "/skill:incident-apology-report": ["outage", "dataloss", "falsealarm", "missedalarm"],
+  "/skill:contract-review-report": ["partyb", "partya", "pitfall", "missing"],
 };
 
 // `/skill:slides` → `slides`，用于拼示例文案的 i18n key。
@@ -63,6 +68,10 @@ const SCENES: { key: SceneKey; chips: SceneChip[] }[] = [
         hintKey: "researchHint",
         gate: "research",
       },
+      // 文书类内置 skill(随安装包分发)。无 gate:它们不依赖任何后端子域,只要 agent 能读
+      // SKILL.md、机器上有 python3 就能跑;缺 python-docx 时脚本自身会降级出 Markdown。
+      { key: "incident", kind: "skill", cmd: "/skill:incident-apology-report", icon: "Lightning", hintKey: "incidentHint" },
+      { key: "contract", kind: "skill", cmd: "/skill:contract-review-report", icon: "File", hintKey: "contractHint" },
       { key: "writing", kind: "view", action: "writing", icon: "Edit" },
       { key: "automation", kind: "view", action: "automation", icon: "Workflow" },
     ],
@@ -90,6 +99,14 @@ export function SceneChips() {
   const openWorkflow = usePersonalStore((s) => s.openWorkflow);
   // 输入框当前的 skill pill(ComposerShell 单向镜像),决定示例区展示哪一组提示词。
   const composerSkill = usePersonalStore((s) => s.composerSkill);
+
+  // 切场景 tab 时收起示例、回到该场景的 chips —— 用户点 tab 就是想换一批入口,不是继续看
+  // 上一个 skill 的示例(否则会出现「点了设计创意,底下还挂着故障致歉的示例」)。
+  // 只记「哪个 skill 的示例被收起了」,不动输入框里的 pill:pill 是用户的输入内容,换 tab 不该清它。
+  const [suppressedSkill, setSuppressedSkill] = useState<string | undefined>();
+  // pill 换了 skill / 被清空 → 解除收起(用户意图重新变成「看这个 skill 的示例」)。
+  // 只依赖 cmd:pill 对象每次镜像都是新引用,依赖对象会每帧重置、把收起状态冲掉。
+  useEffect(() => setSuppressedSkill(undefined), [composerSkill?.cmd]);
 
   // 深度研究的三重门控复用 slash 菜单那份实现：chip 与 slash 必须同时出现或同时消失，
   // 在这里再写一遍判定迟早漂移成「chip 还在、slash 没了」。
@@ -124,6 +141,9 @@ export function SceneChips() {
   // 点 skill chip：只预置 pill，不带文本、不自动提交，等用户补主题。
   const pickSkill = (cmd: string) => {
     const command = SYSTEM_SKILL_COMMANDS.find((c) => c.cmd === cmd);
+    // 显式解除收起：切走再切回后重新点**同一个** skill 时，pill 的 cmd 没变，
+    // 上面那个 effect 不会触发——只靠 effect 的话这一下会点了没反应。
+    setSuppressedSkill(undefined);
     insertToComposer("", { skill: { cmd, displayName: command?.displayName ?? cmd } });
   };
 
@@ -132,8 +152,8 @@ export function SceneChips() {
   const examples = composerSkill ? (SKILL_EXAMPLES[composerSkill.cmd] ?? []) : [];
   const exampleBase = composerSkill ? `home.scene.examples.${skillNameOf(composerSkill.cmd)}` : "";
   // 选中某个有示例的 skill 后，整行换成它的示例：选了什么已经写在输入框的 pill 上，
-  // 这里再摆一遍是重复信息。清掉输入框里的 pill 即恢复完整 chips。
-  const focused = examples.length > 0;
+  // 这里再摆一遍是重复信息。清掉输入框里的 pill、或切换场景 tab 即恢复完整 chips。
+  const focused = examples.length > 0 && composerSkill?.cmd !== suppressedSkill;
 
   return (
     <section className="pw-scene" aria-label={t("home.scene.title")}>
@@ -144,7 +164,10 @@ export function SceneChips() {
             role="tab"
             aria-selected={scene === key}
             className={`pw-scene-tab ${scene === key ? "is-active" : ""}`}
-            onClick={() => setScene(key)}
+            onClick={() => {
+              setScene(key);
+              setSuppressedSkill(composerSkill?.cmd);
+            }}
           >
             {tx(`home.scene.${key}`)}
           </button>

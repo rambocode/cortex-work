@@ -63,7 +63,7 @@
 | 媒体生成（图像/语音/音乐/视频） | `personal/MediaGenSettingsSection.tsx` | — | `capabilities/media-gen/` |
 | 插件 / 扩展市场 | `personal/PluginManager.tsx`、`PluginsHome.tsx`、`ExtensionPanel.tsx` | `personal/extensions.ts` | `ipc/plugins.ts`、`plugins/` |
 | 技能（Skill） | `personal/SkillPanel.tsx` | `personal/skill-injection.ts`、`piSkills.ts` | `ipc/skills.ts`、`skills/` |
-| 内置默认 skill（随包分发） | — | — | 内容在 `apps/desktop/resources/skills/<name>/`（见该目录 `SOURCE.md`）；**光放目录不会进 `/skill:` 菜单**——`resources/skills` 只喂「按名硬编码取用」那条链（`registry.ts` + `notes.ts` / `artifactDispatch.ts`），会话 skill 链的默认根是 `~/.cortex-desktop/skills`。要对用户可用须加进 `ipc/skills.ts` 的 `DEFAULT_BUILTIN_SKILLS` 白名单，其扫描根**必须 unshift 到最前**（去重是后者胜出，排后面会盖掉用户同名 skill） |
+| 内置默认 skill（随包分发） | — | — | 内容在 `apps/desktop/resources/skills/<name>/`（见该目录 `SOURCE.md`）；**光放目录不会进 `/skill:` 菜单**——`resources/skills` 只喂「按名硬编码取用」那条链（`registry.ts` + `notes.ts` / `artifactDispatch.ts`），会话 skill 链的默认根是 `~/.cortex-desktop/skills`。要对用户可用须加进 `ipc/skills.ts` 的 `DEFAULT_BUILTIN_SKILLS` 白名单，其扫描根**必须 unshift 到最前**（去重是后者胜出，排后面会盖掉用户同名 skill）。落地页入口在 `personal/SceneChips.tsx` 的 `SCENES`，中文展示名在 `personal/useSlashCommands.ts` 的 `DOC_SKILL_COMMANDS`（不声明的话扫描项会退化成英文 Title-Case + 「个人」标签） |
 | 快速打开 / 斜杠命令 | `personal/QuickOpenDialog.tsx`、`useSlashCommands.ts` | — | — |
 | 落地页 / 新会话首页 / 场景快捷入口 | `personal/HomeView.tsx`（**HomeBoard = 落地内容单一来源**，`NewSessionLanding.tsx` 与 `PersonalChatArea.tsx` 空会话态共用）、`SceneChips.tsx`、`LandingHero.tsx` | `store/personal.ts`（`composerInsert.skill` 预置 skill pill、`composerSkill` 由 ComposerShell 单向镜像供示例区联动、`openResearch`/`openWriting`/`openAutomation`/`openWorkflow`） | — |
 | 归档会话 | `personal/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |

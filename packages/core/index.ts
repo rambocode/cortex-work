@@ -342,6 +342,7 @@ export {
   renderSkillInvocation,
   renderClaudeSkillSlash,
   parseSkillSlash,
+  stripSkillDirective,
   isOrchestrationSend,
   resolveArtifactTarget,
   type InjectableSkill,

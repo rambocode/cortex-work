@@ -89,4 +89,34 @@ describe("系统 skill 与会话级 skills 开关", () => {
     const cmds = cmdsWith(RESEARCH_BRIDGE, { ...SESSION, useOwnSkills: true });
     expect(cmds).toEqual(expect.arrayContaining(["/skill:design", "/skill:slides", RESEARCH_SKILL_CMD]));
   });
+
+  // 文书类内置 skill(故障致歉 / 合同审查)与产物类同源门控:都要 agent 读 SKILL.md 跑脚本,
+  // 关掉会话级 skills 就该一起消失。
+  it("文书类内置 skill 跟随 skills 开关", () => {
+    setResearchEngine({ enabled: true, deepResearchEnabled: true });
+    const on = cmdsWith(RESEARCH_BRIDGE, { ...SESSION, useOwnSkills: true });
+    expect(on).toEqual(
+      expect.arrayContaining(["/skill:incident-apology-report", "/skill:contract-review-report"]),
+    );
+    const off = cmdsWith(RESEARCH_BRIDGE, { ...SESSION, useOwnSkills: false });
+    expect(off).not.toContain("/skill:incident-apology-report");
+    expect(off).not.toContain("/skill:contract-review-report");
+  });
+});
+
+// 展示名直接印在输入框的 skill pill 上,英文 Title-Case(skillTitleCase 对扫描来的 skill 的默认)
+// 在中文界面里很突兀 —— 这两个既然是系统内置,就该像 design/slides 一样给中文名。
+describe("文书类内置 skill 的展示名", () => {
+  it("给中文 displayName 与「系统」来源标签", () => {
+    const { result } = renderHook(
+      () => useSlashCommands({ ...SESSION, useOwnSkills: true }),
+      { wrapper: wrapper(RESEARCH_BRIDGE) },
+    );
+    const incident = result.current.find((c) => c.cmd === "/skill:incident-apology-report");
+    const contract = result.current.find((c) => c.cmd === "/skill:contract-review-report");
+    expect(incident?.displayName).toBe("故障致歉");
+    expect(incident?.tag).toBe("系统");
+    expect(contract?.displayName).toBe("合同审查");
+    expect(contract?.tag).toBe("系统");
+  });
 });

@@ -28,3 +28,6 @@ apps/desktop/native/Cortex_Helper/.build/
 
 # bento slides 运行时空壳,由 apps/desktop/scripts/sync-bento-runtime.mjs 从 vendor/bento 构建产物同步
 apps/desktop/resources/slides/bento/
+
+# dev 模式下内置 skill(合同审查/故障致歉等)的运行时报告产物
+apps/desktop/outputs/
