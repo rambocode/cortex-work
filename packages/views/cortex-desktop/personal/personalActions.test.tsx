@@ -110,6 +110,13 @@ function userMsgUid(qc: QueryClient, sessionId: string, text: string): string {
   return hit?.uid ?? "";
 }
 
+// 编排开关现为全局设置(缺省开启)。本文件多数用例断言单发/pi RPC 路径,故 beforeEach 显式关闭;
+// 编排用例各自开启(见 enableOrchestration)。
+const setOrchestration = (on: boolean) =>
+  usePersonalStore.setState({
+    generalSettings: { ...usePersonalStore.getState().generalSettings, subagentOrchestration: on },
+  });
+
 beforeEach(() => {
   __resetPersonalMessageRunsForTest();
   __resetPiSessionsForTest();
@@ -120,6 +127,7 @@ beforeEach(() => {
     runningBySession: {},
     piRuntimeBySession: {},
   });
+  setOrchestration(false);
 });
 
 afterEach(() => {
@@ -142,13 +150,27 @@ describe("send 分叉", () => {
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
-  it("pi 开启子 agent 编排时走 startOrchestration,不走长驻 piPrompt", async () => {
+  it("编排全局设置缺省(未显式设置)= 默认开启 → 走 startOrchestration", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    // 清掉 beforeEach 的显式 false,模拟出厂缺省(字段缺失)。
+    const { subagentOrchestration: _unset, ...rest } = usePersonalStore.getState().generalSettings;
+    usePersonalStore.setState({ generalSettings: rest });
+    await act(async () => {
+      await result.current.send(piSession, "/proj", "你好", []);
+    });
+    expect(bridge.startOrchestration).toHaveBeenCalledTimes(1);
+    expect(bridge.piPrompt).not.toHaveBeenCalled();
+  });
+
+  it("pi 开启子 agent 编排(全局设置)时走 startOrchestration,不走长驻 piPrompt", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    setOrchestration(true);
     const session: SessionMeta = {
       ...piSession,
-      subagentOrchestration: true,
       model: "pi-model",
       thinkingLevel: "high",
       execPermission: "plan",
@@ -410,9 +432,9 @@ describe("stop 分叉", () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
-    const session: SessionMeta = { ...piSession, subagentOrchestration: true };
+    setOrchestration(true);
     await act(async () => {
-      await result.current.send(session, "/proj", "你好", []);
+      await result.current.send(piSession, "/proj", "你好", []);
     });
     const runId = usePersonalStore.getState().runningBySession[piSession.id];
     expect(bridge.startOrchestration).toHaveBeenCalledTimes(1);
@@ -429,9 +451,9 @@ describe("stop 分叉", () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
-    const session: SessionMeta = { ...piSession, subagentOrchestration: true };
+    setOrchestration(true);
     await act(async () => {
-      await result.current.send(session, "/proj", "你好", []);
+      await result.current.send(piSession, "/proj", "你好", []);
     });
     const runId = usePersonalStore.getState().runningBySession[piSession.id];
     usePersonalStore.setState({

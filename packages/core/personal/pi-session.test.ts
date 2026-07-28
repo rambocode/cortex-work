@@ -221,22 +221,6 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
-  it("confineToCwd 变化（仅工作目录 → 所有文件）→ 指纹漂移关旧重开,卸掉路径闸", async () => {
-    const bridge = fakeBridge();
-    await ensurePiSession(bridge, { ...req(), confineToCwd: true }); // 仅工作目录:带 cwd 路径闸
-    await ensurePiSession(bridge, { ...req() }); // 切「所有文件」:不再闸
-    expect(bridge.piClose).toHaveBeenCalledWith("s1");
-    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
-  });
-
-  it("confineToCwd 不变 → 指纹一致复用不重开", async () => {
-    const bridge = fakeBridge();
-    await ensurePiSession(bridge, { ...req(), confineToCwd: true });
-    await ensurePiSession(bridge, { ...req(), confineToCwd: true });
-    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
-    expect(bridge.piClose).not.toHaveBeenCalled();
-  });
-
   /// 会话级「联网」:研究引擎 MCP 经桥接 extension 在 pi:open 时并入,pi 无运行时增删工具集的命令。
   /// 不进指纹会让中途切开关复用温会话的旧工具集——**关掉后仍留着一套能出站的工具**,那是安全问题。
   it("webSearch 变化（会话级联网开关）→ 指纹漂移关旧重开,新工具集才真正加载", async () => {

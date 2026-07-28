@@ -168,8 +168,6 @@ export interface SessionMeta {
   piSessionFile?: string; // 阶段4 pi 会话恢复用磁盘 JSONL 路径（与 core 镜像）
   useOwnSkills?: boolean;
   execPermission?: ExecPermission; // 执行权限（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
-  dirPermission?: DirPermission; // 目录执行权限（与 core 镜像;round-trip）
-  subagentOrchestration?: boolean; // 子 agent 三段编排开关（与 core 镜像;round-trip）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
   createdAt: number;
@@ -774,9 +772,6 @@ export interface PiOpenRequest {
   enableSampleCommands?: boolean;
   // 运行模式 plan 档:只读工具白名单。存在则 buildRpcArgs 注入 --tools <逗号拼接>;缺省 = 全工具。
   toolWhitelist?: string[];
-  // 目录执行权限「仅工作目录」/「外部沙箱」→ true:pi:open 据此注入 cwd 路径闸 extension
-  // (writePathJailExtension,roots = cwd + skillPaths),把内置文件工具限制在工作目录内。缺省 = 不闸。
-  confineToCwd?: boolean;
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
@@ -1055,9 +1050,8 @@ export type ReasoningEffort = "low" | "medium" | "high";
 export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
 // 执行/审批策略（与访问范围正交），与 core 镜像(线格式)。
 export type ApprovalPolicy = "auto" | "ask";
-// UI 单一真源两轴(与 core 镜像;主进程仅 round-trip 持久化,不按字段消费——发送边界在渲染端派生成线格式)。
+// UI 单一真源执行权限单轴(与 core 镜像;主进程仅 round-trip 持久化,不按字段消费——发送边界在渲染端派生成线格式)。
 export type ExecPermission = "plan" | "ask" | "auto";
-export type DirPermission = "workspace" | "all" | "sandbox";
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
 // 浏览器控制工具(browser_*,沙箱 + URL 闸)并入,须与 core 镜像逐字一致。

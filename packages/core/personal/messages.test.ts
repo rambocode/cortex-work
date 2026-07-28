@@ -377,14 +377,10 @@ describe("restrictedToolForMode 运行模式拦截检测", () => {
     expect(restrictedToolForMode("Grep", "plan")).toBeNull();
   });
 
-  it("accept-edits:仅拦执行类,放行写类", () => {
-    expect(restrictedToolForMode("Bash", "accept-edits")).toBe("exec");
-    expect(restrictedToolForMode("Shell", "accept-edits")).toBe("exec");
+  it("非 plan(accept-edits/full-auto/缺省):一律不拦(检测仅 plan 生效)", () => {
+    // accept-edits 现仅供 design/writing 等内部固定档使用,会话 UI 不再产出;不做拦截提示。
+    expect(restrictedToolForMode("Bash", "accept-edits")).toBeNull();
     expect(restrictedToolForMode("Write", "accept-edits")).toBeNull();
-    expect(restrictedToolForMode("Edit", "accept-edits")).toBeNull();
-  });
-
-  it("full-auto / 缺省:一律不拦", () => {
     expect(restrictedToolForMode("Bash", "full-auto")).toBeNull();
     expect(restrictedToolForMode("Write", "full-auto")).toBeNull();
     expect(restrictedToolForMode("Bash", undefined)).toBeNull();

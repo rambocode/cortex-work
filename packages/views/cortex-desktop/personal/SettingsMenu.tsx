@@ -750,6 +750,24 @@ function AgentSection() {
         </SRow>
       </SettingCard>
 
+      {/* 子 agent 编排(全局,原会话级开关升级而来):缺省开启,仅显式 false 关闭。
+          开启后发送走主进程三段编排(意图理解→子 agent 执行→整理回复),成本与延迟约 3 倍。 */}
+      <SettingCard title={t("agent.orchestrationCard")}>
+        <SRow label={t("agent.orchestrationLabel")} desc={t("agent.orchestrationDesc")} end>
+          <button
+            type="button"
+            className="twk-toggle"
+            data-on={generalSettings.subagentOrchestration !== false ? "1" : "0"}
+            role="switch"
+            aria-checked={generalSettings.subagentOrchestration !== false}
+            aria-label={t("agent.orchestrationLabel")}
+            onClick={() => setGeneral({ subagentOrchestration: generalSettings.subagentOrchestration === false })}
+          >
+            <i />
+          </button>
+        </SRow>
+      </SettingCard>
+
       <SettingCard title={t("agent.availabilityCard")}>
         {INTEGRATED_AGENTS.map((a) => {
           const on = a === "pi" || !!agentsAvailable?.[a];

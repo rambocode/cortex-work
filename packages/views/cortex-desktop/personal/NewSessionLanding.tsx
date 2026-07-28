@@ -8,9 +8,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_AGENT_THINKING,
   DEFAULT_NEW_SESSION_EXEC_PERMISSION,
-  DEFAULT_NEW_SESSION_DIR_PERMISSION,
   DEFAULT_EXEC_PERMISSION,
-  DEFAULT_DIR_PERMISSION,
   dayKey,
   mapThinkingForAgent,
   parseSkillSlash,
@@ -25,7 +23,6 @@ import type {
   AgentThinkingValue,
   AgentKind,
   DerivedAgentMeta,
-  DirPermission,
   ExecPermission,
   PendingDocFile,
   PendingImage,
@@ -104,9 +101,6 @@ export function NewSessionLanding({
       useOwnSkills: true, // Skills 默认打开(用户要求),可在 composer 里关
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       execPermission: DEFAULT_NEW_SESSION_EXEC_PERMISSION as ExecPermission,
-      dirPermission: DEFAULT_NEW_SESSION_DIR_PERMISSION as DirPermission,
-      // 子 agent 编排开关(默认关)。三个 agent(claude/codex/pi)均可在新会话落地页开启。
-      subagentOrchestration: false,
       // 联网检索(默认关)。出站能力必须由用户每次显式选择,不继承任何全局默认。
       webSearch: false,
     };
@@ -139,7 +133,7 @@ export function NewSessionLanding({
     }));
   };
 
-  // 把草稿态里 createSession 不直接支持的字段(derivedAgentId/providerId/useOwnSkills/exec/dirPermission)
+  // 把草稿态里 createSession 不直接支持的字段(derivedAgentId/providerId/useOwnSkills/execPermission)
   // 补到新建会话上,并返回合并后的会话。关键:updateSession 只改 store 里的会话,本地 sess 引用不变;
   // 而 send 是按「传入的会话对象」解析 spawn agent / skill(见 messages.ts resolveSpawnAgentId、
   // sendSession.useOwnSkills),故必须把合并结果传给 send,否则 derivedAgentId/useOwnSkills 到不了 spawn。
@@ -153,10 +147,6 @@ export function NewSessionLanding({
     Object.assign(patch, mapThinkingForAgent(draft.agent, draft.thinkingValue));
     // 执行权限:非默认(auto 回退)才落盘。新会话默认 auto,与回退同 → 通常不落盘(缺省派生即 auto)。
     if (draft.execPermission !== DEFAULT_EXEC_PERMISSION) patch.execPermission = draft.execPermission;
-    // 目录执行权限:非默认(all 回退)才落盘。新会话默认 workspace,与 all 不同 → 会落盘。
-    if (draft.dirPermission !== DEFAULT_DIR_PERMISSION) patch.dirPermission = draft.dirPermission;
-    // 子 agent 编排:开启才落盘(默认关)。落到会话后,首轮 send 即按编排管线走。
-    if (draft.subagentOrchestration) patch.subagentOrchestration = true;
     // 联网检索:开启才落盘(默认关)。必须落到会话上——send 读的是 sendSession.webSearch,
     // 不落盘的话用户在落地页开的「联网」到首轮就丢了。
     if (draft.webSearch) patch.webSearch = true;
@@ -315,10 +305,6 @@ export function NewSessionLanding({
         onChangeThinking={(thinkingValue) => setDraft((d) => ({ ...d, thinkingValue }))}
         execPermission={draft.execPermission}
         onChangeExecPermission={(p) => setDraft((d) => ({ ...d, execPermission: p }))}
-        dirPermission={draft.dirPermission}
-        onChangeDirPermission={(dp) => setDraft((d) => ({ ...d, dirPermission: dp }))}
-        subagentOrchestration={draft.subagentOrchestration}
-        onToggleSubagentOrchestration={() => setDraft((d) => ({ ...d, subagentOrchestration: !d.subagentOrchestration }))}
         onToggleSkills={() => setDraft((d) => ({ ...d, useOwnSkills: !d.useOwnSkills }))}
         webSearch={draft.webSearch}
         webSearchUnavailable={webSearchUnavailable}

@@ -184,6 +184,13 @@ export const Icon = {
       <path d="M12 8h.01M11 12h1v4h1" />
     </IconBase>
   ),
+  // AlertCircle：圆圈感叹号（警示态,如「完全访问」权限档）
+  AlertCircle: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4M12 16h.01" />
+    </IconBase>
+  ),
   More: (p: IconProps) => (
     <IconBase {...p} sw={p?.sw ?? 2.4}>
       <circle cx="5" cy="12" r="1.2" />

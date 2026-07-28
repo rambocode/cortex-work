@@ -35,8 +35,8 @@
 | pi / codex 长驻会话 | — | — | `ipc/pi-session.ts`、`ipc/codex-ws-channel.ts` |
 | 供应商 / 模型连接测试 | `personal/ProviderManagerModal.tsx` | — | `ipc/provider.ts`、`ipc/llm.ts`（单发补全） |
 | MCP 配置 / 注入 | `personal/McpSection.tsx`、`McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
-| 执行权限 / 权限模式 | `personal/PersonalComposer.tsx` | `personal/permissionMode.ts` | — |
-| 子 Agent 编排 / 委派 | `personal/PersonalProcessPanel.tsx` | — | `ipc/orchestrate.ts`、`capabilities/delegate/` |
+| 执行权限（单轴:计划/询问/自动） | `personal/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
+| 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/PersonalProcessPanel.tsx`、`personal/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
 | Agent 追踪窗口 | `personal/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
 | Agent 项目扫描（本机项目聚合） | — | — | `ipc/agent-projects.ts` |
 | 写作 / 写作台 | `writing/`（`WritingWorkspace.tsx` 三栏容器） | `writing/` | `ipc/writing-*.ts`（见下文写作域） |

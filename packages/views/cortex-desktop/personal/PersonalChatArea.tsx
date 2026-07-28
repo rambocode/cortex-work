@@ -529,8 +529,8 @@ export function PersonalChatArea({
     }
     // 无真实项目 = 无项目会话 → 收紧 tool(FIX-3,显式标志,主进程据此剥离跳审批/bypass)。
     // 运行模式沿用主会话档位,追问与主会话权限一致(与 tightenTools 叠加,更严者优先)。
-    // 执行/目录两轴 → 线格式:followup ctx 是 DTO 载体,派生在此构造处。
-    const { permissionMode, approvalPolicy } = toAdapterPermissions(session.execPermission, session.dirPermission);
+    // 执行权限 → 线格式:followup ctx 是 DTO 载体,派生在此构造处。
+    const { permissionMode, approvalPolicy } = toAdapterPermissions(session.execPermission);
     return {
       agent: session.agent,
       model: session.model,
@@ -550,7 +550,6 @@ export function PersonalChatArea({
     session?.effort,
     session?.providerId,
     session?.execPermission,
-    session?.dirPermission,
     session?.noProjectDir,
     realProject?.path,
     realProject,
@@ -820,11 +819,11 @@ export function PersonalChatArea({
               const skill = records.find((s) => s.name === parsed.name);
               if (skill) {
                 // 路由判断须与 messages.ts 完整对齐:@mention 委派时任何 agent 都走单发 startCli,故
-                // hasDelegateMentions 参与判断,不能只看 subagentOrchestration。
+                // hasDelegateMentions 参与判断,不能只看编排开关(现为全局设置,缺省开启)。
                 const hasDelegateMentions =
                   parseMentions(text, usePersonalStore.getState().roles).length > 0 && !!bridge.startCli;
                 const useOrchestration = isOrchestrationSend(
-                  session.subagentOrchestration,
+                  usePersonalStore.getState().generalSettings.subagentOrchestration !== false,
                   !!bridge.startOrchestration,
                   hasDelegateMentions,
                 );
@@ -857,10 +856,6 @@ export function PersonalChatArea({
         onChangePiModel={(providerId, model) => setPiModel(session, providerId, model)}
         onChangeThinking={(value) => setThinking(session, value)}
         onChangeExecPermission={(p) => updateSession(session.id, { execPermission: p })}
-        onChangeDirPermission={(d) => updateSession(session.id, { dirPermission: d })}
-        onToggleSubagentOrchestration={() =>
-          updateSession(session.id, { subagentOrchestration: session.subagentOrchestration !== true })
-        }
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToggleWebSearch={() => updateSession(session.id, { webSearch: session.webSearch !== true })}
         onToast={onToast}

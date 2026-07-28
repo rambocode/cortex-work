@@ -1317,50 +1317,72 @@ describe("语音识别设置（asrSettings）", () => {
   });
 });
 
-describe("hydrate 会话权限迁移(旧 permissionMode/approvalPolicy → 新 execPermission/dirPermission)", () => {
-  // 老会话带旧两字段(类型已移除,迁移读取靠 cast),构造时 as 绕过类型。
+describe("hydrate 会话权限迁移(旧 permissionMode/approvalPolicy → execPermission;dirPermission 剥离)", () => {
+  // 老会话带旧字段(类型已移除,迁移读取靠 cast),构造时 as 绕过类型。
   const legacySession = (perm: string | undefined, approval: string | undefined) =>
     ({ id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, permissionMode: perm, approvalPolicy: approval } as never);
 
   // 被剥离的旧字段已不在 SessionMeta 类型上,用窄类型 cast 校验其确实 undefined。
-  const stripped = (s: SessionMeta | undefined) => s as { permissionMode?: unknown; approvalPolicy?: unknown };
+  const stripped = (s: SessionMeta | undefined) =>
+    s as { permissionMode?: unknown; approvalPolicy?: unknown; dirPermission?: unknown };
 
-  it("full-auto + ask → exec=ask / dir=all,且旧字段被剥离", () => {
+  it("full-auto + ask → exec=ask,且旧字段被剥离", () => {
     usePersonalStore.getState().hydrate({ ...base, sessions: [legacySession("full-auto", "ask")] });
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBe("ask");
-    expect(s?.dirPermission).toBe("all");
     expect(stripped(s).permissionMode).toBeUndefined();
     expect(stripped(s).approvalPolicy).toBeUndefined();
+    expect(stripped(s).dirPermission).toBeUndefined();
   });
 
-  it("accept-edits + auto → exec=auto / dir=workspace", () => {
+  it("accept-edits + auto → exec=auto(目录语义有损丢弃)", () => {
     usePersonalStore.getState().hydrate({ ...base, sessions: [legacySession("accept-edits", undefined)] });
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBe("auto");
-    expect(s?.dirPermission).toBe("workspace");
   });
 
-  it("plan → exec=plan / dir=workspace(只读不暴露 all)", () => {
+  it("plan → exec=plan", () => {
     usePersonalStore.getState().hydrate({ ...base, sessions: [legacySession("plan", "ask")] });
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBe("plan");
-    expect(s?.dirPermission).toBe("workspace");
   });
 
-  it("缺省老会话(无旧字段)不迁移 → 运行时回退 auto/all(字段保持 undefined)", () => {
+  it("缺省老会话(无旧字段)不迁移 → 运行时回退 auto(字段保持 undefined)", () => {
     usePersonalStore.getState().hydrate({ ...base, sessions: [legacySession(undefined, undefined)] });
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBeUndefined();
-    expect(s?.dirPermission).toBeUndefined();
+    expect(stripped(s).dirPermission).toBeUndefined();
   });
 
   it("已迁移会话(已有 execPermission)不被二次迁移覆盖", () => {
-    const migrated = { id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, execPermission: "plan", dirPermission: "all" } as never;
+    const migrated = { id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, execPermission: "plan" } as never;
     usePersonalStore.getState().hydrate({ ...base, sessions: [migrated] });
     const s = usePersonalStore.getState().sessions[0];
     expect(s?.execPermission).toBe("plan");
-    expect(s?.dirPermission).toBe("all");
+  });
+
+  it("带 dirPermission 的会话(旧双轴档)→ 字段剥离,execPermission 保留", () => {
+    const withDir = { id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, execPermission: "ask", dirPermission: "workspace" } as never;
+    usePersonalStore.getState().hydrate({ ...base, sessions: [withDir] });
+    const s = usePersonalStore.getState().sessions[0];
+    expect(s?.execPermission).toBe("ask");
+    expect(stripped(s).dirPermission).toBeUndefined();
+  });
+
+  it("旧 wire 字段 + dirPermission 同存 → 双剥离,exec 由旧 wire 迁得", () => {
+    const both = { id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, permissionMode: "plan", dirPermission: "sandbox" } as never;
+    usePersonalStore.getState().hydrate({ ...base, sessions: [both] });
+    const s = usePersonalStore.getState().sessions[0];
+    expect(s?.execPermission).toBe("plan");
+    expect(stripped(s).permissionMode).toBeUndefined();
+    expect(stripped(s).dirPermission).toBeUndefined();
+  });
+
+  it("旧会话级 subagentOrchestration(已升为全局设置)→ 字段剥离,不迁移值", () => {
+    const withOrch = { id: "s1", title: "t", agent: "codex", createdAt: 0, updatedAt: 0, subagentOrchestration: true } as never;
+    usePersonalStore.getState().hydrate({ ...base, sessions: [withOrch] });
+    const s = usePersonalStore.getState().sessions[0] as unknown as { subagentOrchestration?: unknown };
+    expect(s?.subagentOrchestration).toBeUndefined();
   });
 });
 

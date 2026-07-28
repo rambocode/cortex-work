@@ -75,12 +75,10 @@ export type RightView =
   | "artifact"
   | "research";
 
-// 运行模式拦截提示（瞬态,不持久化）。当 plan/accept-edits 模式下 agent 尝试被该模式禁止的
-// 工具(写/执行)时,在 composer 上方提示用户切档并自动重发本轮。category 决定可切到哪些档:
-// edit=写类被拦(可切 accept-edits/full-auto);exec=执行类被拦(只能切 full-auto)。
+// 运行模式拦截提示（瞬态,不持久化）。当 plan 模式下 agent 尝试被该模式禁止的工具(写/执行)时,
+// 在 composer 上方提示用户一键切「自动执行」并自动重发本轮(仅 plan 会触发,见 restrictedToolForMode)。
 export interface ModeBlockHint {
-  fromMode: PermissionMode;
-  // edit=写类;exec=执行类;tool=plan 档白名单外工具(含扩展自定义工具)。决定可切到的目标档。
+  // edit=写类;exec=执行类;tool=plan 档白名单外工具(含扩展自定义工具)。仅影响提示文案。
   category: "edit" | "exec" | "tool";
   promptText: string;
   toolName: string;
@@ -531,12 +529,25 @@ function migrateSession(sess: SessionMeta): SessionMeta {
     const { piChannelId, ...rest } = legacy;
     s = { ...rest, providerId: rest.providerId ?? piChannelId };
   }
-  // ② 旧权限两轴 permissionMode/approvalPolicy → 新两轴 execPermission/dirPermission（无损,见
-  //    fromAdapterPermissions）。仅当老会话尚无新字段、且带旧字段时迁移;缺省老会话不动,运行时回退 auto/all。
+  // ② 旧权限线格式 permissionMode/approvalPolicy → execPermission（有损,目录语义丢弃,见
+  //    fromAdapterPermissions）。仅当老会话尚无新字段、且带旧字段时迁移;缺省老会话不动,运行时回退 auto。
   const old = s as SessionMeta & { permissionMode?: PermissionMode; approvalPolicy?: ApprovalPolicy };
   if (s.execPermission === undefined && (old.permissionMode !== undefined || old.approvalPolicy !== undefined)) {
     const { permissionMode, approvalPolicy, ...rest } = old;
     s = { ...rest, ...fromAdapterPermissions(permissionMode, approvalPolicy) };
+  }
+  // ③ 剥离已废弃的目录轴 dirPermission（无条件按字段存在性剥离;须在 ② 之后,②不再产出该字段）。
+  const withDir = s as SessionMeta & { dirPermission?: string };
+  if (withDir.dirPermission !== undefined) {
+    const { dirPermission: _dropped, ...rest } = withDir;
+    s = rest;
+  }
+  // ④ 剥离已升为全局设置的会话级 subagentOrchestration（现读 GeneralSettings,默认开启;
+  //    旧会话字段不迁移值——按用户决策全局默认开,旧的会话级关闭不保留）。
+  const withOrch = s as SessionMeta & { subagentOrchestration?: boolean };
+  if (withOrch.subagentOrchestration !== undefined) {
+    const { subagentOrchestration: _dropped2, ...rest } = withOrch;
+    s = rest;
   }
   return s;
 }

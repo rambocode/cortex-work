@@ -32,116 +32,6 @@ export function renderApprovalExtension(tools: string[] = DEFAULT_APPROVAL_TOOLS
   ].join("\n");
 }
 
-// 目录执行权限「仅工作目录」路径闸:pi 无原生沙箱(见 pi docs/security.md「No Built-in Sandbox」),
-// 靠 tool_call hook 在工具执行**前**拦截,对越界路径 `return { block: true }`(无需 UI)。
-//
-// 判定逻辑集中在纯函数 evaluatePathJail(host 可直接单测),再经 Function.prototype.toString() 内联进生成的
-// extension —— 二者**同源、零漂移**。extension 在 pi 进程内运行,把注入的 node:path/os 依赖喂给该函数,做与
-// pi(utils/paths.js normalizePath/resolvePath)**完全一致**的解析:展开 `~`/`~/`→homedir、strip 前缀 `@`、
-// 归一 unicode 空格,再按 isAbsolute 决定相对/绝对 resolve。**这是修复关键** —— 早前用裸 resolve 不展开 `~`,
-// 导致 `~/Desktop` 被当成 cwd 下相对路径误判放行。
-//
-// 语义(2026-07 起):**读取不受限、仅写入/修改受限** —— 读全盘放行(agent 汇总外部文件是常见合法需求),
-// 只有把变更落到工作目录外才拦。与 codex 原生 workspace-write(读全盘、写限工作区)对齐,跨 agent 语义一致。
-//
-// 覆盖范围:
-//  - 写型文件工具 write/edit:解析 input.path,落在 allowed roots(cwd + 已启用 skill 目录)外即拦。
-//    含 skill 目录:否则 skill 自带的可写产物目录会被误伤。读型工具 read/ls/grep/find 不拦。
-//  - bash:无结构化路径,先按「写型命令启发式」判断命令是否可能写盘(rm/mv/cp/tee…、sed -i、重定向到文件);
-//    读型命令(cat/ls/grep…)直接放行;写型再抽取命令里的「家目录引用」(`~`/`~/…`/`$HOME`/`${HOME}`/字面 home
-//    前缀)逐个判界,覆盖「写入工作目录外用户文件」这一最常见越权(如 `rm ~/Desktop/x`)。
-// 已知限制:bash 仍非 bulletproof —— 写启发式是保守正则(管道/脚本/混淆命令拦不全),绝对系统路径(/etc 等)
-// 不查;真正彻底隔离需 OS 级 sandbox(见 pi examples/extensions/sandbox,需 @anthropic-ai/sandbox-runtime +
-// sandbox-exec/bubblewrap)。不解析符号链接。
-//
-// ⚠️ evaluatePathJail 必须**完全自包含**(只引用入参 + 字面量 + 全局 String/RegExp;不引用任何模块作用域符号),
-//    否则 .toString() 内联后会在 extension 运行时 ReferenceError。改它时务必保持这一不变量。
-
-// 纯判定:命中越界返回 { reason },否则 null。deps 注入 node:path 的 resolve/isAbsolute/join/sep;home=os.homedir()。
-export function evaluatePathJail(
-  deps: { resolve: (...p: string[]) => string; isAbsolute: (p: string) => boolean; join: (...p: string[]) => string; sep: string },
-  toolName: string,
-  input: { path?: unknown; command?: unknown } | undefined,
-  cwd: string,
-  roots: string[],
-  home: string,
-): { reason: string } | null {
-  // 复刻 pi utils/paths.js normalizePath:归一 unicode 空格 + strip 前缀 @ + 展开 ~。
-  const norm = (raw: string): string => {
-    let s = String(raw).replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
-    if (s.charAt(0) === "@") s = s.slice(1);
-    if (s === "~") return home;
-    if (s.slice(0, 2) === "~/" || s.slice(0, 2) === "~\\") return deps.join(home, s.slice(2));
-    return s;
-  };
-  const toAbs = (raw: string): string => {
-    const n = norm(raw);
-    return deps.isAbsolute(n) ? deps.resolve(n) : deps.resolve(cwd, n);
-  };
-  const allowed = roots.map((r) => deps.resolve(r));
-  const inRoots = (abs: string): boolean => {
-    for (let i = 0; i < allowed.length; i++) {
-      if (abs === allowed[i] || abs.indexOf(allowed[i] + deps.sep) === 0) return true;
-    }
-    return false;
-  };
-  // 读取不受限:只拦写型工具(write/edit);read/ls/grep/find 全盘放行。
-  const writeTools = ["write", "edit"];
-  if (writeTools.indexOf(toolName) !== -1) {
-    const p = input && input.path;
-    if (typeof p !== "string" || p.length === 0) return null; // 缺省 path → 工具落 cwd,放行
-    if (!inRoots(toAbs(p)))
-      return { reason: "目录执行权限为「仅工作目录」,已拦截工作目录外的写入: " + p + "。读取不受限;如需在外部目录写入,请在「自定义 → 目录执行权限」切到「所有文件」。" };
-    return null;
-  }
-  if (toolName === "bash") {
-    const cmd = input && input.command;
-    if (typeof cmd !== "string" || cmd.length === 0) return null;
-    // 写型命令启发式:命中才继续判界,读型命令(cat/ls/grep…)直接放行(读取不受限)。
-    // 三类写信号:写型命令词 / sed·perl 原地写(-i) / 重定向到文件(排除 fd 复制 `>&N` 与 /dev/null)。
-    const writeCmdRe =
-      /(?:^|[|&;(\s`])(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|ln|dd|truncate|rsync|tee|install|unlink|shred)(?=\s|$)/;
-    const inplaceRe = /\b(sed|perl)\b[^|;&]*\s-[a-zA-Z]*i\b/;
-    const redirRe = />>?\s*(?!&|\/dev\/null(?:\s|$))\S/;
-    if (!writeCmdRe.test(cmd) && !inplaceRe.test(cmd) && !redirRe.test(cmd)) return null;
-    const refs: string[] = [];
-    let m: RegExpExecArray | null;
-    const tildeRe = /(?:^|[\s=:"'`(])(~(?:\/[^\s"'`)]*)?)/g; // 词首的 ~ 或 ~/...
-    while ((m = tildeRe.exec(cmd)) !== null) refs.push(m[1]);
-    const homeVarRe = /\$\{?HOME\}?(\/[^\s"'`)]*)?/g; // $HOME / ${HOME} 及子路径
-    while ((m = homeVarRe.exec(cmd)) !== null) refs.push(home + (m[1] || ""));
-    if (cmd.indexOf(home) !== -1) {
-      // 字面 home 前缀(如 /Users/xxx/...)
-      const litRe = new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:/[^\\s\"'`)]*)?", "g");
-      while ((m = litRe.exec(cmd)) !== null) refs.push(m[0]);
-    }
-    for (let i = 0; i < refs.length; i++) {
-      if (!inRoots(toAbs(refs[i])))
-        return { reason: "目录执行权限为「仅工作目录」,已拦截疑似写入工作目录外用户目录的 bash 命令: " + refs[i] + "。读取不受限;如需在外部目录写入,请切到「所有文件」。" };
-    }
-    return null;
-  }
-  return null;
-}
-
-export function renderPathJailExtension(roots: string[]): string {
-  return [
-    "// 由 Cortex Desktop 自动生成（目录执行权限「仅工作目录」路径闸）,请勿手改。",
-    'import { homedir } from "node:os";',
-    'import { isAbsolute, join, resolve, sep } from "node:path";',
-    `const ROOTS = ${JSON.stringify(roots)};`,
-    // 内联 host 端同源纯函数(零漂移);见上方 evaluatePathJail 的自包含不变量。
-    `const evaluatePathJail = ${evaluatePathJail.toString()};`,
-    "export default function (pi) {",
-    '  pi.on("tool_call", async (event, ctx) => {',
-    "    const v = evaluatePathJail({ resolve, isAbsolute, join, sep }, event.toolName, event.input, ctx.cwd, ROOTS, homedir());",
-    "    if (v) return { block: true, reason: v.reason };",
-    "  });",
-    "}",
-    "",
-  ].join("\n");
-}
-
 // 自定义工具样例:registerTool（普通 JSON 对象 parameters,spike 已证可用;execute 返回 content）。
 export function renderCustomToolExtension(): string {
   return [
@@ -341,11 +231,6 @@ function writeExtension(name: string, content: string): string {
 
 export function writeApprovalExtension(tools?: string[]): string {
   return writeExtension("approval", renderApprovalExtension(tools));
-}
-
-// cwd 路径闸 extension（roots = cwd + 已启用 skill 目录）。固定文件名,与既有 extension 同款每 open 覆盖。
-export function writePathJailExtension(roots: string[]): string {
-  return writeExtension("path-jail", renderPathJailExtension(roots));
 }
 
 export function writeCustomToolExtension(): string {

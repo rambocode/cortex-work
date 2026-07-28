@@ -1,66 +1,50 @@
-// Composer 底部「自定义」下拉(置于「+」之后)。把两个权限轴——「执行权限」(execPermission:
-// 计划/询问后执行/自动执行)与「目录执行权限」(dirPermission:仅工作目录/所有文件/外部沙箱)——
-// 收进单个齿轮按钮的上弹菜单,减少底栏占用。执行权限选「计划」(只读)时,目录执行权限整组隐藏
-// (只读无目录范围语义)。两组各自独立门控:仅当外部传入对应 onChange 时才渲染该组;两组都没有则
-// 整个按钮不渲染(由 ComposerShell 侧判断)。复用 pw-tb-menu 上弹菜单 + useDismissableMenu 关闭范式。
+// Composer 底部权限选择 pill(置于「+」之后)。pill 直接显示当前执行权限档位(如「完全访问」
+// 橙色警示态),点开下弹菜单:标题问句 +「标题 + 副标题说明 + 选中勾」两行式档位项(参照
+// ChatGPT/Codex 审批选择器)。仅当外部传入 onChangeExecPermission 时渲染(由 ComposerShell 侧判断)。
+// (子 agent 编排开关已升为全局设置,见 设置 → Agent。)复用 pw-tb-menu 菜单 + useDismissableMenu 关闭范式。
 
 import {
   EXEC_PERMISSIONS,
-  DIR_PERMISSIONS,
   DEFAULT_EXEC_PERMISSION,
-  DEFAULT_DIR_PERMISSION,
   type AgentKind,
   type ExecPermission,
-  type DirPermission,
 } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { useDismissableMenu } from "./useDismissableMenu";
 
-// 执行权限各档说明 tooltip。
-const EXEC_HINT_KEY: Record<ExecPermission, string> = {
-  plan: "composer.execPermission.planHint",
-  ask: "composer.execPermission.askHint",
-  auto: "composer.execPermission.autoHint",
+// 各档副标题说明(菜单两行式的第二行)。
+const EXEC_DESC_KEY: Record<ExecPermission, string> = {
+  plan: "composer.execPermission.planDesc",
+  ask: "composer.execPermission.askDesc",
+  auto: "composer.execPermission.autoDesc",
 };
-// 目录执行权限各档说明 tooltip。
-const DIR_HINT_KEY: Record<DirPermission, string> = {
-  workspace: "composer.dirPermission.workspaceHint",
-  all: "composer.dirPermission.allHint",
-  sandbox: "composer.dirPermission.sandboxHint",
-};
-// 执行权限三档图标:计划=只读眼 / 询问=举手 / 自动=闪电。(Icon.* 同签名,用 Icon.Folder 之类作公共类型。)
+// 执行权限三档图标:计划=只读眼 / 询问=举手 / 完全访问=圆圈感叹号(警示)。
 const EXEC_ICON: Record<ExecPermission, typeof Icon.Folder> = {
   plan: Icon.Eye,
   ask: Icon.Hand,
-  auto: Icon.Lightning,
+  auto: Icon.AlertCircle,
 };
+// 菜单标题问句里的 agent 展示名(与 ModeBlockBanner 同款本地映射)。
+const AGENT_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 export function CustomizePill({
   agent,
   execPermission,
   onChangeExecPermission,
-  dirPermission,
-  onChangeDirPermission,
-  subagentOrchestration,
-  onToggleSubagentOrchestration,
   running,
 }: {
   agent: AgentKind;
-  // 各组均 opt-in:提供 onChange/onToggle 才渲染对应分组。
+  // opt-in:提供 onChange 才渲染档位组。
   execPermission?: ExecPermission;
   onChangeExecPermission?: (p: ExecPermission) => void;
-  dirPermission?: DirPermission;
-  onChangeDirPermission?: (d: DirPermission) => void;
-  // 子 agent 编排开关(布尔)。Claude/Codex 走 CLI fresh spawn;Pi 走临时 RPC fresh 会话(12790c0 起 pi 也参与)。
-  subagentOrchestration?: boolean;
-  onToggleSubagentOrchestration?: () => void;
   running: boolean;
 }) {
   const { t } = useTranslation("chat");
   const menu = useDismissableMenu();
   const exec = execPermission ?? DEFAULT_EXEC_PERMISSION;
-  const dir = dirPermission ?? DEFAULT_DIR_PERMISSION;
+  const PillGlyph = EXEC_ICON[exec];
+  const name = AGENT_LABEL[agent] ?? agent;
 
   return (
     <div
@@ -69,94 +53,49 @@ export function CustomizePill({
       onMouseLeave={menu.onMouseLeave}
       onMouseEnter={menu.onMouseEnter}
     >
+      {/* pill 展示当前档位;「完全访问」(auto)用橙色警示态,一眼可见全盘权限已放开。 */}
       <button
-        className="pill pw-customize-pill"
+        className={`pill pw-customize-pill ${exec === "auto" ? "is-warn" : ""}`}
         type="button"
         aria-haspopup="menu"
         aria-expanded={menu.open}
         onClick={() => menu.setOpen((v) => !v)}
-        title={t("composer.customize.label")}
-        aria-label={t("composer.customize.label")}
+        title={t(EXEC_DESC_KEY[exec])}
+        aria-label={t("composer.execPermission.label")}
       >
-        <Icon.Settings size={13} />
-        <span>{t("composer.customize.label")}</span>
+        <PillGlyph size={13} />
+        <span>{t(`composer.execPermission.${exec}`)}</span>
         <Icon.Chevron size={12} />
       </button>
       {menu.open ? (
-        <div className="pw-tb-menu pw-tb-menu--up pw-customize-menu" role="menu">
-          {/* 执行权限组:三档(计划/询问后执行/自动执行)。ask 在 claude/codex 上无中途审批回路 → 降级,tooltip 标注。 */}
+        <div className="pw-tb-menu pw-tb-menu--left pw-perm-menu" role="menu">
+          {/* 执行权限组:标题问句 + 两行式三档。ask 在 claude/codex 上无中途审批回路 → 降级,tooltip 标注。 */}
           {onChangeExecPermission ? (
             <>
-              <div className="pw-tb-menu-group-h">{t("composer.execPermission.label")}</div>
+              <div className="pw-perm-menu-title">{t("composer.execPermission.menuTitle", { name })}</div>
               {EXEC_PERMISSIONS.map((p) => {
                 const degraded = p === "ask" && agent !== "pi";
-                const title = degraded ? t("composer.execPermission.askDegraded") : t(EXEC_HINT_KEY[p]);
                 const ExecGlyph = EXEC_ICON[p];
                 return (
                   <button
                     key={p}
-                    className={`pw-tb-menu-item ${p === exec ? "is-on" : ""}`}
+                    className={`pw-tb-menu-item pw-perm-item ${p === exec ? "is-on" : ""} ${p === "auto" ? "is-warn" : ""}`}
                     role="menuitemradio"
                     aria-checked={p === exec}
                     disabled={running}
-                    title={title}
+                    title={degraded ? t("composer.execPermission.askDegraded") : undefined}
                     data-warn={degraded ? "1" : undefined}
                     onClick={() => onChangeExecPermission(p)}
                   >
-                    <ExecGlyph size={14} />
-                    <span>{t(`composer.execPermission.${p}`)}</span>
-                    {p === exec ? <Icon.Check size={14} /> : null}
+                    <ExecGlyph size={16} />
+                    <span className="pw-perm-item-text">
+                      <span className="pw-perm-item-title">{t(`composer.execPermission.${p}`)}</span>
+                      <span className="pw-perm-item-desc">{t(EXEC_DESC_KEY[p])}</span>
+                    </span>
+                    {p === exec ? <Icon.Check size={15} /> : null}
                   </button>
                 );
               })}
-            </>
-          ) : null}
-          {/* plan(计划/只读)时隐藏目录执行权限组与其上分隔条;两组并存才加分隔。 */}
-          {onChangeExecPermission && onChangeDirPermission && exec !== "plan" ? <div className="pw-tb-menu-sep" /> : null}
-          {/* 目录执行权限组:范围 3 档。sandbox 仅 codex 原生,claude/pi 降级标注。exec=plan 时整组不渲染。 */}
-          {onChangeDirPermission && exec !== "plan" ? (
-            <>
-              <div className="pw-tb-menu-group-h">{t("composer.dirPermission.label")}</div>
-              {DIR_PERMISSIONS.map((d) => {
-                const degraded = d === "sandbox" && agent !== "codex";
-                const title = degraded ? t("composer.dirPermission.sandboxDegraded") : t(DIR_HINT_KEY[d]);
-                return (
-                  <button
-                    key={d}
-                    className={`pw-tb-menu-item ${d === dir ? "is-on" : ""}`}
-                    role="menuitemradio"
-                    aria-checked={d === dir}
-                    disabled={running}
-                    title={title}
-                    data-warn={degraded ? "1" : undefined}
-                    onClick={() => onChangeDirPermission(d)}
-                  >
-                    <Icon.Folder size={14} />
-                    <span>{t(`composer.dirPermission.${d}`)}</span>
-                    {d === dir ? <Icon.Check size={14} /> : null}
-                  </button>
-                );
-              })}
-            </>
-          ) : null}
-          {/* 子 agent 编排组(布尔开关):开启后该会话发送走主进程三段编排
-              (意图理解→子 agent 执行→整理回复),过程面板按段展示。 */}
-          {onToggleSubagentOrchestration ? (
-            <>
-              {onChangeExecPermission || onChangeDirPermission ? <div className="pw-tb-menu-sep" /> : null}
-              <div className="pw-tb-menu-group-h">{t("composer.subagentOrchestration.label")}</div>
-              <button
-                className={`pw-tb-menu-item ${subagentOrchestration ? "is-on" : ""}`}
-                role="menuitemcheckbox"
-                aria-checked={!!subagentOrchestration}
-                disabled={running}
-                title={t(subagentOrchestration ? "composer.subagentOrchestration.onHint" : "composer.subagentOrchestration.offHint")}
-                onClick={onToggleSubagentOrchestration}
-              >
-                <Icon.Sparkle size={14} />
-                <span>{t(subagentOrchestration ? "composer.subagentOrchestration.on" : "composer.subagentOrchestration.off")}</span>
-                {subagentOrchestration ? <Icon.Check size={14} /> : null}
-              </button>
             </>
           ) : null}
         </div>

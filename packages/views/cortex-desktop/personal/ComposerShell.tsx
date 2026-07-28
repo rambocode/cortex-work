@@ -19,7 +19,6 @@ import type {
   AgentKind,
   AgentThinkingValue,
   DerivedAgentMeta,
-  DirPermission,
   ExecPermission,
   PendingDocFile,
   PendingImage,
@@ -173,10 +172,6 @@ export function ComposerShell({
   onChangeThinking,
   execPermission,
   onChangeExecPermission,
-  dirPermission,
-  onChangeDirPermission,
-  subagentOrchestration,
-  onToggleSubagentOrchestration,
   onToggleSkills,
   webSearch,
   onToggleWebSearch,
@@ -229,14 +224,9 @@ export function ComposerShell({
   // 思考强度:非 Pi 映射为 effort（下一轮生效）;Pi 映射为 thinkingLevel（运行时即时生效）。
   thinkingValue?: AgentThinkingValue;
   onChangeThinking?: (value: AgentThinkingValue) => void;
-  // 执行权限 + 目录执行权限 两个 pill(会话级)。提供 onChange 才渲染对应 pill。
+  // 执行权限 pill(会话级)。提供 onChange 才渲染。
   execPermission?: ExecPermission;
   onChangeExecPermission?: (p: ExecPermission) => void;
-  dirPermission?: DirPermission;
-  onChangeDirPermission?: (d: DirPermission) => void;
-  // 子 agent 编排开关(会话级布尔,opt-in)。Claude/Codex 与 Pi 均可参与(CustomizePill 内按 agent 门控)。
-  subagentOrchestration?: boolean;
-  onToggleSubagentOrchestration?: () => void;
   onToggleSkills: () => void;
   /// 联网检索开关(会话级布尔,opt-in)。开启后主进程给本会话的 agent 注入 web_search / web_read。
   ///
@@ -1031,17 +1021,12 @@ export function ComposerShell({
             style={{ display: "none" }}
             onChange={onPickAttachments}
           />
-          {/* 「自定义」下拉(置于「+」之后):合并「执行权限」+「目录执行权限」两 pill。
-              两组均 opt-in,至少有一个 onChange 时才渲染整个按钮。 */}
-          {onChangeExecPermission || onChangeDirPermission || onToggleSubagentOrchestration ? (
+          {/* 执行权限选择 pill(置于「+」之后),opt-in:提供 onChange 才渲染。 */}
+          {onChangeExecPermission ? (
             <CustomizePill
               agent={agent}
               execPermission={execPermission}
               onChangeExecPermission={onChangeExecPermission}
-              dirPermission={dirPermission}
-              onChangeDirPermission={onChangeDirPermission}
-              subagentOrchestration={subagentOrchestration}
-              onToggleSubagentOrchestration={onToggleSubagentOrchestration}
               running={running}
             />
           ) : null}

@@ -17,11 +17,10 @@ import {
   writeApprovalExtension,
   writeAskQuestionExtension,
   writeCustomToolExtension,
-  writePathJailExtension,
   writeSlashCommandExtension,
   writeTodoExtension,
 } from "../agents/pi-extensions";
-import { assertSpawnCwd, spawnEnvFor } from "./cli";
+import { assertSpawnCwd, resolveSpawnCwd, spawnEnvFor } from "./cli";
 import { getPersistedState } from "./store";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
@@ -171,14 +170,13 @@ export function filterLoadableExtensionPaths(paths: string[] | undefined): strin
 
 export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRequest> {
   const prepared = req;
+  // cwd 归一放在最前:空串会让 spawn 继承 Electron 自己的工作目录
+  //(dev 下 = apps/desktop/,agent 产物写进程序目录)。见 cli.resolveSpawnCwd。
+  prepared.cwd = resolveSpawnCwd(prepared.cwd);
   if (prepared.provider) prepared.piExtensionPath = writePiExtension(prepared.provider);
 
   const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
   if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
-  // 目录执行权限「仅工作目录」/「外部沙箱」:注入 cwd 路径闸 extension(pi 无原生沙箱)。allowed roots =
-  // cwd + 已启用 skill 目录(后者避免 skill references 在 cwd 外被误伤)。与审批 extension 共存(多 -e)。
-  // 经 preparePiOpenRequest 注入,故 pi 主会话与三段编排子会话(同走此函数)均受路径闸约束。
-  if (prepared.confineToCwd) extra.push(writePathJailExtension([prepared.cwd, ...(prepared.skillPaths ?? [])]));
   if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
   if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
 

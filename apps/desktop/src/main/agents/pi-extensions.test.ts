@@ -7,29 +7,17 @@ vi.mock("fs", () => ({ writeFileSync: h.writeFileSync, mkdirSync: h.mkdirSync })
 
 import {
   DEFAULT_APPROVAL_TOOLS,
-  evaluatePathJail,
   normalizePiTodos,
   renderApprovalExtension,
   renderAskQuestionExtension,
   renderCustomToolExtension,
-  renderPathJailExtension,
   renderSlashCommandExtension,
   renderTodoExtension,
   TODO_TOOL_NAME,
   writeApprovalExtension,
   writeAskQuestionExtension,
-  writePathJailExtension,
   writeTodoExtension,
 } from "./pi-extensions";
-import { isAbsolute, join, resolve, sep } from "node:path";
-
-// evaluatePathJail 的真实依赖(node:path)+ 固定 home/cwd/roots,用于直接单测判定逻辑(与内联进 extension 同源)。
-const DEPS = { resolve, isAbsolute, join, sep };
-const HOME = "/Users/mike";
-const CWD = "/Users/mike/proj";
-const ROOTS = [CWD, "/skills/foo"];
-const jail = (toolName: string, input: Record<string, unknown>) =>
-  evaluatePathJail(DEPS, toolName, input, CWD, ROOTS, HOME);
 
 describe("renderApprovalExtension（阶段3 U7）", () => {
   it("拦 tool_call → ctx.ui.confirm → block 的审批结构", () => {
@@ -62,99 +50,6 @@ describe("renderApprovalExtension（阶段3 U7）", () => {
     expect(path).toContain("pi-extensions");
     expect(path.endsWith("approval.js")).toBe(true);
     expect(h.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("approval.js"), expect.any(String), {
-      mode: 0o600,
-    });
-  });
-});
-
-describe("evaluatePathJail（目录执行权限「仅工作目录」:读不限、写受限）", () => {
-  describe("写型文件工具(write/edit)", () => {
-    it("工作目录内的绝对/相对路径 → 放行(null)", () => {
-      expect(jail("write", { path: "/Users/mike/proj/a.txt" })).toBeNull();
-      expect(jail("edit", { path: "sub/dir/a.ts" })).toBeNull(); // 相对 → resolve 进 cwd
-      expect(jail("write", { path: "." })).toBeNull();
-    });
-    it("已启用 skill 目录内 → 放行", () => {
-      expect(jail("write", { path: "/skills/foo/outputs/x.md" })).toBeNull();
-    });
-    it("工作目录外的写入 → 拦截,文案说明「写入」受限", () => {
-      expect(jail("write", { path: "/Users/mike/Desktop/a.txt" })?.reason).toContain("写入");
-      expect(jail("edit", { path: "/etc/hosts" })).not.toBeNull();
-    });
-    it("~ / ~/… 展开成 home 后判界(裸 resolve 不展开 → 误放行的回归)", () => {
-      expect(jail("write", { path: "~/Desktop/a.txt" })).not.toBeNull(); // home 外 cwd → 拦
-      expect(jail("edit", { path: "~" })).not.toBeNull();
-    });
-    it("strip 前缀 @(pi file-mention 语法)后再判界", () => {
-      expect(jail("write", { path: "@/Users/mike/proj/a.txt" })).toBeNull();
-      expect(jail("write", { path: "@/Users/mike/Desktop/a.txt" })).not.toBeNull();
-    });
-    it("相对路径 .. 逃逸出工作目录 → 拦截", () => {
-      expect(jail("write", { path: "../secret.txt" })).not.toBeNull();
-    });
-    it("缺省 path(undefined/空)→ 工具落 cwd,放行", () => {
-      expect(jail("write", {})).toBeNull();
-      expect(jail("edit", { path: "" })).toBeNull();
-    });
-    it("前缀判定带 sep:/Users/mike/proj-evil 不被误判为 /Users/mike/proj 子路径", () => {
-      expect(jail("write", { path: "/Users/mike/proj-evil/x" })).not.toBeNull();
-    });
-  });
-
-  describe("读型文件工具(read/ls/grep/find):读取不受限", () => {
-    it("工作目录外/全盘读取 → 一律放行", () => {
-      expect(jail("read", { path: "/Users/mike/Desktop/a.txt" })).toBeNull();
-      expect(jail("ls", { path: "~/Desktop" })).toBeNull();
-      expect(jail("grep", { path: "/etc" })).toBeNull();
-      expect(jail("find", { path: "../secret" })).toBeNull();
-      expect(jail("read", { path: "/Users/mike/work/team/周报/x.xlsx" })).toBeNull();
-    });
-  });
-
-  describe("bash(写型命令启发式:读放行、疑似写才判界)", () => {
-    it("读型命令引用工作目录外 → 放行(读取不受限)", () => {
-      expect(jail("bash", { command: "ls ~/Desktop" })).toBeNull();
-      expect(jail("bash", { command: "cat $HOME/Desktop/a.txt" })).toBeNull();
-      expect(jail("bash", { command: "grep foo /Users/mike/Desktop/a.txt" })).toBeNull();
-      expect(jail("bash", { command: "cat ~/Desktop/a.txt 2>&1" })).toBeNull(); // fd 复制不算写
-      expect(jail("bash", { command: "cat ~/Desktop/a.txt 2>/dev/null" })).toBeNull(); // /dev/null 不算写
-    });
-    it("写型命令涉及工作目录外引用 → 拦截", () => {
-      expect(jail("bash", { command: "rm ~/Desktop/a.txt" })).not.toBeNull();
-      expect(jail("bash", { command: "mv /Users/mike/Desktop/a b" })).not.toBeNull();
-      expect(jail("bash", { command: "echo hi > ~/Desktop/out.txt" })).not.toBeNull(); // 重定向到文件
-      expect(jail("bash", { command: "sed -i '' s/a/b/ $HOME/Desktop/a.txt" })).not.toBeNull(); // 原地写
-      expect(jail("bash", { command: "tee ${HOME}/Desktop/log" })).not.toBeNull();
-    });
-    it("写型命令但引用都在工作目录内(或无家目录引用)→ 放行", () => {
-      expect(jail("bash", { command: "npm test" })).toBeNull();
-      expect(jail("bash", { command: "rm ~/proj/tmp.txt" })).toBeNull(); // ~/proj == cwd
-      expect(jail("bash", { command: "echo hi > out.txt" })).toBeNull(); // 相对路径落 cwd
-    });
-  });
-
-  it("非文件/非 bash 工具 → 不干预(null)", () => {
-    expect(jail("browser_navigate", { path: "/Users/mike/Desktop" })).toBeNull();
-  });
-});
-
-describe("renderPathJailExtension / writePathJailExtension", () => {
-  it("内联同源纯函数 + 注入 node:path/os 依赖 + ROOTS;产物自包含(无 __name 等 bundler helper 残留)", () => {
-    const src = renderPathJailExtension(["/work/proj", "/skills/foo"]);
-    expect(src).toContain('import { homedir } from "node:os"');
-    expect(src).toContain("export default function (pi)");
-    expect(src).toContain('pi.on("tool_call"');
-    expect(src).toContain("const evaluatePathJail =");
-    expect(src).toContain('evaluatePathJail({ resolve, isAbsolute, join, sep }, event.toolName, event.input, ctx.cwd, ROOTS, homedir())');
-    expect(src).toContain(`const ROOTS = ${JSON.stringify(["/work/proj", "/skills/foo"])};`);
-    // 不变量:.toString() 内联后必须自包含 —— 不得引用 esbuild keepNames 的 __name helper(否则 extension 运行即崩)。
-    expect(src).not.toContain("__name");
-  });
-
-  it("写文件:落 userData/pi-extensions/path-jail.js,mode 0600", () => {
-    const path = writePathJailExtension(["/work/proj"]);
-    expect(path.endsWith("path-jail.js")).toBe(true);
-    expect(h.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("path-jail.js"), expect.any(String), {
       mode: 0o600,
     });
   });

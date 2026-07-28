@@ -103,30 +103,18 @@ export default interface Resources {
       "cancel": "取消",
       "contactFallback": "联系人",
       "contactPlaceholder": "给 {{name}} 的 Agent 发消息…",
-      "customize": {
-        "label": "自定义"
-      },
       "defaultPlaceholder": "给 {{name}} 发消息,可从右侧拖入 Prompt 作为 skill…",
-      "dirPermission": {
-        "all": "所有文件",
-        "allHint": "全盘读写,不限制目录(默认)",
-        "label": "目录执行权限",
-        "sandbox": "外部沙箱",
-        "sandboxDegraded": "「外部沙箱」仅 Codex 原生支持;Claude/Pi 无原生沙箱,已降级为普通目录访问",
-        "sandboxHint": "在隔离沙箱内放开,限制对真实文件系统的影响(codex 原生沙箱;claude/pi 降级)",
-        "workspace": "仅工作目录",
-        "workspaceHint": "写入/修改仅限工作目录,读取不受限(Pi/Codex 强制;Claude 暂不强制)"
-      },
       "editBar": "编辑重发：发送后将清除这条消息之后的所有内容",
       "execPermission": {
-        "ask": "询问后执行",
-        "askDegraded": "「询问后执行」仅 Pi 生效;Claude/Codex 非交互无法中途询问,已降级为自动执行",
-        "askHint": "写/执行类工具前先询问(仅 Pi 生效)",
-        "auto": "自动执行",
-        "autoHint": "工具直接执行,不中途询问",
+        "ask": "请求批准",
+        "askDegraded": "「请求批准」仅 Pi 生效;Claude/Codex 非交互无法中途询问,已降级为完全访问",
+        "askDesc": "编辑文件和执行命令时始终询问",
+        "auto": "完全访问",
+        "autoDesc": "可不受限制地访问互联网和您电脑上的任何文件",
         "label": "执行权限",
+        "menuTitle": "应如何批准 {{name}} 操作?",
         "plan": "计划",
-        "planHint": "计划模式:只读分析,不改文件、不跑写/执行类工具"
+        "planDesc": "只读分析,不修改文件、不执行命令"
       },
       "fileTree": "文件树",
       "fileTreeToast": "文件树 · 选择项目文件",
@@ -144,13 +132,11 @@ export default interface Resources {
       "micStopTitle": "停止录音并转写",
       "micTitle": "语音输入",
       "modeBlock": {
-        "acceptEditsExec": "当前是「可写工作区」范围,{{name}} 想执行命令被拦下。切到访问所有文件并重试本轮?",
         "dismiss": "忽略",
-        "planEdit": "当前是「Plan（只读文件）」范围,{{name}} 想修改文件被拦下。切换访问范围并重试本轮?",
-        "planExec": "当前是「Plan（只读文件）」范围,{{name}} 想执行命令被拦下。切换访问范围并重试本轮?",
-        "planTool": "当前是「Plan（只读文件）」范围,{{name}} 想用受限工具(如扩展功能)被拦下。切到访问所有文件并重试本轮?",
-        "switchAcceptEdits": "切到可写工作区并重试",
-        "switchFullAuto": "切到访问所有文件并重试"
+        "planEdit": "当前是「计划（只读）」模式,{{name}} 想修改文件被拦下。切到自动执行并重试本轮?",
+        "planExec": "当前是「计划（只读）」模式,{{name}} 想执行命令被拦下。切到自动执行并重试本轮?",
+        "planTool": "当前是「计划（只读）」模式,{{name}} 想用受限工具(如扩展功能)被拦下。切到自动执行并重试本轮?",
+        "switchFullAuto": "切到自动执行并重试"
       },
       "modelHeader": "模型",
       "modelToast": "模型选择 · 当前 Sonnet 4.5",
@@ -181,13 +167,6 @@ export default interface Resources {
       "steerPlaceholder": "插话:输入引导回车注入当前轮,或点击右侧停止…",
       "steerSend": "插话:注入当前轮 (Enter)",
       "stop": "停止",
-      "subagentOrchestration": {
-        "label": "子 agent 编排",
-        "off": "已关闭",
-        "offHint": "单次直接发送(默认)。开启后改走三段编排,成本与延迟约 3 倍",
-        "on": "已开启",
-        "onHint": "本会话走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示"
-      },
       "thinkingLevel": {
         "default": "思考·默认",
         "high": "思考·高",
@@ -1568,6 +1547,9 @@ export default interface Resources {
       "installed": "已安装",
       "labelNotInstalled": "{{name}}（未安装）",
       "notDetected": "未检测到 CLI",
+      "orchestrationCard": "子 agent 编排",
+      "orchestrationDesc": "发送走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示;成本与延迟约为单发的 3 倍。默认开启。",
+      "orchestrationLabel": "启用子 agent 编排",
       "title": "Agent"
     },
     "archivedSessions": {

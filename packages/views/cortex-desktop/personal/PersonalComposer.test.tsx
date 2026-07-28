@@ -40,8 +40,6 @@ function renderComposer(agent: "pi" | "claude", bridge: DesktopBridge): void {
       onChangePiModel={() => {}}
       onChangeThinking={() => {}}
       onChangeExecPermission={() => {}}
-      onChangeDirPermission={() => {}}
-      onToggleSubagentOrchestration={() => {}}
       onToggleSkills={() => {}}
       onToggleWebSearch={() => {}}
       onToast={() => {}}
@@ -177,8 +175,6 @@ describe("PersonalComposer 当前产物 Chip", () => {
           onChangePiModel={() => {}}
           onChangeThinking={() => {}}
           onChangeExecPermission={() => {}}
-          onChangeDirPermission={() => {}}
-          onToggleSubagentOrchestration={() => {}}
           onToggleSkills={() => {}}
           onToggleWebSearch={() => {}}
           onToast={() => {}}

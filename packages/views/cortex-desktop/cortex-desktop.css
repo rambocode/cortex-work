@@ -6017,11 +6017,31 @@ button.sb-row {
   color: #fff;
   background: var(--accent, #7c5cff);
 }
-/* 「自定义」下拉:齿轮 + 文字 + chevron 的 pill(置于「+」之后),复用 pill 基样式。 */
+/* 执行权限 pill:当前档位图标 + 文字 + chevron(置于「+」之后),复用 pill 基样式。 */
 .pw-customize-pill { display: inline-flex; align-items: center; gap: 5px; }
 .pw-customize-pill > span { font-size: 13px; }
-/* 「自定义」菜单:同时容纳「执行模式」「工作区」两组,略加宽。 */
-.pw-customize-menu { min-width: 196px; }
+/* 「完全访问」(auto)警示态:pill 整体橙色,一眼可见全盘权限已放开(参照 Codex 审批选择器)。 */
+.pw-customize-pill.is-warn,
+.pw-customize-pill.is-warn > span { color: var(--perm-warn, #e5602c); }
+/* 权限选择菜单:标题问句 + 两行式档位项,需容纳副标题说明,加宽。 */
+.pw-perm-menu { min-width: 300px; padding: 6px; }
+.pw-perm-menu-title {
+  padding: 6px 10px 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+/* 两行式档位项:图标顶对齐,标题 + 副标题竖排,选中勾靠右。 */
+.pw-perm-item { align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 8px; }
+.pw-perm-item > svg:first-child { margin-top: 2px; color: var(--text-3); }
+.pw-perm-item-text { display: flex; flex-direction: column; gap: 2px; flex: 1; text-align: left; }
+.pw-perm-item-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pw-perm-item-desc { font-size: 12px; line-height: 1.4; color: var(--text-3); }
+/* 「完全访问」项整行橙色警示(标题/副标题/图标同色)。 */
+.pw-perm-item.is-warn .pw-perm-item-title,
+.pw-perm-item.is-warn .pw-perm-item-desc,
+.pw-perm-item.is-warn > svg:first-child { color: var(--perm-warn, #e5602c); }
+/* 选中勾:与警示行同色呼应,非警示行沿用 accent(基类规则)。 */
+.pw-perm-item.is-warn > svg:last-child:not(:first-child) { color: var(--perm-warn, #e5602c); }
 /* 分组标题:小字弱化,区隔执行模式 / 工作区两组。 */
 .pw-tb-menu-group-h {
   padding: 6px 9px 3px;

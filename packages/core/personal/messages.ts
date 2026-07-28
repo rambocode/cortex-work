@@ -310,40 +310,36 @@ export function resolveSpawnAgentId(
 }
 
 // 各 agent 归一化工具名的「写类」「执行类」集合（claude: Write/Edit/MultiEdit/NotebookEdit/Bash;
-// codex: Shell;小写匹配）。用于检测「被运行模式拦截的工具尝试」:
-//   plan 拦写类+执行类+任意非白名单工具;accept-edits 仅拦执行类;full-auto 不拦。
+// codex: Shell;小写匹配）。用于检测「被 plan 模式拦截的工具尝试」——UI 派生结果只有
+// plan/full-auto 两档,full-auto 不拦,故仅 plan 需要检测。
 const MODE_EDIT_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit"]);
 const MODE_EXEC_TOOLS = new Set(["bash", "shell"]);
 // pi plan 档用 --tools 白名单(read/grep/find/ls)硬限制工具集,故「不在白名单」即「被拦」——
 // 含扩展自定义工具(如记忆扩展的索引工具)。其它 agent 的 plan 走各自原生机制,不套用此白名单。
 const PI_PLAN_WHITELIST = new Set(PI_PLAN_TOOL_WHITELIST.map((s) => s.toLowerCase()));
-// 返回被拦类别:edit=写类(可切 accept-edits/full-auto);exec=执行类(仅 full-auto);
-// tool=非白名单工具/扩展工具(仅 full-auto 能放行任意工具,accept-edits 仍按白名单/审批限制)。
+// 返回被拦类别(仅影响提示文案):edit=写类;exec=执行类;tool=plan 白名单外工具/扩展工具。
 export function restrictedToolForMode(
   toolName: string,
   mode: PermissionMode | undefined,
   agent?: AgentKind,
 ): "edit" | "exec" | "tool" | null {
-  if (!mode || mode === "full-auto") return null;
+  if (mode !== "plan") return null;
   const n = toolName.toLowerCase();
-  if (MODE_EXEC_TOOLS.has(n)) return "exec"; // bash/shell 在 plan 与 accept-edits 下都被拦
-  if (mode === "plan") {
-    if (MODE_EDIT_TOOLS.has(n)) return "edit"; // 写类仅 plan 拦
-    // pi plan 档:白名单外的工具(扩展工具/其它内置写工具)一律被 --tools 拦,归 tool 类。
-    if (agent === "pi" && !PI_PLAN_WHITELIST.has(n)) return "tool";
-  }
+  if (MODE_EXEC_TOOLS.has(n)) return "exec";
+  if (MODE_EDIT_TOOLS.has(n)) return "edit";
+  // pi plan 档:白名单外的工具(扩展工具/其它内置写工具)一律被 --tools 拦,归 tool 类。
+  if (agent === "pi" && !PI_PLAN_WHITELIST.has(n)) return "tool";
   return null;
 }
 
-// 轮结束时:若本轮检测到被运行模式拦截的工具尝试**且本轮失败**,在 composer 上方挂切档提示
-//（带原 prompt 供自动重发）。**必须 gate 在 turnFailed 上**:只读/工作区沙箱里很多工具尝试其实
-// 成功（plan 下 ls、accept-edits 下多数命令），仅凭「尝试了写/执行工具」会误报;真正「被拦住没干成」
-// 才会让这一轮失败。漏报(被拦但模型绕过仍完成)可接受,优先避免噪音。
+// 轮结束时:若本轮检测到被 plan 模式拦截的工具尝试**且本轮失败**,在 composer 上方挂
+//「切自动执行并重试」提示（带原 prompt 供自动重发）。**必须 gate 在 turnFailed 上**:plan 下很多
+// 工具尝试其实成功（如 ls），仅凭「尝试了写/执行工具」会误报;真正「被拦住没干成」才会让这一轮
+// 失败。漏报(被拦但模型绕过仍完成)可接受,优先避免噪音。
 function maybeEmitModeBlockHint(run: RunState, turnFailed: boolean): void {
   if (!turnFailed || !run.blockedTool || !run.promptText) return;
-  if (!run.permissionMode || run.permissionMode === "full-auto") return;
+  if (run.permissionMode !== "plan") return;
   usePersonalStore.getState().setModeBlockHint(run.sessionId, {
-    fromMode: run.permissionMode,
     category: run.blockedTool.category,
     promptText: run.promptText,
     toolName: run.blockedTool.name,
@@ -2162,10 +2158,9 @@ async function buildPiOpenForSession(
   // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
   // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
   const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
-  // 执行/目录两轴 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
-  // auto + 非 plan 沿用 piCustom。仅工作目录/外部沙箱 → confineToCwd 注入 cwd 路径闸。
-  // 切档/切审批经 extensionFingerprint 触发会话重开。
-  const piPerm = toAdapterPermissions(session.execPermission, session.dirPermission);
+  // 执行权限 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
+  // auto 沿用 piCustom。切档/切审批经 extensionFingerprint 触发会话重开。
+  const piPerm = toAdapterPermissions(session.execPermission);
   const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom);
   // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
   // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
@@ -2205,8 +2200,6 @@ async function buildPiOpenForSession(
     approvalTools: piCaps.approvalTools,
     // plan 档只读工具白名单(缺省 undefined → 全工具)。经 buildRpcArgs → --tools 注入。
     toolWhitelist: piCaps.toolWhitelist,
-    // 目录执行权限「仅工作目录」/「外部沙箱」→ pi:open 注入 cwd 路径闸 extension(pi 无原生沙箱)。
-    confineToCwd: piCaps.confineToCwd,
     enableSampleTools: piCustom?.sampleTools || undefined,
     enableSampleCommands: piCustom?.sampleCommands || undefined,
     appendSystemPrompt: piSystemPrompt || undefined,
@@ -3066,7 +3059,9 @@ export function usePersonalActions(): PersonalActions {
       const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
       const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
       // 三段编排开关（claude/codex/pi 通用，12790c0 起 pi 也参与）:开启后走下面统一 orchestrate 管线。
-      const useOrchestration = !artifact && session.subagentOrchestration && bridge.startOrchestration;
+      // 全局设置(设置 → Agent),缺省 = 开启,仅显式 false 关闭(原会话级开关已升级为全局)。
+      const orchestrationEnabled = usePersonalStore.getState().generalSettings.subagentOrchestration !== false;
+      const useOrchestration = !artifact && orchestrationEnabled && bridge.startOrchestration;
 
       // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。有 @mention 委派
       // 或开启三段编排时,pi 也改走下面单发/编排管线（per-turn delegate 工具集 / 编排各段都需 fresh
@@ -3096,8 +3091,8 @@ export function usePersonalActions(): PersonalActions {
         artifactResumeKey: artifact ? artifactResumeKey(session, artifact) : undefined,
         nestedRoleEvents: !!artifact,
         // 派生后的访问范围:供 restrictedToolForMode/maybeEmitModeBlockHint 判断受限工具与切档提示。
-        // session/sendSession 仅差 agentSessionId 清理 patch（不触权限两轴），故据 session 派生即可。
-        permissionMode: toAdapterPermissions(session.execPermission, session.dirPermission).permissionMode,
+        // session/sendSession 仅差 agentSessionId 清理 patch（不触执行权限），故据 session 派生即可。
+        permissionMode: toAdapterPermissions(session.execPermission).permissionMode,
       };
       runs.set(runId, run);
       // 看门狗:每秒刷新 typing 等待时长;启动/静默超时则杀进程并提示重试。
@@ -3173,15 +3168,15 @@ export function usePersonalActions(): PersonalActions {
           }
         }
 
-        // 执行/目录两轴 → 线格式:发送边界唯一派生点,编排(段2)与单发(claude/codex)两路共用。
-        // adapter 据此翻译成各 CLI 原生标志;exec=plan→{plan,auto},否则 dir 定范围、exec 定审批。
-        const adapterPerm = toAdapterPermissions(sendSession.execPermission, sendSession.dirPermission);
+        // 执行权限 → 线格式:发送边界唯一派生点,编排(段2)与单发(claude/codex)两路共用。
+        // adapter 据此翻译成各 CLI 原生标志;exec=plan→{plan,auto},否则 full-auto、exec 定审批。
+        const adapterPerm = toAdapterPermissions(sendSession.execPermission);
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
         // 子 agent 编排（U1）：会话开关开启、bridge 支持、且本轮无 @mention 委派时，走主进程三段编排
         // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。claude/codex/pi 通用——pi 经
-        // buildPiOpenForSession 提供 piOpen（含 --skill/cwd 路径闸/审批等）。delegate @mention 优先级更高,落 else 单发。
+        // buildPiOpenForSession 提供 piOpen（含 --skill/审批等）。delegate @mention 优先级更高,落 else 单发。
         // 编排无状态、各段 fresh spawn，故不传 resumeSessionId；看门狗/stop 据 run.orchestrated 改走 killOrchestration。
         // 已知限制：本版编排不透传图片（images 仅单发支持）。
         // 路由判断收敛到 isOrchestrationSend(code review 修复):PersonalChatArea.tsx 的 skill 派发
@@ -3189,7 +3184,7 @@ export function usePersonalActions(): PersonalActions {
         // bridge.startOrchestration 的 truthy 已经过 isOrchestrationSend 的 hasStartOrchestration 参数
         // 校验,但 TS 无法跨函数边界做该窄化,故此处补一次直接判空(不改变判断逻辑,只为类型收窄)。
         if (
-          isOrchestrationSend(sendSession.subagentOrchestration, !!bridge.startOrchestration, hasDelegateMentions) &&
+          isOrchestrationSend(orchestrationEnabled, !!bridge.startOrchestration, hasDelegateMentions) &&
           bridge.startOrchestration
         ) {
           run.orchestrated = true;

@@ -5,7 +5,7 @@
 import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_AGENT_THINKING, prewarmPiSession, useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import type { AgentThinkingValue, DirPermission, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentThinkingValue, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
 import { hasSearchBackend, normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ComposerShell } from "./ComposerShell";
 import { upsertConversationArtifact } from "./artifactDispatch";
@@ -24,8 +24,6 @@ export function PersonalComposer({
   onChangePiModel,
   onChangeThinking,
   onChangeExecPermission,
-  onChangeDirPermission,
-  onToggleSubagentOrchestration,
   onToggleSkills,
   onToggleWebSearch,
   onToast,
@@ -52,8 +50,6 @@ export function PersonalComposer({
   // 思考强度:非 Pi 更新 effort;Pi 更新 thinkingLevel。
   onChangeThinking: (value: AgentThinkingValue) => void;
   onChangeExecPermission: (p: ExecPermission) => void;
-  onChangeDirPermission: (d: DirPermission) => void;
-  onToggleSubagentOrchestration: () => void;
   onToggleSkills: () => void;
   /** 会话级「联网」开关(写 SessionMeta.webSearch)。研究引擎未开时下方不会渲染该 pill。 */
   onToggleWebSearch: () => void;
@@ -113,10 +109,6 @@ export function PersonalComposer({
       onChangeThinking={onChangeThinking}
       execPermission={session.execPermission}
       onChangeExecPermission={onChangeExecPermission}
-      dirPermission={session.dirPermission}
-      onChangeDirPermission={onChangeDirPermission}
-      subagentOrchestration={session.subagentOrchestration === true}
-      onToggleSubagentOrchestration={onToggleSubagentOrchestration}
       onToggleSkills={onToggleSkills}
       webSearch={session.webSearch === true}
       webSearchUnavailable={webSearchUnavailable}

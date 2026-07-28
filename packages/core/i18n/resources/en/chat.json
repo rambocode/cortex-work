@@ -71,9 +71,6 @@
     "flashNote": "Flash note",
     "attach": "Attach",
     "addMenu": "Add file / Skills",
-    "customize": {
-      "label": "Customize"
-    },
     "uploadFile": "File",
     "toResearch": "Turn into deep research",
     "uploadImage": "Upload image",
@@ -93,30 +90,14 @@
     },
     "execPermission": {
       "label": "Execution",
+      "menuTitle": "How should {{name}} actions be approved?",
       "plan": "Plan",
-      "ask": "Ask first",
-      "auto": "Auto-run",
-      "planHint": "Plan mode: read-only analysis; no file changes or write/exec tools",
-      "askHint": "Prompt before write/exec tools (Pi only)",
-      "autoHint": "Tools run immediately, no mid-run prompts",
-      "askDegraded": "Ask-first only works on Pi; Claude/Codex are non-interactive and can't prompt mid-run, so it falls back to auto-run"
-    },
-    "dirPermission": {
-      "label": "Directory access",
-      "workspace": "Workspace only",
-      "all": "All files",
-      "sandbox": "External sandbox",
-      "workspaceHint": "Writes are confined to the working directory; reads are unrestricted (enforced on Pi/Codex; not enforced on Claude)",
-      "allHint": "Full read-write, no directory limit (default)",
-      "sandboxHint": "Unrestricted inside an isolated sandbox, limiting impact on the real filesystem (native to codex; degrades on claude/pi)",
-      "sandboxDegraded": "External sandbox is native to Codex only; Claude/Pi have no native sandbox and fall back to normal directory access"
-    },
-    "subagentOrchestration": {
-      "label": "Sub-agent orchestration",
-      "on": "On",
-      "off": "Off",
-      "onHint": "This session runs the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage",
-      "offHint": "Send directly in one shot (default). When on, runs the three-stage pipeline at ~3x cost and latency"
+      "ask": "Ask for approval",
+      "auto": "Full access",
+      "planDesc": "Read-only analysis; no file edits, no commands",
+      "askDesc": "Always ask before editing files or running commands",
+      "autoDesc": "Unrestricted access to the internet and any files on your computer",
+      "askDegraded": "Ask-first only works on Pi; Claude/Codex are non-interactive and can't prompt mid-run, so it falls back to full access"
     },
     "webSearch": {
       "label": "Web",
@@ -125,12 +106,10 @@
       "unconfiguredTitle": "No search backend configured yet - set a self-hosted service URL or a direct search key under Settings > Research engine"
     },
     "modeBlock": {
-      "planEdit": "You're in Plan (read-only files) access — {{name}} was blocked from editing files. Switch access and retry this turn?",
-      "planExec": "You're in Plan (read-only files) access — {{name}} was blocked from running a command. Switch access and retry this turn?",
-      "planTool": "You're in Plan (read-only files) access — {{name}} was blocked from using a restricted tool (e.g. an extension). Switch to Access all files and retry this turn?",
-      "acceptEditsExec": "You're in Writable workspace access — {{name}} was blocked from running a command. Switch to Access all files and retry this turn?",
-      "switchAcceptEdits": "Switch to Writable workspace & retry",
-      "switchFullAuto": "Switch to Access all files & retry",
+      "planEdit": "You're in Plan (read-only) mode — {{name}} was blocked from editing files. Switch to auto-run and retry this turn?",
+      "planExec": "You're in Plan (read-only) mode — {{name}} was blocked from running a command. Switch to auto-run and retry this turn?",
+      "planTool": "You're in Plan (read-only) mode — {{name}} was blocked from using a restricted tool (e.g. an extension). Switch to auto-run and retry this turn?",
+      "switchFullAuto": "Switch to auto-run & retry",
       "dismiss": "Dismiss"
     },
     "steerSend": "Steer: inject into the current turn (Enter)",
