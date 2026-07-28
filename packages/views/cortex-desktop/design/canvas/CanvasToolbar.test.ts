@@ -98,3 +98,27 @@ describe('CanvasToolbar prototype playback', () => {
     expect(openHtml).toContain('aria-pressed="true"')
   })
 })
+
+// 会话产物面板里没有设计助手栏,那个开关按下去什么也不会发生(死按钮)。
+describe('CanvasToolbar chromeless(会话产物面板)', () => {
+  it('隐藏设计助手开关,其余工具照常', () => {
+    const html = renderToStaticMarkup(
+      createElement(CanvasToolbar, { workspaceRoot: '/workspace', chromeless: true })
+    )
+
+    expect(html).not.toContain('aria-label="打开设计助手"')
+    expect(html).not.toContain('aria-label="折叠助手"')
+    expect(html).toContain('aria-label="选择"')
+    expect(html).toContain('aria-label="智能操作"')
+  })
+
+  it('默认(独立设计工作台)仍渲染设计助手开关', () => {
+    const html = renderToStaticMarkup(
+      createElement(CanvasToolbar, { workspaceRoot: '/workspace' })
+    )
+    // 助手栏默认展开,按钮此时的文案是「折叠助手」;两种态都算「按钮还在」。
+    expect(
+      html.includes('aria-label="打开设计助手"') || html.includes('aria-label="折叠助手"')
+    ).toBe(true)
+  })
+})

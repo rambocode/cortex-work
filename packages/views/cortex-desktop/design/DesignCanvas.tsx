@@ -15,7 +15,10 @@ import { canvasOpErrorKey } from '@cortex-work/core/design/canvas/apply-shape-op
 
 type CanvasProps = {
   leftSidebarCollapsed: boolean
-  onToggleLeftSidebar: () => void
+  /** 不传即不渲染左上角折叠按钮(会话产物面板里没有可折叠的设计侧栏)。 */
+  onToggleLeftSidebar?: () => void
+  /** 宿主自带外壳(会话产物面板):隐藏只在独立设计工作台里有意义的开关。 */
+  chromeless?: boolean
   busy?: boolean
   onOpenAgentSettings?: () => void
   onImplementDesign?: (artifact: DesignArtifact) => void
@@ -29,6 +32,7 @@ type CanvasProps = {
 export function DesignCanvas({
   leftSidebarCollapsed,
   onToggleLeftSidebar,
+  chromeless = false,
   busy = false,
   onOpenAgentSettings,
   onImplementDesign,
@@ -111,7 +115,8 @@ export function DesignCanvas({
         artifactId={boardArtifact.id}
         {...(baseDir ? { baseDir } : {})}
         leftSidebarCollapsed={leftSidebarCollapsed}
-        onToggleLeftSidebar={onToggleLeftSidebar}
+        {...(onToggleLeftSidebar ? { onToggleLeftSidebar } : {})}
+        chromeless={chromeless}
         busy={busy}
         onOpenAgentSettings={onOpenAgentSettings}
         syncHtmlScreens

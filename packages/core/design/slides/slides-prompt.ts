@@ -20,7 +20,7 @@ import {
   formatSlidesTextFilesForPrompt,
   type SlidesTextFile
 } from './slides-text-files'
-import type { SlidesConversationTurn } from './slides-turn-dispatch'
+import type { ArtifactConversationTurn } from '../artifact-turn-dispatch'
 import type { SlidesOutline } from './slides-types'
 
 /** deck 阶段 → 该回合该做什么(与 deck.meta.json 的 stage 对齐)。 */
@@ -157,7 +157,7 @@ export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): st
 }
 
 /**
- * 「批准提纲」回流到聊天会话的一轮(会话产物入口专用,见 slides-turn-dispatch)。
+ * 「批准提纲」回流到聊天会话的一轮(会话产物入口专用,见 artifact-turn-dispatch)。
  *
  * 与 buildSlidesTurnPrompt 的分工:那条是设计工作台自己的回合,整份 prompt(含 bento 合同)
  * 由渲染端拼;会话入口的合同已由 `/skill:slides` 的 skill 正文给过,这里只补「阶段该干什么」
@@ -170,7 +170,7 @@ export function buildSlidesApprovedTurn(options: {
   outline: Omit<SlidesOutline, 'approvedAt'>
   /** 会话流里显示的那句话(由调用方经 i18n 给出;prompt 正文不做本地化的惯例只适用于合同段)。 */
   text: string
-}): SlidesConversationTurn {
+}): ArtifactConversationTurn {
   const { outline } = options
   return {
     text: options.text,

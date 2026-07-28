@@ -13,7 +13,7 @@ import {
   buildSlidesApprovedTurn,
   buildSlidesTurnPrompt
 } from '@cortex-work/core/design/slides/slides-prompt'
-import { resolveSlidesTurnDispatcher } from '@cortex-work/core/design/slides/slides-turn-dispatch'
+import { resolveArtifactTurnDispatcher } from '@cortex-work/core/design/artifact-turn-dispatch'
 import { matchesSlidesDeckChange } from '@cortex-work/core/design/slides/slides-deck-activity'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
@@ -100,10 +100,10 @@ export function SlidesWorkspace({
   // 批准动作已在主进程建立同页数占位骨架;随后把用户编辑后的提纲并入本轮,
   // AI 按既有 slide id 分批 set_slides,每批写盘都会在画布与右侧时间线即时可见。
   //
-  // 续跑指令发给谁取决于宿主(见 slides-turn-dispatch):会话产物面板注册过派发器 → 回流
+  // 续跑指令发给谁取决于宿主(见 artifact-turn-dispatch):会话产物面板注册过派发器 → 回流
   // 左侧那条会话(活本来就是它的 agent 干的);独立设计工作台无派发器 → 仍走 design run。
   const handleOutlineApproved = (outline: Omit<SlidesOutline, 'approvedAt'>): void => {
-    const conversation = resolveSlidesTurnDispatcher({ workspaceRoot, deckId: documentId })
+    const conversation = resolveArtifactTurnDispatcher({ workspaceRoot, documentId })
     if (conversation) {
       setRelayFailed(false)
       void conversation.send(

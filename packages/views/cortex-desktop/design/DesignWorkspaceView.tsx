@@ -11,7 +11,8 @@ import { SlidesWorkspace } from './slides/SlidesWorkspace'
 
 type Props = {
   leftSidebarCollapsed: boolean
-  onToggleLeftSidebar: () => void
+  /** 不传即不渲染折叠按钮(会话产物面板里没有可折叠的设计侧栏)。 */
+  onToggleLeftSidebar?: () => void
   /** 宿主自带顶栏(会话产物右栏):slides 不再渲染自己的工具栏行。 */
   chromeless?: boolean
   busy?: boolean
@@ -83,7 +84,8 @@ export function DesignWorkspaceView({
         ) : (
           <DesignCanvas
             leftSidebarCollapsed={leftSidebarCollapsed}
-            onToggleLeftSidebar={onToggleLeftSidebar}
+            {...(onToggleLeftSidebar ? { onToggleLeftSidebar } : {})}
+            chromeless={chromeless}
             busy={busy}
             onOpenAgentSettings={onOpenAgentSettings}
             onImplementDesign={onImplementDesign}

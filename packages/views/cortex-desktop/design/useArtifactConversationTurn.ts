@@ -1,19 +1,19 @@
-// 会话产物面板 → 发起会话的 slides 回合回流。
+// 会话产物面板 → 发起会话的回合回流(设计稿与演示文稿共用)。
 //
-// 右栏面板里的动作(目前是提纲审批)必须回到左侧那条会话:活是它的 agent 干的,
-// deck 的 MCP 会话状态也挂在它的 run 上(runId `artifact:slides:<docId>:`)。之前这条动作
-// 走的是设计工作台的 sendDesignMessage,等于在后台另起一条用户看不见的对话——
-// 左侧会话毫无动静,用户只能再手打一句「已批准,开始生成」(用户实测)。
+// 右栏面板里的动作(提纲审批、画布上的智能操作)必须回到左侧那条会话:活是它的 agent 干的,
+// deck 的 MCP 会话状态也挂在它的 run 上(runId `artifact:<kind>:<docId>:`)。这些动作原本走
+// 设计工作台的 sendDesignMessage / 助手栏种子,等于在后台另起一条用户看不见的对话——
+// 左侧会话毫无动静,用户只能再手打一遍指令(用户实测)。
 import { useEffect } from "react";
 import type { ConversationArtifactRef, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { usePersonalActions } from "@cortex-work/core/personal/messages";
 import { waitForSessionIdle } from "@cortex-work/core/personal/sessionIdle";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
 import {
-  clearSlidesTurnDispatcher,
-  setSlidesTurnDispatcher,
-  type SlidesTurnDispatcher,
-} from "@cortex-work/core/design/slides/slides-turn-dispatch";
+  clearArtifactTurnDispatcher,
+  setArtifactTurnDispatcher,
+  type ArtifactTurnDispatcher,
+} from "@cortex-work/core/design/artifact-turn-dispatch";
 import { buildConversationArtifactPrompt } from "../personal/artifactDispatch";
 
 /**
@@ -25,18 +25,18 @@ export function sessionProjectPath(session: SessionMeta, projects: ProjectMeta[]
   return projects.find((p) => p.id === session.projectId)?.path ?? "";
 }
 
-/** 为当前打开的 slides 会话产物注册回合派发器(仅 kind === 'slides';design 稿面板内无审批动作)。 */
-export function useSlidesConversationTurn(artifact: ConversationArtifactRef): void {
+/** 为当前打开的会话产物(设计稿 / 演示文稿)注册回合派发器。 */
+export function useArtifactConversationTurn(artifact: ConversationArtifactRef): void {
   const { send } = usePersonalActions();
   // 绑定「打开该产物的那条会话」而非派发时的活动会话:等待 agent 说完这段时间里
   // 用户完全可能切到别的对话,发错地方比晚发更糟。
   const sessionId = usePersonalStore((s) => s.activeSessionId);
 
   useEffect(() => {
-    if (artifact.kind !== "slides" || !sessionId) return;
-    const dispatcher: SlidesTurnDispatcher = {
+    if (!sessionId) return;
+    const dispatcher: ArtifactTurnDispatcher = {
       workspaceRoot: artifact.workspaceRoot,
-      deckId: artifact.documentId,
+      documentId: artifact.documentId,
       async send(turn) {
         // 审批弹层在 agent 还在流式输出时就已可点。此刻直接发会在同一会话里起第二条
         // 并发 run(输出交错、resume 会话 id 互相覆盖),故先等这一轮落定。
@@ -50,7 +50,9 @@ export function useSlidesConversationTurn(artifact: ConversationArtifactRef): vo
           sessionProjectPath(session, state.projects),
           turn.text,
           [],
-          `${buildConversationArtifactPrompt(artifact)}\n\n${turn.systemPrompt}`,
+          [buildConversationArtifactPrompt(artifact), turn.systemPrompt]
+            .filter(Boolean)
+            .join("\n\n"),
           undefined,
           undefined,
           undefined,
@@ -60,7 +62,7 @@ export function useSlidesConversationTurn(artifact: ConversationArtifactRef): vo
         );
       },
     };
-    setSlidesTurnDispatcher(dispatcher);
-    return () => clearSlidesTurnDispatcher(dispatcher);
+    setArtifactTurnDispatcher(dispatcher);
+    return () => clearArtifactTurnDispatcher(dispatcher);
   }, [artifact, sessionId, send]);
 }

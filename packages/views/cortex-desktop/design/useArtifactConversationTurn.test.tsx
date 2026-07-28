@@ -4,9 +4,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationArtifactRef } from "@cortex-work/core";
 import { usePersonalStore } from "@cortex-work/core/store/personal";
-import {
-  resolveSlidesTurnDispatcher,
-} from "@cortex-work/core/design/slides/slides-turn-dispatch";
+import { resolveArtifactTurnDispatcher } from "@cortex-work/core/design/artifact-turn-dispatch";
 
 const send = vi.fn(async (...args: unknown[]) => {
   void args;
@@ -16,7 +14,7 @@ vi.mock("@cortex-work/core/personal/messages", () => ({
   usePersonalActions: () => ({ send }),
 }));
 
-import { useSlidesConversationTurn } from "./useSlidesConversationTurn";
+import { useArtifactConversationTurn } from "./useArtifactConversationTurn";
 
 const ARTIFACT: ConversationArtifactRef = {
   kind: "slides",
@@ -29,7 +27,7 @@ const ARTIFACT: ConversationArtifactRef = {
 };
 
 function Host({ artifact }: { artifact: ConversationArtifactRef }) {
-  useSlidesConversationTurn(artifact);
+  useArtifactConversationTurn(artifact);
   return null;
 }
 
@@ -49,7 +47,7 @@ function seedSession(patch: Partial<{ running: string }> = {}): void {
   });
 }
 
-describe("useSlidesConversationTurn", () => {
+describe("useArtifactConversationTurn", () => {
   beforeEach(() => {
     send.mockClear();
     seedSession();
@@ -62,19 +60,33 @@ describe("useSlidesConversationTurn", () => {
 
   it("slides 产物挂载后注册派发器,卸载后清除", () => {
     const view = render(<Host artifact={ARTIFACT} />);
-    expect(resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "deck-1" })).not.toBeNull();
+    expect(resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "deck-1" })).not.toBeNull();
     view.unmount();
-    expect(resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "deck-1" })).toBeNull();
+    expect(resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "deck-1" })).toBeNull();
   });
 
-  it("设计稿产物不注册(只有演示文稿有面板内审批)", () => {
+  it("设计稿产物同样注册(画布上的智能操作也要回流会话)", () => {
     render(<Host artifact={{ ...ARTIFACT, kind: "design", documentId: "d2" }} />);
-    expect(resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "d2" })).toBeNull();
+    expect(
+      resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "d2" }),
+    ).not.toBeNull();
+  });
+
+  it("systemPrompt 省略时只带产物定位段(智能操作的用法)", async () => {
+    render(<Host artifact={ARTIFACT} />);
+    const dispatcher = resolveArtifactTurnDispatcher({
+      workspaceRoot: "/ws",
+      documentId: "deck-1",
+    })!;
+    await dispatcher.send({ text: "探索设计方向" });
+    const extraSystemPrompt = send.mock.calls[0]![4] as string;
+    expect(extraSystemPrompt).toContain("deck-1");
+    expect(extraSystemPrompt.endsWith("\n")).toBe(false);
   });
 
   it("派发一轮:发给发起会话,正文进会话流、提纲经 system prompt 下发,并带上产物引用", async () => {
     render(<Host artifact={ARTIFACT} />);
-    const dispatcher = resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "deck-1" })!;
+    const dispatcher = resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "deck-1" })!;
 
     await expect(
       dispatcher.send({ text: "已批准提纲", systemPrompt: "OUTLINE_JSON" }),
@@ -96,7 +108,7 @@ describe("useSlidesConversationTurn", () => {
   it("会话仍在跑时先等这一轮结束,不并发起第二条 run", async () => {
     seedSession({ running: "run-1" });
     render(<Host artifact={ARTIFACT} />);
-    const dispatcher = resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "deck-1" })!;
+    const dispatcher = resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "deck-1" })!;
 
     const pending = dispatcher.send({ text: "已批准提纲", systemPrompt: "x" });
     await Promise.resolve();
@@ -109,7 +121,7 @@ describe("useSlidesConversationTurn", () => {
 
   it("会话已被删除时返回 false(交给面板提示,不静默吞掉)", async () => {
     render(<Host artifact={ARTIFACT} />);
-    const dispatcher = resolveSlidesTurnDispatcher({ workspaceRoot: "/ws", deckId: "deck-1" })!;
+    const dispatcher = resolveArtifactTurnDispatcher({ workspaceRoot: "/ws", documentId: "deck-1" })!;
     usePersonalStore.setState({ sessions: [] });
 
     await expect(dispatcher.send({ text: "x", systemPrompt: "y" })).resolves.toBe(false);

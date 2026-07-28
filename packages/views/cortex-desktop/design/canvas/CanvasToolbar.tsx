@@ -43,6 +43,11 @@ type Props = {
   onOpenPrototypePlayer?: () => void
   onOpenAgentSettings?: () => void
   onRequestCanvasCritique?: (promptSeed: string) => void
+  /**
+   * 宿主是会话产物面板:那里没有设计助手栏,助手开关按下去什么都不会发生。
+   * 折叠按钮同理由 CanvasViewport 侧不传 onToggleLeftSidebar 处理。
+   */
+  chromeless?: boolean
 }
 
 type ToolButton = {
@@ -80,7 +85,8 @@ function CanvasToolbarInner({
   prototypePlayable = false,
   onOpenPrototypePlayer,
   onOpenAgentSettings,
-  onRequestCanvasCritique
+  onRequestCanvasCritique,
+  chromeless = false
 }: Props) {
   const { t } = useTranslation('design')
   const canvasDocument = useCanvasShapeStore((s) => s.document)
@@ -241,6 +247,7 @@ function CanvasToolbarInner({
               <ShieldCheck className="h-4 w-4" strokeWidth={1.9} />
             </button>
 
+            {chromeless ? null : (
             <button
               type="button"
               className={`${iconBtnBase} ${canvasAssistantOpen ? btnActive : btnInactive}`}
@@ -251,6 +258,7 @@ function CanvasToolbarInner({
             >
               <Sparkles className="h-4 w-4" strokeWidth={1.9} />
             </button>
+            )}
 
             <button
               type="button"

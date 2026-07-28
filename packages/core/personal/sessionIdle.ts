@@ -1,7 +1,7 @@
 // 等某个会话跑完当前这一轮。
 //
 // 用途:UI 侧「自动替用户发一轮」的派发点(演示文稿批准提纲后的续跑,见
-// design/slides/slides-turn-dispatch)。这类动作的触发时机由用户点击决定,而点击很可能落在
+// design/artifact-turn-dispatch)。这类动作的触发时机由用户点击决定,而点击很可能落在
 // agent 还在流式输出的当口 —— 直接发会在同一会话里起第二条并发 run,两轮输出交错,
 // resume 会话 id 也会互相覆盖。
 import { usePersonalStore } from "../store/personal";

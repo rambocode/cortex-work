@@ -77,6 +77,8 @@ type Props = {
   surface?: 'design' | 'code'
   leftSidebarCollapsed?: boolean
   onToggleLeftSidebar?: () => void
+  /** 宿主是会话产物面板:隐藏只在独立设计工作台里有意义的开关(见 CanvasToolbar.chromeless)。 */
+  chromeless?: boolean
   busy?: boolean
   onOpenAgentSettings?: () => void
   syncHtmlScreens?: boolean
@@ -94,6 +96,7 @@ export function CanvasViewport({
   surface = 'design',
   leftSidebarCollapsed,
   onToggleLeftSidebar,
+  chromeless = false,
   busy = false,
   onOpenAgentSettings,
   syncHtmlScreens = false,
@@ -441,6 +444,7 @@ export function CanvasViewport({
           <CanvasToolbar
             workspaceRoot={workspaceRoot}
             surface={surface}
+            chromeless={chromeless}
             designTargetDisabled={busy || Boolean(pagesRun)}
             prototypePlayable={prototypePlayable}
             onOpenPrototypePlayer={() => setPrototypePlayerOpen(true)}

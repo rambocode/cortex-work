@@ -7,10 +7,10 @@ import type { DesktopBridge } from '@cortex-work/core/desktop/bridge'
 import { buildStarterBentoDoc } from '@cortex-work/core/design/slides/bento/bento-doc-schema'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import {
-  clearSlidesTurnDispatcher,
-  setSlidesTurnDispatcher,
-  type SlidesTurnDispatcher
-} from '@cortex-work/core/design/slides/slides-turn-dispatch'
+  clearArtifactTurnDispatcher,
+  setArtifactTurnDispatcher,
+  type ArtifactTurnDispatcher
+} from '@cortex-work/core/design/artifact-turn-dispatch'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 import { useBentoSlidesStore } from './bento-slides-store'
 
@@ -79,8 +79,8 @@ describe('SlidesWorkspace 提纲批准的去向', () => {
       void args
       return true
     })
-    const dispatcher: SlidesTurnDispatcher = { workspaceRoot: ROOT, deckId: DECK, send }
-    setSlidesTurnDispatcher(dispatcher)
+    const dispatcher: ArtifactTurnDispatcher = { workspaceRoot: ROOT, documentId: DECK, send }
+    setArtifactTurnDispatcher(dispatcher)
     try {
       renderWorkspace()
       const approve = await screen.findByTestId('approve')
@@ -92,7 +92,7 @@ describe('SlidesWorkspace 提纲批准的去向', () => {
       expect(turn.text.length).toBeGreaterThan(0)
       expect(turn.systemPrompt).toContain('产品概览')
     } finally {
-      clearSlidesTurnDispatcher(dispatcher)
+      clearArtifactTurnDispatcher(dispatcher)
     }
   })
 
@@ -105,15 +105,15 @@ describe('SlidesWorkspace 提纲批准的去向', () => {
   })
 
   it('回流失败时给出人话提示,而不是静默什么都没发生', async () => {
-    const dispatcher: SlidesTurnDispatcher = {
+    const dispatcher: ArtifactTurnDispatcher = {
       workspaceRoot: ROOT,
-      deckId: DECK,
+      documentId: DECK,
       send: vi.fn(async (...args: unknown[]) => {
         void args
         return false
       })
     }
-    setSlidesTurnDispatcher(dispatcher)
+    setArtifactTurnDispatcher(dispatcher)
     try {
       renderWorkspace()
       const approve = await screen.findByTestId('approve')
@@ -122,7 +122,7 @@ describe('SlidesWorkspace 提纲批准的去向', () => {
       expect(await screen.findByTestId('slides-approval-relay-failed')).toBeInTheDocument()
       expect(sendDesignMessage).not.toHaveBeenCalled()
     } finally {
-      clearSlidesTurnDispatcher(dispatcher)
+      clearArtifactTurnDispatcher(dispatcher)
     }
   })
 })
