@@ -58,6 +58,11 @@ interface BentoSlidesUiState {
   saveEditedDeckHtml(html: string, baseRevision?: number): Promise<SaveEditedDeckResult>
   /** 另存为 .bento.html(交付物即文件本体)。返回 false 仅在真实失败(取消不算)。 */
   exportDeck(): Promise<boolean>
+  /**
+   * 打开放映窗口。放这里而不是各调用点自己拼:桥与 deck 坐标(workspaceRoot/deckId)本就
+   * 只在本 store 里齐全,工具栏与右栏头两处入口才不会各写一份。
+   */
+  presentDeck(): void
   setEditorContext(
     page: SlidesPageSnapshot | null,
     selection: SlidesSelectionSnapshot | null
@@ -182,6 +187,13 @@ export const useBentoSlidesStore = create<BentoSlidesUiState>((set, get) => ({
       return false
     }
     return true
+  },
+
+  presentDeck() {
+    const { bridge, workspaceRoot, deckId, doc } = get()
+    // doc 未就绪(deck 还在补建)时放映会打开一个空窗口,直接忽略。
+    if (!bridge?.slidesPresent || !doc) return
+    void bridge.slidesPresent({ workspaceRoot, deckId })
   },
 
   setEditorContext(page, selection) {

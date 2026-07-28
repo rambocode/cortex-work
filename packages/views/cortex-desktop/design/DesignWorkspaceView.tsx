@@ -12,6 +12,8 @@ import { SlidesWorkspace } from './slides/SlidesWorkspace'
 type Props = {
   leftSidebarCollapsed: boolean
   onToggleLeftSidebar: () => void
+  /** 宿主自带顶栏(会话产物右栏):slides 不再渲染自己的工具栏行。 */
+  chromeless?: boolean
   busy?: boolean
   onOpenAgentSettings?: () => void
   onImplementDesign?: (artifact: DesignArtifact) => void
@@ -29,6 +31,7 @@ type Props = {
 export function DesignWorkspaceView({
   leftSidebarCollapsed,
   onToggleLeftSidebar,
+  chromeless = false,
   busy = false,
   onOpenAgentSettings,
   onImplementDesign,
@@ -75,6 +78,7 @@ export function DesignWorkspaceView({
             documentTitle={activeDocument.title}
             leftSidebarCollapsed={leftSidebarCollapsed}
             onToggleLeftSidebar={onToggleLeftSidebar}
+            chromeless={chromeless}
           />
         ) : (
           <DesignCanvas

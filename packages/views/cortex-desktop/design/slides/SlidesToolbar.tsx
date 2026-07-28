@@ -13,9 +13,19 @@ type Props = {
   onToggleLeftSidebar?: () => void
   /** 播放(演示窗口)回调:由宿主注入(经桥调用 slides:present)。 */
   onPresent?: () => void
+  /**
+   * 宿主自带顶栏(会话产物右栏):标题与播放/导出改由 SlidesDeckHeadActions 出,
+   * 这里只保留 deck 错误条 —— 两条顶栏叠在同一屏里既重复又白吃高度。
+   */
+  hideActions?: boolean
 }
 
-export function SlidesToolbar({ leftSidebarCollapsed = false, onToggleLeftSidebar, onPresent }: Props): ReactElement {
+export function SlidesToolbar({
+  leftSidebarCollapsed = false,
+  onToggleLeftSidebar,
+  onPresent,
+  hideActions = false
+}: Props): ReactElement | null {
   const { t } = useTranslation('design')
   const doc = useBentoSlidesStore((s) => s.doc)
   const mutating = useBentoSlidesStore((s) => s.mutating)
@@ -33,10 +43,14 @@ export function SlidesToolbar({ leftSidebarCollapsed = false, onToggleLeftSideba
     setExporting(false)
   }
 
+  // hideActions 且无错误时整条不渲染:留一个空容器会画出一条 1px 边框的空行。
+  if (hideActions && !deckError) return null
+
   // 背景用 bg-ds-sidebar 与设计侧栏同色;整栏为窗口拖拽区(ds-drag),按钮由
   // cortex-desktop.css 的 .ds-slides-toolbar 规则恢复 no-drag(沿用旧约定)。
   return (
     <div className="ds-slides-toolbar ds-drag flex shrink-0 flex-col border-b border-black/8 bg-ds-sidebar dark:border-white/8">
+      {hideActions ? null : (
       <div className="flex h-11 items-center gap-2 px-3">
         {onToggleLeftSidebar ? (
           // 折叠时工具栏顶到窗口左缘,需避让 mac 红绿灯(cortex-desktop.css 的
@@ -91,6 +105,7 @@ export function SlidesToolbar({ leftSidebarCollapsed = false, onToggleLeftSideba
           <Bot className="h-3.5 w-3.5" strokeWidth={1.9} />
         </button>
       </div>
+      )}
       {deckError ? (
         <div className="flex items-center gap-2 bg-[#c0392b]/10 px-3 py-1 text-[11.5px] text-[#a63224] dark:text-[#e88477]">
           <TriangleAlert className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />

@@ -155,3 +155,26 @@ describe('parseBentoSaveDrain', () => {
     expect(parseBentoSaveDrain(42)).toBeNull()
   })
 })
+
+// 放映的桥调用收敛在 store:工具栏与会话产物顶栏两处入口共用同一条路径。
+describe('presentDeck', () => {
+  it('doc 就绪时按当前 deck 坐标打开放映窗口', async () => {
+    const slidesPresent = vi.fn()
+    const bridge = makeBridge({ slidesPresent } as unknown as Partial<DesktopBridge>)
+    await useBentoSlidesStore.getState().setup({ bridge, workspaceRoot: '/ws', deckId: 'deck1', title: 'x' })
+    useBentoSlidesStore.getState().presentDeck()
+    expect(slidesPresent).toHaveBeenCalledWith({ workspaceRoot: '/ws', deckId: 'deck1' })
+  })
+
+  it('deck 尚未读出(doc 为空)时不放映,避免打开一个空窗口', () => {
+    const slidesPresent = vi.fn()
+    useBentoSlidesStore.setState({
+      bridge: makeBridge({ slidesPresent } as unknown as Partial<DesktopBridge>),
+      workspaceRoot: '/ws',
+      deckId: 'deck1',
+      doc: null
+    })
+    useBentoSlidesStore.getState().presentDeck()
+    expect(slidesPresent).not.toHaveBeenCalled()
+  })
+})

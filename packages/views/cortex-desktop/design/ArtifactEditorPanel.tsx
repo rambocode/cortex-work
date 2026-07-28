@@ -88,6 +88,8 @@ export function ArtifactEditorPanel({
         <DesignWorkspaceView
           leftSidebarCollapsed
           onToggleLeftSidebar={() => undefined}
+          // 标题与播放/导出由右栏顶栏(PersonalRightPanel + SlidesDeckHeadActions)承担。
+          chromeless
         />
       )}
     </div>

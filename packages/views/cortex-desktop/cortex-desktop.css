@@ -3789,6 +3789,19 @@ button.sb-row {
 .pw-icon-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-icon-btn:disabled { opacity: 0.4; cursor: default; }
 
+/* 右栏顶栏里的「文字 + 图标」动作(演示文稿产物的播放 / 导出)。
+   .pw-icon-btn 是固定 24×24 的纯图标档,带文案会被压扁,故另给一档。 */
+.pw-rp-head-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 8px;
+  font-size: 12px; color: var(--text-3);
+  border-radius: 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pw-rp-head-action:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-rp-head-action:disabled { opacity: 0.4; cursor: default; }
+
 .pw-project { padding: 0 6px; }
 .pw-project-h {
   display: flex; align-items: center; gap: 2px;

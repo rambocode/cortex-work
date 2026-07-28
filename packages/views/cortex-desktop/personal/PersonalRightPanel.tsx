@@ -15,6 +15,7 @@ import { TasksView } from "./TasksView";
 import { NotesView } from "./NotesView";
 import { BrowserView } from "./BrowserView";
 import { ArtifactEditorPanel } from "../design/ArtifactEditorPanel";
+import { SlidesDeckHeadActions } from "../design/slides/SlidesDeckHeadActions";
 import { ResearchArtifactPanel } from "../research/ResearchArtifactPanel";
 import type { ResearchExportTarget } from "../research/ResearchRunView";
 import type { ResearchModelDisplay } from "../research/modelDisplay";
@@ -165,8 +166,15 @@ export function PersonalRightPanel({
         onDoubleClick={() => setWidth(undefined)}
       />
       <div className="pw-col-head pw-rp-head">
-        <span className="pw-col-head-title">{RIGHT_VIEW_TITLE[view] ?? "面板"}</span>
-        <div className="spacer" />
+        {/* 演示文稿产物:标题与播放/导出并入这一行,面板内不再叠第二条工具栏(省一行高度)。 */}
+        {view === "artifact" && activeArtifact?.kind === "slides" ? (
+          <SlidesDeckHeadActions fallbackTitle={activeArtifact.title} />
+        ) : (
+          <>
+            <span className="pw-col-head-title">{RIGHT_VIEW_TITLE[view] ?? "面板"}</span>
+            <div className="spacer" />
+          </>
+        )}
         <button className="pw-icon-btn" title="关闭面板" onClick={() => setRightOpen(false)}>
           <Icon.X size={14} />
         </button>

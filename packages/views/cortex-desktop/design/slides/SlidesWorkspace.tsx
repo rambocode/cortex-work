@@ -25,6 +25,8 @@ type Props = {
   /** 左设计侧栏折叠态:透传给工具栏渲染折叠/展开按钮(与自由画布同一交互)。 */
   leftSidebarCollapsed?: boolean
   onToggleLeftSidebar?: () => void
+  /** 宿主自带顶栏(会话产物右栏):不再渲染自己的工具栏行,见 SlidesToolbar.hideActions。 */
+  chromeless?: boolean
 }
 
 export function SlidesWorkspace({
@@ -32,7 +34,8 @@ export function SlidesWorkspace({
   documentId,
   documentTitle,
   leftSidebarCollapsed = false,
-  onToggleLeftSidebar
+  onToggleLeftSidebar,
+  chromeless = false
 }: Props): ReactElement {
   const { t } = useTranslation('design')
   const bridge = useDesktopBridge()
@@ -100,11 +103,8 @@ export function SlidesWorkspace({
     )
   }
 
-  const handlePresent = (): void => {
-    const state = useBentoSlidesStore.getState()
-    if (!bridge?.slidesPresent || !state.doc) return
-    void bridge.slidesPresent({ workspaceRoot, deckId: documentId })
-  }
+  // 放映的桥调用收敛在 store(会话产物顶栏是第二个入口,见 SlidesDeckHeadActions)。
+  const handlePresent = (): void => useBentoSlidesStore.getState().presentDeck()
 
   // 舞台挂载 gate:doc 就绪(= deck.bento.html 已在磁盘)才渲染 SlidesStage。
   // 首帧 loading 尚未置位(setup 在 effect 里异步跑),仅凭 loading 判断会让 webview
@@ -141,6 +141,7 @@ export function SlidesWorkspace({
         leftSidebarCollapsed={leftSidebarCollapsed}
         onToggleLeftSidebar={onToggleLeftSidebar}
         onPresent={handlePresent}
+        hideActions={chromeless}
       />
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <SlidesStage workspaceRoot={workspaceRoot} deckId={documentId} />

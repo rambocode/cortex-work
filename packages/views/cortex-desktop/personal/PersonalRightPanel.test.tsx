@@ -316,6 +316,66 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     fireEvent.mouseUp(document);
   });
 
+  // 演示文稿的标题与播放/导出并进这条顶栏,面板内不再叠第二条工具栏(用户要求)。
+  it("演示文稿产物:顶栏出标题与播放/导出,且不带设计助手开关", () => {
+    usePersonalStore.setState({
+      sessions: [{
+        id: "s1",
+        title: "S",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+        activeArtifact: {
+          kind: "slides",
+          documentId: "d1",
+          title: "把本季度的工作进展做成 2 页汇报 PPT",
+          workspaceRoot: "/w",
+          entryPath: "/w/.cortex-design/d1/deck.bento.html",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      }],
+      activeSessionId: "s1",
+      rightView: "artifact",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    const head = container.querySelector(".pw-rp-head")!;
+    // deck 尚未读出时回落会话产物标题,不显示通用的「产物」二字。
+    expect(head.querySelector(".pw-col-head-title")?.textContent).toBe(
+      "把本季度的工作进展做成 2 页汇报 PPT",
+    );
+    expect(head.querySelector("[data-testid='slides-play']")).not.toBeNull();
+    expect(head.querySelector("[data-testid='slides-export']")).not.toBeNull();
+    expect(head.textContent).not.toContain("设计助手");
+  });
+
+  it("设计稿产物仍显示通用标题「产物」(只有演示文稿并入顶栏)", () => {
+    usePersonalStore.setState({
+      sessions: [{
+        id: "s1",
+        title: "S",
+        agent: "claude",
+        createdAt: 1,
+        updatedAt: 1,
+        activeArtifact: {
+          kind: "design",
+          documentId: "d2",
+          title: "落地页",
+          workspaceRoot: "/w",
+          entryPath: "/w/.cortex-design/d2",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      }],
+      activeSessionId: "s1",
+      rightView: "artifact",
+    });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    expect(container.querySelector(".pw-rp-head .pw-col-head-title")?.textContent).toBe("产物");
+  });
+
   it("产物编辑器默认宽度按 660px 中栏下限算(CSS 契约)", () => {
     // 默认宽度里必须扣掉中栏下限,否则宽屏下右栏吃掉大半、会话区被压成窄条。
     expect(desktopCss).toMatch(
