@@ -7,6 +7,7 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   closePiSession,
+  dayKey,
   resolveDefaultAgent,
   partitionProjects,
   reapSessionRun,
@@ -345,9 +346,23 @@ export function PersonalSidebar({
   const conversationModeOpen =
     !writingOpen && !automationOpen && !workflowOpen && !settingsOpen;
 
+  // 新建会话。**无项目会话必须带上 noProjectDir**——它就是 agent 进程的 cwd:
+  // 漏了的话渲染端算出的 cwd 是空串,spawn 便继承 Electron 自己的工作目录,dev 下 agent 产物
+  // 直接写进 apps/desktop/(用户实测:合同审查报告落到了程序目录)。口径与落地页那条创建路径
+  //(NewSessionLanding 的「不使用项目」分支)保持一致:当天一个目录。
   const createContextSession = () => {
-    createSession(contextProject?.id, defaultAgent);
-    onToast(contextProject ? `已在 ${contextProject.name} 新建 Session` : "已新建无项目 Session");
+    if (contextProject) {
+      createSession(contextProject.id, defaultAgent);
+      onToast(`已在 ${contextProject.name} 新建 Session`);
+      return;
+    }
+    void (async () => {
+      // 桥缺 ensureNoProjectDir(Web / 旧壳)时仍建会话,只是没有固定工作目录——
+      // 与落地页不同,侧栏这颗按钮是用户唯一的新建入口,不能因为缺个能力就整个不给建。
+      const dir = bridge?.ensureNoProjectDir ? await bridge.ensureNoProjectDir(dayKey(Date.now())) : undefined;
+      createSession(undefined, defaultAgent, undefined, dir ? { noProjectDir: dir } : undefined);
+      onToast("已新建无项目 Session");
+    })();
   };
 
   const openProject = (project: ProjectMeta) => {

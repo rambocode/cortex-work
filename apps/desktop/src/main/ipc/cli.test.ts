@@ -3,7 +3,7 @@
 // electron / child_process 在测试环境整体 mock。
 
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -135,6 +135,7 @@ import {
   nvmBinDirs,
   resetAgentDetectionForTest,
   registerCliHandlers,
+  resolveSpawnCwd,
   startAgentProcess,
   spawnEnvFor,
   spawnEnvForDef,
@@ -1079,6 +1080,33 @@ describe("startAgentProcess", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// 无项目会话的 cwd 兜底。渲染端算 cwd 是 `项目 path ?? session.noProjectDir ?? ""`,
+// 旧会话(以及曾经漏传 noProjectDir 的侧栏「新建会话」)拿到的是空串;空串交给 spawn 等于
+// 继承 Electron 自己的工作目录 —— dev 下就是 apps/desktop/，agent 产物会写进程序目录
+//(用户实测:合同审查报告落到了 apps/desktop/outputs/)。
+describe("resolveSpawnCwd 无项目会话兜底", () => {
+  it("空串 / 纯空白 / undefined → 回落到当天的无项目工作目录并确保存在", () => {
+    for (const input of ["", "   ", undefined]) {
+      const dir = resolveSpawnCwd(input);
+      expect(dir).toMatch(/[/\\]cortex[/\\]\d{4}-\d{2}-\d{2}$/);
+      expect(existsSync(dir)).toBe(true);
+    }
+  });
+
+  it("给了真实 cwd → 原样返回,不改写", () => {
+    const real = mkdtempSync(join(tmpdir(), "spawn-cwd-"));
+    expect(resolveSpawnCwd(real)).toBe(real);
+    rmSync(real, { recursive: true, force: true });
+  });
+
+  // 绝不能把有效路径当空处理:项目会话的 cwd 被改写会让 agent 在错误的仓库里干活。
+  it("带前后空白的真实路径 → 去空白后原样返回", () => {
+    const real = mkdtempSync(join(tmpdir(), "spawn-cwd-"));
+    expect(resolveSpawnCwd(`  ${real}  `)).toBe(real);
+    rmSync(real, { recursive: true, force: true });
   });
 });
 

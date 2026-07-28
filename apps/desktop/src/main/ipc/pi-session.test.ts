@@ -61,6 +61,9 @@ const h = vi.hoisted(() => {
     writeAskQuestionExtension: vi.fn(() => "/ext/askquestion.js"),
     writeTodoExtension: vi.fn(() => "/ext/todo.js"),
     assertSpawnCwd: vi.fn(),
+    // cwd 归一(空串 → 当天无项目工作目录)。桩按「有值原样返回」实现,
+    // 让既有用例断言的 cwd 不被改写;空值兜底本身由 cli.test.ts 覆盖。
+    resolveSpawnCwd: vi.fn((cwd?: string) => cwd?.trim() || "/tmp/cortex-no-project"),
     spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
     recordAgentTrace: vi.fn(),
@@ -97,7 +100,11 @@ vi.mock("../agents/pi-extensions", () => ({
   writeAskQuestionExtension: h.writeAskQuestionExtension,
   writeTodoExtension: h.writeTodoExtension,
 }));
-vi.mock("./cli", () => ({ assertSpawnCwd: h.assertSpawnCwd, spawnEnvFor: h.spawnEnvFor }));
+vi.mock("./cli", () => ({
+  assertSpawnCwd: h.assertSpawnCwd,
+  resolveSpawnCwd: h.resolveSpawnCwd,
+  spawnEnvFor: h.spawnEnvFor,
+}));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
 vi.mock("./store", () => ({ getPersistedState: h.getPersistedState }));

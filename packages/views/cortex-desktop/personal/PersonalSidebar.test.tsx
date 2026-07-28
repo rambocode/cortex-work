@@ -2,7 +2,7 @@
 // - 顶部模式切换承载会话 / 写作 / 设计；
 // - 当前项目卡片承载新建会话 / 项目管理；
 // - 底部固定快捷入口承载闪记 / 自动化 / Loop / 设置。
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
@@ -279,6 +279,54 @@ describe("PersonalSidebar 项目上下文结构", () => {
     fireEvent.click(screen.getByRole("button", { name: /无项目/ }));
     expect(usePersonalStore.getState().activeSessionId).toBe(noProject.id);
     expect(container.querySelector(".pw-context-card")?.textContent).toContain("无项目会话");
+  });
+});
+
+// 无项目会话必须带上 noProjectDir —— 它就是 agent 进程的 cwd。漏了的话渲染端算出的 cwd 是空串,
+// spawn 便继承 Electron 自己的工作目录:dev 下产物直接写进 apps/desktop/（用户实测：合同审查
+// 报告落到了程序目录）。落地页那条创建路径一直有传，侧栏这条漏了。
+describe("PersonalSidebar 新建无项目会话带 noProjectDir", () => {
+  afterEach(() => cleanup());
+
+  function bridgeWithNoProjectDir(dir = "/Users/me/Documents/cortex/2026-07-28"): DesktopBridge {
+    return {
+      ...bridgeWith(),
+      ensureNoProjectDir: vi.fn(async () => dir),
+    } as unknown as DesktopBridge;
+  }
+
+  it("无项目上下文点「新建会话」→ 会话带上 ensureNoProjectDir 返回的目录", async () => {
+    usePersonalStore.setState({
+      projects: [],
+      sessions: [],
+      activeProjectId: undefined,
+      activeSessionId: undefined,
+      homeOpen: false,
+    });
+    const dir = "/Users/me/Documents/cortex/2026-07-28";
+    renderSidebar(bridgeWithNoProjectDir(dir));
+    fireEvent.click(screen.getByRole("button", { name: /新建会话/ }));
+    await waitFor(() => expect(usePersonalStore.getState().sessions).toHaveLength(1));
+    const created = usePersonalStore.getState().sessions[0]!;
+    expect(created.projectId).toBeUndefined();
+    expect(created.noProjectDir).toBe(dir);
+  });
+
+  // 有项目时 cwd 用项目 path,不该去建无项目目录。
+  it("项目上下文点「新建会话」→ 不调 ensureNoProjectDir", async () => {
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [],
+      activeProjectId: projectA.id,
+      activeSessionId: undefined,
+      homeOpen: false,
+    });
+    const bridge = bridgeWithNoProjectDir();
+    renderSidebar(bridge);
+    fireEvent.click(screen.getByRole("button", { name: /新建会话/ }));
+    await waitFor(() => expect(usePersonalStore.getState().sessions).toHaveLength(1));
+    expect(usePersonalStore.getState().sessions[0]!.projectId).toBe(projectA.id);
+    expect(bridge.ensureNoProjectDir).not.toHaveBeenCalled();
   });
 });
 

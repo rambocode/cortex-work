@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
-import { existsSync, readdirSync, realpathSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
@@ -53,7 +53,7 @@ import {
   isKnownConversationArtifactRoot,
   validateConversationArtifact,
 } from "./artifact-workspace";
-import { documentsCortexDir } from "../paths";
+import { documentsCortexDir, noProjectSessionDir } from "../paths";
 import { CodexServerManager } from "../agents/codex-app-server";
 import { startCodexWsRun, closeAllCodexChannels } from "./codex-ws-run";
 import { renderCodexSkillFallback } from "./codex-ws-channel";
@@ -316,6 +316,28 @@ export function resolveInvocationForSpawn(
   const node = join(dirname(resolvedCmd), platform() === "win32" ? "node.exe" : "node");
   if (!existsSync(node)) return { cmd: real, args };
   return { cmd: node, args: [real, ...args] };
+}
+
+/// 解析 agent 进程真正要用的 cwd。**空值兜底,绝不能把空 cwd 交给 spawn**。
+///
+/// 渲染端算 cwd 的口径是 `项目 path ?? session.noProjectDir ?? ""`。无项目会话若没有
+/// noProjectDir(旧会话,或曾漏传的创建路径),这里拿到的就是空串;空串等于不设 cwd,
+/// 子进程直接继承 Electron 自己的工作目录 —— dev 下是 apps/desktop/,agent 产物就写进了
+/// 程序目录(用户实测:合同审查报告落到 apps/desktop/outputs/)。
+///
+/// 回落目标选「当天的无项目工作目录」而非 homedir:那正是无项目会话本来就该用的地方
+///(见 NewSessionLanding 的「不使用项目」分支 / fs:ensureNoProjectDir),产物落在那里
+/// 用户找得到、也和正常创建的无项目会话一致。日期按当天算,老会话因此可能换目录,
+/// 但总好过写进程序目录。
+export function resolveSpawnCwd(cwd: string | undefined): string {
+  const trimmed = cwd?.trim();
+  if (trimmed) return trimmed;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const d = new Date();
+  // 与渲染端 core/personal/timeline.ts 的 dayKey 同口径(本地时区 YYYY-MM-DD)。
+  const dir = noProjectSessionDir(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 export function assertSpawnCwd(cwd: string | undefined): void {
@@ -627,6 +649,9 @@ export function registerCliHandlers(): void {
   setInterval(() => codexServers.sweepIdle(), 5 * 60_000).unref();
 
   ipcMain.handle("cli:start", async (event, req: CliStartRequest) => {
+    // cwd 归一必须在最前:后面产物身份校验、MCP 配置落盘、媒体/幻灯片能力都要用 req.cwd,
+    // 只在 spawn 那一步兜底会让这些环节仍拿到空串(见 resolveSpawnCwd 的注释)。
+    req.cwd = resolveSpawnCwd(req.cwd);
     assertConversationArtifactRequestShape(req.runId, req.artifactContext);
     if (req.artifactContext) {
       const fallbackRoot = join(documentsCortexDir(), "design");
