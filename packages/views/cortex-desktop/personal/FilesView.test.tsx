@@ -86,15 +86,16 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
   });
 
-  it("项目匹配 → readFile(abs) 并渲染预览,请求被消费清空", async () => {
+  it("项目匹配 → readFile(abs) 并渲染预览,请求被消费清空;.md 直接进内置编辑器(Monaco)", async () => {
     const bridge = makeBridge();
     usePersonalStore.setState({
       filePreviewRequest: { projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" },
     });
-    renderView(bridge);
-    // .md 走 MarkdownView,断言渲染出标题文本。
-    expect(await screen.findByText("Hello")).toBeInTheDocument();
-    expect(bridge.readFile).toHaveBeenCalledWith("/code/alpha/docs/a.md");
+    const { container } = renderView(bridge);
+    await waitFor(() => expect(bridge.readFile).toHaveBeenCalledWith("/code/alpha/docs/a.md"));
+    // .md 默认进内置编辑器(editMode=true → MonacoViewer),不再是渲染预览(MarkdownView)。
+    await waitFor(() => expect(container.querySelector(".pw-mona-wrap")).not.toBeNull());
+    expect(container.querySelector(".pw-file-md")).toBeNull();
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
 

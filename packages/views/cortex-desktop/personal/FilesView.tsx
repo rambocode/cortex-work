@@ -302,9 +302,10 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
 
   // 文本预览路径(Monaco/Markdown);csv 在表格预览里点「以文本打开」也走这里,
   // 故先复位编辑/脏态(表格切文本时脏标记不应残留)。
+  // .md 直接进内置编辑器(用户要求:md 文档以编辑态打开,点「完成」可回渲染预览);其余文本仍从预览态起步。
   const openTextFile = async (path: string, name: string) => {
     if (!bridge) return;
-    setEditMode(false);
+    setEditMode(isMarkdownName(name));
     setDirty(false);
     try {
       const { content, truncated } = await bridge.readFile(path);
