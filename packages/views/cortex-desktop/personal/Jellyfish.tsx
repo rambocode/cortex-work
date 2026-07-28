@@ -6,7 +6,9 @@ export function Jellyfish({ className }: { className?: string }) {
   return (
     <svg
       className={className}
-      viewBox="0 0 440 560"
+      // viewBox 裁到内容实际包围盒(halo x15–425 / y45–556),去掉四周死空白,
+      // 让外层 className 给的尺寸真正落在水母本体上;预留触手摆动溢出空间
+      viewBox="15 40 410 516"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
       aria-hidden="true"
@@ -80,12 +82,14 @@ export function Jellyfish({ className }: { className?: string }) {
       </defs>
 
       <style>{`
-        .jf-float { transform-box: fill-box; transform-origin: center; animation: jfFloat 8.5s var(--ease, cubic-bezier(.2,.7,.2,1)) infinite; }
-        .jf-halo  { transform-box: fill-box; transform-origin: center; animation: jfHalo 7s ease-in-out infinite; }
-        /* 触手分组错峰摆动 */
-        .jf-sway-a { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayA 7s ease-in-out infinite; }
-        .jf-sway-b { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayB 9s ease-in-out infinite; }
-        .jf-sway-c { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayC 11s ease-in-out infinite; }
+        .jf-float { transform-box: fill-box; transform-origin: center; animation: jfFloat 6.5s var(--ease, cubic-bezier(.2,.7,.2,1)) infinite; }
+        .jf-halo  { transform-box: fill-box; transform-origin: center; animation: jfHalo 5.5s ease-in-out infinite; }
+        /* 伞盖游动脉搏:横向微扩、纵向微缩,原点定在伞盖下缘,模拟水母收缩推进 */
+        .jf-pulse { transform-box: fill-box; transform-origin: 50% 92%; animation: jfPulse 3.2s ease-in-out infinite; }
+        /* 触手分组错峰摆动(幅度放大,小尺寸渲染下也要肉眼可见) */
+        .jf-sway-a { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayA 6s ease-in-out infinite; }
+        .jf-sway-b { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayB 7.6s ease-in-out infinite; }
+        .jf-sway-c { transform-box: fill-box; transform-origin: 220px 250px; animation: jfSwayC 9.4s ease-in-out infinite; }
         /* 神经元光点呼吸 / 闪烁，错峰 */
         .jf-spark { transform-box: fill-box; transform-origin: center; }
         .jf-spark.s1 { animation: jfSparkle 3.4s ease-in-out infinite; }
@@ -97,31 +101,35 @@ export function Jellyfish({ className }: { className?: string }) {
 
         @keyframes jfFloat {
           0%, 100% { transform: translateY(0) rotate(0deg); }
-          50%      { transform: translateY(-14px) rotate(.5deg); }
+          50%      { transform: translateY(-26px) rotate(1.2deg); }
         }
         @keyframes jfHalo {
-          0%, 100% { transform: scale(1);    opacity: .72; }
-          50%      { transform: scale(1.07); opacity: 1; }
+          0%, 100% { transform: scale(1);    opacity: .66; }
+          50%      { transform: scale(1.12); opacity: 1; }
+        }
+        @keyframes jfPulse {
+          0%, 100% { transform: scale(1, 1); }
+          50%      { transform: scale(1.045, .955); }
         }
         @keyframes jfSwayA {
-          0%, 100% { transform: rotate(-2.4deg); }
-          50%      { transform: rotate(2.4deg); }
+          0%, 100% { transform: rotate(-5deg); }
+          50%      { transform: rotate(5deg); }
         }
         @keyframes jfSwayB {
-          0%, 100% { transform: rotate(2deg); }
-          50%      { transform: rotate(-2.2deg); }
+          0%, 100% { transform: rotate(4.2deg); }
+          50%      { transform: rotate(-4.6deg); }
         }
         @keyframes jfSwayC {
-          0%, 100% { transform: rotate(-1.4deg); }
-          50%      { transform: rotate(1.8deg); }
+          0%, 100% { transform: rotate(-3deg); }
+          50%      { transform: rotate(3.6deg); }
         }
         @keyframes jfSparkle {
-          0%, 100% { opacity: .2;  transform: scale(.75); }
-          50%      { opacity: 1;   transform: scale(1.08); }
+          0%, 100% { opacity: .15; transform: scale(.65); }
+          50%      { opacity: 1;   transform: scale(1.3); }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .jf-float, .jf-halo, .jf-sway-a, .jf-sway-b, .jf-sway-c,
+          .jf-float, .jf-halo, .jf-pulse, .jf-sway-a, .jf-sway-b, .jf-sway-c,
           .jf-spark.s1, .jf-spark.s2, .jf-spark.s3,
           .jf-spark.s4, .jf-spark.s5, .jf-spark.s6 {
             animation: none !important;
@@ -202,8 +210,8 @@ export function Jellyfish({ className }: { className?: string }) {
           />
         </g>
 
-        {/* —— 半透明伞盖（bell）—— */}
-        <g filter="url(#jf-soft)">
+        {/* —— 半透明伞盖（bell）：随 jf-pulse 做收缩推进的游动脉搏 —— */}
+        <g className="jf-pulse" filter="url(#jf-soft)">
           {/* 伞盖主体：蓝→紫渐变 */}
           <path
             d="M70 252

@@ -43,6 +43,15 @@ function renderLanding(bridge: DesktopBridge, onToast: (t: string) => void = () 
   );
 }
 
+// 合并 pill 根层的下钻行(「Agent / 模型 / 推理」):按包含文本在打开的面板里找。
+function mtRow(text: string): HTMLButtonElement {
+  const row = [...document.querySelectorAll<HTMLButtonElement>(".pw-mt-menu .pw-tb-menu-item")].find((b) =>
+    b.textContent?.includes(text),
+  );
+  if (!row) throw new Error(`pw-mt 面板里找不到「${text}」行`);
+  return row;
+}
+
 describe("NewSessionLanding 新会话落地页输入框", () => {
   afterEach(() => cleanup());
 
@@ -186,9 +195,9 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
 
   it("改 model(合并 pill 下钻模型层)后发送:新会话沿用所选 model", async () => {
     const { container } = renderLanding(fakeBridge());
-    // 打开合并 pill → 下钻到模型层 → 选 Opus。
+    // 打开合并 pill → 点「模型」行下钻到模型层 → 选 Opus。
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
-    fireEvent.click(container.querySelector('.pw-mt-menu button[aria-haspopup="menu"]')!);
+    fireEvent.click(mtRow("模型"));
     const opus = [...container.querySelectorAll(".pw-mt-models .pw-tb-menu-item")].find((b) =>
       b.textContent?.includes("Opus"),
     )!;
@@ -203,8 +212,9 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
 
   it("改思考强度(合并 pill)后发送:新会话沿用所选 effort", async () => {
     const { container } = renderLanding(fakeBridge());
-    // 打开合并 pill → 点推理「高」。
+    // 打开合并 pill → 点「推理」行下钻 → 选「高」。
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    fireEvent.click(mtRow("推理"));
     const high = [...container.querySelectorAll(".pw-mt-menu .pw-tb-menu-item")].find(
       (b) => b.textContent?.trim() === "高",
     )!;
@@ -298,14 +308,16 @@ describe("NewSessionLanding agent 选择(U3)", () => {
     });
   });
 
-  it("落地页渲染 agent 选择器(opt-in)", () => {
+  it("落地页 agent 选择并入合并 pill(opt-in):触发器含头像", () => {
     const { container } = renderLanding(fakeBridge());
-    expect(container.querySelector(".pw-sh-agent")).not.toBeNull();
+    expect(container.querySelector(".pw-mt-trigger .pw-mt-avatar")).not.toBeNull();
   });
 
   it("选内置 codex → 新会话 agent=codex、model=codex 默认、无 derivedAgentId", async () => {
-    renderLanding(fakeBridge());
-    fireEvent.click(screen.getByRole("button", { name: /Claude Code/ }));
+    const { container } = renderLanding(fakeBridge());
+    // 合并 pill → Agent 行 → 下钻 → 内置 Codex。
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    fireEvent.click(mtRow("Agent"));
     fireEvent.click(screen.getByRole("menuitem", { name: /^Codex$/ }));
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "go" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
@@ -320,8 +332,9 @@ describe("NewSessionLanding agent 选择(U3)", () => {
   });
 
   it("选派生 my-cx → 新会话 agent=base(codex) + derivedAgentId=my-cx", async () => {
-    renderLanding(fakeBridge());
-    fireEvent.click(screen.getByRole("button", { name: /Claude Code/ }));
+    const { container } = renderLanding(fakeBridge());
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    fireEvent.click(mtRow("Agent"));
     fireEvent.click(screen.getByRole("menuitem", { name: /我的CX/ }));
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "go" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));

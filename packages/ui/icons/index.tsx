@@ -166,6 +166,13 @@ export const Icon = {
       <path d="M17 9v8h-8" />
     </IconBase>
   ),
+  // ArrowUp：正向上箭头（↑）。composer 圆形发送按钮专用，区别于右向的 Send（后者用于「发送到 Chat」等菜单语义）。
+  ArrowUp: (p: IconProps) => (
+    <IconBase {...p} sw={p?.sw ?? 2}>
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
+    </IconBase>
+  ),
   Run: (p: IconProps) => (
     <IconBase {...p}>
       <polygon points="7 5 19 12 7 19 7 5" />

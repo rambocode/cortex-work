@@ -52,7 +52,7 @@
 
   /* macOS 侧栏 vibrancy 叠色:在原生「sidebar」磨砂材质上覆一层主题色,既保证文字对比度,
      又留出透明度让桌面壁纸透出并随之自适应。仅 :root[data-vibrancy="sidebar"] 启用(见 §Sidebar vibrancy)。 */
-  --bg-sidebar-glass: color-mix(in srgb, var(--bg-sidebar) 36%, transparent);
+  --bg-sidebar-glass: color-mix(in srgb, #ffffff 74%, transparent);
 
   --mono: "SF Mono", "JetBrains Mono", "Menlo", ui-monospace, "Cascadia Mono", monospace;
 
@@ -234,11 +234,6 @@ input, textarea { font: inherit; color: inherit; }
    .pw-sh 有 14px 上内边距,align-self:flex-start 只能贴到内容盒顶(=14px),故用等量负上边距
    抵消,把控制组拉回窗口 y=0 → 图标中心回到 ≈19px,与红绿灯及 .pw-center-head 折叠态一致。 */
 .pw-sh .pw-sb-ctrls { align-self: flex-start; margin-top: -14px; }
-/* 展开态的侧栏是浮起卡片(顶部 margin = --pw-float-gap),头顶被下推该距离 → 控制组上移同样距离,
-   让图标中心回到绝对坐标 ≈19px,与 OS 红绿灯(trafficLightPosition y:13)及折叠态对齐。仅 macOS 原生标题栏。 */
-.app-frame[data-native-titlebar="mac"] .pw-sidebar-head .pw-sb-ctrls {
-  transform: translateY(calc(-1 * var(--pw-float-gap)));
-}
 
 /* ---------- 会话视图中栏顶栏:会话标题块 + Agent 选择器（标题上移自旧 chat-head,见设计稿） ----------
    覆盖 .pw-col-head 的固定 44px 高度/内边距:高度随内容(含项目路径行)自适应。 */
@@ -423,47 +418,56 @@ input, textarea { font: inherit; color: inherit; }
 /* ---------- Body ---------- */
 .body { flex: 1; display: flex; min-height: 0; }
 
-/* 个人工作区(独有 .pw-main):中栏铺满做底,左右栏浮起为卡片。
-   .body 底色 = --bg-app(中栏同色),卡片外边距透出此底,即「中栏铺底、左右浮其上」。 */
+/* 个人工作区(独有 .pw-main):中栏铺满做底,右栏浮起为卡片(左栏已改回贴边通栏,见 .sidebar)。
+   .body 底色 = --bg-app(中栏同色),右栏卡片外边距透出此底,即「中栏铺底、右栏浮其上」。 */
 .body:has(.pw-main) { background: var(--bg-app); }
-.body:has(.pw-main) > .sidebar {
-  border-right: none;
-  margin: var(--pw-float-gap);
-  border-radius: var(--pw-float-radius);
-  box-shadow: var(--pw-float-shadow);
-  overflow: hidden;
-}
 
 /* ---------- Sidebar ---------- */
 .sidebar {
   width: 288px;
   flex-shrink: 0;
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+/* 个人工作区左栏定制:去掉列头底部的顶部分隔线(顶部不再有线),右缘 1px 线外补一条
+   向中栏内扩散的投影(加大模糊半径与扩散距离,拉开侧栏与中栏的层次)。
+   仅个人工作区生效,经典布局的 .sidebar / .pw-col-head 不受影响。 */
+.body:has(.pw-main) > .sidebar {
+  /* 投影要落在中栏之上:同层叠上下文中 DOM 靠后的 .pw-main 不透明白底会盖住先绘制兄弟的
+     box-shadow,故侧栏需 position+z-index 自建层叠层级,让投影绘到中栏白底之上。 */
+  position: relative;
+  z-index: 1;
+  box-shadow: 2px 0 12px -6px rgba(20, 18, 12, 0.18);
+}
+.body:has(.pw-main) .pw-sidebar-head {
+  border-bottom: none;
 }
 
 /* ---------- §Sidebar vibrancy(macOS 原生磨砂半透明)----------
    仅 macOS 桌面端启用:主进程给 BrowserWindow 设 vibrancy:'sidebar'(见 apps/desktop/src/main/index.ts),
    渲染端在 macOS 给 <html> 挂 data-vibrancy="sidebar"(见 apps/desktop/src/renderer/src/App.tsx)。
    原理:原生 vibrancy 材质铺在窗口最底层,要透出必须让侧栏背后整条背景链都透明。这里把
-   html→body→.app-frame→.app→.body 在「个人工作区」下打透,再把不透明底色补回主内容区 .pw-main,
-   于是只有左侧菜单栏(及其浮起留白)透出桌面壁纸的磨砂,中/右栏维持不透明。
+   html→body→.app-frame→.app 在「个人工作区」下打透,再把不透明底色补回主内容区 .pw-main;
+   左半区(.body 与侧栏卡片)不直接透材质原色——「sidebar」材质本身是灰底,直透会显脏——
+   而是统一叠一层高透白霜(74% 白),视觉上接近白色磨砂、仍随壁纸明暗轻微变化。
    用 :has(.pw-main) 限定个人工作区:经典布局(无 .pw-main)与 Web 端(从不设 data-vibrancy)均不受影响。 */
 :root[data-vibrancy="sidebar"]:has(.pw-main),
 :root[data-vibrancy="sidebar"] body:has(.pw-main),
 :root[data-vibrancy="sidebar"] .app-frame:has(.pw-main),
-:root[data-vibrancy="sidebar"] .app:has(.pw-main),
-:root[data-vibrancy="sidebar"] .body:has(.pw-main) {
+:root[data-vibrancy="sidebar"] .app:has(.pw-main) {
   background: transparent;
+}
+/* 左半区打底白霜:透出 vibrancy 材质的区域(右栏浮卡留白等)不再露出灰色材质原色,统一为磨砂白。 */
+:root[data-vibrancy="sidebar"] .body:has(.pw-main) {
+  background: var(--bg-sidebar-glass);
 }
 /* 主内容区重新铺不透明底,把磨砂约束在左侧菜单栏区域,不蔓延到中/右栏。 */
 :root[data-vibrancy="sidebar"] .pw-main {
   background: var(--bg-app);
 }
-/* 左侧菜单栏:半透明叠色,透出底层 vibrancy 材质(桌面壁纸的磨砂),随壁纸明暗自适应。 */
+/* 左侧菜单栏:白霜叠色,透出底层 vibrancy 材质的模糊感,随壁纸明暗自适应。 */
 :root[data-vibrancy="sidebar"] .body:has(.pw-main) > .sidebar {
   background: var(--bg-sidebar-glass);
 }
@@ -1379,7 +1383,9 @@ input, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--border);
   background: var(--bg-app);
   border-radius: 14px;
-  box-shadow: 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04);
+  /* 默认悬浮阴影:让输入框从背景中微微浮起;聚焦态只加深边框,不再叠加光环 */
+  box-shadow: 0 1px 2px rgba(20,18,12,0.05), 0 8px 24px rgba(20,18,12,0.08);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   padding: 4px 4px 4px 4px;
   display: flex;
   flex-direction: column;
@@ -1418,7 +1424,8 @@ input, textarea { font: inherit; color: inherit; }
 .composer .send {
   width: 32px; height: 32px;
   flex: 0 0 32px;
-  border-radius: 8px;
+  /* 圆形发送按钮:配合 ArrowUp 图标,对齐主流 AI 输入框形态 */
+  border-radius: 50%;
   background: #7c5cff; color: #fff;
   display: flex; align-items: center; justify-content: center;
 }
@@ -3227,6 +3234,7 @@ input, textarea { font: inherit; color: inherit; }
 [data-density="compact"] .agent-log { padding: 8px 10px; }
 [data-density="compact"] .agent-log ul { gap: 5px; }
 [data-density="compact"] .composer-wrap { padding: 6px 32px 10px; }
+[data-density="compact"] .pw-askq { width: calc(100% - 64px); }
 [data-density="compact"] .composer .input-area { padding: 6px 10px 3px; }
 
 [data-density="cozy"] .sb-row { padding: 8px 10px; font-size: 14px; }
@@ -3245,6 +3253,7 @@ input, textarea { font: inherit; color: inherit; }
 [data-density="cozy"] .agent-log { padding: 12px 14px; }
 [data-density="cozy"] .agent-log ul { gap: 9px; }
 [data-density="cozy"] .composer-wrap { padding: 10px 56px 18px; }
+[data-density="cozy"] .pw-askq { width: calc(100% - 112px); }
 
 /* ──────── Tweaks: Sidebar mode ──────── */
 [data-sidebar="minimal"] .sidebar { width: 220px; }
@@ -3447,12 +3456,6 @@ button.sb-row {
 
 /* ──────── Disabled send button ──────── */
 .composer .send:disabled { cursor: not-allowed; }
-
-/* ──────── Composer focus state ──────── */
-.composer:focus-within {
-  border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.10), 0 1px 0 rgba(20,18,12,0.02), 0 4px 16px rgba(20,18,12,0.04);
-}
 
 /* ════════ Tweaks panel (floating, host-protocol-free) ════════ */
 .twk-fab {
@@ -4782,9 +4785,9 @@ button.sb-row {
   max-width: 100%;
 }
 
-/* 模型 + 推理 合并 pill(Image #3):触发器 + 上弹菜单 + 模型右侧子菜单。 */
-/* overflow:visible 覆盖 pw-model-pill 的 overflow:hidden —— 否则上弹菜单(bottom:100%)被裁剪,
-   表现为「点了没反应」。触发器自身用 text-overflow 截断长模型名,无需 pill 裁剪。 */
+/* agent(可选)+ 模型 + 推理 合并 pill(Image #3):触发器 + 上弹单面板行式下钻菜单。 */
+/* overflow:visible 覆盖 pw-model-pill 的 overflow:hidden —— 否则弹出菜单(下弹 + 右侧二级)
+   被裁剪,表现为「点了没反应」。触发器自身用 text-overflow 截断长模型名,无需 pill 裁剪。 */
 .pw-mt-pill { position: relative; overflow: visible; }
 .pw-mt-trigger {
   display: inline-flex;
@@ -4804,6 +4807,43 @@ button.sb-row {
 .pw-mt-trigger:disabled { cursor: default; opacity: 0.6; }
 .pw-mt-reason { color: var(--text-3); }
 .pw-mt-trigger .chev { color: var(--text-3); flex: 0 0 auto; }
+/* 触发器内 agent 小头像(opt-in,落地页):「背景色 + 首字符」模型同 .pw-sh-agent-avatar,
+   尺寸略大一号以充当 pill 的视觉锚点。 */
+.pw-mt-avatar {
+  width: 18px; height: 18px; border-radius: 5px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 9px; font-weight: 700; letter-spacing: 0.02em;
+  margin-right: 2px;
+}
+/* 一级行(Agent / 模型 / 推理):标签在左,当前值 + › 在右、次要色,超长省略。
+   行包裹层是二级 flyout 的定位锚,也是「行 → flyout」的连续 hover 域。 */
+.pw-mt-row-wrap { position: relative; }
+.pw-mt-row { justify-content: space-between; gap: 16px; }
+/* 须用 (0,2,0) 压过 .pw-tb-menu-item span { flex:1 } 的 (0,1,1),否则值列会被均分拉伸。 */
+.pw-mt-row .pw-mt-row-value {
+  flex: 0 1 auto;
+  display: inline-flex; align-items: center; gap: 2px;
+  min-width: 0; overflow: hidden;
+  color: var(--text-3);
+}
+.pw-mt-row .pw-mt-row-value > svg { flex: none; }
+/* 二级 flyout:默认在所属行的右侧展开、顶缘与行对齐(4px 内边距 + 1px 边框的补偿);
+   右侧空间不足时组件实测溢出并补 --left 类翻到左侧(见 ModelThinkingPill 的 layoutEffect)。
+   用 .pw-mt-pill 前缀提升特异性压过 .pw-tb-menu 的默认 top/right 定位。 */
+.pw-mt-pill .pw-mt-sub {
+  top: -5px;
+  left: calc(100% + 4px);
+  right: auto;
+  bottom: auto;
+  min-width: 180px;
+  background: var(--bg-app);
+  z-index: 210;
+}
+/* 翻左变体:与上条同特异性、定义在后,冲突属性(left/right)以后者为准。 */
+.pw-mt-pill .pw-mt-sub--left {
+  left: auto;
+  right: calc(100% + 4px);
+}
 /* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。
    用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
    故必须用 (0,2,0) 选择器确保左对齐/背景/层级生效。 */
@@ -4814,9 +4854,8 @@ button.sb-row {
   font-size: 11px;
   color: var(--text-3);
 }
-/* 模型层:单面板下钻(原地替换一级内容)。「返回」头 + 列表;列表限高内部滚动承载长模型列表/
-   后续搜索;长模型名(如 pi 的「Prov · Model」)省略号截断,避免过宽。 */
-.pw-mt-back { color: var(--text-2); }
+/* 模型二级列表:限高内部滚动承载长模型列表/后续搜索;长模型名(如 pi 的「Prov · Model」)
+   省略号截断,避免过宽。 */
 .pw-mt-models { max-height: 280px; overflow-y: auto; }
 .pw-mt-models .pw-tb-menu-item span {
   min-width: 0;
@@ -6027,7 +6066,9 @@ button.sb-row {
 .pw-customize-pill.is-warn,
 .pw-customize-pill.is-warn > span { color: var(--perm-warn, #e5602c); }
 /* 权限选择菜单:标题问句 + 两行式档位项,需容纳副标题说明,加宽。 */
-.pw-perm-menu { min-width: 300px; padding: 6px; }
+/* 宽度按最长副标题(「可不受限制地访问互联网和您电脑上的任何文件」约 22 字)单行容纳:
+   文案 ~264px + 图标/间距/内边距/选中勾,300px 会折行,340px 刚好一行。 */
+.pw-perm-menu { min-width: 340px; padding: 6px; }
 .pw-perm-menu-title {
   padding: 6px 10px 8px;
   font-size: 12.5px;
@@ -6749,10 +6790,12 @@ button.sb-row {
 }
 
 /* askquestion 富卡片（输入框上方,非模态）。多组顶部 tab 切换 + 推荐项 + 自定义输入 + 整卡一次提交。
-   宽度对齐输入框（与 .composer-wrap 同 40px 侧距,不超过输入框）,背景纯白,tab active 用主题色。
+   宽度对齐输入框:与 .composer 同 728px 上限 + 居中,窄屏时退回 40px 侧距,任何屏宽下都不超出输入框。
    头部身份行(? 图标 + 「向你提问」+ 进度 + ✕)让卡片可辨识为「等待作答」,浮起阴影与消息流区隔。 */
 .pw-askq {
-  margin: 6px 40px 0;
+  margin: 6px auto 0;
+  width: calc(100% - 80px);
+  max-width: 728px;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg-app);
@@ -8509,10 +8552,10 @@ button.sb-row {
    顶部光晕不画在 750px 的 hero 盒子上(会被裁成硬边矩形),而是铺在全宽滚动容器
    .pw-home 背景上(见下方 .pw-landing .pw-home),从顶部锚定向下渐隐、四周径向羽化。 */
 .pw-hero {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 6px;
-  padding: 44px 0 16px;
-  text-align: center;
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  gap: 20px;
+  padding: 20px 0 12px;
+  text-align: left;
 }
 /* 顶部羽化光晕:铺在整个中栏 .pw-center-col 背景(仅落地页时,用 :has 限定),透过透明的标题栏、
    「新会话」栏与看板从窗口最顶端连续向下发散。椭圆中心锚在顶部上方,向下/向两侧渐隐到透明、
@@ -8529,22 +8572,23 @@ button.sb-row {
    分隔线,「个人工作区」标题浮在光晕上、与顶部连成一片(会话页标题栏不受影响)。 */
 .pw-landing { background-color: transparent; }
 .pw-center-col:has(.pw-landing) > .pw-center-head { border-bottom-color: transparent; }
-/* 水母 SVG：viewBox 440×560,按宽度等比缩放;drop-shadow 在水母自身 halo 之外再补一层柔光。 */
+/* 水母 SVG：viewBox 已裁到内容包围盒(410×516),按宽度等比缩放;drop-shadow 在水母自身 halo 之外再补一层柔光。 */
 .pw-hero-jelly {
-  width: 180px;
+  width: 128px;
   height: auto;
   display: block;
-  filter: drop-shadow(0 14px 30px color-mix(in srgb, #6a8bff 34%, transparent));
+  filter: drop-shadow(0 10px 24px color-mix(in srgb, #6a8bff 34%, transparent));
 }
-/* 文案包裹层：支持 fade 动画切换（30 分钟轮换时淡出→换内容→淡入） */
+/* 文案包裹层：横向布局下靠 logo 右侧左对齐排列;支持 fade 动画切换
+   (30 分钟轮换时淡出→换内容→淡入) */
 .pw-hero-content {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
   opacity: 1;
   transition: opacity 0.5s ease;
 }
 .pw-hero-content--out { opacity: 0; }
 .pw-hero-title {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: 30px; font-weight: 800; letter-spacing: 0.3px;
   color: var(--text-1);
 }
@@ -8556,12 +8600,15 @@ button.sb-row {
 }
 
 /* ── 落地页场景 tab + 快捷能力 chips（SceneChips） ─────────────────────────
-   替代已下线的用量日历 / 一日总结。分段 tab 走 --bg-active 选中态（与侧栏模式条同款），
+   替代已下线的用量日历 / 一日总结。场景 tab 经 renderHero 注入 Hero 文案下方(logo 右侧,
+   与标题同一左缘),此处只剩 chips 一行;分段 tab 走 --bg-active 选中态（与侧栏模式条同款），
    chips 为一行可换行的圆角按钮，配色沿用 .pw-tl-chip 体系，深浅色主题共用现有 token。 */
 .pw-scene {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 2px 0 4px;
 }
+/* Hero 文案下的场景 tab:与上方副标题留出间距,左缘与标题对齐(hero-content 左对齐) */
+.pw-hero-content .pw-scene-tabs { margin-top: 14px; }
 /* 分段 pill：外层一枚胶囊底槽，内部两个 tab 共享，选中项抬色而非描边（避免宽度跳动） */
 .pw-scene-tabs {
   display: inline-flex; align-items: center; gap: 2px;
@@ -8729,8 +8776,10 @@ button.sb-row {
 /* 落地页整体上提:日历/日报下线后看板只剩 Hero + 场景 chips,若仍让它吃满剩余高度,
    输入框会被压在窗口最底、与 chips 之间空一大片。改为看板按内容高度收缩,
    由 .pw-landing 把「看板 + 输入框 + GitBar」当一组纵向居中——输入框上移、示例行紧贴输入框。
-   看板保留 overflow-y:auto + min-height:0,窄窗口下内容超高时仍可滚动。 */
-.pw-landing { justify-content: center; }
+   看板保留 overflow-y:auto + min-height:0,窄窗口下内容超高时仍可滚动。
+   padding-bottom 补偿:纯居中在宽屏上视觉偏下,底部垫一段(随视口高度伸缩),
+   让整组在剩余空间内居中、整体上移约半档。 */
+.pw-landing { justify-content: center; padding-bottom: clamp(48px, 9vh, 120px); }
 .pw-landing-board { flex: 0 1 auto; }
 .pw-landing .pw-home {
   flex: 0 1 auto;

@@ -1,4 +1,6 @@
 // 落地页(新会话首页)的「场景 tab + 快捷能力 chips」:替代原先价值偏低的用量日历 + 一日总结。
+// renderHero 可选:落地页用它把场景 tab 注入 LandingHero 的文案下方(logo 右侧),
+// 本组件原位只留 chips 行;不传时 tab 仍渲染在 chips 上方(独立使用时的兜底形态)。
 // 两类 chip：
 //   - skill 类(演示文稿 / 设计稿 / 深度研究)：不直接提交，只经 store 的 composerInsert.skill
 //     在下方输入框预置一个 skill pill(等价用户敲 `/skill:xxx` 选中)，用户补一句主题后回车
@@ -9,6 +11,7 @@
 // 入口不该出现在一个后端根本没起来的功能上。
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -86,7 +89,7 @@ const SCENES: { key: SceneKey; chips: SceneChip[] }[] = [
   },
 ];
 
-export function SceneChips() {
+export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => ReactNode }) {
   const { t } = useTranslation("timeline");
   const tx = t as TFixed;
   const bridge = useDesktopBridge();
@@ -155,26 +158,33 @@ export function SceneChips() {
   // 这里再摆一遍是重复信息。清掉输入框里的 pill、或切换场景 tab 即恢复完整 chips。
   const focused = examples.length > 0 && composerSkill?.cmd !== suppressedSkill;
 
-  return (
-    <section className="pw-scene" aria-label={t("home.scene.title")}>
-      <div className="pw-scene-tabs" role="tablist" aria-label={t("home.scene.title")}>
-        {SCENES.map(({ key }) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={scene === key}
-            className={`pw-scene-tab ${scene === key ? "is-active" : ""}`}
-            onClick={() => {
-              setScene(key);
-              setSuppressedSkill(composerSkill?.cmd);
-            }}
-          >
-            {tx(`home.scene.${key}`)}
-          </button>
-        ))}
-      </div>
+  // 场景 tab 元素:默认渲染在本 section 顶部;落地页经 renderHero 把它注入
+  // LandingHero 的文案下方(logo 右侧),此处只留 chips 行,内容随之整体上移。
+  const tabsEl = (
+    <div className="pw-scene-tabs" role="tablist" aria-label={t("home.scene.title")}>
+      {SCENES.map(({ key }) => (
+        <button
+          key={key}
+          role="tab"
+          aria-selected={scene === key}
+          className={`pw-scene-tab ${scene === key ? "is-active" : ""}`}
+          onClick={() => {
+            setScene(key);
+            setSuppressedSkill(composerSkill?.cmd);
+          }}
+        >
+          {tx(`home.scene.${key}`)}
+        </button>
+      ))}
+    </div>
+  );
 
-      {/* 未选 skill 时是能力入口行;选中带示例的 skill 后,整行换成该 skill 的示例提示词。 */}
+  return (
+    <>
+      {renderHero?.(tabsEl)}
+      <section className="pw-scene" aria-label={t("home.scene.title")}>
+        {!renderHero && tabsEl}
+        {/* 未选 skill 时是能力入口行;选中带示例的 skill 后,整行换成该 skill 的示例提示词。 */}
       <div className="pw-scene-chips" aria-label={t("home.scene.chipsLabel")}>
         {focused
           ? examples.map((id) => {
@@ -203,6 +213,7 @@ export function SceneChips() {
               );
             })}
       </div>
-    </section>
+      </section>
+    </>
   );
 }

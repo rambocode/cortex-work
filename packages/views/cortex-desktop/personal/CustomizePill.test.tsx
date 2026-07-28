@@ -121,4 +121,20 @@ describe("CustomizePill(执行权限选择器)", () => {
     expect(container.querySelector(".pw-tb-menu--up")).toBeNull();
     expect(container.querySelector(".pw-perm-menu")).not.toBeNull();
   });
+
+  it("底部空间不足(历史会话页贴底)菜单自动翻上", () => {
+    // jsdom innerHeight 默认 768;让菜单底缘超出视口 → 应翻上。
+    const rect = {
+      right: 100, left: 0, top: 700, bottom: 2000, width: 260, height: 1300, x: 0, y: 700,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      const { container } = renderPill();
+      fireEvent.click(screen.getByLabelText("执行权限"));
+      expect(container.querySelector(".pw-perm-menu.pw-tb-menu--up")).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

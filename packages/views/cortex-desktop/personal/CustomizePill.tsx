@@ -1,6 +1,7 @@
 // Composer 底部权限选择 pill(置于「+」之后)。pill 直接显示当前执行权限档位(如「完全访问」
-// 橙色警示态),点开下弹菜单:标题问句 +「标题 + 副标题说明 + 选中勾」两行式档位项(参照
-// ChatGPT/Codex 审批选择器)。仅当外部传入 onChangeExecPermission 时渲染(由 ComposerShell 侧判断)。
+// 橙色警示态),点开菜单:标题问句 +「标题 + 副标题说明 + 选中勾」两行式档位项(参照
+// ChatGPT/Codex 审批选择器)。菜单默认下弹,底部空间不足(历史会话页 composer 贴底)自动翻上
+// (useAutoFlipUp)。仅当外部传入 onChangeExecPermission 时渲染(由 ComposerShell 侧判断)。
 // (子 agent 编排开关已升为全局设置,见 设置 → Agent。)复用 pw-tb-menu 菜单 + useDismissableMenu 关闭范式。
 
 import {
@@ -12,6 +13,7 @@ import {
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { useDismissableMenu } from "./useDismissableMenu";
+import { useAutoFlipUp } from "./useAutoFlipUp";
 
 // 各档副标题说明(菜单两行式的第二行)。
 const EXEC_DESC_KEY: Record<ExecPermission, string> = {
@@ -42,6 +44,8 @@ export function CustomizePill({
 }) {
   const { t } = useTranslation("chat");
   const menu = useDismissableMenu();
+  // 默认下弹;底部空间不足(历史会话页 composer 贴底)实测翻上,避免菜单被裁。
+  const flip = useAutoFlipUp(menu.open);
   const exec = execPermission ?? DEFAULT_EXEC_PERMISSION;
   const PillGlyph = EXEC_ICON[exec];
   const name = AGENT_LABEL[agent] ?? agent;
@@ -68,7 +72,11 @@ export function CustomizePill({
         <Icon.Chevron size={12} />
       </button>
       {menu.open ? (
-        <div className="pw-tb-menu pw-tb-menu--left pw-perm-menu" role="menu">
+        <div
+          ref={flip.menuRef}
+          className={`pw-tb-menu pw-tb-menu--left pw-perm-menu${flip.flipUp ? " pw-tb-menu--up" : ""}`}
+          role="menu"
+        >
           {/* 执行权限组:标题问句 + 两行式三档。ask 在 claude/codex 上无中途审批回路 → 降级,tooltip 标注。 */}
           {onChangeExecPermission ? (
             <>

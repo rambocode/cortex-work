@@ -25,7 +25,6 @@ import type {
   PersonalAttachment,
   ConversationArtifactRef,
 } from "@cortex-work/core";
-import { AgentSelect } from "./AgentSelect";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
 import { useDismissableMenu } from "./useDismissableMenu";
@@ -185,9 +184,9 @@ export function ComposerShell({
   onRemoveArtifact,
 }: {
   agent: AgentKind;
-  // agent 选择器(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
-  // 仅当传入 onChangeAgent 时在工具栏渲染选择器;会话内 PersonalComposer 不传 → 不渲染
-  // (会话头 PersonalTopBar 已有选择器,避免重复)。
+  // agent 选择(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
+  // 传入 onChangeAgent 时并入合并 pill(头像 + 面板 Agent 行);会话内 PersonalComposer 不传
+  // → pill 退化为「模型 + 推理」(会话头 PersonalTopBar 已有选择器,避免重复)。
   derivedAgentId?: string;
   derivedAgents?: DerivedAgentMeta[];
   agentsAvailable?: Partial<Record<AgentKind, boolean>>;
@@ -216,7 +215,7 @@ export function ComposerShell({
   onStop?: () => void;
   /** pi 运行中插话:把引导注入当前轮（仅 pi + 提供时启用;非 pi/单发不传 → 运行中只能停止）。 */
   onSteer?: (text: string) => void;
-  /** agent 切换(opt-in):提供则在工具栏渲染 AgentSelect。derived 存在表示切到派生 agent。 */
+  /** agent 切换(opt-in):提供则合并 pill 带 agent 头像 + 面板 Agent 下钻行。derived 存在表示切到派生 agent。 */
   onChangeAgent?: (agent: AgentKind, derived?: DerivedAgentMeta) => void;
   onChangeModel: (model: string) => void;
   // pi 多供应商:同时切换 provider 与模型。
@@ -1054,19 +1053,9 @@ export function ComposerShell({
             </button>
           ) : null}
           <div className="spacer" />
-          {/* agent 选择器(opt-in):仅新会话落地页传 onChangeAgent 时渲染,置于模型 pill 前;
-              会话内不传 → 不渲染(会话头已有选择器)。 */}
-          {onChangeAgent ? (
-            <AgentSelect
-              agent={agent}
-              derivedAgentId={derivedAgentId}
-              agentsAvailable={agentsAvailable}
-              derivedAgents={derivedAgents}
-              onSwitch={onChangeAgent}
-              menuPlacement="up"
-            />
-          ) : null}
-          {/* 模型 + 推理强度合并为单个 pill(Image #3),减少占用。 */}
+          {/* agent + 模型 + 推理强度合并为单个 pill(Image #3 行式下钻)。
+              agent 维度 opt-in:仅新会话落地页传 onChangeAgent 时,pill 才有 agent 头像与
+              面板的 Agent 下钻行;会话内不传 → 退化为「模型 + 推理」(会话内切换在顶栏)。 */}
           <ModelThinkingPill
             isPi={isPi}
             models={models}
@@ -1079,12 +1068,17 @@ export function ComposerShell({
             resolvedThinkingValue={resolvedThinkingValue}
             onChangeThinking={onChangeThinking}
             disabled={isPi ? piModelOptions.length === 0 : models.length === 0}
+            agent={agent}
+            derivedAgentId={derivedAgentId}
+            agentsAvailable={agentsAvailable}
+            derivedAgents={derivedAgents}
+            onSwitchAgent={onChangeAgent}
           />
           {running ? (
             <>
               {canSteer && text.trim() ? (
                 <button className="send" onClick={steer} title={t("composer.steerSend")}>
-                  <Icon.Send size={15} />
+                  <Icon.ArrowUp size={15} />
                 </button>
               ) : null}
               <button className="send pw-stop-btn" onClick={onStop} title={t("composer.stop")}>
@@ -1098,7 +1092,7 @@ export function ComposerShell({
               disabled={(!text.trim() && images.length === 0) || sending}
               title={t("composer.send")}
             >
-              <Icon.Send size={15} />
+              <Icon.ArrowUp size={15} />
             </button>
           )}
         </div>

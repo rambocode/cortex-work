@@ -12,8 +12,8 @@ import { SceneChips } from "./SceneChips";
 export function HomeBoard() {
   return (
     <div className="pw-home">
-      <LandingHero />
-      <SceneChips />
+      {/* 场景 tab 注入 Hero 文案下方(logo 右侧),chips 行留在 Hero 之下并随之上移 */}
+      <SceneChips renderHero={(tabs) => <LandingHero tabs={tabs} />} />
     </div>
   );
 }

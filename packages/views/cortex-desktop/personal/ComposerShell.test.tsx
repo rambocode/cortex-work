@@ -931,21 +931,31 @@ describe("ComposerShell agent 选择器(opt-in)", () => {
     );
   }
 
-  it("传 onChangeAgent → 工具栏渲染 agent 选择器,点击派生项触发回调", () => {
+  it("传 onChangeAgent → 合并 pill 触发器含头像,下钻 agent 层点派生项触发回调", () => {
     const onChangeAgent = vi.fn();
-    renderWithAgentProps(onChangeAgent);
-    const trigger = screen.getByRole("button", { name: /Claude Code/ });
-    expect(trigger).toBeTruthy();
+    const { container } = renderWithAgentProps(onChangeAgent);
+    const trigger = container.querySelector(".pw-mt-trigger")!;
+    // agent 选择已并入模型/推理 pill:触发器带 agent 小头像,不再有独立的「Agent」标签 + pill。
+    expect(trigger.querySelector(".pw-mt-avatar")).not.toBeNull();
     fireEvent.click(trigger);
-    // composer 工具栏在底部 → 菜单向上弹出,避免被 GitBar/终端遮挡。
-    expect(document.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
+    // 菜单向下弹出(不带 --up 变体),二级 flyout 由 CSS 定在行的右侧。
+    expect(document.querySelector(".pw-tb-menu.pw-mt-menu:not(.pw-tb-menu--up)")).not.toBeNull();
+    // 根层 → Agent 行 → 下钻 → 派生项。
+    const agentRow = [...document.querySelectorAll<HTMLButtonElement>(".pw-mt-menu .pw-tb-menu-item")].find(
+      (b) => b.textContent?.includes("Agent"),
+    )!;
+    fireEvent.click(agentRow);
     fireEvent.click(screen.getByRole("menuitem", { name: /我的CX/ }));
     expect(onChangeAgent).toHaveBeenCalledWith("codex", { id: "my-cx", base: "codex", label: "我的CX" });
   });
 
-  it("不传 onChangeAgent(会话内)→ 不渲染 agent 选择器", () => {
+  it("不传 onChangeAgent(会话内)→ pill 无头像、面板无 Agent 行", () => {
     const { container } = renderWithAgentProps(undefined);
-    expect(container.querySelector(".pw-sh-agent")).toBeNull();
+    const trigger = container.querySelector(".pw-mt-trigger")!;
+    expect(trigger.querySelector(".pw-mt-avatar")).toBeNull();
+    fireEvent.click(trigger);
+    const texts = [...container.querySelectorAll(".pw-mt-menu .pw-tb-menu-item")].map((b) => b.textContent ?? "");
+    expect(texts.some((t) => t.includes("Agent"))).toBe(false);
   });
 });
 

@@ -3,7 +3,10 @@
 // 无 LLM 文案(web/未配默认 agent/生成中/失败)时回退静态精选池(pickEncouragement)。
 // 停留在落地页时每 30 分钟自动调用默认 agent 刷新文案,用 fade 动画切换。
 // 水母为 Cortex 视觉化身,见 ./Jellyfish。
+// tabs:可选的场景 tab 槽位(日常办公/设计创意,由 SceneChips 经 render prop 注入),
+// 渲染在副标题下方,与标题/副标题同一条左缘。
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   buildEncouragePrompt,
   completeWithDefaultAgent,
@@ -18,7 +21,7 @@ import { pickEncouragement } from "./encouragements";
 const ROTATE_MS = 30 * 60 * 1000; // 30 分钟轮换一次
 const FADE_MS = 500;               // 淡出/淡入各 500ms
 
-export function LandingHero() {
+export function LandingHero({ tabs }: { tabs?: ReactNode }) {
   const bridge = useDesktopBridge();
   const daily = useDailyEncouragement();
   // 仅对已配置默认 agent 的用户启用定时轮换（与 useDailyEncouragement 的 opt-in 策略一致）
@@ -65,6 +68,7 @@ export function LandingHero() {
       <div className={`pw-hero-content${visible ? "" : " pw-hero-content--out"}`}>
         <h1 className="pw-hero-title">{current.title}</h1>
         <p className="pw-hero-sub">{current.sub}</p>
+        {tabs}
       </div>
     </section>
   );
