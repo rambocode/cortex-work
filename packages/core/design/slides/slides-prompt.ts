@@ -20,6 +20,8 @@ import {
   formatSlidesTextFilesForPrompt,
   type SlidesTextFile
 } from './slides-text-files'
+import type { SlidesConversationTurn } from './slides-turn-dispatch'
+import type { SlidesOutline } from './slides-types'
 
 /** deck 阶段 → 该回合该做什么(与 deck.meta.json 的 stage 对齐)。 */
 export type SlidesTurnStage = 'draft' | 'outline-proposed' | 'outline-approved' | 'ready'
@@ -152,4 +154,30 @@ export function buildSlidesTurnPrompt(options: BuildSlidesTurnPromptOptions): st
   // 用户原话原样透传(不翻译),仍固定在末尾以命中 prompt 缓存。
   parts.push(`User request:\n${options.text.trim()}`)
   return parts.join('\n\n')
+}
+
+/**
+ * 「批准提纲」回流到聊天会话的一轮(会话产物入口专用,见 slides-turn-dispatch)。
+ *
+ * 与 buildSlidesTurnPrompt 的分工:那条是设计工作台自己的回合,整份 prompt(含 bento 合同)
+ * 由渲染端拼;会话入口的合同已由 `/skill:slides` 的 skill 正文给过,这里只补「阶段该干什么」
+ * 与「批准后的提纲长什么样」。
+ *
+ * 拆成 text / systemPrompt 两段的原因:text 会原样出现在会话流里(它就是那条用户消息),
+ * 塞进几 KB 的提纲 JSON 既是噪音,还会被会话标题派生逻辑取用。
+ */
+export function buildSlidesApprovedTurn(options: {
+  outline: Omit<SlidesOutline, 'approvedAt'>
+  /** 会话流里显示的那句话(由调用方经 i18n 给出;prompt 正文不做本地化的惯例只适用于合同段)。 */
+  text: string
+}): SlidesConversationTurn {
+  const { outline } = options
+  return {
+    text: options.text,
+    systemPrompt: [
+      STAGE_INSTRUCTION['outline-approved'],
+      // 用户可能在弹层里就地改过标题/要点,故以传入的这份为准(不要回读 agent 的原草案)。
+      `Approved outline (user may have edited it in the UI — this version wins):\n${JSON.stringify(outline, null, 2)}`
+    ].join('\n\n')
+  }
 }

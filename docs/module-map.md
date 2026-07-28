@@ -41,7 +41,7 @@
 | Agent 项目扫描（本机项目聚合） | — | — | `ipc/agent-projects.ts` |
 | 写作 / 写作台 | `writing/`（`WritingWorkspace.tsx` 三栏容器） | `writing/` | `ipc/writing-*.ts`（见下文写作域） |
 | 设计 / 会话产物 / 画布 | `personal/artifactDispatch.ts`、`design/ArtifactEditorPanel.tsx`、`design/DesignWorkspaceView.tsx`、`design/canvas/` | `personal/messages.ts`（产物 resume 隔离）、`design/`（子域见下文 core 表） | `ipc/artifact.ts`、`ipc/artifact-workspace.ts`、`ipc/design-types.ts` |
-| 演示文稿 / Slides / 放映 | `design/ArtifactEditorPanel.tsx`、`design/slides/SlidesWorkspace.tsx` | `design/slides/`（含 `bento/`、`slides-text-files.ts`） | `ipc/artifact.ts`、`ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
+| 演示文稿 / Slides / 放映 | `design/ArtifactEditorPanel.tsx`、`design/slides/SlidesWorkspace.tsx`、`design/useSlidesConversationTurn.ts`（面板动作回流发起会话） | `design/slides/`（含 `bento/`、`slides-text-files.ts`、`slides-turn-dispatch.ts` 回合派发端口） | `ipc/artifact.ts`、`ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
 | 研究 / 深度研究（CRE） | `research/`（`ResearchArtifactPanel.tsx` 右栏面板 + `ResearchRunView` 等子组件；入口是会话 `/skill:research`，派发在 `personal/researchDispatch.ts`，已无整窗覆盖层） | `research/` | `research/`（引擎，报告归档见 `research/report-archive.ts`）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
 | 任务 | `personal/TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx` | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
 | 项目管理 / 项目阶段（独立窗口） | `personal/ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx` | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |

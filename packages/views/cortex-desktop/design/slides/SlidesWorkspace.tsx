@@ -3,13 +3,17 @@
 // 右侧 Agent 会话栏仍由 DesignWorkspace 统一渲染。
 // 生命周期:挂载 setup(load/补建 deck)→ AI 回合中轮询 refresh(MCP 直接写盘,无推送)
 // → stage 变 outline-proposed 时自动弹提纲批准 → 批准后按占位页派发分批生成指令。
-import { useEffect, useRef, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { useDesktopBridge } from '@cortex-work/core/provider'
 import type { SlidesOutline } from '@cortex-work/core/design/slides/slides-types'
 import { sendDesignMessage } from '@cortex-work/core/design/run/design-run-manager'
-import { buildSlidesTurnPrompt } from '@cortex-work/core/design/slides/slides-prompt'
+import {
+  buildSlidesApprovedTurn,
+  buildSlidesTurnPrompt
+} from '@cortex-work/core/design/slides/slides-prompt'
+import { resolveSlidesTurnDispatcher } from '@cortex-work/core/design/slides/slides-turn-dispatch'
 import { matchesSlidesDeckChange } from '@cortex-work/core/design/slides/slides-deck-activity'
 import { useChatStore } from '@cortex-work/core/design/compat/chat-store'
 import { SlidesOutlineDialog } from './SlidesOutlineDialog'
@@ -48,6 +52,9 @@ export function SlidesWorkspace({
   const outlineDialogOpen = useBentoSlidesStore((s) => s.outlineDialogOpen)
   // 右栏设计对话的 busy 态:agent 经 MCP 直接写盘,渲染端无推送,借 busy 驱动轮询刷新。
   const agentBusy = useChatStore((s) => s.busy)
+  // 批准结果没能发回会话(会话被删/等待超时)时的兜底提示:此时 deck 已进 outline-approved,
+  // 占位页也建好了,但没有任何 agent 在跑 —— 不提示的话用户会一直干等。
+  const [relayFailed, setRelayFailed] = useState(false)
 
   // deck 切换/挂载时初始化 store;bridge 缺失(web 端)时 setup 内部降级为不可用错误。
   useEffect(() => {
@@ -92,7 +99,18 @@ export function SlidesWorkspace({
 
   // 批准动作已在主进程建立同页数占位骨架;随后把用户编辑后的提纲并入本轮,
   // AI 按既有 slide id 分批 set_slides,每批写盘都会在画布与右侧时间线即时可见。
+  //
+  // 续跑指令发给谁取决于宿主(见 slides-turn-dispatch):会话产物面板注册过派发器 → 回流
+  // 左侧那条会话(活本来就是它的 agent 干的);独立设计工作台无派发器 → 仍走 design run。
   const handleOutlineApproved = (outline: Omit<SlidesOutline, 'approvedAt'>): void => {
+    const conversation = resolveSlidesTurnDispatcher({ workspaceRoot, deckId: documentId })
+    if (conversation) {
+      setRelayFailed(false)
+      void conversation.send(
+        buildSlidesApprovedTurn({ outline, text: t('slidesApprovedConversationMessage') })
+      ).then((ok) => setRelayFailed(!ok))
+      return
+    }
     void sendDesignMessage(
       buildSlidesTurnPrompt({
         text: `${t('slidesGenerateApprovedPrompt')}\n\n批准的提纲(用户可能已就地修改,以此为准):\n${JSON.stringify(outline, null, 2)}`,
@@ -143,6 +161,14 @@ export function SlidesWorkspace({
         onPresent={handlePresent}
         hideActions={chromeless}
       />
+      {relayFailed ? (
+        <div
+          data-testid="slides-approval-relay-failed"
+          className="shrink-0 bg-[#c0392b]/10 px-3 py-1.5 text-[12px] text-[#c0392b] dark:text-[#f0a0a0]"
+        >
+          {t('slidesApprovedRelayFailed')}
+        </div>
+      ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <SlidesStage workspaceRoot={workspaceRoot} deckId={documentId} />
         {outlineDialogOpen ? <SlidesOutlineDialog onApproved={handleOutlineApproved} /> : null}

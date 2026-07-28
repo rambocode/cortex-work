@@ -1097,6 +1097,8 @@ export default interface Resources {
     "slidesAnimationTriggerAuto": "自动依次",
     "slidesAnimationTriggerLabel": "本页入场触发",
     "slidesAnimationTriggerStepped": "按键逐个",
+    "slidesApprovedConversationMessage": "已批准提纲,请按提纲逐页生成幻灯片。",
+    "slidesApprovedRelayFailed": "未能把批准结果发回对话,请在左侧对话里回复「继续生成」。",
     "slidesBold": "加粗",
     "slidesCancel": "取消",
     "slidesCheck": "检查",

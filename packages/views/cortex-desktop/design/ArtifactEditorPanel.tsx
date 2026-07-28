@@ -4,6 +4,7 @@ import { useDesktopBridge } from "@cortex-work/core";
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 import { installDesignRuntime } from "@cortex-work/core/design/run/design-run-manager";
 import { DesignWorkspaceView } from "./DesignWorkspaceView";
+import { useSlidesConversationTurn } from "./useSlidesConversationTurn";
 
 interface ArtifactWorkspaceSwitch {
   workspaceRoot: string;
@@ -29,6 +30,8 @@ export function ArtifactEditorPanel({
   const switchActiveDocument = useDesignWorkspaceStore((state) => state.switchActiveDocument);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  // 面板内的动作(提纲审批)要发回打开该产物的会话,而不是设计工作台的隐形对话。
+  useSlidesConversationTurn(artifact);
 
   useEffect(() => {
     let cancelled = false;

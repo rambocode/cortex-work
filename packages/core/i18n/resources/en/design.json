@@ -508,6 +508,8 @@
   "slidesCheckSeverity_warning": "Warning",
   "slidesCheckSeverity_info": "Info",
   "slidesGenerateApprovedPrompt": "The outline is approved and the system has created every placeholder page. Call get_deck_state for the latest revision and existing slide ids, then generate at most 3 pages per set_slides call. Pass each response's nextExpectedRevision into the next batch until remainingPages is empty and stage=ready. Do not call set_deck_doc during generation. Report briefly after every page is written.",
+  "slidesApprovedConversationMessage": "Outline approved — generate the slides page by page.",
+  "slidesApprovedRelayFailed": "Could not send the approval back to the chat; reply \"continue\" in the conversation on the left.",
   "slidesRetrySlidePrompt": "Slide {{index}} (slot {{slotId}}) previously failed or needs a redo. Call get_deck_state for the latest revision and regenerate only this slot with place_slide_html (1280×720). Do not touch other slides.",
   "designOpenExternal": "Open in browser",
   "designOperationJournalAffected": "{{count}} affected",

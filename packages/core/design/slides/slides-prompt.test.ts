@@ -2,7 +2,7 @@
 // 提纲 gate 表述一致、静态前缀在前(prompt 缓存)、无旧 slot 体系残留。
 // prompt 文案统一英文(用户要求);用户原话按原语言透传。
 import { describe, expect, it } from 'vitest'
-import { buildSlidesTurnPrompt } from './slides-prompt'
+import { buildSlidesApprovedTurn, buildSlidesTurnPrompt } from './slides-prompt'
 
 describe('buildSlidesTurnPrompt(bento 合同)', () => {
   it('总是给出 bento 文档合同:格式/工具/乐观锁/画布', () => {
@@ -202,6 +202,43 @@ describe('buildSlidesTurnPrompt(文本附件)', () => {
     const without = buildSlidesTurnPrompt({ text: 'x', stage: 'ready' })
     expect(withFiles.slice(0, withFiles.indexOf('Attached files'))).toBe(
       without.slice(0, without.indexOf('User request:'))
+    )
+  })
+})
+
+// 会话产物入口的「批准后续跑」:正文要短(它会原样显示在会话流里),阶段指令与提纲全文
+// 走 systemPrompt —— 把整份提纲 JSON 塞进会话流是噪音,还会污染会话标题。
+describe('buildSlidesApprovedTurn(会话产物入口)', () => {
+  const outline = {
+    version: 2,
+    summary: '三页产品介绍',
+    items: [
+      { id: 'o1', title: '产品概览', purpose: '定位', keyPoints: ['价值主张'] },
+      { id: 'o2', title: '核心能力', purpose: '说明', keyPoints: ['功能'] }
+    ]
+  }
+
+  it('正文原样用调用方给的人话(i18n),不夹带提纲 JSON', () => {
+    const turn = buildSlidesApprovedTurn({ outline, text: '已批准提纲,请开始生成。' })
+    expect(turn.text).toBe('已批准提纲,请开始生成。')
+    expect(turn.text).not.toContain('keyPoints')
+  })
+
+  it('systemPrompt 带 outline-approved 阶段指令与批准后的提纲全文', () => {
+    const turn = buildSlidesApprovedTurn({ outline, text: '开始生成' })
+    expect(turn.systemPrompt).toContain('set_slides')
+    expect(turn.systemPrompt).toContain('pending placeholder')
+    expect(turn.systemPrompt).toContain('产品概览')
+    expect(turn.systemPrompt).toContain('价值主张')
+  })
+
+  it('用户在弹层里改过的提纲以传入值为准(不回读草案)', () => {
+    const edited = {
+      ...outline,
+      items: [{ id: 'o1', title: '改过的标题', purpose: '定位', keyPoints: [] }]
+    }
+    expect(buildSlidesApprovedTurn({ outline: edited, text: '开始生成' }).systemPrompt).toContain(
+      '改过的标题'
     )
   })
 })
