@@ -376,6 +376,70 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     expect(container.querySelector(".pw-rp-head .pw-col-head-title")?.textContent).toBe("产物");
   });
 
+  // 放大:盖住中栏,给设计画布/演示文稿一个接近全屏的编辑面。
+  describe("产物面板放大", () => {
+    function seedArtifactSession() {
+      usePersonalStore.setState({
+        sessions: [{
+          id: "s1",
+          title: "S",
+          agent: "claude",
+          createdAt: 1,
+          updatedAt: 1,
+          activeArtifact: {
+            kind: "design",
+            documentId: "d1",
+            title: "海报",
+            workspaceRoot: "/w",
+            entryPath: "/w/.cortex-design/d1",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }],
+        activeSessionId: "s1",
+        rightView: "artifact",
+        rightPanelMaximized: false,
+      });
+      useCortexUIStore.setState({ rightOpen: true });
+    }
+
+    it("点放大切到放大态,再点还原", () => {
+      seedArtifactSession();
+      const { container } = renderPanel();
+      fireEvent.click(screen.getByTitle("放大面板"));
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+      expect(container.querySelector("aside.pw-prompts")?.className).toContain("is-maximized");
+
+      fireEvent.click(screen.getByTitle("还原面板"));
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(false);
+      expect(container.querySelector("aside.pw-prompts")?.className).not.toContain("is-maximized");
+    });
+
+    it("非产物视图不给放大按钮,且切走时自动还原(否则文件面板会莫名盖住会话)", () => {
+      seedArtifactSession();
+      const { rerender } = renderPanel();
+      fireEvent.click(screen.getByTitle("放大面板"));
+
+      usePersonalStore.setState({ rightView: "files", rightPanelMaximized: true });
+      rerender(
+        <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+          <PersonalRightPanel onToast={() => {}} />
+        </CoreProvider>,
+      );
+      expect(screen.queryByTitle("放大面板")).toBeNull();
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(false);
+    });
+
+    it("放大态盖住中栏是 CSS 契约(绝对定位铺满 .pw-upper)", () => {
+      expect(desktopCss).toMatch(
+        /\.pw-prompts\.is-maximized\s*\{[^}]*position:\s*absolute/s,
+      );
+      expect(desktopCss).toMatch(/\.pw-prompts\.is-maximized\s*\{[^}]*inset:/s);
+      // 容器必须是定位上下文,否则绝对定位会跑到 body 上。
+      expect(desktopCss).toMatch(/\.pw-upper\s*\{[^}]*position:\s*relative/s);
+    });
+  });
+
   it("产物编辑器默认宽度按 660px 中栏下限算(CSS 契约)", () => {
     // 默认宽度里必须扣掉中栏下限,否则宽屏下右栏吃掉大半、会话区被压成窄条。
     expect(desktopCss).toMatch(

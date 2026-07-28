@@ -60,6 +60,8 @@ export function PersonalRightPanel({
 }) {
   const view = usePersonalStore((s) => s.rightView);
   const width = usePersonalStore((s) => s.rightPanelWidth);
+  const maximized = usePersonalStore((s) => s.rightPanelMaximized);
+  const setMaximized = usePersonalStore((s) => s.setRightPanelMaximized);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
@@ -80,6 +82,11 @@ export function PersonalRightPanel({
     activeSession?.activeResearchSessionId ??
     researchRefs?.[researchRefs.length - 1]?.sessionId ??
     null;
+
+  // 放大只对产物编辑器开放:切到文件/Tasks 等窄面板还盖着中栏,用户会以为会话不见了。
+  useEffect(() => {
+    if (view !== "artifact" && maximized) setMaximized(false);
+  }, [maximized, setMaximized, view]);
 
   useEffect(() => {
     if (view === "artifact" && !activeArtifact) setRightOpen(false);
@@ -152,7 +159,7 @@ export function PersonalRightPanel({
 
   return (
     <aside
-      className="right pw-prompts"
+      className={`right pw-prompts${maximized ? " is-maximized" : ""}`}
       style={
         width
           ? ({ "--rp-custom-width": `${width}px` } as React.CSSProperties)
@@ -175,6 +182,15 @@ export function PersonalRightPanel({
             <div className="spacer" />
           </>
         )}
+        {view === "artifact" ? (
+          <button
+            className="pw-icon-btn"
+            title={maximized ? "还原面板" : "放大面板"}
+            onClick={() => setMaximized(!maximized)}
+          >
+            {maximized ? <Icon.Minimize size={14} /> : <Icon.Maximize size={14} />}
+          </button>
+        ) : null}
         <button className="pw-icon-btn" title="关闭面板" onClick={() => setRightOpen(false)}>
           <Icon.X size={14} />
         </button>

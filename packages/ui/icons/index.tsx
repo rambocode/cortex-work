@@ -199,6 +199,22 @@ export const Icon = {
       <path d="M20 15v5h-5" />
     </IconBase>
   ),
+  // 放大:对角两个角标(右上 + 左下),不画箭头。
+  Maximize: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 4h6v6" />
+      <path d="M10 20H4v-6" />
+    </IconBase>
+  ),
+  // 还原:Maximize 的反向 —— 角标开口朝外 + 连到画布角落的对角线,合起来是两支相向的箭头。
+  Minimize: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M20 10h-6V4" />
+      <path d="M14 10 21 3" />
+      <path d="M4 14h6v6" />
+      <path d="m3 21 7-7" />
+    </IconBase>
+  ),
   Edit: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M4 20h4l10-10-4-4L4 16v4z" />

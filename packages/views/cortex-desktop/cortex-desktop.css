@@ -3973,6 +3973,23 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
+
+/* 产物面板放大:绝对定位铺满 .pw-upper,盖住中栏。
+   为什么不是把 flex 宽度撑到 100%:那会让中栏被压到 min-width 后重排(消息气泡换行、
+   输入框控件挤成一列),收起时又要抖回来。绝对定位只是「盖上去」,中栏布局纹丝不动。
+   本规则必须排在上面几条 :has() 宽度档位之后 —— 它们特异性相同,靠源码顺序取胜。 */
+.pw-prompts.is-maximized {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  z-index: 40;
+}
+/* 放大态不可拖宽(宽度由 inset 决定,拖拽条留着只会写入一个不生效的变量)。 */
+.pw-prompts.is-maximized .pw-rp-resizer { display: none; }
+/* 浮起卡片形态下,放大态四边都要留出与其它面板一致的间隙(默认 margin-left 是 0)。 */
+.body:has(.pw-main) .pw-upper > .right.is-maximized { margin: var(--pw-float-gap); }
 .pw-artifact-editor {
   display: flex;
   flex: 1;
@@ -4981,7 +4998,7 @@ button.sb-row {
 
 /* ---------- Personal workspace: 底部终端（跨聊天区 + Prompt 库） ---------- */
 .pw-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; }
+.pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
 /* 中栏列:顶部头(.pw-col-head)固定占满首行;会话/页面在左列,执行过程区在右列占位。 */
 .pw-center-col {
