@@ -346,6 +346,7 @@ export interface PersonalState {
   setRightView: (view: RightView) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
+  setRightPanelMaximized: (maximized: boolean) => void;
   setProjectsDetailWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
