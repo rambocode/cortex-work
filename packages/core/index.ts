@@ -409,6 +409,7 @@ export {
   useRenderWindow,
   windowTailMessages,
   usePersonalActions,
+  presetSessionTitle,
   usePersonalCliEvents,
   usePersonalPiEvents,
   usePersonalPiUi,

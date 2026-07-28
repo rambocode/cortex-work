@@ -119,6 +119,37 @@ describe("conversation artifact dispatch", () => {
     });
   });
 
+  // 会话标题取自发给 agent 的文本,而 pi 走原生 slash、claude 走 prose,两种都会把
+  // 「/skill:design …」「请使用 skill「design」…」搬进标题栏(用户实测)。userText 是给
+  // 标题用的那句用户原话。
+  it("透出用户原话供会话标题使用(不含 /skill: 前缀)", async () => {
+    const result = await prepareArtifactDispatch(
+      {
+        artifactCreate: vi.fn(),
+        artifactValidate: async () => ({ ok: true as const, artifact: design }),
+        builtinSkillGet: async () => ({
+          name: "design",
+          description: "Builtin",
+          dir: "/builtin/design",
+          skillMdPath: "/builtin/design/SKILL.md",
+        }),
+      } as unknown as DesktopBridge,
+      { ...session, agent: "pi" },
+      "/skill:design   设计一张海报  ",
+    );
+
+    expect(result.userText).toBe("设计一张海报");
+  });
+
+  it("不是 skill 派发时没有 userText(普通消息的标题照旧走原路径)", async () => {
+    const result = await prepareArtifactDispatch(
+      { artifactValidate: async () => ({ ok: true as const, artifact: design }) } as unknown as DesktopBridge,
+      session,
+      "继续改一下配色",
+    );
+    expect(result.userText).toBeUndefined();
+  });
+
   it("切换产物类型时创建新产物", async () => {
     const slides = {
       ...design,

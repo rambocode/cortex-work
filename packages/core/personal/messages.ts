@@ -2399,6 +2399,17 @@ function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): v
 
 export const __autoTitleForTest = autoTitle;
 
+/// 用一句用户原话给会话占位改名(条件同 applyFallbackTitle:仍是默认标题且用户没手改过)。
+///
+/// 给「发给 agent 的文本 ≠ 用户原话」的派发路径用:产物 skill 派发出去的是
+/// `/skill:design …`(pi)或「请使用 skill「design」…」的 prose(claude),让 autoTitle 拿它
+/// 派生标题,标题栏就成了派发指令(用户实测)。派发处先用原话占位,autoTitle 随后见到
+/// 非默认标题即让位。
+export function presetSessionTitle(session: SessionMeta, text: string): void {
+  if (!text.trim()) return;
+  applyFallbackTitle(session, text);
+}
+
 /// 只往会话流追加一条用户消息并落盘，**不 spawn 任何 CLI**。
 ///
 /// 用于「这条消息本身不是给 agent 的」派发场景：`/skill:research` 的活由 CRE 引擎干，

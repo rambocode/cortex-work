@@ -18,6 +18,7 @@ import {
   useDesktopBridge,
   useCortexUIStore,
   usePersonalActions,
+  presetSessionTitle,
   usePersonalStore,
 } from "@cortex-work/core";
 import type {
@@ -213,6 +214,9 @@ export function NewSessionLanding({
       onToast(dispatch.error);
       return false;
     }
+    // 标题用用户原话占位(见 presetSessionTitle):首条消息就是 skill 派发文本时,
+    // 会话名会变成「/skill:design …」。
+    if (dispatch.userText) presetSessionTitle(sess, dispatch.userText);
     if (dispatch.artifact) {
       updateSession(sess.id, {
         activeArtifact: dispatch.artifact,

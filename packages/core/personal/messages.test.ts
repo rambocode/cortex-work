@@ -17,6 +17,7 @@ import {
   __scheduleStrayProcessTimerForTest,
   __processCleanupTimerCountForTest,
   __autoTitleForTest,
+  presetSessionTitle,
   adjustHiddenHistoryForSanitize,
   appendLocalUserMessage,
   artifactResumeKey,
@@ -94,6 +95,39 @@ describe("会话自动标题", () => {
 
     expect(usePersonalStore.getState().sessions[0]?.title).toBe("Session 42");
     expect(oneshotCli).not.toHaveBeenCalled();
+  });
+
+  // 产物 skill 派发给 agent 的是 `/skill:design …`(pi)或 skill prose(claude),
+  // 直接拿去派生标题会把派发指令搬进标题栏(用户实测)。派发处先用原话占位。
+  it("presetSessionTitle 用用户原话占位,随后的 autoTitle 让位不再改名", () => {
+    usePersonalStore.setState({ sessions: [baseSession] });
+
+    presetSessionTitle(baseSession, "设计一张线下技术沙龙的活动海报");
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe(
+      "设计一张线下技术沙龙的活动海报",
+    );
+
+    const oneshotCli = vi.fn();
+    __autoTitleForTest(
+      { oneshotCli } as unknown as DesktopBridge,
+      baseSession,
+      "/skill:design 设计一张线下技术沙龙的活动海报",
+    );
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe(
+      "设计一张线下技术沙龙的活动海报",
+    );
+    expect(oneshotCli).not.toHaveBeenCalled();
+  });
+
+  it("presetSessionTitle 不动用户手改过的标题,空文本也不动", () => {
+    const edited = { ...baseSession, title: "我的海报", titleManuallyEdited: true };
+    usePersonalStore.setState({ sessions: [edited] });
+    presetSessionTitle(edited, "设计一张海报");
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("我的海报");
+
+    usePersonalStore.setState({ sessions: [baseSession] });
+    presetSessionTitle(baseSession, "   ");
+    expect(usePersonalStore.getState().sessions[0]?.title).toBe("Session 1");
   });
 });
 

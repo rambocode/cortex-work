@@ -54,6 +54,13 @@ export interface ArtifactDispatch {
   created?: boolean;
   handledSkill: boolean;
   outText: string;
+  /**
+   * 用户原话(skill 参数),仅在本条被 skill 派发消费时有值。
+   *
+   * 给会话标题用:outText 是发给 agent 的文本 —— pi 是 `/skill:design …`、claude 是
+   * 「请使用 skill「design」…」的 prose,两种拿去派生标题都会把派发指令搬进标题栏(实测)。
+   */
+  userText?: string;
   invokedSkill?: { name: string; path: string };
   error?: string;
 }
@@ -112,6 +119,7 @@ export async function prepareArtifactDispatch(
   return {
     handledSkill: true,
     outText,
+    ...(parsed.args.trim() ? { userText: parsed.args.trim() } : {}),
     artifact,
     ...(created ? { created: true } : {}),
     ...((session.agent === "codex" || session.agent === "pi") && skill

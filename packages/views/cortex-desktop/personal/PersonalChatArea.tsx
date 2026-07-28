@@ -17,6 +17,7 @@ import {
   useCortexUIStore,
   useDesktopBridge,
   usePersonalActions,
+  presetSessionTitle,
   usePersonalBranches,
   usePersonalChat,
   usePersonalStore,
@@ -800,6 +801,9 @@ export function PersonalChatArea({
           if (artifactDispatch.handledSkill) {
             outText = artifactDispatch.outText;
             invokedSkill = artifactDispatch.invokedSkill;
+            // 标题用用户原话占位:outText 是派发指令(/skill:design … / skill prose),
+            // 让 autoTitle 拿它派生会把指令搬进标题栏。
+            if (artifactDispatch.userText) presetSessionTitle(session, artifactDispatch.userText);
             if (artifactDispatch.created && artifact) {
               updateSession(session.id, {
                 activeArtifact: artifact,
