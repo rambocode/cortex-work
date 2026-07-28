@@ -150,8 +150,10 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     renderAreaWithChat([
       { kind: "text", who: "claude", time: "12:00", uid: "m1", text: "见 `packages/core/x.ts` 文件" },
     ]);
-    const link = await screen.findByText("packages/core/x.ts");
+    // 文件链接只显示文件名,完整路径进 title(chatMarkdown 的 FileCode 新形态)。
+    const link = await screen.findByText("x.ts");
     expect(link).toHaveClass("file-link");
+    expect(link).toHaveAttribute("title", "packages/core/x.ts");
     fireEvent.click(link);
     const s = usePersonalStore.getState();
     expect(s.filePreviewRequest).toEqual({
@@ -237,9 +239,10 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
         <PersonalChatArea onToast={() => {}} />
       </CoreProvider>,
     );
-    // 项目外绝对路径也点亮为可点 file-link(渲染层放行 + 主进程解析命中)。
-    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.pdf")).toHaveClass("file-link"));
-    fireEvent.click(screen.getByText("/data/outputs/x/monthly.pdf"));
+    // 项目外绝对路径也点亮为可点 file-link(渲染层放行 + 主进程解析命中);点亮后只显示文件名,完整路径在 title。
+    await waitFor(() => expect(screen.getByText("monthly.pdf")).toHaveClass("file-link"));
+    expect(screen.getByText("monthly.pdf")).toHaveAttribute("title", "/data/outputs/x/monthly.pdf");
+    fireEvent.click(screen.getByText("monthly.pdf"));
     await waitFor(() =>
       expect(usePersonalStore.getState().filePreviewRequest).toEqual({
         projectId: "p1",
@@ -265,8 +268,9 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
         <PersonalChatArea onToast={() => {}} />
       </CoreProvider>,
     );
-    await waitFor(() => expect(screen.getByText("/data/outputs/x/monthly.xlsx")).toHaveClass("file-link"));
-    fireEvent.click(screen.getByText("/data/outputs/x/monthly.xlsx"));
+    // 点亮后只显示文件名(完整路径在 title)。
+    await waitFor(() => expect(screen.getByText("monthly.xlsx")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("monthly.xlsx"));
     await waitFor(() =>
       expect(usePersonalStore.getState().filePreviewRequest).toEqual({
         projectId: "p1",
@@ -1671,5 +1675,125 @@ describe("PersonalChatArea /skill:research 派发分叉", () => {
     expect(onToast).toHaveBeenCalledWith(expect.stringContaining("搜索服务未配置"));
     const session = usePersonalStore.getState().sessions.find((s) => s.id === "s1")!;
     expect(session.researchSessions).toBeUndefined();
+  });
+});
+
+// 操作条(时间/复制/朗读/追问/分支分页器)收敛:只挂「每轮完整输出的最后一条 agent 文本」,
+// 且当前正在流式输出的那一轮不显示——run 结束后才出现。历史轮每轮末条保留。
+describe("PersonalChatArea 操作条只挂每轮末条 agent 文本", () => {
+  afterEach(() => cleanup());
+
+  const u = (uid: string, text: string): Message => ({ kind: "text", who: "me", time: "12:00", uid, text });
+  const a = (uid: string, text: string): Message => ({ kind: "text", who: "claude", time: "12:01", uid, text });
+
+  function setup(running = false) {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      timelineProjectId: undefined,
+      runningBySession: running ? { s1: "run-1" } : {},
+      providerSettings: { providers: [] },
+    });
+  }
+
+  // loaded 直接喂给 bridge.loadChat:裸数组 = v1,对象 = v2(带 branchGroups)。
+  function renderChat(loaded: unknown) {
+    const b = {
+      loadChat: async () => loaded,
+      saveChat: async () => {},
+      askFollowupStream: async () => {},
+      onAskFollowupEvent: () => () => {},
+      cancelFollowup: async () => {},
+    } as unknown as DesktopBridge;
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+  }
+
+  // 某条正文所在消息行(.msg)内是否有操作条。
+  function tailOf(text: string): Element | null {
+    return screen.getByText(text).closest(".msg")!.querySelector(".m-msg-actions");
+  }
+
+  it("一轮多段输出:只有末段带操作条,中间段完全无 tail", async () => {
+    setup();
+    renderChat([u("m1", "问题"), a("a1", "第一段"), a("a2", "第二段")]);
+    await screen.findByText("第二段");
+
+    expect(tailOf("第一段")).toBeNull();
+    expect(tailOf("第二段")).not.toBeNull();
+    // 复制/追问全局只出现一次(挂在末段)。
+    expect(screen.getAllByTitle("复制回复内容")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "追问" })).toHaveLength(1);
+  });
+
+  it("文本段之间夹过程块(todoList)不影响末条判定", async () => {
+    setup();
+    renderChat([
+      u("m1", "问题"),
+      a("a1", "第一段"),
+      {
+        kind: "todoList",
+        who: "claude",
+        time: "12:01",
+        uid: "t1",
+        runId: "run-1",
+        todos: [{ text: "步骤", status: "completed" }],
+      } as Message,
+      a("a2", "第二段"),
+    ]);
+    await screen.findByText("第二段");
+
+    expect(tailOf("第一段")).toBeNull();
+    expect(tailOf("第二段")).not.toBeNull();
+  });
+
+  it("running 时当前轮末段也不显示操作条", async () => {
+    setup(true);
+    renderChat([u("m1", "问题"), a("a1", "第一段"), a("a2", "第二段")]);
+    await screen.findByText("第二段");
+
+    expect(tailOf("第一段")).toBeNull();
+    expect(tailOf("第二段")).toBeNull();
+    expect(screen.queryByTitle("复制回复内容")).toBeNull();
+  });
+
+  it("running 时历史轮(其后已有用户消息)末段仍显示操作条", async () => {
+    setup(true);
+    renderChat([u("m1", "问题一"), a("a1", "旧末段"), u("m2", "问题二"), a("a2", "新末段")]);
+    await screen.findByText("新末段");
+
+    // 上一轮已收尾,操作条保留;当前正在输出的这一轮不显示。
+    expect(tailOf("旧末段")).not.toBeNull();
+    expect(tailOf("新末段")).toBeNull();
+  });
+
+  it("分支分页器出现在轮末条,而非首条", async () => {
+    setup();
+    renderChat({
+      version: 2,
+      messages: [u("m1", "问题"), a("a1", "第一段"), a("a2", "第二段")],
+      branchGroups: [
+        {
+          anchorUid: "m1",
+          activeId: "b2",
+          variants: [
+            { id: "b1", createdAt: 1, tail: [a("x1", "旧回复")], pointer: null },
+            { id: "b2", createdAt: 2, tail: null, pointer: null },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("第二段");
+
+    const pager = screen.getByTitle("切换查看不同的回复分支");
+    expect(pager).toBeInTheDocument();
+    expect(screen.getByText("2/2")).toBeInTheDocument();
+    expect(pager.closest(".msg")).toBe(screen.getByText("第二段").closest(".msg"));
   });
 });

@@ -435,6 +435,7 @@ export {
 export {
   anchorForAgentMessage,
   isFirstAgentReplyOfTail,
+  isLastAgentReplyOfTail,
   pagerPosition,
   type BranchGroup,
   type BranchVariant,

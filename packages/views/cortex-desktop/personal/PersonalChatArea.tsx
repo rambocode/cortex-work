@@ -25,7 +25,7 @@ import {
   useRenderWindow,
   useBranchActions,
   anchorForAgentMessage,
-  isFirstAgentReplyOfTail,
+  isLastAgentReplyOfTail,
   pagerPosition,
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
@@ -313,6 +313,16 @@ export function PersonalChatArea({
   // 早退之前调用(hooks 规则);session/project 可空时回调内部短路(此时消息流根本不渲染)。
   const running = session ? !!runningBySession[session.id] : false;
 
+  // 最后一条用户消息 uid = 「当前轮」的 anchor。renderTextTail 据此判断某条 agent 回复属于
+  // 正在输出的这一轮(此时不挂操作条)还是已收尾的历史轮。
+  const lastUserMsgUid = useMemo(() => {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i]!;
+      if (m.kind === "text" && m.who === "me") return m.uid;
+    }
+    return undefined;
+  }, [allMessages]);
+
   // 消息里文件路径(及 diff 卡片文件行)点击 → 解析为「真实存在的绝对路径」(口径见
   // resolveExistingFile:绝对路径走 fileExists、相对走 resolveProjectFile→拼 abs+fileExists,
   // 覆盖项目外 agent 产物如 ~/.codex/generated_images 与 `../outputs` 爬出),按文件类型分发:
@@ -443,14 +453,24 @@ export function PersonalChatArea({
         );
       }
       // agent 回复:复制 +(仅在开启「实时朗读」时)朗读开关。正在朗读时常驻显示便于停止。
+      //
+      // 操作条只挂「每轮完整输出的最后一条 agent 文本」:一轮 run 因「文本→工具→文本」交错会产出
+      // 多条 kind:"text" 消息(见 core/personal/messages.ts 的 foldCliEvent),逐条挂会把会话流
+      // 切成一段段带按钮的碎片;用户要复制/朗读/追问的也是本轮的最终结论,它落在末段。
+      if (!m.uid || !isLastAgentReplyOfTail(allMessages, m.uid)) return null;
+      const anchorUid = anchorForAgentMessage(allMessages, m.uid);
+      // 正在输出的当前轮同样不挂:此刻的「末条」随时会被下一段正文顶掉(按钮闪烁),复制/追问
+      // 拿到的还是半截正文。run 结束时 finalizeRun 清 runningBySession → running 翻 false →
+      // 这里放行,操作条自然出现,无需额外信号。
+      if (running && anchorUid === lastUserMsgUid) return null;
       const speaking = ttsPlayback.isSpeaking;
-      // 分支分页器:该回复归属的用户消息(anchor)有多份分支回复时,在 tail 首条 agent 回复下
-      // 常驻「‹ i/n ›」切换器(不随 hover 淡入——用户需要一眼看到存在多版本)。
-      const anchorUid = m.uid ? anchorForAgentMessage(allMessages, m.uid) : undefined;
+      // 分支分页器:该回复归属的用户消息(anchor)有多份分支回复时,常驻「‹ i/n ›」切换器
+      //(不随 hover 淡入——用户需要一眼看到存在多版本)。上面的末条门控已保证一轮只渲染一处,
+      // 无需再判「是否 tail 首条」。
       const branchGroup = anchorUid
         ? branchGroups.find((g) => g.anchorUid === anchorUid && g.variants.length > 1)
         : undefined;
-      const showPager = !!branchGroup && !!m.uid && isFirstAgentReplyOfTail(allMessages, m.uid);
+      const showPager = !!branchGroup;
       const pager = branchGroup ? pagerPosition(branchGroup) : null;
       const switchTo = (offset: number) => {
         if (!branchGroup || !pager || !anchorUid) return;
@@ -530,7 +550,7 @@ export function PersonalChatArea({
         </div>
       );
     },
-    [session, project, running, regenerate, switchBranch, branchGroups, allMessages, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
+    [session, project, running, lastUserMsgUid, regenerate, switchBranch, branchGroups, allMessages, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
   );
 
   // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。

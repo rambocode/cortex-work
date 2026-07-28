@@ -2,15 +2,7 @@
 // 保证两处渲染方式完全一致（react-markdown + remark-gfm + 自定义 callout / 链接 / 代码块）。
 // 外层容器仍由调用方套 .pw-todo-md（排版样式挂在该 class 上）。
 
-import {
-  isValidElement,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ReactElement,
-} from "react";
+import { isValidElement, useEffect, useId, useState, type ComponentProps, type ReactElement } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -19,17 +11,8 @@ import { useDesktopBridge } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
 import { remarkCallouts } from "./markdownCallouts";
 import { splitFrontmatter, type FrontmatterEntry } from "./markdownFrontmatter";
-
-// 接入高亮后 <code> 的子节点会变成嵌套 <span>,直接拼 children 字符串不可靠;
-// react-markdown 传入的 hast node 是稳定的文本来源,递归收集其 value 子节点即原文。
-type HastNode = { value?: string; children?: HastNode[] };
-function nodeText(node: unknown): string {
-  const n = node as HastNode | undefined;
-  if (!n) return "";
-  if (typeof n.value === "string") return n.value;
-  if (Array.isArray(n.children)) return n.children.map(nodeText).join("");
-  return "";
-}
+// 代码块外壳零件与会话流(chatMarkdown / ChatArea)共用,见 markdownCodeShared.tsx。
+import { CopyButton, nodeText } from "./markdownCodeShared";
 
 // 预览里的链接:点击改走系统浏览器（Electron 里 a 默认导航会替换整个窗口）。
 // 仅放行 http(s);旧壳没有 openExternal 时退回 window.open。
@@ -51,41 +34,6 @@ function MdLink({ href, children, ...rest }: ComponentProps<"a">) {
     >
       {children}
     </a>
-  );
-}
-
-// 代码块右上角复制按钮:hover 浮现,点击把原文写入剪贴板并短暂反馈。
-// navigator.clipboard 在浏览器与 Electron renderer(安全上下文)均可用;不可用时静默忽略。
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-  return (
-    <button
-      type="button"
-      className="pw-md-copy"
-      data-copied={copied ? "true" : undefined}
-      aria-label={copied ? "已复制" : "复制代码"}
-      title={copied ? "已复制" : "复制"}
-      onClick={() => {
-        if (!navigator.clipboard?.writeText) return;
-        void navigator.clipboard
-          .writeText(text)
-          .then(() => {
-            setCopied(true);
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), 1500);
-          })
-          .catch(() => {});
-      }}
-    >
-      {copied ? <Icon.Check size={13} /> : <Icon.Copy size={13} />}
-    </button>
   );
 }
 

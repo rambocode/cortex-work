@@ -4464,8 +4464,10 @@ button.sb-row {
   overflow-x: auto;
 }
 .pw-todo-md pre code { background: transparent; border: 0; padding: 0; }
-/* 代码块语言角标（MdPre 从 language-x 提取写入 data-lang） */
-.pw-todo-md pre[data-lang]::after {
+/* 代码块语言角标（MdPre / chatMarkdown 的 pre 从 language-x 提取写入 data-lang）。
+   共享作用域:文件预览 .pw-todo-md 与会话流 .md-body 用同一套角标样式。 */
+.pw-todo-md pre[data-lang]::after,
+.md-body pre[data-lang]::after {
   content: attr(data-lang);
   position: absolute;
   top: 4px;
@@ -4476,9 +4478,13 @@ button.sb-row {
   user-select: none;
   pointer-events: none;
 }
-/* 代码块外壳:容纳右上角复制按钮（MdPre 包 .pw-md-codeblock > CopyButton + pre） */
-.pw-todo-md .pw-md-codeblock { position: relative; }
-.pw-todo-md .pw-md-copy {
+/* 代码块外壳:容纳右上角复制按钮（MdPre / chatMarkdown 的 pre 都包 .pw-md-codeblock > CopyButton + pre）。
+   共享作用域:文件预览与会话流共用同一套壳,故以类自身为作用域、不再挂 .pw-todo-md 前缀,避免两份重复规则。
+   刻意不给外壳加 margin:外壳无 border/padding,内 pre 的上下 margin 会直接穿透（margin collapsing）
+   保持原有间距;若改成「外壳接管 margin + 内 pre 归零」,note 编辑器预览里对 pre margin 的高特异性覆写
+   （.pw-note-editor-preview .pw-todo-md pre）就会与外壳 margin 叠成双重边距。 */
+.pw-md-codeblock { position: relative; }
+.pw-md-copy {
   position: absolute;
   top: 6px;
   right: 8px;
@@ -4497,45 +4503,28 @@ button.sb-row {
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
-.pw-todo-md .pw-md-codeblock:hover .pw-md-copy,
-.pw-todo-md .pw-md-copy:focus-visible { opacity: 1; }
-.pw-todo-md .pw-md-copy:hover { color: var(--text-1); background: var(--bg-hover); }
-.pw-todo-md .pw-md-copy[data-copied="true"] { color: var(--accent); opacity: 1; }
+.pw-md-codeblock:hover .pw-md-copy,
+.pw-md-copy:focus-visible { opacity: 1; }
+.pw-md-copy:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-md-copy[data-copied="true"] { color: var(--accent); opacity: 1; }
 /* 复制按钮存在时语言角标左移避让 */
-.pw-todo-md .pw-md-codeblock pre[data-lang]::after { right: 38px; }
+.pw-md-codeblock pre[data-lang]::after { right: 38px; }
 
 /* 语法高亮 token（rehype-highlight/highlight.js 注入 .hljs-*）:配色映射到主题语义色,
-   明暗主题自动适配;不引入库自带主题 CSS（见计划 KTD2）。 */
-.pw-todo-md .hljs-comment,
-.pw-todo-md .hljs-quote { color: var(--text-3); font-style: italic; }
-.pw-todo-md .hljs-keyword,
-.pw-todo-md .hljs-selector-tag,
-.pw-todo-md .hljs-built_in,
-.pw-todo-md .hljs-type { color: var(--violet); }
-.pw-todo-md .hljs-string,
-.pw-todo-md .hljs-regexp,
-.pw-todo-md .hljs-char,
-.pw-todo-md .hljs-meta .hljs-string { color: var(--green); }
-.pw-todo-md .hljs-number,
-.pw-todo-md .hljs-literal { color: var(--amber); }
-.pw-todo-md .hljs-title,
-.pw-todo-md .hljs-title.function_,
-.pw-todo-md .hljs-title.class_,
-.pw-todo-md .hljs-section,
-.pw-todo-md .hljs-name { color: var(--blue); }
-.pw-todo-md .hljs-attr,
-.pw-todo-md .hljs-attribute,
-.pw-todo-md .hljs-property,
-.pw-todo-md .hljs-variable,
-.pw-todo-md .hljs-template-variable { color: var(--accent); }
-.pw-todo-md .hljs-symbol,
-.pw-todo-md .hljs-bullet,
-.pw-todo-md .hljs-link,
-.pw-todo-md .hljs-meta { color: var(--link); }
-.pw-todo-md .hljs-deletion { color: var(--red); }
-.pw-todo-md .hljs-addition { color: var(--green); }
-.pw-todo-md .hljs-emphasis { font-style: italic; }
-.pw-todo-md .hljs-strong { font-weight: 700; }
+   明暗主题自动适配;不引入库自带主题 CSS（见计划 KTD2）。
+   共享作用域:文件预览 .pw-todo-md 与会话流 .md-body 用同一套 token 配色,
+   用 :is() 合并前缀,避免把整组规则复制两份（新增 scope 时只改这一处别名）。 */
+:is(.pw-todo-md, .md-body) :is(.hljs-comment, .hljs-quote) { color: var(--text-3); font-style: italic; }
+:is(.pw-todo-md, .md-body) :is(.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type) { color: var(--violet); }
+:is(.pw-todo-md, .md-body) :is(.hljs-string, .hljs-regexp, .hljs-char, .hljs-meta .hljs-string) { color: var(--green); }
+:is(.pw-todo-md, .md-body) :is(.hljs-number, .hljs-literal) { color: var(--amber); }
+:is(.pw-todo-md, .md-body) :is(.hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-section, .hljs-name) { color: var(--blue); }
+:is(.pw-todo-md, .md-body) :is(.hljs-attr, .hljs-attribute, .hljs-property, .hljs-variable, .hljs-template-variable) { color: var(--accent); }
+:is(.pw-todo-md, .md-body) :is(.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta) { color: var(--link); }
+:is(.pw-todo-md, .md-body) .hljs-deletion { color: var(--red); }
+:is(.pw-todo-md, .md-body) .hljs-addition { color: var(--green); }
+:is(.pw-todo-md, .md-body) .hljs-emphasis { font-style: italic; }
+:is(.pw-todo-md, .md-body) .hljs-strong { font-weight: 700; }
 
 /* mermaid 渲染容器（MermaidBlock 注入消毒后的 svg；失败时降级为 .pw-md-mermaid-error pre） */
 .pw-todo-md .pw-md-mermaid {
@@ -4979,23 +4968,47 @@ button.sb-row {
   padding: 1px 5px;
   border-radius: 4px;
 }
-/* 会话消息里可点击的项目内文件路径(chatMarkdown.tsx 的 inline code)。命中区=整段文本。 */
+/* 会话消息里可点击的项目内文件路径(chatMarkdown.tsx 的 inline code)。命中区=整段文本。
+   形态是「类型图标 + 文件名」的轻量链接(蓝色 --link,不用主题紫 accent):
+   - border/padding/背景全部归零,盖掉 .msg .m-text code 的 inline-code 药丸样式(否则文件链接
+     顶着一圈边框像代码片段);字体也还原正文,不再用 mono。
+   - inline-flex:Icon 组件自带 display:block 内联样式,普通 inline 布局下图标会独占一行、
+     把文件名挤下去;inline-flex 把图标和文件名锁在同一行。 */
 .md-body code.file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: -2px;
   cursor: pointer;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--link);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
 }
 .md-body code.file-link:hover {
   text-decoration: underline;
 }
 .md-body code.file-link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--link);
   outline-offset: 1px;
 }
+/* markdown 链接形态的缩短版(label 即路径 → 图标 + 文件名):同样需要 inline-flex 锁行。
+   自定义 label 的链接不挂 is-compact,保留普通 inline 的换行能力。 */
+.md-body a.file-link.is-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: -2px;
+}
+/* 代码块底色与文件预览(.pw-todo-md pre)对齐,统一走主题 token（原来是写死的 rgba 黑,暗色下发灰）。
+   position:relative 供语言角标 ::after 定位（角标规则见上方共享段）。 */
 .md-body pre {
+  position: relative;
   margin: 8px 0;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--bg-card-2);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow-x: auto;
@@ -5034,7 +5047,8 @@ button.sb-row {
   text-align: left;
 }
 .md-body th { background: rgba(0, 0, 0, 0.04); font-weight: 600; }
-.md-body a { color: var(--accent); text-decoration: none; }
+/* 链接统一走蓝色 --link 而非主题 accent(用户要求:链接不要紫色)。 */
+.md-body a { color: var(--link); text-decoration: none; }
 .md-body a:hover { text-decoration: underline; }
 .md-body strong { font-weight: 600; color: var(--text-1); }
 

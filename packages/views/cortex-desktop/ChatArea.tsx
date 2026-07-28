@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import { Icon } from "@cortex-work/ui/icons";
 import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -9,6 +10,13 @@ import { renderRich } from "./rich";
 import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chatMarkdown";
 import { ChatImages } from "./personal/ChatImages";
 import { ChatFiles } from "./personal/ChatFiles";
+
+// 会话流的语法高亮插件。必须是模块级常量:TextMessage 被 memo 包裹,内联字面量每次渲染都是新引用,
+// 会让 <Markdown> 的 props 恒变、白费 memo 短路(长会话流式输出时代价明显)。
+// ignoreMissing:未注册语言原样保留,不报错、不吞内容(与 MarkdownView 口径一致)。
+const MD_REHYPE_PLUGINS: import("react-markdown").Options["rehypePlugins"] = [
+  [rehypeHighlight, { ignoreMissing: true }],
+];
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const { t } = useTranslation("chat");
@@ -167,6 +175,7 @@ const TextMessage = memo(function TextMessage({
           <div className="m-text md-body">
             <Markdown
               remarkPlugins={[remarkGfm]}
+              rehypePlugins={MD_REHYPE_PLUGINS}
               components={fileLinkComponents}
               urlTransform={onOpenFile ? chatMarkdownUrlTransform : undefined}
             >

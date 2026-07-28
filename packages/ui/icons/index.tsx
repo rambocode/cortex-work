@@ -432,6 +432,61 @@ export const Icon = {
       <path d="M14 3v6h6" />
     </IconBase>
   ),
+  // 办公文档族:文件轮廓 + 扩展名字形(用户要求:图标尽量和扩展名一致,便于一眼区分)。
+  // 字形用与轮廓同粗细的 stroke 手绘(W/X/P),PDF 三字母 stroke 画不下 → 用 fill 文本。
+  // FileText:纯文本文档（md/txt 等,文件轮廓 + 正文横线）。
+  FileText: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6" />
+      <path d="M8 13h8" />
+      <path d="M8 17h6" />
+    </IconBase>
+  ),
+  // FileWord:Word 文档（doc/docx 等,字形 W）。
+  FileWord: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6" />
+      <path d="M8.5 12.5l1.3 5.5 2.2-4.3 2.2 4.3 1.3-5.5" />
+    </IconBase>
+  ),
+  // FileSheet:表格文件（xlsx/csv 等,字形 X,呼应 Excel）。
+  FileSheet: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6" />
+      <path d="M9.5 12.5l5 5.5" />
+      <path d="M14.5 12.5l-5 5.5" />
+    </IconBase>
+  ),
+  // FileSlides:演示文件（ppt/pptx/key 等,字形 P)。
+  FileSlides: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6" />
+      <path d="M9.8 18v-5.5h2.9a1.9 1.9 0 0 1 0 3.8H9.8" />
+    </IconBase>
+  ),
+  // FilePdf:PDF 文档(fill 文本「PDF」,stroke=none 避免 1.7 描边把小字糊成一团)。
+  FilePdf: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6" />
+      <text
+        x="12"
+        y="18"
+        textAnchor="middle"
+        fontSize="6"
+        fontWeight="700"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        fill="currentColor"
+        stroke="none"
+      >
+        PDF
+      </text>
+    </IconBase>
+  ),
   // StickyNote：便签节点（折角便签卡片）。
   StickyNote: (p: IconProps) => (
     <IconBase {...p}>

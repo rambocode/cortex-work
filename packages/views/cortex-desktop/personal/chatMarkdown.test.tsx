@@ -4,7 +4,8 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DesktopBridge } from "@cortex-work/core";
 import { DEFAULT_BROWSER_CONTROL, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
-import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./chatMarkdown";
+import { Icon } from "@cortex-work/ui/icons";
+import { chatMarkdownComponents, chatMarkdownUrlTransform, fileIconFor } from "./chatMarkdown";
 
 function setLocalUrlTarget(target: "internal" | "system") {
   usePersonalStore.setState((s) => ({
@@ -202,6 +203,52 @@ describe("chatMarkdownComponents", () => {
     fireEvent.keyDown(el, { key: "Enter" });
     fireEvent.keyDown(el, { key: " " });
     expect(onOpenFile).toHaveBeenCalledTimes(2);
+  });
+
+  // 文件链接只显示文件名,完整路径进 title(悬停可见)——长绝对路径在气泡里换行刷屏的反馈。
+  it("inline code 文件链接:只显示文件名,title 为完整路径,点击仍传原始 ref", () => {
+    const { container, onOpenFile } = renderMd("see `packages/core/x.ts` now");
+    const el = container.querySelector("code.file-link")!;
+    expect(el.textContent).toBe("x.ts");
+    expect(el.getAttribute("title")).toBe("packages/core/x.ts");
+    fireEvent.click(el);
+    expect(onOpenFile).toHaveBeenCalledWith("packages/core/x.ts");
+  });
+
+  it("退化普通 code(不可点)仍显示完整原文,不缩短", () => {
+    const { container } = renderMd("read `/etc/passwd` file");
+    expect(container.querySelector("code")!.textContent).toBe("/etc/passwd");
+  });
+
+  it("markdown 链接 label 即路径本身 → 显示文件名,title 为完整路径,点击仍传原始 ref", () => {
+    const { container, onOpenFile } = renderMd("[docs/a.md](docs/a.md)");
+    const a = container.querySelector("a.file-link")!;
+    expect(a.textContent).toBe("a.md");
+    expect(a.getAttribute("title")).toBe("docs/a.md");
+    // 缩短形态挂 is-compact:CSS 用 inline-flex 把图标和文件名锁在同一行(Icon 自带 display:block)。
+    expect(a.classList.contains("is-compact")).toBe(true);
+    fireEvent.click(a);
+    expect(onOpenFile).toHaveBeenCalledWith("docs/a.md");
+  });
+
+  it("markdown 链接自定义 label → 保留 label,不缩短,也不加 is-compact", () => {
+    const { container } = renderMd("[审查报告](docs/a.md)");
+    const a = container.querySelector("a.file-link")!;
+    expect(a.textContent).toBe("审查报告");
+    expect(a.classList.contains("is-compact")).toBe(false);
+  });
+
+  it("fileIconFor 按扩展名挑文件图标(行号后缀先剥掉)", () => {
+    expect(fileIconFor("out/截图.png")).toBe(Icon.Image);
+    expect(fileIconFor("report.html")).toBe(Icon.Globe);
+    expect(fileIconFor("/data/月报.xlsx")).toBe(Icon.FileSheet);
+    expect(fileIconFor("src/operate.c:158")).toBe(Icon.Code);
+    // 办公文档按扩展名字形区分:Word→W、表格→X、演示→P、PDF→PDF;纯文本(md/txt)用横线文档。
+    expect(fileIconFor("故障说明及致歉报告.docx")).toBe(Icon.FileWord);
+    expect(fileIconFor("方案.ppt")).toBe(Icon.FileSlides);
+    expect(fileIconFor("手册.pdf")).toBe(Icon.FilePdf);
+    expect(fileIconFor("README.md")).toBe(Icon.FileText);
+    expect(fileIconFor("noext")).toBe(Icon.File);
   });
 
   it("定位不到(目录/分支名/其它分支文件)→ 退化普通 code,不高亮不可点", async () => {

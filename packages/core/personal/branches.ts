@@ -113,6 +113,31 @@ export function isFirstAgentReplyOfTail(messages: Message[], agentMsgUid: string
   return false;
 }
 
+// 该 agent 消息是否是所属 anchor 之后的「最后一条」agent 文本——操作条(时间/复制/朗读/追问/
+// 分页器)只挂在这一条上。
+//
+// 为什么需要:一轮 run 因「文本 → 工具调用 → 文本」交错会产出多条 kind:"text" 的 agent 消息
+//(见 messages.ts 的 foldCliEvent),逐条挂操作条会让会话流被重复按钮切碎。判据取「轮末」而非
+//「轮首」:用户要复制/朗读/追问的是这一轮的最终结论,它落在末段。
+// 扫描口径与 isFirstAgentReplyOfTail 对称——非 text 消息(agentLog/reasoning/typing/todoList/
+// diff 等过程块)不阻断扫描,只有下一条 text 决定归属;扫到末尾说明本轮暂无后继,也算末条。
+export function isLastAgentReplyOfTail(messages: Message[], agentMsgUid: string): boolean {
+  const idx = anchorIndex(messages, agentMsgUid);
+  if (idx < 0) return false;
+  const self = messages[idx]!;
+  // 自身须是 agent 文本:用户消息与过程块本就不挂这套操作条。
+  if (self.kind !== "text" || self.who === "me") return false;
+  for (let i = idx + 1; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.kind !== "text") continue;
+    // 先遇到下一轮用户消息 → 本轮到此为止,是末条。
+    if (m.who === "me") return true;
+    // 先遇到另一条 agent 文本 → 本轮后面还有输出,不是末条。
+    return false;
+  }
+  return true;
+}
+
 // 分页器定位:active 变体在组内的序号(1-based)与总数。
 export function pagerPosition(group: BranchGroup): { index: number; total: number } {
   const i = group.variants.findIndex((v) => v.id === group.activeId);

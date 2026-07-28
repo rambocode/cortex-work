@@ -7,6 +7,7 @@ import {
   mergeTail,
   anchorForAgentMessage,
   isFirstAgentReplyOfTail,
+  isLastAgentReplyOfTail,
   pagerPosition,
   upsertRegenerate,
   applySwitch,
@@ -78,6 +79,43 @@ describe("anchorForAgentMessage / isFirstAgentReplyOfTail 归属判定", () => {
     const withDay: Message[] = [user("u1"), { kind: "day", label: "今天" } as Message, agent("a1")];
     expect(anchorForAgentMessage(withDay, "a1")).toBe("u1");
     expect(isFirstAgentReplyOfTail(withDay, "a1")).toBe(true);
+  });
+});
+
+describe("isLastAgentReplyOfTail 轮末条判定(操作条挂点)", () => {
+  it("一轮多段输出:只有末段算 last,中间段不算", () => {
+    const msgs = [user("u1"), agent("a1"), agent("a1b"), agent("a1c")];
+    expect(isLastAgentReplyOfTail(msgs, "a1")).toBe(false);
+    expect(isLastAgentReplyOfTail(msgs, "a1b")).toBe(false);
+    expect(isLastAgentReplyOfTail(msgs, "a1c")).toBe(true);
+  });
+  it("文本段之间夹 agentLog/todoList 等非 text 消息不影响判定", () => {
+    const msgs: Message[] = [
+      user("u1"),
+      agent("a1"),
+      { kind: "agentLog", who: "pi", time: "10:01", title: "执行", items: [] },
+      { kind: "todoList", who: "pi", time: "10:01", runId: "r1", todos: [] },
+      agent("a1b"),
+      { kind: "typing", who: "pi" } as Message,
+    ];
+    expect(isLastAgentReplyOfTail(msgs, "a1")).toBe(false);
+    // 末段之后只剩非 text 消息(工具日志 / typing)→ 仍是本轮末条。
+    expect(isLastAgentReplyOfTail(msgs, "a1b")).toBe(true);
+  });
+  it("消息在列表末尾 → last", () => {
+    const msgs = [user("u1"), agent("a1")];
+    expect(isLastAgentReplyOfTail(msgs, "a1")).toBe(true);
+  });
+  it("后面跟着下一轮用户消息 → 仍是本轮末条(历史轮保留操作条)", () => {
+    const msgs = [user("u1"), agent("a1"), agent("a1b"), user("u2"), agent("a2")];
+    expect(isLastAgentReplyOfTail(msgs, "a1")).toBe(false);
+    expect(isLastAgentReplyOfTail(msgs, "a1b")).toBe(true);
+    expect(isLastAgentReplyOfTail(msgs, "a2")).toBe(true);
+  });
+  it("uid 不存在 / uid 指向用户消息 → false", () => {
+    const msgs = [user("u1"), agent("a1")];
+    expect(isLastAgentReplyOfTail(msgs, "nope")).toBe(false);
+    expect(isLastAgentReplyOfTail(msgs, "u1")).toBe(false);
   });
 });
 

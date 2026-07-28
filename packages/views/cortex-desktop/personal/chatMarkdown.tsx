@@ -11,7 +11,7 @@
 //   inline code(不高亮、不可点、无删除线)。点不到的安全网由 PersonalChatArea.handleOpenFile 的 toast
 //   兜底。探测无能力(Web / 无 bridge)或出错时乐观放行为可点。
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { defaultUrlTransform, type Components } from "react-markdown";
 import {
@@ -26,6 +26,7 @@ import type { DesktopBridge } from "@cortex-work/core";
 import { canProbeFile, resolveExistingFile } from "./resolveFileRef";
 import { ChatInlineImage } from "./ChatInlineImage";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
+import { CopyButton, nodeText } from "./markdownCodeShared";
 import { isLoopbackOnly } from "@cortex-work/core/personal/devPreviewUrl";
 import { Icon } from "@cortex-work/ui/icons";
 
@@ -90,6 +91,43 @@ interface FileRefProps {
   children: ReactNode;
 }
 
+// 文件链接的展示名:只取路径最后一段(长绝对路径在气泡里换行刷屏),完整路径放 title 悬停可见。
+// `:line` 等后缀属于最后一段的一部分,自然保留;异常输入(纯斜杠等)兜底返回原文。
+function fileRefDisplayName(ref: string): string {
+  const trimmed = ref.trim().replace(/\/+$/, "");
+  return trimmed.split("/").filter(Boolean).pop() ?? trimmed;
+}
+
+// 按扩展名分组挑图标:办公文档按扩展名字形区分(W/X/P/PDF),纯文本用横线文档,
+// 图片/网页/代码各有形态,未知类型退通用文件图标。
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+const SHEET_EXTS = new Set(["xlsx", "xls", "csv", "numbers"]);
+const SLIDE_EXTS = new Set(["ppt", "pptx", "key"]);
+const WORD_EXTS = new Set(["doc", "docx", "rtf", "pages"]);
+const PDF_EXTS = new Set(["pdf"]);
+const TEXT_EXTS = new Set(["txt", "md", "markdown", "mdx"]);
+const HTML_EXTS = new Set(["html", "htm"]);
+const CODE_EXTS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "c", "cc", "cpp", "h", "hpp",
+  "java", "kt", "swift", "rb", "php", "sh", "zsh", "sql", "css", "scss", "less",
+  "json", "yaml", "yml", "toml", "xml", "vue", "svelte",
+]);
+
+// 文件链接的类型图标。行号后缀(`operate.c:158`)先剥掉再取扩展名,否则扩展名会被行号污染判错。
+export function fileIconFor(ref: string): typeof Icon.File {
+  const name = fileRefDisplayName(ref).replace(/(:\d+)+$/, "");
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "";
+  if (IMAGE_EXTS.has(ext)) return Icon.Image;
+  if (HTML_EXTS.has(ext)) return Icon.Globe;
+  if (SHEET_EXTS.has(ext)) return Icon.FileSheet;
+  if (SLIDE_EXTS.has(ext)) return Icon.FileSlides;
+  if (WORD_EXTS.has(ext)) return Icon.FileWord;
+  if (PDF_EXTS.has(ext)) return Icon.FilePdf;
+  if (TEXT_EXTS.has(ext)) return Icon.FileText;
+  if (CODE_EXTS.has(ext)) return Icon.Code;
+  return Icon.File;
+}
+
 // inline code 形态的文件链接。
 function FileCode({
   ref_,
@@ -111,6 +149,7 @@ function FileCode({
     );
   }
   const open = () => onOpenFile(ref_);
+  const TypeIcon = fileIconFor(ref_);
   return (
     <code
       {...rest}
@@ -126,7 +165,9 @@ function FileCode({
         }
       }}
     >
-      {children}
+      {/* 点亮后只显示「类型图标 + 文件名」,完整路径在上方 title;未点亮的退化分支仍显示原文。 */}
+      <TypeIcon size={12} />
+      {fileRefDisplayName(ref_)}
     </code>
   );
 }
@@ -144,19 +185,32 @@ function FileAnchor({
   // 同 FileCode:仅定位到的文件才高亮可点;探测中 / 定位不到 → 退化普通链接(阻止 Electron 默认整窗
   // 导航,但不当项目文件、无 file-link 高亮)。
   const resolved = useResolvedFile(bridge, projectPath, ref_) === "ok";
+  // label 就是路径本身(agent 常写 `[path](path)`)→ 缩短为「类型图标 + 文件名」;
+  // 作者自定义的 label(如「审查报告」)不动,完整路径统一在 title 悬停可见。
+  // 缩短形态额外挂 is-compact:CSS 用 inline-flex 把图标锁在同一行(Icon 自带 display:block
+  // 内联样式,普通 inline 布局下会把文件名挤到下一行);自定义 label 不挂,保留正常换行能力。
+  const compact = resolved && textOf(children).trim() === ref_.trim();
+  const TypeIcon = fileIconFor(ref_);
   return (
     <a
       {...rest}
       href={href}
       rel="noreferrer"
-      className={resolved ? "file-link" : undefined}
+      className={resolved ? ["file-link", compact ? "is-compact" : ""].filter(Boolean).join(" ") : undefined}
       title={resolved ? ref_ : undefined}
       onClick={(e) => {
         e.preventDefault(); // Electron 里 a 默认导航会替换整个窗口
         if (resolved) onOpenFile(ref_);
       }}
     >
-      {children}
+      {compact ? (
+        <>
+          <TypeIcon size={12} />
+          {fileRefDisplayName(ref_)}
+        </>
+      ) : (
+        children
+      )}
     </a>
   );
 }
@@ -417,13 +471,24 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
         </>
       );
     },
-    // fenced 代码块:若块内含绝对 .html 路径(如 `open /Users/.../foo.html`),在代码块正下方
-    // 紧跟一个「预览网页」按钮(用户要求:预览入口直接放路径后面,而非消息底部卡片)。
-    pre({ node: _node, children, ...rest }) {
-      const htmlPath = findLocalHtmlPathsInText(textOf(children))[0];
+    // fenced 代码块:套 .pw-md-codeblock 外壳(带背景 + 右上角复制 + 语言角标),与文件预览
+    // (MarkdownView 的 MdPre)形态一致。若块内含绝对 .html 路径(如 `open /Users/.../foo.html`),
+    // 在代码块正下方紧跟一个「预览网页」按钮(用户要求:预览入口直接放路径后面,而非消息底部卡片)。
+    // 注意:html 路径探测必须走 nodeText(node) 而非 textOf(children)——ChatArea 接入 rehype-highlight
+    // 后 children 变成嵌套高亮 <span> 树,拼 children 取不到完整原文,路径会漏检。
+    pre({ node, children, ...rest }) {
+      const code = isValidElement(children) ? (children as ReactElement<{ className?: string }>) : null;
+      const lang = /language-([\w+-]+)/.exec(code?.props.className ?? "")?.[1];
+      const raw = nodeText(node).replace(/\n$/, "");
+      const htmlPath = findLocalHtmlPathsInText(raw)[0];
       return (
         <>
-          <pre {...rest}>{children}</pre>
+          <div className="pw-md-codeblock">
+            <CopyButton text={raw} />
+            <pre {...rest} data-lang={lang}>
+              {children}
+            </pre>
+          </div>
           {htmlPath ? <HtmlPreviewButton path={htmlPath} bridge={bridge} /> : null}
         </>
       );
