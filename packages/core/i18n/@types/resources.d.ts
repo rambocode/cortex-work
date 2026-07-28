@@ -1889,8 +1889,12 @@ export default interface Resources {
     },
     "profile": {
       "avatar": "头像",
+      "bgColor": "背景色",
       "cardTitle": "昵称与头像",
       "desc": "设置你的昵称和头像,会话中你发出的消息会用它们显示。",
+      "icon": "图标",
+      "iconEmoji": "Emoji",
+      "iconInitials": "用户名首字符",
       "nickname": "昵称",
       "nicknameDesc": "会话中你发出的消息显示的名字。",
       "nicknamePlaceholder": "我",

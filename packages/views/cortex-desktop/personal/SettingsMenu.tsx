@@ -11,11 +11,15 @@ import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
 import { formatAccelerator } from "@cortex-work/ui/controls/hotkeyAccelerator";
 import {
   AGENT_MODELS,
+  AVATAR_BG_COLORS,
+  AVATAR_EMOJIS,
   DEFAULT_MODEL,
   DEFAULT_PI_APPROVAL_TOOLS,
   PI_APPROVAL_TOOL_OPTIONS,
   PI_THINKING_LEVELS,
   DEFAULT_PUSH_TEMPLATE,
+  profileInitial,
+  resolveAvatar,
   resolveDefaultAgent,
   speakText,
   stopSpeaking,
@@ -48,7 +52,6 @@ import { useTranslation, type Locale } from "@cortex-work/core/i18n";
 import { PET_DESIGNS, PET_KIND_KEY, PET_SIZE_KEY, PET_SIZE_MAX, PET_SIZE_MIN } from "../pet/designs";
 import { PET_SPRITES } from "../pet/sprites";
 import { savePetEnabled } from "../pet/behavior";
-import { BUILTIN_AVATARS } from "./avatars";
 import { PluginManager } from "./PluginManager";
 import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "./ArchivedSessionsSection";
@@ -134,13 +137,16 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
 ];
 
 
-// 个人资料:昵称 + 内置头像（写入 personal store 的 profile 切片,随工作区落盘;
-// 会话中 who="me" 的气泡据此渲染,见 ChatArea MessageAvatar/MessageHeader）。
+// 个人资料:昵称 + 头像(背景色 + 图标两模式:用户名首字符 / Emoji,参考 Notion 头像编辑器)。
+// 写入 personal store 的 profile 切片(随工作区落盘);会话中 who="me" 的气泡经
+// whoMeta → resolveAvatar 据此渲染(见 ChatArea MessageAvatar),此处预览与其同源。
 function ProfileSection() {
   const { t } = useTranslation("settings");
   const profile = usePersonalProfile();
   const setProfile = usePersonalStore((s) => s.setProfile);
   const nickname = profile.nickname ?? "";
+  // 缺省字段(模式/emoji/背景)的兜底只收敛在 resolveAvatar 一处,预览直接消费其结果。
+  const avatar = resolveAvatar(profile);
   return (
     <>
       <div className="pw-dlg-title">{t("profile.title")}</div>
@@ -157,24 +163,66 @@ function ProfileSection() {
           />
         </SRow>
         <SBlock label={t("profile.avatar")}>
-          <div className="pw-pet-grid">
-            {BUILTIN_AVATARS.map((a) => {
-              const Svg = a.Svg;
-              return (
-                <button
-                  key={a.id}
-                  className={`pw-pet-card ${a.id === profile.avatarId ? "is-active" : ""}`}
-                  onClick={() => setProfile({ avatarId: a.id })}
-                  title={a.name}
-                >
-                  <span className="pw-avatar-preview">
-                    <Svg />
-                  </span>
-                  <span className="pw-pet-name">{a.name}</span>
-                </button>
-              );
-            })}
+          <div className="pw-profile-preview">
+            <div
+              className={`pw-profile-preview-avatar ${avatar.mode === "initials" ? "is-initial" : ""}`}
+              style={{ background: avatar.bg }}
+            >
+              {avatar.mode === "emoji" ? avatar.emoji : profileInitial(nickname)}
+            </div>
+            <div className="pw-profile-preview-name">{nickname.trim() || t("profile.nicknamePlaceholder")}</div>
           </div>
+        </SBlock>
+        <SBlock label={t("profile.bgColor")}>
+          <div className="pw-bg-swatches">
+            {AVATAR_BG_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`pw-bg-swatch ${c === avatar.bg ? "is-active" : ""}`}
+                style={{ background: c }}
+                aria-label={c}
+                onClick={() => setProfile({ avatarBg: c })}
+              />
+            ))}
+          </div>
+        </SBlock>
+        <SBlock label={t("profile.icon")}>
+          <div className="pw-icon-radios">
+            <label className="pw-icon-radio">
+              <input
+                type="radio"
+                name="pw-avatar-icon-mode"
+                checked={avatar.mode === "initials"}
+                onChange={() => setProfile({ avatarMode: "initials" })}
+              />
+              {t("profile.iconInitials")}
+            </label>
+            <label className="pw-icon-radio">
+              <input
+                type="radio"
+                name="pw-avatar-icon-mode"
+                checked={avatar.mode === "emoji"}
+                onChange={() => setProfile({ avatarMode: "emoji" })}
+              />
+              {t("profile.iconEmoji")}
+            </label>
+          </div>
+          {/* emoji 网格仅 emoji 模式显示;initials 模式的图标取自昵称,无可选清单。 */}
+          {avatar.mode === "emoji" ? (
+            <div className="pw-emoji-grid">
+              {AVATAR_EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className={`pw-emoji-btn ${e === avatar.emoji ? "is-active" : ""}`}
+                  onClick={() => setProfile({ avatarEmoji: e })}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </SBlock>
       </SettingCard>
     </>

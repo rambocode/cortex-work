@@ -58,6 +58,7 @@ import {
 import type { WritingLlmSettings } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
 import { fromAdapterPermissions } from "../personal/permissionMode";
+import { migrateProfile } from "../personal/avatars";
 
 let seq = 0;
 function newId(prefix: string): string {
@@ -616,8 +617,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       providerSettings: resolveProviderSettings(s),
       // 通用设置：嵌套子对象逐层以默认值补全。
       generalSettings: resolveGeneralSettings(s),
-      // 旧存档无 profile 字段 → 回退空对象（会话渲染走默认昵称/头像）。
-      profile: s.profile ?? {},
+      // 旧存档无 profile 字段 → 回退空对象;带旧 avatarId 的存档在此迁移为 emoji 头像。
+      profile: migrateProfile(s.profile ?? {}),
       rightPanelWidth: s.rightPanelWidth,
       projectsDetailWidth: s.projectsDetailWidth,
       lastAgent: s.lastAgent,

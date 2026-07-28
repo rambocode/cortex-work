@@ -334,6 +334,61 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
   });
 });
 
+describe("个人资料分区(头像编辑器)", () => {
+  beforeEach(() => {
+    usePersonalStore.setState({ settingsOpen: true, profile: {} });
+  });
+  afterEach(() => cleanup());
+
+  // 预览头像节点的统一取法:emoji/首字符也会出现在选择网格里,故按 class 定位预览。
+  const previewAvatar = (container: HTMLElement) =>
+    container.querySelector(".pw-profile-preview-avatar") as HTMLElement;
+
+  it("默认渲染:emoji 模式 + 默认 🐼 + 默认背景,emoji 网格可见", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    expect(previewAvatar(container).textContent).toBe("🐼");
+    expect(container.querySelector(".pw-emoji-grid")).not.toBeNull();
+    // 11 个背景色块,默认色(#22c55e)选中。
+    const swatches = container.querySelectorAll(".pw-bg-swatch");
+    expect(swatches).toHaveLength(11);
+    expect(screen.getByRole("button", { name: "#22c55e" }).className).toContain("is-active");
+  });
+
+  it("点击背景色写入 avatarBg,选中态与预览背景同步", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "#ec4899" }));
+    expect(usePersonalStore.getState().profile.avatarBg).toBe("#ec4899");
+    expect(screen.getByRole("button", { name: "#ec4899" }).className).toContain("is-active");
+    expect(previewAvatar(container).style.background).toBe("rgb(236, 72, 153)");
+  });
+
+  it("切到「用户名首字符」:写入 avatarMode,emoji 网格隐藏,预览显示昵称首字符", () => {
+    usePersonalStore.setState({ profile: { nickname: "阿伟" } });
+    const { container } = renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByLabelText("用户名首字符"));
+    expect(usePersonalStore.getState().profile.avatarMode).toBe("initials");
+    expect(container.querySelector(".pw-emoji-grid")).toBeNull();
+    expect(previewAvatar(container).textContent).toBe("阿");
+  });
+
+  it("emoji 模式点击 emoji 写入 avatarEmoji,预览同步变化", () => {
+    const { container } = renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "🦊" }));
+    expect(usePersonalStore.getState().profile.avatarEmoji).toBe("🦊");
+    expect(previewAvatar(container).textContent).toBe("🦊");
+    expect(screen.getByRole("button", { name: "🦊" }).className).toContain("is-active");
+  });
+
+  it("昵称输入实时反映在预览名字与首字符头像", () => {
+    usePersonalStore.setState({ profile: { avatarMode: "initials" } });
+    const { container } = renderUI(<PersonalSettingsView />);
+    const input = screen.getByPlaceholderText("我");
+    fireEvent.change(input, { target: { value: "mike" } });
+    expect(container.querySelector(".pw-profile-preview-name")?.textContent).toBe("mike");
+    expect(previewAvatar(container).textContent).toBe("M"); // 拉丁首字符大写
+  });
+});
+
 describe("设置菜单分组 + 应用/浏览器分区", () => {
   beforeEach(() => {
     usePersonalStore.setState({ settingsOpen: true, profile: {} });

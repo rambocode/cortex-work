@@ -301,10 +301,14 @@ export {
   providerFromPreset,
 } from "./desktop/providers";
 export {
-  BUILTIN_AVATAR_IDS,
-  DEFAULT_AVATAR_ID,
-  isBuiltinAvatarId,
-  type BuiltinAvatarId,
+  AVATAR_BG_COLORS,
+  AVATAR_EMOJIS,
+  DEFAULT_AVATAR_EMOJI,
+  DEFAULT_AVATAR_BG,
+  LEGACY_AVATAR_EMOJI_MAP,
+  migrateProfile,
+  resolveAvatar,
+  profileInitial,
 } from "./personal/avatars";
 export { useSpotlightIntentRouter, useSpotlightHandoff } from "./personal/spotlightHandoff";
 export {

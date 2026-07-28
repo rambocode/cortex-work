@@ -563,10 +563,14 @@ export interface OpenAiCompleteRequest {
   prompt: string;
 }
 
-// 个人工作区用户资料（昵称 + 内置头像 id）。两字段均可选:
-// 未设置时会话渲染回退到默认昵称「我」+ 首字母头像。
+// 个人工作区用户资料(昵称 + 头像:背景色 + 首字符/Emoji 两种模式)。
+// avatarId 仅为旧存档迁移保留,渲染层不再消费(见 personal/avatars.ts migrateProfile)。
 export interface PersonalProfile {
   nickname?: string;
+  avatarMode?: "initials" | "emoji";
+  avatarEmoji?: string;
+  avatarBg?: string;
+  /** @deprecated 旧内置头像 id,仅迁移读取 */
   avatarId?: string;
 }
 

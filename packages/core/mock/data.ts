@@ -14,6 +14,8 @@ import type {
   Organization,
   WhoMeta,
 } from "../types";
+import type { PersonalProfile } from "../desktop/types";
+import { profileInitial, resolveAvatar } from "../personal/avatars";
 
 export const ORGS: Organization[] = [
   { id: "dx", name: "dx", initials: "D" },
@@ -538,12 +540,15 @@ export function findContact(id: string): Contact | undefined {
 // Resolve a message author id ("wangyutong", "wangyutong-agent", "me-agent")
 // to display metadata. 传入 profile 时仅影响 who="me"（用户本人）的昵称与头像;
 // 其余作者（agent / me-agent / 联系人）不受影响。
-export function whoMeta(who: string, profile?: { nickname?: string; avatarId?: string }): WhoMeta {
+export function whoMeta(who: string, profile?: PersonalProfile): WhoMeta {
   if (who === "me") {
     const name = profile?.nickname?.trim() || "我";
-    const avatar: Avatar = profile?.avatarId
-      ? { initials: "我", bg: "#1a1916", avatarId: profile.avatarId }
-      : { initials: "我", bg: "#1a1916" };
+    // 头像=背景色+图标:emoji 模式画 emoji,initials 模式画昵称首字符(缺省全走 resolveAvatar 的默认)。
+    const { mode, emoji, bg } = resolveAvatar(profile);
+    const avatar: Avatar =
+      mode === "emoji"
+        ? { initials: profileInitial(profile?.nickname), bg, emoji }
+        : { initials: profileInitial(profile?.nickname), bg };
     return { name, avatar, agent: null, isMe: true };
   }
   // 个人工作区的 CLI agent 作者。

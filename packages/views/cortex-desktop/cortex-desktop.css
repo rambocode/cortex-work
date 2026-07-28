@@ -878,9 +878,12 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0;
   margin-top: 2px;
 }
-/* 内置 SVG 头像:满幅填充并随 border-radius 裁成圆形（覆盖首字母底色/留白）。 */
-.msg .m-avatar.has-img { background: transparent; overflow: hidden; }
-.msg .m-avatar.has-img svg { display: block; width: 100%; height: 100%; }
+/* emoji 头像(个人资料选了 emoji 图标):emoji 自带字形,放大字号让其撑满 28px 圆。 */
+.msg .m-avatar.has-emoji { font-size: 16px; font-weight: 400; }
+/* 个人会话:消息头不显示发送者名与 Agent 标签(个人区只有「我 + 当前 agent」,
+   名字是冗余信息);发送者名移到头像的悬停 tip(title)上。团队会话不适用。 */
+.pw-personal-chat .m-head .who,
+.pw-personal-chat .m-head .agent-tag { display: none; }
 .msg.is-grouped .m-avatar { visibility: hidden; height: 0; margin-top: 0; }
 .msg.is-grouped .m-head { display: none; }
 .msg .m-body { flex: 1; min-width: 0; }
@@ -7662,15 +7665,68 @@ button.sb-row {
 .pw-pet-desc { font-size: 11px; color: var(--text-3); }
 .pw-pet-card.is-active .pw-pet-name { color: var(--accent); }
 
-/* 个人资料头像预览:内置 SVG 满幅,圆形裁切，与会话气泡圆头像观感一致。 */
-.pw-avatar-preview {
-  display: block;
-  width: 52px;
-  height: 52px;
+/* 个人资料头像编辑器(背景色 + 图标两模式,参考 Notion):预览行 = 64px 圆头像 + 昵称。 */
+.pw-profile-preview { display: flex; align-items: center; gap: 14px; }
+.pw-profile-preview-avatar {
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
 }
-.pw-avatar-preview svg { display: block; width: 100%; height: 100%; }
+/* 首字符模式:字号收小加粗,与 32px emoji 视觉重量拉齐;饱和底色上用白字(同 agent 头像)。 */
+.pw-profile-preview-avatar.is-initial { font-size: 24px; font-weight: 600; color: #fff; }
+.pw-profile-preview-name { font-size: 15px; font-weight: 600; color: var(--text-1); }
+
+/* 背景色块:选中态用双层 ring(内层与卡片底色同色形成间隔,外层强调色),参考 .pw-pet-card.is-active。 */
+.pw-bg-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.pw-bg-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.pw-bg-swatch:hover { transform: scale(1.1); }
+.pw-bg-swatch.is-active { box-shadow: 0 0 0 2px var(--bg-card-2), 0 0 0 4px var(--accent); }
+
+/* 图标模式 radio:原生圆点(accent 着色) + 文案横排。 */
+.pw-icon-radios { display: flex; gap: 20px; }
+.pw-icon-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.pw-icon-radio input { accent-color: var(--accent); margin: 0; }
+
+/* emoji 选择网格(仅 emoji 模式渲染)。 */
+.pw-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+.pw-emoji-btn {
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.pw-emoji-btn:hover { background: var(--bg-hover); }
+.pw-emoji-btn.is-active { background: #dcfce7; border-color: var(--accent); }
 
 /* 宠物尺寸滑杆 */
 .pw-pet-size { display: flex; align-items: center; gap: 10px; }

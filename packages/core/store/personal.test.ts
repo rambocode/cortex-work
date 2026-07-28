@@ -856,23 +856,48 @@ describe("个人资料 profile (昵称 + 头像)", () => {
     usePersonalStore.getState().setProfile({ nickname: "阿伟" });
     expect(usePersonalStore.getState().profile).toEqual({ nickname: "阿伟" });
 
-    usePersonalStore.getState().setProfile({ avatarId: "fox" });
-    expect(usePersonalStore.getState().profile).toEqual({ nickname: "阿伟", avatarId: "fox" });
+    usePersonalStore.getState().setProfile({ avatarMode: "emoji", avatarEmoji: "🦊", avatarBg: "#EDE9FE" });
+    expect(usePersonalStore.getState().profile).toEqual({
+      nickname: "阿伟",
+      avatarMode: "emoji",
+      avatarEmoji: "🦊",
+      avatarBg: "#EDE9FE",
+    });
 
     usePersonalStore.getState().setProfile({ nickname: "小明" });
-    expect(usePersonalStore.getState().profile).toEqual({ nickname: "小明", avatarId: "fox" });
+    expect(usePersonalStore.getState().profile).toEqual({
+      nickname: "小明",
+      avatarMode: "emoji",
+      avatarEmoji: "🦊",
+      avatarBg: "#EDE9FE",
+    });
+  });
+
+  it("hydrate 旧存档 avatarId 自动迁移为 emoji 头像,不再保留 avatarId", () => {
+    usePersonalStore.getState().hydrate({ ...base, profile: { nickname: "测试", avatarId: "cat" } });
+    expect(usePersonalStore.getState().profile).toEqual({
+      nickname: "测试",
+      avatarMode: "emoji",
+      avatarEmoji: "🐱",
+    });
   });
 
   it("hydrate 恢复 profile,toPersistedState round-trip 一致", () => {
-    usePersonalStore.getState().hydrate({ ...base, profile: { nickname: "测试", avatarId: "cat" } });
-    expect(usePersonalStore.getState().profile).toEqual({ nickname: "测试", avatarId: "cat" });
+    const profile = { nickname: "测试", avatarMode: "emoji" as const, avatarEmoji: "🐼", avatarBg: "#22c55e" };
+    usePersonalStore.getState().hydrate({ ...base, profile });
+    expect(usePersonalStore.getState().profile).toEqual(profile);
 
     const persisted = toPersistedState(usePersonalStore.getState());
-    expect(persisted.profile).toEqual({ nickname: "测试", avatarId: "cat" });
+    expect(persisted.profile).toEqual(profile);
 
     // round-trip:把快照再 hydrate 回去,结果一致。
     usePersonalStore.getState().hydrate({ version: 1, projects: [], sessions: [], profile: persisted.profile });
-    expect(usePersonalStore.getState().profile).toEqual({ nickname: "测试", avatarId: "cat" });
+    expect(usePersonalStore.getState().profile).toEqual(profile);
+  });
+
+  it("hydrate 旧存档 pastel 背景色 → 升级为同索引饱和色(migrateProfile)", () => {
+    usePersonalStore.getState().hydrate({ ...base, profile: { nickname: "测试", avatarBg: "#DCFCE7" } });
+    expect(usePersonalStore.getState().profile?.avatarBg).toBe("#22c55e");
   });
 });
 

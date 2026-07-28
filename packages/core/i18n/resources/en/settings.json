@@ -188,7 +188,11 @@
     "nickname": "Nickname",
     "nicknameDesc": "The name shown on messages you send in conversations.",
     "nicknamePlaceholder": "Me",
-    "avatar": "Avatar"
+    "avatar": "Avatar",
+    "bgColor": "Background",
+    "icon": "Icon",
+    "iconInitials": "Username initial",
+    "iconEmoji": "Emoji"
   },
   "pet": {
     "title": "Desktop pet",

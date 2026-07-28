@@ -188,7 +188,11 @@
     "nickname": "昵称",
     "nicknameDesc": "会话中你发出的消息显示的名字。",
     "nicknamePlaceholder": "我",
-    "avatar": "头像"
+    "avatar": "头像",
+    "bgColor": "背景色",
+    "icon": "图标",
+    "iconInitials": "用户名首字符",
+    "iconEmoji": "Emoji"
   },
   "pet": {
     "title": "桌面宠物",

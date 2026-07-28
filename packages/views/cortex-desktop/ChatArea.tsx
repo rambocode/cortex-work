@@ -9,7 +9,6 @@ import { renderRich } from "./rich";
 import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chatMarkdown";
 import { ChatImages } from "./personal/ChatImages";
 import { ChatFiles } from "./personal/ChatFiles";
-import { renderAvatar } from "./personal/avatars";
 
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const { t } = useTranslation("chat");
@@ -86,12 +85,18 @@ function MessageAvatar({ who }: { who: string }) {
   // profile 仅影响 who="me";其余作者 whoMeta 忽略它（见 core/mock/data.ts）。
   const profile = usePersonalProfile();
   const meta = whoMeta(who, profile);
-  const svg = renderAvatar(meta.avatar.avatarId);
-  if (svg) {
-    return <div className="m-avatar has-img">{svg}</div>;
+  // title:悬停 tip 显示发送者名——个人会话的消息头已隐藏名字(见 .pw-personal-chat),tip 是唯一查看入口。
+  // 用户选了 emoji 图标(who="me" 且 emoji 模式):铺 emoji + pastel 底色;
+  // 其余作者/首字符模式维持 initials + bg 不变。
+  if (meta.avatar.emoji) {
+    return (
+      <div className="m-avatar has-emoji" style={{ background: meta.avatar.bg }} title={meta.name}>
+        {meta.avatar.emoji}
+      </div>
+    );
   }
   return (
-    <div className="m-avatar" style={{ background: meta.avatar.bg }}>
+    <div className="m-avatar" style={{ background: meta.avatar.bg }} title={meta.name}>
       {meta.avatar.initials}
     </div>
   );

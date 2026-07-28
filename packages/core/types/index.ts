@@ -8,9 +8,9 @@ export type GroupId = "pinned" | "team" | "shared" | "groups";
 export interface Avatar {
   initials: string;
   bg: string;
-  // 内置头像 id（个人工作区用户自定义头像）。存在时渲染层按 id 画内置 SVG，
-  // 否则回退到 initials + bg。agent / 联系人头像不带此字段，渲染不变。
-  avatarId?: string;
+  // 用户自定义 emoji 头像(个人工作区 who=me)。存在时渲染层画 emoji+bg,
+  // 否则回退 initials+bg。agent / 联系人头像不带此字段,渲染不变。
+  emoji?: string;
 }
 
 // Organization / workspace the user belongs to (shown in the sidebar switcher).
