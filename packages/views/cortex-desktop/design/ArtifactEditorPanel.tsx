@@ -5,6 +5,7 @@ import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspa
 import { installDesignRuntime } from "@cortex-work/core/design/run/design-run-manager";
 import { DesignWorkspaceView } from "./DesignWorkspaceView";
 import { useArtifactConversationTurn } from "./useArtifactConversationTurn";
+import { useDesignArtifactAutoRefresh } from "./useDesignArtifactAutoRefresh";
 
 interface ArtifactWorkspaceSwitch {
   workspaceRoot: string;
@@ -32,6 +33,8 @@ export function ArtifactEditorPanel({
   const [error, setError] = useState<string>();
   // 面板内的动作(提纲审批、画布智能操作)要发回打开该产物的会话,而不是设计工作台的隐形对话。
   useArtifactConversationTurn(artifact);
+  // agent 这一轮写完设计稿后重扫目录,否则画布要等下次打开面板才更新。
+  useDesignArtifactAutoRefresh(artifact);
 
   useEffect(() => {
     let cancelled = false;

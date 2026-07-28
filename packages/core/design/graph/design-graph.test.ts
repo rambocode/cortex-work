@@ -3,7 +3,12 @@ import { createDefaultShape, createEmptyDocument, createHtmlFrameShape } from '.
 import { createRunningAppFrameShape } from '../canvas/running-app-frame'
 import type { DesignSystem } from '../canvas/design-system-types'
 import { buildDesignGraphFromCanvasDocument } from './design-graph-from-canvas'
-import { componentGraphObjectId, tokenGraphObjectId } from './design-system-graph'
+import {
+  componentGraphObjectId,
+  designSystemToGraphObjects,
+  summarizeDesignSystemForGraph,
+  tokenGraphObjectId
+} from './design-system-graph'
 import {
   appendDesignOperationJournalEntry,
   clearDesignOperationJournal,
@@ -247,5 +252,23 @@ describe('design graph', () => {
       source: { componentId: 'button' },
       metadata: { version: 2, rootShapeCount: 1, usageCount: 1, instanceIds: [button.id] }
     })
+  })
+})
+
+// 纵深防御回归:磁盘上的 design-system.json 可能是 agent 按自己的分类法写的
+// (实测 `{ tokens: { colors: {...} } }`)。这两个函数在 CanvasToolbar 渲染期同步跑,
+// 抛错就等于打开设计稿整窗白屏 —— 脏数据只能被跳过,不能炸。
+describe('设计系统脏数据不炸渲染', () => {
+  const dirty = {
+    tokens: { colors: { 'bg-primary': '#0B0E17' } },
+    components: { card: { name: '卡片' } }
+  } as unknown as DesignSystem
+
+  it('summarizeDesignSystemForGraph 不抛', () => {
+    expect(() => summarizeDesignSystemForGraph(dirty)).not.toThrow()
+  })
+
+  it('designSystemToGraphObjects 跳过缺 name/id 的记录', () => {
+    expect(designSystemToGraphObjects(dirty)).toEqual({})
   })
 })

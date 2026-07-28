@@ -67,8 +67,9 @@ function componentSummary(component: ComponentDef, instanceIds: string[]) {
     id: component.id,
     name: component.name,
     version: component.version,
-    slotCount: component.slots.length,
-    rootShapeCount: component.tree.length,
+    // slots/tree 同样兜底:脏数据不该让摘要抛错(权威校验在 parseDesignSystem)。
+    slotCount: component.slots?.length ?? 0,
+    rootShapeCount: component.tree?.length ?? 0,
     usageCount: instanceIds.length,
     instanceIds: instanceIds.slice(0, MAX_USAGE_PER_ENTRY)
   }
@@ -81,11 +82,16 @@ export function summarizeDesignSystemForGraph(
   if (!system) return undefined
   const tokenUsageByName = tokenUsage(document)
   const componentUsageById = componentUsage(document)
-  const tokens = Object.values(system.tokens)
-    .sort((a, b) => a.name.localeCompare(b.name))
+  // 排序键一律兜底成空串:本函数在 CanvasToolbar 渲染期同步跑,磁盘上混进一条缺 name 的
+  // 记录就会让 `name.localeCompare` 抛错、炸掉整棵 React 树(打开设计稿白屏,用户实测)。
+  // 权威校验在 parseDesignSystem,这里是纵深防御——渲染路径不该因数据脏就整屏挂掉。
+  const tokens = Object.values(system.tokens ?? {})
+    .filter((token): token is DesignToken => Boolean(token))
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
     .map((token) => tokenSummary(token, tokenUsageByName.get(token.name) ?? []))
-  const components = Object.values(system.components)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  const components = Object.values(system.components ?? {})
+    .filter((component): component is ComponentDef => Boolean(component))
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || (a.id ?? '').localeCompare(b.id ?? ''))
     .map((component) => componentSummary(component, componentUsageById.get(component.id) ?? []))
   return {
     tokenCount: tokens.length,
@@ -124,8 +130,8 @@ function componentGraphObject(component: ComponentDef, instanceIds: string[]): D
     source: { componentId: component.id },
     metadata: {
       version: component.version,
-      slots: component.slots,
-      rootShapeCount: component.tree.length,
+      slots: component.slots ?? [],
+      rootShapeCount: component.tree?.length ?? 0,
       usageCount: instanceIds.length,
       instanceIds: instanceIds.slice(0, MAX_USAGE_PER_ENTRY)
     }
@@ -140,11 +146,14 @@ export function designSystemToGraphObjects(
   const tokenUsageByName = tokenUsage(document)
   const componentUsageById = componentUsage(document)
   const objects: Record<string, DesignGraphObject> = {}
-  for (const token of Object.values(system.tokens)) {
+  // 与 summarizeDesignSystemForGraph 同一条纵深防御:缺 name/id 的脏记录跳过而非让 slug() 抛。
+  for (const token of Object.values(system.tokens ?? {})) {
+    if (!token?.name) continue
     const object = tokenGraphObject(token, tokenUsageByName.get(token.name) ?? [])
     objects[object.id] = object
   }
-  for (const component of Object.values(system.components)) {
+  for (const component of Object.values(system.components ?? {})) {
+    if (!component?.id) continue
     const object = componentGraphObject(component, componentUsageById.get(component.id) ?? [])
     objects[object.id] = object
   }

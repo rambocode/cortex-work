@@ -1369,6 +1369,40 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
     expect(prompt).toContain("入口:/project/.cortex-design/deck-1/deck.bento.html");
   });
 
+  // 实测事故:agent 把海报写成了 <文稿目录>/poster.html + 自造 entry.json,而画布只扫描
+  // <文稿目录>/<屏幕id>/v<N>.html —— 结果右侧画布一片空白,用户以为「设计没跑」。
+  it("design 产物上下文写死画布能识别的落盘布局", () => {
+    const prompt = buildConversationArtifactPrompt({
+      kind: "design",
+      documentId: "doc-1",
+      title: "海报",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/doc-1",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(prompt).toContain("v1.html");
+    expect(prompt).toContain("/project/.cortex-design/doc-1/<屏幕 id>/v1.html");
+    // 两条踩过的坑必须显式禁止:写在文稿目录根、自造索引文件。
+    expect(prompt).toContain("不要把 .html 直接写在文稿目录根");
+    expect(prompt).toContain("entry.json");
+    // design-system.json 由应用维护;agent 手写过一份自定义结构,直接让画布白屏。
+    expect(prompt).toContain("design-system.json");
+  });
+
+  it("slides 产物不带 design 的画布布局契约(它走 cortex-slides 工具)", () => {
+    const prompt = buildConversationArtifactPrompt({
+      kind: "slides",
+      documentId: "deck-1",
+      title: "Quarterly",
+      workspaceRoot: "/project",
+      entryPath: "/project/.cortex-design/deck-1/deck.bento.html",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(prompt).not.toContain("v1.html");
+  });
+
   describe("isOrchestrationSend 路由判断", () => {
     it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
       expect(isOrchestrationSend(true, true, false)).toBe(true);

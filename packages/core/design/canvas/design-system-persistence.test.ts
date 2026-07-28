@@ -30,6 +30,45 @@ describe('design-system-persistence', () => {
     expect(parseDesignSystem('{}')).toEqual(createEmptyDesignSystem())
   })
 
+  // 实测事故:agent(pi 跑 design skill)自己造了一份 design-system.json,结构是它自己的
+  // 分类法 { tokens: { colors: {...}, typography: {...} } }。旧实现原样 cast,
+  // 下游 summarizeDesignSystemForGraph 对无 name 的条目调 localeCompare 抛错 → 整窗白屏。
+  it('丢弃形状不符的 token/component(agent 自造结构不再炸下游)', () => {
+    const raw = JSON.stringify({
+      tokens: {
+        colors: { 'bg-primary': '#0B0E17', 'accent-primary': '#00D4FF' },
+        typography: { display: { fontFamily: 'Inter', fontWeight: 800 } },
+        'brand/primary': { name: 'brand/primary', kind: 'color', value: '#3b82d8' }
+      },
+      components: { card: { name: '卡片' }, hero: 'nope' }
+    })
+    const parsed = parseDesignSystem(raw)
+    expect(parsed).toEqual({
+      tokens: { 'brand/primary': { name: 'brand/primary', kind: 'color', value: '#3b82d8' } },
+      components: {}
+    })
+  })
+
+  it('token 只是漏了 name 时用键名补齐(能救回的就别丢)', () => {
+    const parsed = parseDesignSystem(
+      JSON.stringify({ tokens: { 'space/md': { kind: 'space', value: 16 } } })
+    )
+    expect(parsed?.tokens['space/md']).toEqual({ name: 'space/md', kind: 'space', value: 16 })
+  })
+
+  it('component 漏 id/version 时按键名与 v1 补齐,tree/slots 缺失则丢弃', () => {
+    const parsed = parseDesignSystem(
+      JSON.stringify({
+        components: {
+          card: { name: '卡片', tree: [{ id: 'root' }], slots: [] },
+          broken: { name: '坏的' }
+        }
+      })
+    )
+    expect(parsed?.components.card).toMatchObject({ id: 'card', name: '卡片', version: 1 })
+    expect(parsed?.components.broken).toBeUndefined()
+  })
+
   describe('debounced save', () => {
     afterEach(() => {
       vi.useRealTimers()
