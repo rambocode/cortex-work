@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -8,6 +8,7 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
 import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chatMarkdown";
+import { normalizeKnowledgeLinks } from "./personal/KnowledgeDocRef";
 import { ChatImages } from "./personal/ChatImages";
 import { ChatFiles } from "./personal/ChatFiles";
 
@@ -160,6 +161,12 @@ const TextMessage = memo(function TextMessage({
   const fileLinkComponents = onOpenFile
     ? chatMarkdownComponents({ onOpenFile, projectPath: projectPath ?? "", bridge })
     : undefined;
+  // 知识库引用的链接目标常含空格（文档名如 `DX0B511 采集与上报链路.md`），不归一 remark 整条不解析。
+  // useMemo:TextMessage 被 memo 包裹,流式输出时只有当前这条会重算,常量级开销可忽略。
+  const mdText = useMemo(
+    () => (renderMd ? normalizeKnowledgeLinks(m.text as string) : ""),
+    [renderMd, m.text],
+  );
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
@@ -179,7 +186,7 @@ const TextMessage = memo(function TextMessage({
               components={fileLinkComponents}
               urlTransform={onOpenFile ? chatMarkdownUrlTransform : undefined}
             >
-              {m.text as string}
+              {mdText}
             </Markdown>
           </div>
         ) : (

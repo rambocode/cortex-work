@@ -3979,6 +3979,13 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
+/* 知识库文档预览：同上那条宽度公式。文档里表格很常见,320px 的窄栏会把每列压成一列一个字;
+   中栏仍保 660px 以便边读边问。同样三处联动（本规则 + isWidePanel 判定 + RP_LEFT_RESERVED_ARTIFACT）。 */
+.pw-prompts:has(.pw-kbdoc) {
+  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+}
+.pw-prompts:has(.pw-kbdoc) .pw-rp-resizer { display: block; }
 
 /* 产物面板放大:绝对定位铺满 .pw-upper,盖住中栏。
    为什么不是把 flex 宽度撑到 100%:那会让中栏被压到 min-width 后重排(消息气泡换行、
@@ -12013,7 +12020,10 @@ button.sb-row {
 }
 .pw-kbdoc-title { font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-kbdoc-meta { margin-left: auto; flex: none; color: var(--text-3); }
-.pw-kbdoc-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
+/* 正文借 .pw-todo-md 只为复用 markdown 排版,但那个类自带 max-height:260px
+   （tasks 卡片内联预览的约定,详情态另有 .pw-todos.is-detail 覆盖）。知识库预览占满整块面板,
+   不解除就会把正文夹在顶部一小截、下方留一大片空白（实机反馈）。 */
+.pw-kbdoc-body { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; padding: 12px; }
 .pw-kbdoc-state { padding: 16px 12px; font-size: 12px; color: var(--text-3); }
 .pw-kbdoc-state.is-error { color: var(--danger, #d14343); }
 /* 服务端附注（抽取文本提示 / 截断提示）：弱化但不可忽略,置于正文之上。 */

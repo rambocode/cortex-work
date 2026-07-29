@@ -6,6 +6,7 @@ import type { DesktopBridge } from "@cortex-work/core";
 import { DEFAULT_BROWSER_CONTROL, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
 import { chatMarkdownComponents, chatMarkdownUrlTransform, fileIconFor } from "./chatMarkdown";
+import { normalizeKnowledgeLinks } from "./KnowledgeDocRef";
 
 function setLocalUrlTarget(target: "internal" | "system") {
   usePersonalStore.setState((s) => ({
@@ -20,9 +21,10 @@ function renderMd(
     resolveProjectFile?: (root: string, ref: string) => Promise<string | null>;
     fileExists?: (path: string) => Promise<boolean>;
     imageReadAny?: (path: string) => Promise<{ dataUrl: string }>;
+    knowledge?: boolean;
   } = {},
 ) {
-  const { projectPath = "/proj", resolveProjectFile, fileExists, imageReadAny } = opts;
+  const { projectPath = "/proj", resolveProjectFile, fileExists, imageReadAny, knowledge } = opts;
   const onOpenFile = vi.fn<(ref: string) => void>();
   const openExternal = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
   const bridge = {
@@ -30,6 +32,8 @@ function renderMd(
     ...(resolveProjectFile ? { resolveProjectFile } : {}),
     ...(fileExists ? { fileExists } : {}),
     ...(imageReadAny ? { imageReadAny } : {}),
+    // 知识库引用 chip 只在壳具备 readDoc 能力时才可点（Web 端 bridge 为 null）。
+    ...(knowledge ? { knowledge: { readDoc: vi.fn() } } : {}),
   } as unknown as DesktopBridge;
   const { container } = render(
     <Markdown
@@ -98,6 +102,46 @@ describe("chatMarkdownComponents", () => {
 
   it("非本机 file host 仍被拒绝", () => {
     expect(chatMarkdownUrlTransform("file://remote-host/share/report.html")).toBe("");
+  });
+
+  // react-markdown 的安全协议白名单只含 http(s)/mailto/irc/xmpp，kb: 不特判就会被清成空 href，
+  // 引用退化成不可点的普通链接——这是「链接点不开」的第二个根因。
+  it("kb:// 引用不被 urlTransform 清空", () => {
+    expect(chatMarkdownUrlTransform("kb://src-1/dir/a.md")).toBe("kb://src-1/dir/a.md");
+  });
+
+  it("kb:// 引用 → 可点 chip,点击写入 knowledgeDocRequest", () => {
+    const { container } = renderMd("参考[制度.md](kb://src-1/制度/差旅报销.md)", { knowledge: true });
+    const el = container.querySelector("a.file-link");
+    expect(el).not.toBeNull();
+    fireEvent.click(el!);
+    const req = usePersonalStore.getState().knowledgeDocRequest;
+    expect(req?.sourceId).toBe("src-1");
+    expect(req?.relPath).toBe("制度/差旅报销.md");
+    expect(usePersonalStore.getState().rightView).toBe("knowledge");
+    // 右栏收起时只切 rightView 等于「点了没反应」——面板显示与否由 rightOpen 决定。
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+  });
+
+  // 中键点击在 Electron 里走新窗口通路，绕过 onClick 的 preventDefault，
+  // 系统会拿 kb: 去找处理程序然后失败。必须同样拦下并走右栏预览。
+  it("中键点击 kb:// 引用不外泄给系统,同样进右栏预览", () => {
+    const { container } = renderMd("参考[制度.md](kb://src-1/制度/差旅报销.md)", { knowledge: true });
+    const el = container.querySelector("a.file-link")!;
+    const ev = new MouseEvent("auxclick", { button: 1, bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(usePersonalStore.getState().knowledgeDocRequest?.relPath).toBe("制度/差旅报销.md");
+  });
+
+  // 文件名带空格是知识库文档的常态，链接经 normalizeKnowledgeLinks 归一后必须仍能解析出原始路径。
+  it("含空格的 kb:// 引用经归一后可点,relPath 还原为带空格的原路径", () => {
+    const raw = "[采集链路.md](kb://src-1/开发/DX0B511 采集与上报链路.md)";
+    const { container } = renderMd(normalizeKnowledgeLinks(raw), { knowledge: true });
+    const el = container.querySelector("a.file-link");
+    expect(el).not.toBeNull();
+    fireEvent.click(el!);
+    expect(usePersonalStore.getState().knowledgeDocRequest?.relPath).toBe("开发/DX0B511 采集与上报链路.md");
   });
 
   it("markdown 外链 → 点击进内置浏览器(requestBrowserUrl + 展开右栏),不触发 openExternal / onOpenFile", () => {

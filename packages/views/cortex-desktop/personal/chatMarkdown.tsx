@@ -35,6 +35,10 @@ import { Icon } from "@cortex-work/ui/icons";
 // `[label](file:///absolute/path)`，因此在进入自定义 a 组件前将本机 file URL 收敛为绝对路径；
 // 其它 URL 仍走库自带安全转换，非本机 file host 直接拒绝。
 export function chatMarkdownUrlTransform(value: string): string {
+  // 知识库引用是自定义 scheme，而 react-markdown 的安全协议白名单只有 http(s)/mailto/irc/xmpp，
+  // 不放行就会被清成空 href —— a 组件拿不到 href、parseKnowledgeRef 判 null，引用退化成不可点的
+  // 普通链接（「点了没反应」的根因之一）。kb: 不可导航，且 a 组件一律 preventDefault，放行是安全的。
+  if (/^kb:/i.test(value)) return value;
   if (!/^file:/i.test(value)) return defaultUrlTransform(value);
   try {
     const url = new URL(value);

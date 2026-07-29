@@ -45,8 +45,15 @@ export const RP_LEFT_RESERVED = 250;
 export const RP_LEFT_RESERVED_ARTIFACT = 660;
 
 /// 这些视图按「宽面板」档位给中栏保留 660px；其余走 RP_LEFT_RESERVED。
+/// knowledge 同档的理由：知识库文档常含宽表格，320px 窄栏里每列会被压成一列一个字。
 function isWidePanel(view: string): boolean {
-  return view === "artifact" || view === "research";
+  return view === "artifact" || view === "research" || view === "knowledge";
+}
+
+/// 允许放大（绝对定位盖住中栏）的视图。放大是强状态，只给「读长文/宽内容」的面板开放；
+/// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。
+function canMaximize(view: string): boolean {
+  return view === "artifact" || view === "knowledge";
 }
 
 export function PersonalRightPanel({
@@ -85,9 +92,9 @@ export function PersonalRightPanel({
     researchRefs?.[researchRefs.length - 1]?.sessionId ??
     null;
 
-  // 放大只对产物编辑器开放:切到文件/Tasks 等窄面板还盖着中栏,用户会以为会话不见了。
+  // 放大只对产物编辑器与知识库文档开放:切到文件/Tasks 等窄面板还盖着中栏,用户会以为会话不见了。
   useEffect(() => {
-    if (view !== "artifact" && maximized) setMaximized(false);
+    if (!canMaximize(view) && maximized) setMaximized(false);
   }, [maximized, setMaximized, view]);
 
   useEffect(() => {
@@ -184,7 +191,7 @@ export function PersonalRightPanel({
             <div className="spacer" />
           </>
         )}
-        {view === "artifact" ? (
+        {canMaximize(view) ? (
           <button
             className="pw-icon-btn"
             title={maximized ? "还原面板" : "放大面板"}

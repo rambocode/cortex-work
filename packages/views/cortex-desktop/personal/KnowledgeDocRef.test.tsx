@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { knowledgeRefName, parseKnowledgeRef } from "./KnowledgeDocRef";
+import { knowledgeRefName, normalizeKnowledgeLinks, parseKnowledgeRef } from "./KnowledgeDocRef";
 
 describe("parseKnowledgeRef", () => {
   it("解析基本形态", () => {
@@ -48,6 +48,35 @@ describe("parseKnowledgeRef", () => {
     ]) {
       expect(parseKnowledgeRef(bad)).toBeNull();
     }
+  });
+});
+
+describe("normalizeKnowledgeLinks", () => {
+  // 线上实拍的形态：知识库文件名普遍带空格（`DX0B511 采集与上报链路.md`），
+  // CommonMark 的链接目标不允许裸空格 → 整条链接根本不解析，用户看到的是原始 markdown 文本。
+  it("链接目标里的空格编码为 %20", () => {
+    const out = normalizeKnowledgeLinks(
+      "[DX0B511 采集与上报链路.md](kb://synced_dir-硬件-20260612031026/DX0B511/开发/DX0B511 采集与上报链路.md)",
+    );
+    expect(out).toBe(
+      "[DX0B511 采集与上报链路.md](kb://synced_dir-硬件-20260612031026/DX0B511/开发/DX0B511%20采集与上报链路.md)",
+    );
+  });
+
+  it("多条链接与已编码的目标都能正确处理", () => {
+    const out = normalizeKnowledgeLinks("见[a](kb://s/x y.md)与[b](kb://s/已%20编码.md)");
+    expect(out).toBe("见[a](kb://s/x%20y.md)与[b](kb://s/已%20编码.md)");
+  });
+
+  it("代码块 / inline code 里的示例原样保留", () => {
+    const fenced = "```\n[a](kb://s/x y.md)\n```";
+    expect(normalizeKnowledgeLinks(fenced)).toBe(fenced);
+    expect(normalizeKnowledgeLinks("格式：`[a](kb://s/x y.md)`")).toBe("格式：`[a](kb://s/x y.md)`");
+  });
+
+  it("不含 kb:// 的文本原样返回", () => {
+    const text = "[doc](docs/a b.md) 和普通文字";
+    expect(normalizeKnowledgeLinks(text)).toBe(text);
   });
 });
 

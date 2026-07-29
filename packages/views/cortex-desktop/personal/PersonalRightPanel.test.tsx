@@ -124,6 +124,60 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     );
   });
 
+  // ── 知识库文档面板（点会话里的 kb:// 引用打开）───────────────────────────
+  // 与研究面板同档：文档常含宽表格，320px 窄栏读不了，故同样向左展开并可放大。
+
+  it("知识库面板态拖拽同样给中栏保留 660px（与产物 / 研究同档）", () => {
+    usePersonalStore.setState({ rightView: "knowledge" });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    const resizer = container.querySelector<HTMLElement>(".pw-rp-resizer")!;
+    aside.getBoundingClientRect = () =>
+      ({ right: 900, left: 480, width: 420, top: 0, bottom: 0, x: 480, y: 0, height: 0, toJSON() {} }) as DOMRect;
+    const parentWidth = 1600;
+    aside.parentElement!.getBoundingClientRect = () =>
+      ({ right: parentWidth, left: 0, width: parentWidth, top: 0, bottom: 0, x: 0, y: 0, height: 0, toJSON() {} }) as DOMRect;
+
+    fireEvent.mouseDown(resizer, { clientX: 480 });
+    fireEvent.mouseMove(document, { clientX: -5000 });
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe(`${parentWidth - RP_LEFT_RESERVED_ARTIFACT}px`);
+    fireEvent.mouseUp(document);
+  });
+
+  it("知识库面板默认宽度按 660px 中栏下限算(CSS 契约,与研究面板同一条公式)", () => {
+    expect(desktopCss).toMatch(/\.pw-prompts:has\(\.pw-kbdoc\)\s*\{[^}]*width:[^;]*660px/s);
+    // 拖拽条也要在这一档出现，否则「向左展开」后无法再手动调宽。
+    expect(desktopCss).toMatch(/\.pw-prompts:has\(\.pw-kbdoc\)\s+\.pw-rp-resizer\s*\{[^}]*display:\s*block/s);
+  });
+
+  it("知识库面板顶部有放大/还原按钮,点击切换 is-maximized", () => {
+    usePersonalStore.setState({ rightView: "knowledge", rightPanelMaximized: false });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    expect(aside.classList.contains("is-maximized")).toBe(false);
+    fireEvent.click(screen.getByTitle("放大面板"));
+    expect(aside.classList.contains("is-maximized")).toBe(true);
+    fireEvent.click(screen.getByTitle("还原面板"));
+    expect(aside.classList.contains("is-maximized")).toBe(false);
+  });
+
+  // 放大态是「盖住中栏」的强状态，切到窄面板还留着会让用户以为会话没了。
+  it("从知识库切到窄面板(文件)时自动退出放大态", async () => {
+    usePersonalStore.setState({ rightView: "knowledge", rightPanelMaximized: true });
+    useCortexUIStore.setState({ rightOpen: true });
+    const { rerender } = renderPanel();
+    expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+    usePersonalStore.setState({ rightView: "files" });
+    rerender(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
+        <PersonalRightPanel onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(usePersonalStore.getState().rightPanelMaximized).toBe(false));
+  });
+
   it("自定义宽度以 --rp-custom-width 变量注入(只作用于详情态档位);未设置时无变量", () => {
     const { container, rerender } = renderPanel();
     const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
