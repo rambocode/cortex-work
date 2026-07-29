@@ -710,6 +710,29 @@ describe("providerSettings 多供应商", () => {
     expect((sess as unknown as Record<string, unknown>).piChannelId).toBeUndefined();
   });
 
+  // `opus` 别名档已下线,旧会话必须就地改写成 1M 档 —— 否则 UI 回落显示 Sonnet、CLI 仍跑 opus。
+  it("hydrate:claude 会话的旧 model \"opus\" → claude-opus-5[1m]", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      sessions: [{ id: "s1", title: "T", agent: "claude", model: "opus", createdAt: 1, updatedAt: 1 }],
+    } as unknown as Persisted);
+    expect(usePersonalStore.getState().sessions[0]!.model).toBe("claude-opus-5[1m]");
+  });
+
+  it("hydrate:非 claude 会话 / 其它模型值不受 opus 迁移影响", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      sessions: [
+        // pi 的模型值来自用户自配 provider,同名也不该被改写。
+        { id: "s1", title: "T", agent: "pi", model: "opus", createdAt: 1, updatedAt: 1 },
+        { id: "s2", title: "T", agent: "claude", model: "sonnet", createdAt: 1, updatedAt: 1 },
+      ],
+    } as unknown as Persisted);
+    const [a, b] = usePersonalStore.getState().sessions;
+    expect(a!.model).toBe("opus");
+    expect(b!.model).toBe("sonnet");
+  });
+
   it("hydrate 旧单 provider 结构（无 channels）→ 空注册表", () => {
     usePersonalStore.getState().hydrate({
       ...base,

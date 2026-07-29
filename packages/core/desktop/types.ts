@@ -1518,10 +1518,19 @@ export interface AgentProjectInfo {
 
 // agent → 可选模型列表（UI 下拉用）。
 export const AGENT_MODELS: Record<AgentKind, { label: string; value: string }[]> = {
+  // claude --model 接受「别名」(取该系列最新款,如 sonnet/haiku/fable)或「全名」(如 claude-fable-5)。
+  // 别名项保持在前:它们随 CLI 升级自动跟到最新模型,不需要我们跟版本。带全名的两项是别名覆盖不到的
+  // 具体档位——Opus 5 的 1M 上下文变体只能用 `claude-opus-5[1m]` 这种带方括号的完整 ID 指定
+  // (方括号语法已对 CLI 2.1.220 实测通过;args 是结构化数组且 spawn 显式 shell:false,不会被 glob 展开)。
+  // 不再提供 `opus` 别名档:Opus 只保留 1M 上下文这一档,避免两个名字都叫 Opus、用户分不清跑的是哪个
+  // 上下文长度。旧会话记忆的 "opus" 由 store/personal.ts 的 migrateSession ⑤ 就地改写为 1M 档 ——
+  // 光靠渲染端回落不够:那只改显示,session.model 仍是 "opus" 且 CLI 仍认该别名,会造成
+  // 「显示 Sonnet、实际跑 Opus」。
   claude: [
     { label: "Sonnet", value: "sonnet" },
-    { label: "Opus", value: "opus" },
     { label: "Haiku", value: "haiku" },
+    { label: "Opus 5 (1M)", value: "claude-opus-5[1m]" },
+    { label: "Fable 5", value: "claude-fable-5" },
   ],
   // codex GPT-5.6 三档:sol=旗舰前沿、terra=日常均衡、luna=快速廉价(对齐 codex CLI 模型清单);
   // 5.5/5.4 保留为 legacy 可选(codex -m 仍接受),也让旧会话记忆的模型值不被判为脏值。

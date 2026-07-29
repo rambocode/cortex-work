@@ -558,6 +558,13 @@ function migrateSession(sess: SessionMeta): SessionMeta {
     const { subagentOrchestration: _dropped2, ...rest } = withOrch;
     s = rest;
   }
+  // ⑤ claude 的 `opus` 别名档已从 AGENT_MODELS 移除（Opus 只保留 1M 一档）。不迁移的话会漂移:
+  //    下拉在显示层回落到首项(Sonnet),但 session.model 仍是 "opus" 且 CLI 依旧认这个别名 ——
+  //    用户看到 Sonnet、实际跑 Opus。故就地改写成保留的 1M 档,让显示与实际一致。
+  //    只动 claude:pi 的模型值来自用户自配 provider,与本表无关。
+  if (s.agent === "claude" && s.model === "opus") {
+    s = { ...s, model: "claude-opus-5[1m]" };
+  }
   return s;
 }
 

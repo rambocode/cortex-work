@@ -207,7 +207,7 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     await Promise.resolve();
 
     const created = usePersonalStore.getState().sessions.find((s) => s.id !== "s1")!;
-    expect(created.model).toBe("opus");
+    expect(created.model).toBe("claude-opus-5[1m]"); // Opus 仅存 1M 一档,别名档已下线
   });
 
   it("改思考强度(合并 pill)后发送:新会话沿用所选 effort", async () => {

@@ -242,11 +242,12 @@ describe("WritingAssistantPanel", () => {
 
   it("pill 选择的模型与思考强度随发送透传(claude → model + effort)", async () => {
     const { bridge, startCalls } = fakeBridge();
-    // 模拟用户已在 pill 选择:claude 用 opus + 思考「高」(assistantAgent 记忆使面板初始 agent=claude,
-    // 测试环境无已安装 agent,否则默认回落 pi)。
+    // 模拟用户已在 pill 选择:claude 用 Opus 5 (1M) + 思考「高」(assistantAgent 记忆使面板初始
+    // agent=claude,测试环境无已安装 agent,否则默认回落 pi)。取 AGENT_MODELS 里的现存值——
+    // 旧的 `opus` 别名档已下线,拿它当有效值会退化成脏值回落用例(下一条已覆盖)。
     useWritingSpacesStore.setState({
       assistantAgent: "claude",
-      assistantModelByAgent: { claude: "opus" },
+      assistantModelByAgent: { claude: "claude-opus-5[1m]" },
       assistantThinkingByAgent: { claude: "high" },
     });
     renderPanel(bridge);
@@ -255,7 +256,7 @@ describe("WritingAssistantPanel", () => {
     fireEvent.click(screen.getByLabelText("发送"));
 
     await waitFor(() => expect(startCalls).toHaveLength(1));
-    expect(startCalls[0]!.model).toBe("opus");
+    expect(startCalls[0]!.model).toBe("claude-opus-5[1m]");
     expect(startCalls[0]!.effort).toBe("high");
   });
 

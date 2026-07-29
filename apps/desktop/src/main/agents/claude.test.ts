@@ -43,6 +43,15 @@ describe("claudeDef.buildArgs", () => {
     expect(args.join(" ")).toContain("--append-system-prompt skill content");
   });
 
+  // Opus 5 的 1M 变体只能用带方括号的完整 ID 指定。args 是结构化数组、spawn 显式 shell:false
+  // （见 ipc/cli.ts），方括号不会被 shell glob 展开——这里钉住「原样透传、不转义」。
+  it("模型全名含方括号(claude-opus-5[1m]):原样透传", () => {
+    const { args } = claudeDef.buildArgs({ ...baseReq, model: "claude-opus-5[1m]" });
+    const i = args.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("claude-opus-5[1m]");
+  });
+
   it("skills 默认禁用:仅 useOwnSkills=true 时不带 --disable-slash-commands", () => {
     expect(claudeDef.buildArgs(baseReq).args).toContain("--disable-slash-commands");
     expect(claudeDef.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--disable-slash-commands");
