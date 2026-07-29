@@ -453,10 +453,12 @@ export function AgentTranscriptDialog({
                             <span>{t("transcript.input")}</span>
                             {row.input !== undefined ? <CopyButton text={jsonPreview(row.input)} size={13} /> : null}
                           </div>
+                          {/* 缺参数时的占位文案用 noInput 而非 noOutput:这里是输入参数块,
+                              显示「无输出内容」会让用户误以为是工具没返回结果(实测被误读过)。 */}
                           {row.input !== undefined ? (
                             <pre>{jsonPreview(row.input)}</pre>
                           ) : (
-                            <div className="pw-transcript-noout">{row.detail ?? t("transcript.noOutput")}</div>
+                            <div className="pw-transcript-noout">{row.detail ?? t("transcript.noInput")}</div>
                           )}
                         </div>
                       )}

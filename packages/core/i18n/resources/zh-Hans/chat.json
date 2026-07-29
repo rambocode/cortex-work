@@ -217,6 +217,7 @@
     "resultFail": "本轮失败",
     "openButton": "运行详情",
     "typeText": "回复",
-    "typeThinking": "思考"
+    "typeThinking": "思考",
+    "noInput": "(无入参)"
   }
 }

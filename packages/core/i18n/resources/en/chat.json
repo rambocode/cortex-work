@@ -217,6 +217,7 @@
     "resultFail": "Turn failed",
     "openButton": "Run transcript",
     "typeText": "Reply",
-    "typeThinking": "Thinking"
+    "typeThinking": "Thinking",
+    "noInput": "(no input)"
   }
 }
