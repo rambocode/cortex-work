@@ -97,6 +97,8 @@ import type {
   PetStateSnapshot,
   PushSettings,
   AgentBrowserRuntimeStatus,
+  KnowledgeBaseSettings,
+  KnowledgeDocResult,
 } from "./types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
@@ -776,4 +778,29 @@ export interface DesktopBridge {
   // 契约与 IPC channel 见 packages/core/desktop/research-bridge.ts 头部注释;
   // 实现在 apps/desktop/src/preload/research-bridge.ts,挂在 window.desktopAPI.personal.research。
   research?: CortexResearchBridge;
+
+  // ── 公司知识库（远端 MCP server）────────────────────────────────────────────
+  // 整段可选：Web 端与旧壳没有它,设置区据此整体降级隐藏(同本文件全可选约定)。
+  // 实现在 apps/desktop/src/preload/index.ts,挂在 window.desktopAPI.personal.knowledge。
+  //
+  // **凭据方向是单向的**：明文令牌只经 setCredential 从 renderer 流向 main（立即 safeStorage
+  // 加密落盘）,反向只回 { enabled, baseUrl, hasToken },本桥不提供任何读回明文的方法。
+  knowledge?: {
+    /** 保存连接配置。token 省略 = 保留已存令牌（用户只改地址时不必重填）。 */
+    setCredential(input: {
+      enabled: boolean;
+      baseUrl: string;
+      token?: string;
+    }): Promise<KnowledgeBaseSettings>;
+    /** 清除已保存的令牌（保留地址与开关）。 */
+    clearCredential(): Promise<KnowledgeBaseSettings>;
+    /** 连通性自检：按 MCP 协议真跑 initialize + tools/list,回成败、一句人话与工具名清单。 */
+    test(): Promise<{ ok: boolean; message: string; tools?: string[] }>;
+    /**
+     * 取一篇知识库文档的正文（会话里点开引用时预览）。
+     *
+     * 走主进程自己的 MCP 通道,**与 agent 会话无关**——用户点一下引用不该触发一次 agent 回合。
+     */
+    readDoc(input: { sourceId: string; relPath: string }): Promise<KnowledgeDocResult>;
+  };
 }

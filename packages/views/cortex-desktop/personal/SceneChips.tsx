@@ -15,7 +15,12 @@ import type { ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { RESEARCH_SKILL_CMD, SYSTEM_SKILL_COMMANDS, useResearchSkillAvailable } from "./useSlashCommands";
+import {
+  RESEARCH_SKILL_CMD,
+  SYSTEM_SKILL_COMMANDS,
+  useKnowledgeSkillAvailable,
+  useResearchSkillAvailable,
+} from "./useSlashCommands";
 
 type SceneKey = "office" | "creative";
 type ChipIcon = keyof typeof Icon;
@@ -54,7 +59,7 @@ type ViewAction = "writing" | "automation" | "workflow";
 
 /// skill chip 的门控名。判定实现一律复用 useSlashCommands 的 hook，不在这里另写一套——
 /// 落地页 chip 与 slash 菜单必须同时出现或同时消失。
-type SkillGate = "research";
+type SkillGate = "research" | "knowledge";
 
 // 场景 → chips 顺序表。设计稿刻意走 `/skill:design` 而非 store 的 openDesign()——
 // 后者的 designOpen 目前没有任何渲染方(死开关)，接上去只会得到一片空白。
@@ -75,6 +80,16 @@ const SCENES: { key: SceneKey; chips: SceneChip[] }[] = [
       // SKILL.md、机器上有 python3 就能跑;缺 python-docx 时脚本自身会降级出 Markdown。
       { key: "incident", kind: "skill", cmd: "/skill:incident-apology-report", icon: "Lightning", hintKey: "incidentHint" },
       { key: "contract", kind: "skill", cmd: "/skill:contract-review-report", icon: "File", hintKey: "contractHint" },
+      // 公司知识库。**有 gate**:未接入时 agent 手里根本没有 kb_* 工具,点进去只会得到
+      // 一句「本会话未接入知识库」——那是个死入口,不如不显示(同 research 的理由)。
+      {
+        key: "knowledge",
+        kind: "skill",
+        cmd: "/skill:knowledge-base",
+        icon: "Archive",
+        hintKey: "knowledgeHint",
+        gate: "knowledge",
+      },
       { key: "writing", kind: "view", action: "writing", icon: "Edit" },
       { key: "automation", kind: "view", action: "automation", icon: "Workflow" },
     ],
@@ -115,6 +130,7 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
   // 在这里再写一遍判定迟早漂移成「chip 还在、slash 没了」。
   const skillGateAvailable: Record<SkillGate, boolean> = {
     research: useResearchSkillAvailable(),
+    knowledge: useKnowledgeSkillAvailable(),
   };
   const viewAvailable: Record<ViewAction, boolean> = {
     writing: !!bridge, // 写作是整窗覆盖层，desktop-only；Web 端 bridge 为 null 自动降级
@@ -135,6 +151,7 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
     [
       scene,
       skillGateAvailable.research,
+      skillGateAvailable.knowledge,
       viewAvailable.writing,
       viewAvailable.automation,
       viewAvailable.workflow,

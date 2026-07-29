@@ -8,9 +8,11 @@
 |---|---|
 | `incident-apology-report` | 把一段随口的故障描述转成可直接发客户的《故障/异常情况说明及致歉报告》Word 文档 |
 | `contract-review-report` | 按甲方/乙方/中性视角审查合同风险，产出 Markdown + 可打印 HTML 报告 |
+| `knowledge-base` | 规范公司知识库（`kb_*` MCP 工具）的检索与沉淀方式：先检索再定点读、结论必须可追溯、冲突不自行裁决 |
 
 - **本目录这份即唯一维护点。** 二者原始出处是本机目录 `/Users/mike/source/ai/skills/cortex-desktop/`，拷入时已按内置需要改造（行业措辞泛化、缺依赖降级、补 `argument-hint`、去 `agents/`），**与源目录已分叉、不再双向同步**；源目录仅作历史存档。仓库内没有、也不应有 skill 同步脚本。
 - 二者都依赖 `python3`：`incident` 另需 `python-docx`（缺失时脚本自动降级输出 Markdown，退出码 0）；`contract` 的 `render_report.py` 只用标准库，pandoc / markdown 库均为可选降级项。
+- `knowledge-base` 无任何脚本依赖，纯 SKILL.md。它描述的 `kb_*` 工具由**远端**知识库 MCP server 提供（见 `main/capabilities/knowledge/inject.ts`，server 实现在 `../../knowledge-base-system` 的 `/api/mcp`），未接入时 skill 内已写明降级指引——不会让 agent 假装查过知识库。工具集若增删，本文件与该 skill 的「检索的正确顺序」一节要同步。
 
 ## 二、vendoring（来自 compound-engineering 插件）
 

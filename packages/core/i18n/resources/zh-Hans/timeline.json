@@ -105,6 +105,8 @@
       "automation": "自动化",
       "incident": "故障致歉",
       "contract": "合同审查",
+      "knowledge": "知识库",
+      "knowledgeHint": "预置知识库 skill,问一句公司内部的事即可带出处作答",
       "workflow": "Loop 工作流",
       "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
       "designHint": "预置设计稿 skill,补一句需求即可生成",

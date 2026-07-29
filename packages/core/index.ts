@@ -81,6 +81,8 @@ export {
   type AgentBrowserRuntimeStatus,
   type McpServerConfig,
   type McpSettings,
+  type KnowledgeBaseSettings,
+  type KnowledgeDocResult,
   type BrowserControlSettings,
   DEFAULT_BROWSER_CONTROL,
   type LocalUrlOpenTarget,

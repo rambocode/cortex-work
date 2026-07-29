@@ -94,6 +94,8 @@ import type {
   ReplyBubbleVoiceResult,
   PetStateSnapshot,
   AgentBrowserRuntimeStatus,
+  KnowledgeBaseSettings,
+  KnowledgeDocResult,
 } from "../main/ipc/types";
 // 方案 A：编排请求类型权威定义留在 orchestrate.ts，此处 type-only 引入（编译期擦除，
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
@@ -940,6 +942,24 @@ const personal = {
   // 必须挂在 personal 下：渲染端经 CoreProvider 注入的 DesktopBridge 就是这个对象，
   // 挂到 desktopAPI 顶层的话 views 侧的 bridge?.research 永远是 undefined。
   research: createResearchBridge(),
+  // ── 公司知识库（远端 MCP server）子域 ──────────────────────────────────────
+  // 与 research 同款凭据模式：**明文令牌只在 renderer → main 这一个方向流动**，
+  // 反向永远只回「已配置 / 未配置」，桥这层不提供任何读明文的方法。
+  knowledge: {
+    setCredential: (input: {
+      enabled: boolean;
+      baseUrl: string;
+      token?: string;
+    }): Promise<KnowledgeBaseSettings> => ipcRenderer.invoke("knowledge:setCredential", input),
+    clearCredential: (): Promise<KnowledgeBaseSettings> =>
+      ipcRenderer.invoke("knowledge:clearCredential"),
+    // 自检不接受也不回传凭据：main 用已落盘的密文自行解密发起，只回成败与一句人话。
+    test: (): Promise<{ ok: boolean; message: string; tools?: string[] }> =>
+      ipcRenderer.invoke("knowledge:test"),
+    // 取一篇文档正文（会话里点开引用时预览）。走主进程自己的 MCP 通道，不触发 agent 回合。
+    readDoc: (input: { sourceId: string; relPath: string }): Promise<KnowledgeDocResult> =>
+      ipcRenderer.invoke("knowledge:readDoc", input),
+  },
 };
 
 // 菜单栏 Spotlight 浮动框窗口专用桥（bar renderer 直接调用,不属于 DesktopBridge）。

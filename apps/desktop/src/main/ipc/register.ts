@@ -43,6 +43,7 @@ import { registerWritingPdfHandlers } from "./writing-pdf";
 import { registerSlidesHandlers } from "./slides";
 import { registerAgentBrowserHandlers, syncAgentBrowserRuntime } from "./agent-browser";
 import { registerResearchHandlers } from "./research";
+import { registerKnowledgeHandlers } from "./knowledge";
 import { registerArtifactHandlers } from "./artifact";
 import { syncResearchEngineRuntime } from "../research/runtime";
 
@@ -103,6 +104,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerSlidesHandlers(); // AI Slides deck(bento 单文件:创建/读取/阶段/保存/另存为/演示)IPC 域
   registerArtifactHandlers(); // 会话产物（设计/Slides）创建与索引校验
   registerResearchHandlers(); // Cortex Research Engine(会话/编排/证据/引用)IPC 域(U5)
+  registerKnowledgeHandlers(); // 公司知识库(远端 MCP server)连接配置与连通性自检
 }
 
 export { killAllCli } from "./cli";

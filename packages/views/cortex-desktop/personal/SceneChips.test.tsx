@@ -12,14 +12,27 @@ import { normalizeResearchEngineSettings } from "@cortex-work/core/research/sett
 import { SceneChips } from "./SceneChips";
 
 // 桥能力开关:automationList / workflowList / research 决定对应 chip 是否渲染。
-function fakeBridge(caps: { automation?: boolean; workflow?: boolean; research?: boolean } = {}): DesktopBridge {
+function fakeBridge(
+  caps: { automation?: boolean; workflow?: boolean; research?: boolean; knowledge?: boolean } = {},
+): DesktopBridge {
   return {
     loadChat: async () => [],
     saveChat: async () => {},
     ...(caps.automation ? { automationList: async () => [] } : {}),
     ...(caps.workflow ? { workflowList: async () => [] } : {}),
     ...(caps.research ? { research: {} } : {}),
+    ...(caps.knowledge ? { knowledge: {} } : {}),
   } as unknown as DesktopBridge;
+}
+
+/// 把知识库设置写进 store。三项齐全 = 已接入（与 inject.ts 的注入门控同构）。
+function setKnowledge(patch: { enabled?: boolean; baseUrl?: string; hasToken?: boolean } | undefined) {
+  usePersonalStore.setState({
+    generalSettings: {
+      ...usePersonalStore.getState().generalSettings,
+      knowledgeBase: patch as never,
+    },
+  });
 }
 
 function renderChips(bridge: DesktopBridge) {
@@ -30,7 +43,7 @@ function renderChips(bridge: DesktopBridge) {
   );
 }
 
-const FULL_BRIDGE = fakeBridge({ automation: true, workflow: true, research: true });
+const FULL_BRIDGE = fakeBridge({ automation: true, workflow: true, research: true, knowledge: true });
 
 describe("SceneChips", () => {
   afterEach(() => cleanup());
@@ -47,6 +60,9 @@ describe("SceneChips", () => {
         ...usePersonalStore.getState().generalSettings,
         // 两档都要开:deepResearchEnabled 默认是 false,只开总开关时 chip 不该出现。
         researchEngine: normalizeResearchEngineSettings({ enabled: true, deepResearchEnabled: true }),
+        // 显式清空:上面展开了旧 generalSettings,不清的话前一个用例设的知识库配置会带进来,
+        // 让「未配置 → 不出现」这类断言随执行顺序时好时坏。
+        knowledgeBase: undefined,
       },
     });
   });
@@ -73,6 +89,48 @@ describe("SceneChips", () => {
     expect(insert?.skill).toEqual({ cmd: "/skill:incident-apology-report", displayName: "故障致歉" });
     expect(insert?.text).toBe("");
     expect(insert?.submit).toBeFalsy();
+  });
+
+  // 知识库 chip 的门控:三项配齐才出现。未接入时 agent 手里没有 kb_* 工具,
+  // 点进去只会得到「本会话未接入知识库」——那是个死入口。
+  describe("知识库 chip 门控", () => {
+    it("三项配齐 → 出现", () => {
+      setKnowledge({ enabled: true, baseUrl: "http://kb:8501", hasToken: true });
+      renderChips(FULL_BRIDGE);
+      expect(screen.getByRole("button", { name: "知识库" })).toBeInTheDocument();
+    });
+
+    it("总开关关 / 缺地址 / 缺令牌 / 未配置 → 都不出现", () => {
+      for (const kb of [
+        undefined,
+        { enabled: false, baseUrl: "http://kb:8501", hasToken: true },
+        { enabled: true, baseUrl: "", hasToken: true },
+        { enabled: true, baseUrl: "   ", hasToken: true },
+        { enabled: true, baseUrl: "http://kb:8501", hasToken: false },
+      ]) {
+        setKnowledge(kb);
+        renderChips(FULL_BRIDGE);
+        expect(screen.queryByRole("button", { name: "知识库" })).toBeNull();
+        cleanup();
+      }
+    });
+
+    // 配置齐全但桥没有 knowledge 子域(Web 端 / 旧壳):同样不该出现。
+    it("桥缺 knowledge 子域 → 不出现", () => {
+      setKnowledge({ enabled: true, baseUrl: "http://kb:8501", hasToken: true });
+      renderChips(fakeBridge({ automation: true, workflow: true, research: true }));
+      expect(screen.queryByRole("button", { name: "知识库" })).toBeNull();
+    });
+
+    it("点「知识库」→ 预置 /skill:knowledge-base pill", () => {
+      setKnowledge({ enabled: true, baseUrl: "http://kb:8501", hasToken: true });
+      renderChips(FULL_BRIDGE);
+      fireEvent.click(screen.getByRole("button", { name: "知识库" }));
+      const insert = usePersonalStore.getState().composerInsert;
+      expect(insert?.skill).toEqual({ cmd: "/skill:knowledge-base", displayName: "知识库" });
+      expect(insert?.text).toBe("");
+      expect(insert?.submit).toBeFalsy();
+    });
   });
 
   it("点「合同审查」→ 预置 /skill:contract-review-report pill", () => {

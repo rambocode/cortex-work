@@ -21,6 +21,7 @@ import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
+import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
@@ -754,6 +755,10 @@ export function registerCliHandlers(): void {
             req.webSearch === true,
           ),
           buildDocExtractMcpServerConfig(req.sessionId),
+          // 公司知识库:远端 MCP server(kbserver 的 /api/mcp),给 agent 补上「查公司内部资料」
+          // 这块能力。三门控在 buildKnowledgeMcpServerConfig 内部(总开关 + 地址 + 令牌可解密)。
+          // 无会话级开关——知识库是常备资料源,与联网(会话级 webSearch)的性质不同。
+          buildKnowledgeMcpServerConfig(gs?.knowledgeBase),
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
           // loop 工作流 MCP 注入（U14）：无 enabled+callable 工作流时返回 null，不注入。
           buildLoopWorkflowsMcpServerConfig(workflowsForMcp, req.sessionId, req.cwd),

@@ -105,6 +105,8 @@
       "automation": "Automation",
       "incident": "Incident apology",
       "contract": "Contract review",
+      "knowledge": "Knowledge Base",
+      "knowledgeHint": "Preset knowledge-base skill; ask about internal docs and get sourced answers",
       "workflow": "Loop workflow",
       "slidesHint": "Preloads the Slides skill — just add a topic",
       "designHint": "Preloads the Design skill — just add a brief",

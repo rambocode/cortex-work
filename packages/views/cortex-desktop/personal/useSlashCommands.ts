@@ -80,6 +80,13 @@ const DOC_SKILL_COMMANDS: SlashCommand[] = [
     desc: "按甲方/乙方/中性视角审查合同风险并生成分级报告",
     kind: "skill",
   },
+  {
+    cmd: "/skill:knowledge-base",
+    displayName: "知识库",
+    tag: "系统",
+    desc: "检索公司内部资料并给出带出处的答案,也可把结论沉淀回知识库",
+    kind: "skill",
+  },
 ];
 
 // 全部系统 skill 定义。**与门控无关**,给落地页场景 chip 按 cmd 反查展示名用
@@ -102,6 +109,19 @@ export function useResearchSkillAvailable(): boolean {
   const researchEngine = usePersonalStore((s) => s.generalSettings.researchEngine);
   const settings = normalizeResearchEngineSettings(researchEngine);
   return !!bridge?.research && settings.enabled && settings.deepResearchEnabled;
+}
+
+/// 知识库入口此刻是否可用。三个条件缺一不可，与 capabilities/knowledge/inject.ts 的注入门控一致:
+///   - 桥有 knowledge 子域(Web 端无桥 / 旧壳无该子域);
+///   - 知识库总开关已开;
+///   - 令牌已配好(没令牌时 server 根本不会被注入，agent 手里没有 kb_* 工具)。
+///
+/// 判定与注入侧对齐是关键:两边不一致就会出现「落地页有入口、点了 agent 说没接入知识库」。
+/// 同 useResearchSkillAvailable，住在这里供 slash 菜单与落地页 chip 共用。
+export function useKnowledgeSkillAvailable(): boolean {
+  const bridge = useDesktopBridge();
+  const kb = usePersonalStore((s) => s.generalSettings.knowledgeBase);
+  return !!bridge?.knowledge && !!kb?.enabled && !!kb.baseUrl?.trim() && !!(kb.hasToken || kb.encryptedToken);
 }
 
 export function useSlashCommands(session: SessionMeta | undefined): SlashCommand[] {

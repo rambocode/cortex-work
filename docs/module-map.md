@@ -35,6 +35,7 @@
 | pi / codex 长驻会话 | — | — | `ipc/pi-session.ts`、`ipc/codex-ws-channel.ts` |
 | 供应商 / 模型连接测试 | `personal/ProviderManagerModal.tsx` | — | `ipc/provider.ts`、`ipc/llm.ts`（单发补全） |
 | MCP 配置 / 注入 | `personal/McpSection.tsx`、`McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
+| 公司知识库 / 知识库检索 / 引用预览（远端 MCP，server 在 `../../knowledge-base-system` 的 `/api/mcp`） | `personal/KnowledgeSettingsSection.tsx`（设置）、`personal/KnowledgeDocRef.tsx`（正文里 `kb://` 引用 chip）、`personal/KnowledgeDocPanel.tsx`（右栏正文预览） | `store/personal.ts` 的 `openKnowledgeDoc` / `knowledgeDocRequest`（rightView `knowledge`） | `capabilities/knowledge/inject.ts`（三门控注入）、`capabilities/knowledge/client.ts`（主进程自用的极简 MCP 客户端）、`ipc/knowledge.ts`（令牌加密落盘 + 连通性自检 + 取文） |
 | 执行权限（单轴:计划/询问/自动） | `personal/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
 | 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/PersonalProcessPanel.tsx`、`personal/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
 | Agent 追踪窗口 | `personal/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
@@ -98,13 +99,13 @@
 
 **内容与文件**：`fs.ts` / `fs-binary.ts`（读写）、`watch.ts` + `watch-noise.ts`（目录监听）、`git-info.ts`、`image.ts`（图片上传）、`doc.ts`（文档附件）、`editors.ts`（在编辑器打开）、`pty.ts`（终端）、`browser.ts`（内嵌浏览器）。
 
-**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）。
+**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
 
 **写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）。
 
 **设计 / 演示 / 研究**：`artifact.ts` + `artifact-workspace.ts`（会话产物创建、索引与路径校验）、`design-types.ts`（历史设计工作台持久化契约）、`slides.ts` + `slides-ipc-types.ts`（演示文稿）、`research.ts` + `types-research.ts`（深度研究）、`agent-browser.ts`（Agent 用浏览器）。
 
-主进程另有非 ipc 的功能目录：`agents/`（CLI 适配器）、`capabilities/`（给 Agent 的 MCP 能力：browser / doc-extract / delegate / design-delegate / loop-workflows / media-gen / research / slides / whisper / mcp-host）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
+主进程另有非 ipc 的功能目录：`agents/`（CLI 适配器）、`capabilities/`（给 Agent 的 MCP 能力：browser / doc-extract / delegate / design-delegate / knowledge / loop-workflows / media-gen / research / slides / whisper / mcp-host）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
 
 ## packages/core 域速查
 

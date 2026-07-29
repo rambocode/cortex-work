@@ -63,6 +63,7 @@ import { DesignSettingsSection } from "./DesignSettingsSection";
 import { WritingSettingsSection } from "./WritingSettingsSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { ResearchSettingsSection } from "./ResearchSettingsSection";
+import { KnowledgeSettingsSection } from "./KnowledgeSettingsSection";
 import { ProviderManagerModal } from "./ProviderManagerModal";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "./platform";
@@ -92,7 +93,8 @@ type SettingsTab =
   | "roles"
   | "design"
   | "writing"
-  | "research";
+  | "research"
+  | "knowledge";
 
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
@@ -123,6 +125,8 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   writing: { tabKey: "tabs.writing", icon: <Icon.Edit size={14} /> },
   // 研究引擎（CRE，desktop-only；旧壳/Web 无 bridge.research → 由 researchAvailable 过滤隐藏）
   research: { tabKey: "tabs.research", icon: <Icon.Search size={14} /> },
+  // 公司知识库（远端 MCP server，desktop-only；旧壳/Web 无 bridge.knowledge → 由 knowledgeAvailable 过滤隐藏）
+  knowledge: { tabKey: "tabs.knowledge", icon: <Icon.Archive size={14} /> },
 };
 
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
@@ -131,7 +135,10 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "memory", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["pi", "agent", "roles"] },
   // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
-  { groupKey: "tabGroups.apps", items: ["plugins", "browser", "mediaGen", "design", "writing", "research"] },
+  {
+    groupKey: "tabGroups.apps",
+    items: ["plugins", "knowledge", "browser", "mediaGen", "design", "writing", "research"],
+  },
   { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt", "reply"] },
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
@@ -1522,6 +1529,8 @@ export function PersonalSettingsView() {
   const memoryAvailable = useMemo(() => !!bridge?.memoryGet, [bridge]);
   // 研究引擎分区仅在壳提供 research 子桥时出现（Web/旧壳没有 → 开关开了也无处生效，隐藏整分区）。
   const researchAvailable = useMemo(() => !!bridge?.research, [bridge]);
+  // 知识库分区仅在壳提供 knowledge 子桥时出现（Web/旧壳没有 → 配了也无处生效，隐藏整分区）。
+  const knowledgeAvailable = useMemo(() => !!bridge?.knowledge, [bridge]);
 
   // 消费 store 的目标分区跳转（openSettings(tab) 设入）：合法且可见的 tab 才切换。
   // 依赖 replyAvailable 保证 reply 分区在门控通过后才跳转，避免跳到被隐藏的分区。
@@ -1530,8 +1539,9 @@ export function PersonalSettingsView() {
     if (settingsTab === "reply" && !replyAvailable) return;
     if (settingsTab === "memory" && !memoryAvailable) return;
     if (settingsTab === "research" && !researchAvailable) return;
+    if (settingsTab === "knowledge" && !knowledgeAvailable) return;
     if (settingsTab in TAB_META) setTab(settingsTab as SettingsTab);
-  }, [settingsTab, replyAvailable, memoryAvailable, researchAvailable]);
+  }, [settingsTab, replyAvailable, memoryAvailable, researchAvailable, knowledgeAvailable]);
 
   // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
   useEffect(() => {
@@ -1564,6 +1574,7 @@ export function PersonalSettingsView() {
               .filter((id) => id !== "reply" || replyAvailable)
               .filter((id) => id !== "memory" || memoryAvailable)
               .filter((id) => id !== "research" || researchAvailable)
+              .filter((id) => id !== "knowledge" || knowledgeAvailable)
               .map((id) => (
               <button
                 key={id}
@@ -1618,6 +1629,8 @@ export function PersonalSettingsView() {
             <WritingSettingsSection />
           ) : tab === "research" ? (
             <ResearchSettingsSection />
+          ) : tab === "knowledge" ? (
+            <KnowledgeSettingsSection />
           ) : (
             <VoiceSection />
           )}

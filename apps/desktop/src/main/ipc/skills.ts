@@ -64,7 +64,14 @@ interface CreateSkillArgs {
 // 一旦整根并入就会全部涌进 `/skill:` 菜单；design/slides 脱离 artifact 上下文被用户手选毫无意义
 // （其 SKILL.md 开头即「Treat the artifact context supplied by Cortex as authoritative」）。
 // 故只显式放行确实要给用户直接选用的这几个。
-const DEFAULT_BUILTIN_SKILLS = ["incident-apology-report", "contract-review-report"] as const;
+const DEFAULT_BUILTIN_SKILLS = [
+  "incident-apology-report",
+  "contract-review-report",
+  // 公司知识库检索规范。放行的理由与前两个相同——用户会直接 /skill: 选它；
+  // 且它对未接入知识库的会话有明确降级指引（工具不存在时如实说明，不假装查过），
+  // 故即便用户没配知识库也不会产生误导。
+  "knowledge-base",
+] as const;
 
 // 白名单内置 skill 的扫描根。逐个 skill 目录作为一个根传入——readRoot 对「顶层直接含 SKILL.md」
 // 的目录按单 skill 处理,正好只取白名单这几个,无需再过滤。

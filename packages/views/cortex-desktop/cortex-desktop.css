@@ -424,9 +424,8 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
-  width: 288px;
+  width: 270px;
   flex-shrink: 0;
-  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -439,7 +438,8 @@ input, textarea { font: inherit; color: inherit; }
      box-shadow,故侧栏需 position+z-index 自建层叠层级,让投影绘到中栏白底之上。 */
   position: relative;
   z-index: 1;
-  box-shadow: 2px 0 12px -6px rgba(20, 18, 12, 0.18);
+  border-right: 1px solid var(--border);
+  box-shadow: inset -3px 0px 20px 0px rgb(180 177 169 / 18%)
 }
 .body:has(.pw-main) .pw-sidebar-head {
   border-bottom: none;
@@ -12002,3 +12002,27 @@ button.sb-row {
 }
 .pw-wa-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .pw-wa-send.is-stop { background: var(--red); }
+
+/* ===== 右栏：知识库文档预览（点会话正文里的 kb:// 引用打开）===== */
+/* 结构与其它右栏视图一致：头行固定，正文区独立滚动。正文复用 .pw-todo-md 的 markdown 排版。 */
+.pw-kbdoc { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.pw-kbdoc-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border-1);
+  font-size: 12px; color: var(--text-2); flex: none;
+}
+.pw-kbdoc-title { font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-kbdoc-meta { margin-left: auto; flex: none; color: var(--text-3); }
+.pw-kbdoc-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
+.pw-kbdoc-state { padding: 16px 12px; font-size: 12px; color: var(--text-3); }
+.pw-kbdoc-state.is-error { color: var(--danger, #d14343); }
+/* 服务端附注（抽取文本提示 / 截断提示）：弱化但不可忽略,置于正文之上。 */
+.pw-kbdoc-note {
+  margin: 8px 12px 0; padding: 6px 8px; border-radius: 6px;
+  background: var(--bg-2); color: var(--text-3); font-size: 11px; line-height: 1.5; flex: none;
+}
+/* 空态：未点任何引用时的引导。 */
+.pw-kbdoc-empty {
+  align-items: center; justify-content: center; gap: 8px;
+  color: var(--text-3); font-size: 12px; text-align: center; padding: 24px;
+}

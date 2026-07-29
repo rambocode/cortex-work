@@ -297,6 +297,42 @@ export interface GeneralSettings {
   memoryEnabled?: boolean;
   // 研究引擎（CRE）配置。形状见 ./types-research（单列文件以守住本文件 1200 行上限）。
   researchEngine?: ResearchEngineMainSettings;
+  // 公司知识库（远端 MCP server）。主进程读它构建注入配置（capabilities/knowledge/inject.ts）。
+  knowledgeBase?: KnowledgeBaseSettings;
+}
+
+// 公司知识库接入配置（与 packages/core/desktop/types.ts 逐字镜像）。
+//
+// 与其它内置能力不同：MCP server 跑在**知识库服务端**（kbserver 的 /api/mcp），
+// 本地不起 host，故这里只有「连哪儿 + 拿什么令牌」，没有 port/enabled 之外的运行时状态。
+//
+// 凭据模式同研究引擎（见 core/research/settings.ts 的说明）：renderer 与 IPC 入参
+// **永不传明文令牌**，设置页提交后由主进程立即用 safeStorage 加密成 encryptedToken 落盘；
+// UI 连密文都不展示，只看 hasToken 显示「已配置」。
+export interface KnowledgeBaseSettings {
+  enabled: boolean;
+  // 知识库服务基址，形如 http://kb.internal:8501（不含 /api/mcp，注入时拼）。
+  baseUrl: string;
+  // safeStorage 加密后的 MCP 令牌（base64）。只由主进程写。
+  encryptedToken?: string;
+  // 仅供 UI 显示「已配置」——真正的权限边界是服务端令牌的 scope，不是这个布尔。
+  hasToken?: boolean;
+}
+
+// 一篇知识库文档的正文（会话里点开引用时预览用；与 core/desktop/types.ts 逐字镜像）。
+export interface KnowledgeDocResult {
+  ok: boolean;
+  // 失败原因（面向用户的一句话）。ok=false 时必有。
+  message?: string;
+  fileName?: string;
+  sourceId?: string;
+  relPath?: string;
+  text?: string;
+  totalRunes?: number;
+  // 文档超出单次读取上限、正文被截断。UI 据此提示「仅显示前 N 字」。
+  hasMore?: boolean;
+  // 服务端附注（如「本文档为非纯文本格式，此处是抽取文本」）。
+  note?: string;
 }
 
 // 浏览器控制配置（与 packages/core/desktop/types.ts 逐字镜像）。

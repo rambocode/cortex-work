@@ -74,7 +74,9 @@ export type RightView =
   | "notes"
   | "browser"
   | "artifact"
-  | "research";
+  | "research"
+  // 知识库文档预览（点会话正文里的 kb:// 引用打开）。
+  | "knowledge";
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan 模式下 agent 尝试被该模式禁止的工具(写/执行)时,
 // 在 composer 上方提示用户一键切「自动执行」并自动重发本轮(仅 plan 会触发,见 restrictedToolForMode)。
@@ -159,6 +161,9 @@ export interface PersonalState {
   // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
   // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
   browserUrlRequest?: { url: string; nonce: number };
+  // 打开某篇知识库文档预览的请求(点会话正文里的 kb:// 引用)。右栏据此拉正文渲染;
+  // nonce 让「同一篇再次点击」也能重新拉取(文档可能已更新)。瞬态,不进 toPersistedState。
+  knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
   // 展开「执行过程」面板的请求(点聊天流 typing 活动行触发)。nonce 让同会话重复点击也能触发;
   // 用请求信号而非提升面板 userOpen,保留面板「每轮默认收起」的既有逻辑。瞬态,不进 toPersistedState。
   processPanelOpenReq?: { sessionId: string; nonce: number };
@@ -342,6 +347,8 @@ export interface PersonalState {
   consumeNoteDetailRequest: () => { noteId: string } | undefined;
   // 在内嵌浏览器打开 URL:右栏切到 browser 视图并请求加载(右栏开关由调用方补,同 requestGitDiff)。
   requestBrowserUrl: (url: string) => void;
+  // 会话正文里点 kb:// 引用:右栏切到知识库视图并请求拉取该文档正文。
+  openKnowledgeDoc: (ref: { sourceId: string; relPath: string }) => void;
   // auto_open 去重:记录已自动打开的「会话:URL」键。
   markAutoOpenedPreview: (key: string) => void;
   setRightView: (view: RightView) => void;
@@ -1132,6 +1139,12 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({
       browserUrlRequest: { url, nonce: (s.browserUrlRequest?.nonce ?? 0) + 1 },
       rightView: "browser",
+    })),
+  // nonce 自增:同一篇文档再次点击也要重新拉取(知识库内容可能已被更新)。
+  openKnowledgeDoc: (ref) =>
+    set((s) => ({
+      knowledgeDocRequest: { ...ref, nonce: (s.knowledgeDocRequest?.nonce ?? 0) + 1 },
+      rightView: "knowledge",
     })),
   markAutoOpenedPreview: (key) =>
     set((s) =>

@@ -26,6 +26,7 @@ import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
+import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
@@ -216,11 +217,17 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
       "chat",
       prepared.webSearch === true,
     );
+    // 公司知识库:与 claude/codex 拿到同一套知识库工具。pi 走 mcpInjection==="none",
+    // 不经 cli.ts 的 builtinServers 数组,必须在这里单独并入——漏掉它就会出现
+    // 「同一个开关，claude 能查知识库、pi 不能」这种查起来很费劲的不一致。
+    // 无会话级开关,故不必计入 extensionFingerprint(改设置后重开会话即生效)。
+    const knowledgeServer = buildKnowledgeMcpServerConfig(gs?.knowledgeBase);
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
       ...(agentBrowserServer ? [agentBrowserServer] : []),
       ...(researchServer ? [researchServer] : []),
+      ...(knowledgeServer ? [knowledgeServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);

@@ -27,6 +27,7 @@ import { canProbeFile, resolveExistingFile } from "./resolveFileRef";
 import { ChatInlineImage } from "./ChatInlineImage";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
 import { CopyButton, nodeText } from "./markdownCodeShared";
+import { KnowledgeDocAnchor, parseKnowledgeRef } from "./KnowledgeDocRef";
 import { isLoopbackOnly } from "@cortex-work/core/personal/devPreviewUrl";
 import { Icon } from "@cortex-work/ui/icons";
 
@@ -543,6 +544,16 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
       );
     },
     a({ node: _node, href, children, ...rest }) {
+      // 知识库引用（kb://<sourceId>/<relPath>）必须在本地文件判定**之前**拦截:
+      // 这类文档不在本机，落到 FileAnchor 会先 stat 本地路径、定位不到就把链接判死。
+      const kbRef = parseKnowledgeRef(href);
+      if (kbRef) {
+        return (
+          <KnowledgeDocAnchor {...rest} refDoc={kbRef} href={href} bridge={bridge}>
+            {children}
+          </KnowledgeDocAnchor>
+        );
+      }
       const external = /^https?:\/\//i.test(href ?? "");
       // 本地文件 ref 统一先解码:remark(normalizeUri)会把 href percent-encode,中文路径
       // (如 /Users/x/周报/….xlsx)不解码就拿去 stat 必失败 → 链接判死、点击无响应(线上死链根因)。

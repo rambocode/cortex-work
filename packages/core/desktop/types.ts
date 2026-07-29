@@ -671,6 +671,41 @@ export interface GeneralSettings {
   // 二次加工,见 orchestrate.ts）。缺省 = 开启,仅显式 false 关闭(与 memoryEnabled 同款语义)。
   // 仅 renderer 发送边界读,不进 main GeneralSettings 镜像。
   subagentOrchestration?: boolean;
+  // 公司知识库（远端 MCP server）。主进程读它构建注入配置,**进** main 镜像。
+  knowledgeBase?: KnowledgeBaseSettings;
+}
+
+// 公司知识库接入配置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像,改一处必改两处）。
+//
+// 与其它内置能力不同：MCP server 跑在**知识库服务端**（kbserver 的 /api/mcp）,
+// 本地不起 host,故这里只有「连哪儿 + 拿什么令牌」。
+//
+// 凭据模式同研究引擎：renderer 与 IPC 入参**永不传明文令牌**,设置页提交后由主进程
+// 立即用 safeStorage 加密成 encryptedToken 落盘;UI 连密文都不展示,只看 hasToken 显示「已配置」。
+export interface KnowledgeBaseSettings {
+  enabled: boolean;
+  // 知识库服务基址,形如 http://kb.internal:8501（不含 /api/mcp,注入时拼）。
+  baseUrl: string;
+  // safeStorage 加密后的 MCP 令牌（base64）。只由主进程写。
+  encryptedToken?: string;
+  // 仅供 UI 显示「已配置」——真正的权限边界是服务端令牌的 scope,不是这个布尔。
+  hasToken?: boolean;
+}
+
+// 一篇知识库文档的正文（会话里点开引用时预览用；与 main/ipc/types.ts 逐字镜像）。
+export interface KnowledgeDocResult {
+  ok: boolean;
+  // 失败原因（面向用户的一句话）。ok=false 时必有。
+  message?: string;
+  fileName?: string;
+  sourceId?: string;
+  relPath?: string;
+  text?: string;
+  totalRunes?: number;
+  // 文档超出单次读取上限、正文被截断。UI 据此提示「仅显示前 N 字」。
+  hasMore?: boolean;
+  // 服务端附注（如「本文档为非纯文本格式,此处是抽取文本」）。
+  note?: string;
 }
 
 // pi 插件——Skill 配置。会话开启时由 messages.resolveEnabledSkillPaths 解析为 --skill 注入。

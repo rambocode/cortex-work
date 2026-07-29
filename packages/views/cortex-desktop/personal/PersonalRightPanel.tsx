@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { FilesView } from "./FilesView";
+import { KnowledgeDocPanel } from "./KnowledgeDocPanel";
 import { PromptPanel } from "./PromptPanel";
 import { TasksView } from "./TasksView";
 import { NotesView } from "./NotesView";
@@ -29,6 +30,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   browser: "浏览器",
   artifact: "产物",
   research: "深度研究",
+  knowledge: "知识库文档",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -206,6 +208,8 @@ export function PersonalRightPanel({
           {...(researchModel ? { model: researchModel } : {})}
           {...(researchExportTargets ? { exportTargets: researchExportTargets } : {})}
         />
+      ) : view === "knowledge" ? (
+        <KnowledgeDocPanel />
       ) : view === "files" ? (
         <FilesView onToast={onToast} />
       ) : view === "todos" ? (
