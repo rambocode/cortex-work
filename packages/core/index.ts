@@ -345,7 +345,6 @@ export {
   renderClaudeSkillSlash,
   parseSkillSlash,
   stripSkillDirective,
-  isOrchestrationSend,
   resolveArtifactTarget,
   type InjectableSkill,
 } from "./personal/skill-injection";

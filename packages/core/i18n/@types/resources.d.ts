@@ -171,6 +171,7 @@ export default interface Resources {
         "default": "思考·默认",
         "high": "思考·高",
         "low": "思考·低",
+        "max": "思考·最高",
         "medium": "思考·中",
         "minimal": "思考·极简",
         "off": "思考·关闭",
@@ -271,6 +272,7 @@ export default interface Resources {
       "filterClear": "清除筛选",
       "filterEmpty": "无匹配事件",
       "input": "输入参数",
+      "noInput": "(无入参)",
       "noOutput": "(无输出内容)",
       "openButton": "运行详情",
       "output": "输出",
@@ -290,6 +292,12 @@ export default interface Resources {
       "typeRetry": "重试",
       "typeText": "回复",
       "typeThinking": "思考"
+    },
+    "turnUsage": {
+      "input": "输入 {{count}}",
+      "label": "本轮 Token 用量",
+      "output": "输出 {{count}}",
+      "unit": "tokens"
     }
   },
   "common": {
@@ -1548,7 +1556,7 @@ export default interface Resources {
       "labelNotInstalled": "{{name}}（未安装）",
       "notDetected": "未检测到 CLI",
       "orchestrationCard": "子 agent 编排",
-      "orchestrationDesc": "发送走「意图理解 → 子 agent 执行 → 整理回复」三段编排,过程面板按段展示;成本与延迟约为单发的 3 倍。默认开启。",
+      "orchestrationDesc": "主会话保留原生上下文，将任务委派给独立子 agent；子结果回传主会话后，由主会话总结并输出。默认关闭。",
       "orchestrationLabel": "启用子 agent 编排",
       "title": "Agent"
     },
@@ -2211,6 +2219,7 @@ export default interface Resources {
       "browser": "浏览器",
       "design": "设计",
       "general": "通用",
+      "knowledge": "知识库",
       "mediaGen": "媒体生成",
       "memory": "记忆",
       "pet": "宠物",
@@ -2229,6 +2238,7 @@ export default interface Resources {
     "thinkingLevel": {
       "high": "高",
       "low": "低",
+      "max": "最高",
       "medium": "中",
       "minimal": "极简",
       "off": "关闭",
@@ -2541,6 +2551,8 @@ export default interface Resources {
         },
         "incident": "故障致歉",
         "incidentHint": "预置故障致歉 skill,说清故障经过即可生成 Word 报告",
+        "knowledge": "知识库",
+        "knowledgeHint": "预置知识库 skill,问一句公司内部的事即可带出处作答",
         "office": "日常办公",
         "research": "深度研究",
         "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",

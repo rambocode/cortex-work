@@ -903,6 +903,17 @@ input, textarea { font: inherit; color: inherit; }
 }
 .msg .m-head .agent-tag.shared { color: var(--violet); background: var(--violet-soft); }
 .msg .m-head .agent-tag.mine { color: var(--blue); background: var(--blue-soft); }
+.m-turn-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  margin: -2px 0 6px 40px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .msg .m-head .when { font-size: 11px; color: var(--text-3); }
 .msg .m-text { font-size: 14px; color: var(--text-1); line-height: 1.55; }
 .msg .m-text .mention {

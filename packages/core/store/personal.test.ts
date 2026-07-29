@@ -5,6 +5,16 @@ import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } f
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
+describe("通用设置默认值", () => {
+  it("子 agent 编排默认关闭，旧配置缺字段时 hydrate 也保持关闭", () => {
+    expect(DEFAULT_GENERAL_SETTINGS.subagentOrchestration).toBe(false);
+
+    usePersonalStore.getState().hydrate(base);
+
+    expect(usePersonalStore.getState().generalSettings.subagentOrchestration).toBe(false);
+  });
+});
+
 describe("会话重命名", () => {
   const session: SessionMeta = {
     id: "s1",
@@ -1660,4 +1670,3 @@ describe("会话绑定的研究引用(researchSessions)", () => {
     expect(s?.activeResearchSessionId).toBeUndefined();
   });
 });
-

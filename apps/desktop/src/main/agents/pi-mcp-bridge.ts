@@ -5,7 +5,8 @@
 // pi 扩展,把每个 MCP server 的工具异步发现并代理注册成 pi 工具(参考社区 pi-mcp-adapter 的能力,
 // 但完全 cortex 自有:零第三方依赖、随会话生成、无版本错配、无 225M 安装)。
 //
-// 关键可行性(pi 0.79.2 docs/extensions.md 已证):extension 的 default factory 可为 async,且 pi
+// 关键可行性(pi 0.79.2 docs/extensions.md 已证;0.82.1 未重测该行为,extension 契约本身无变更):
+// extension 的 default factory 可为 async,且 pi
 // 会在 startup(session_start / 工具快照)**之前 await 它**。故可在 factory 内异步「连 server →
 // tools/list → registerTool」,startup 前全部就绪。`parameters` 用普通 JSON Schema 即可(无需 typebox,
 // 与 pi-extensions.ts 同款,spike 已证)。运行时只用 node 内置(node:child_process)+ 全局 fetch。

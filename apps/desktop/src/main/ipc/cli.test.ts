@@ -129,6 +129,7 @@ vi.mock("./codex-ws-run", () => ({
 }));
 
 import {
+  __runDelegateSubAgentForTest,
   detectAgents,
   envForCommand,
   mergePathWithPreferredDirs,
@@ -140,6 +141,7 @@ import {
   spawnEnvFor,
   spawnEnvForDef,
 } from "./cli";
+import { setLocalAgentProfilesLoader } from "../agents";
 import { PI_KEY_ENV } from "../agents/pi-providers";
 import { killAllDelegates, stopDelegateHost } from "../capabilities/delegate/server";
 
@@ -290,6 +292,17 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
     try {
       await startWithDetect("claude", { runId: "f2", sessionId: "s", cwd, prompt: "hi", resumeSessionId: "live-id" }, vi.fn());
       expect(traceMock).not.toHaveBeenCalledWith(expect.objectContaining({ phase: "resume-fallback" }));
+      expect(traceMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: "cli",
+          phase: "start",
+          sessionId: "s",
+          data: expect.objectContaining({
+            contextMode: "native-resume",
+            resumeSessionId: "live-id",
+          }),
+        }),
+      );
       const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
       expect(runArgs).toContain("live-id");
     } finally {
@@ -310,6 +323,92 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("delegate 派生 agent 基础类型", () => {
+  it("派生 Pi 子 agent 继承 Pi 主会话 model/provider 并加载 provider extension", async () => {
+    setLocalAgentProfilesLoader(() => [{ id: "my-pi", base: "pi" }]);
+    const child = fakeChild();
+    spawnMock.mockReturnValueOnce(child);
+    const controller = new AbortController();
+    try {
+      const done = __runDelegateSubAgentForTest(
+        {
+          runId: "parent-run",
+          sessionId: "parent-session",
+          agent: "pi",
+          cwd: "/tmp",
+          prompt: "parent",
+          model: "deepseek-v3",
+          provider: {
+            id: "deepseek",
+            baseUrl: "https://api.example.test",
+            apiKey: "secret",
+            models: [{ id: "deepseek-v3" }],
+          },
+        },
+        {
+          id: "helper",
+          label: "Helper",
+          agent: "my-pi",
+          systemPrompt: "",
+          createdAt: "",
+          updatedAt: "",
+        },
+        "分析任务",
+        vi.fn(),
+        controller.signal,
+      );
+
+      const args = spawnMock.mock.calls[0]?.[1] as string[];
+      expect(args).toEqual(expect.arrayContaining(["--model", "deepseek-v3", "--provider", "deepseek"]));
+      expect(args).toContain("-e");
+      child.emit("close", 0);
+      await expect(done).resolves.toMatchObject({ ok: true });
+    } finally {
+      setLocalAgentProfilesLoader(null);
+    }
+  });
+
+  it("派生 Codex 子 agent 仍清空 MCP 并开启诊断日志", async () => {
+    setLocalAgentProfilesLoader(() => [{ id: "my-codex", base: "codex" }]);
+    const child = Object.assign(fakeChild(), {
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    const controller = new AbortController();
+    try {
+      const done = __runDelegateSubAgentForTest(
+        {
+          runId: "parent-run",
+          sessionId: "parent-session",
+          agent: "claude",
+          cwd: "/tmp",
+          prompt: "parent",
+        },
+        {
+          id: "helper",
+          label: "Helper",
+          agent: "my-codex",
+          systemPrompt: "",
+          createdAt: "",
+          updatedAt: "",
+        },
+        "分析任务",
+        vi.fn(),
+        controller.signal,
+      );
+
+      const args = spawnMock.mock.calls[0]?.[1] as string[];
+      const opts = spawnMock.mock.calls[0]?.[2] as { env: NodeJS.ProcessEnv };
+      expect(args).toEqual(expect.arrayContaining(["-c", "mcp_servers={}"]));
+      expect(opts.env.RUST_LOG).toBe("info");
+      child.emit("close", 0);
+      await expect(done).resolves.toMatchObject({ ok: true });
+    } finally {
+      setLocalAgentProfilesLoader(null);
     }
   });
 });
@@ -618,6 +717,50 @@ describe("cli:start trace", () => {
         summary: "pi delegate bridge injected",
       }),
     );
+  });
+
+  it("pi 委派与 research 合并为一个桥接扩展,避免跨扩展工具重名", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-research-"));
+    spawnMock.mockReturnValueOnce(fakeChild());
+    m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: { enabled: true } } });
+    m.buildResearchMcpServerConfig.mockReturnValue({
+      id: "cortex-research",
+      label: "研究引擎（内置）",
+      transport: "http",
+      url: "http://127.0.0.1:51234/mcp",
+    });
+    registerCliHandlers();
+
+    try {
+      await ipcHandlers.get("cli:start")?.(
+        { sender: { isDestroyed: () => false, send: vi.fn() } },
+        {
+          runId: "run-delegate-research",
+          sessionId: "session-delegate-research",
+          agent: "pi",
+          cwd,
+          prompt: "委派并联网研究",
+          webSearch: true,
+          delegateRoles: [
+            { id: "codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+          ],
+        },
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+
+    expect(m.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
+    expect(m.writeMcpBridgeExtension).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "cortex-delegate" }),
+        expect.objectContaining({ id: "cortex-research" }),
+      ]),
+      "delegate-bridge-session-delegate-research.js",
+    );
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    const bridgeExtensionPaths = args.filter((arg, index) => args[index - 1] === "-e" && arg.includes("bridge-"));
+    expect(bridgeExtensionPaths).toHaveLength(1);
   });
 
   it("记录启动、解析事件、stderr 和退出 trace", async () => {

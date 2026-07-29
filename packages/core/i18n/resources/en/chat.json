@@ -24,6 +24,12 @@
     "doneSummary": "Completed {{count}} tasks",
     "inProgress": "in progress"
   },
+  "turnUsage": {
+    "label": "Token usage for this turn",
+    "input": "Input {{count}}",
+    "output": "Output {{count}}",
+    "unit": "tokens"
+  },
   "diff": {
     "applied": "Applied",
     "rejected": "Rejected",
@@ -86,7 +92,8 @@
       "low": "Thinking · Low",
       "medium": "Thinking · Medium",
       "high": "Thinking · High",
-      "xhigh": "Thinking · Extra high"
+      "xhigh": "Thinking · Extra high",
+      "max": "Thinking · Maximum"
     },
     "execPermission": {
       "label": "Execution",

@@ -377,7 +377,7 @@
     "labelNotInstalled": "{{name}} (not installed)",
     "orchestrationCard": "Sub-agent orchestration",
     "orchestrationLabel": "Enable sub-agent orchestration",
-    "orchestrationDesc": "Sends run through the three-stage pipeline (intent -> sub-agent execution -> refine); the process panel shows each stage. Roughly 3x the cost and latency of a direct send. On by default.",
+    "orchestrationDesc": "The main session keeps its native context and delegates work to an independent sub-agent. Results return to the main session for synthesis and final output. Off by default.",
     "availabilityCard": "Availability",
     "builtin": "Built-in",
     "installed": "Installed",
@@ -417,7 +417,8 @@
     "low": "Low",
     "medium": "Medium",
     "high": "High",
-    "xhigh": "Extra high"
+    "xhigh": "Extra high",
+    "max": "Maximum"
   },
   "push": {
     "title": "Push channels",

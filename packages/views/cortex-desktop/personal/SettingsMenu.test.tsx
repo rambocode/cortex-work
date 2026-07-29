@@ -151,6 +151,22 @@ describe("设置入口与整页设置视图", () => {
     await waitFor(() => expect(openAgentTraceWindow).toHaveBeenCalledTimes(1));
   });
 
+  it("子 agent 编排缺省关闭，点击开关后显式开启", () => {
+    const { subagentOrchestration: _unset, ...generalSettings } =
+      usePersonalStore.getState().generalSettings;
+    usePersonalStore.setState({ settingsOpen: true, generalSettings });
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const toggle = screen.getByRole("switch", { name: "启用子 agent 编排" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(toggle);
+
+    expect(usePersonalStore.getState().generalSettings.subagentOrchestration).toBe(true);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
   it("卸载后 window keydown 监听解绑(ESC 不再返回)", () => {
     usePersonalStore.setState({ settingsOpen: true });
     const { unmount } = renderUI(<PersonalSettingsView />);

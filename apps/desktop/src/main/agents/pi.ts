@@ -1,5 +1,6 @@
 // pi（@earendil-works/pi-coding-agent）内置兜底 agent 的 CLI adapter。
-// 命令形态（实测 0.79.2,pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
+// 命令形态（0.79.2 实测建立;flag 集合已复核至 0.82.1——dist/cli/args.js 里下列 flag 全部仍在、
+// 无签名变更。pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
 //   <pi 二进制> --mode json -p --no-extensions
 //             [--no-skills] [--skill p] [--tools read,grep,find,ls (plan 只读)]
 //             [--model m] [--session id] [--append-system-prompt s] <prompt>
@@ -85,6 +86,15 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
   return typeof err?.message === "string" ? err.message : undefined;
 }
 
+function piUsageEvent(value: unknown): Extract<CliStreamEvent, { type: "usage" }> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const usage = value as Record<string, unknown>;
+  const inputTokens = typeof usage.input === "number" ? usage.input : undefined;
+  const outputTokens = typeof usage.output === "number" ? usage.output : undefined;
+  if (inputTokens === undefined && outputTokens === undefined) return undefined;
+  return { type: "usage", inputTokens, outputTokens };
+}
+
 function safeDelegateToolId(id: string): string {
   const s = id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return s || "role";
@@ -98,7 +108,30 @@ function planToolWhitelist(req: CliStartRequest): string[] {
 // agent_start/turn_start/turn_end/agent_end/message_start:已评审过、故意忽略的帧(见文件头
 // 注释第 15/150-151 行),不是 parseLineEvents 盲区补点想告警的"新协议漂移",故声明进
 // ignoredFrameTypes,让盲区补点跳过它们,不刷屏。
-const IGNORED_FRAME_TYPES = new Set(["agent_start", "turn_start", "turn_end", "agent_end", "message_start"]);
+//
+// 后半段是 pi 0.82.1 新增、单发路径不消费的帧（0.79.2→0.82.1 协议 diff 结论）。必须显式列出:
+// 漏列会让盲区补点对每轮都打「未映射帧」,把真正的协议漂移信号淹掉。逐条理由——
+//   · agent_settled  : 单发是一次性调用,result 已由最后一条 message_end 产出,静默信号无处可用
+//                      （RPC 路径不同,见 pi-rpc.ts 的 settled 分支）。
+//   · entry_appended : pi 侧 session JSONL 的逐条追加。Cortex 自持消息流(chat.ts),不用它重建。
+//   · bash_execution_update : bash 输出增量。当前只在 tool_execution_end 取最终结果;若日后要做
+//                      工具行的实时输出,这是接入点（{id?, delta}）。
+//   · summarization_retry_* : 压缩 / 分支摘要的重试链（0.82.1 起摘要调用也吃 settings.retry 预算）。
+//                      已知限制:压缩期的重试目前对用户不可见——单发路径本就不展示压缩过程,
+//                      RPC 路径的可见性要接 retry/compaction 状态机,超出本次升级范围,另行评估。
+const IGNORED_FRAME_TYPES = new Set([
+  "agent_start",
+  "turn_start",
+  "turn_end",
+  "agent_end",
+  "message_start",
+  "agent_settled",
+  "entry_appended",
+  "bash_execution_update",
+  "summarization_retry_scheduled",
+  "summarization_retry_attempt_start",
+  "summarization_retry_finished",
+]);
 
 // message_update 里已知无归一化映射的子事件:text/thinking 的 start-end 只是流边界标记,
 // toolcall_* 增量已由顶层 tool_execution_start 帧覆盖。与 pi-rpc.ts mapPiEvent 的忽略清单同源。
@@ -179,7 +212,7 @@ export const piDef: AgentDef = {
     return { cmd: resolvePiBinary(), args };
   },
 
-  parseLine(line: string): CliStreamEvent | null {
+  parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(line);
@@ -238,18 +271,21 @@ export const piDef: AgentDef = {
       const message = obj.message as Record<string, unknown> | undefined;
       if (message?.role !== "assistant") return null;
       const stopReason = message.stopReason;
+      const usage = piUsageEvent(message.usage);
       if (stopReason === "stop" || stopReason === "length") {
-        return { type: "result", ok: true, text: joinText(message.content) };
+        const result: CliStreamEvent = { type: "result", ok: true, text: joinText(message.content) };
+        return usage ? [usage, result] : result;
       }
       if (stopReason === "error" || stopReason === "aborted") {
         const error =
           (typeof message.errorMessage === "string" ? message.errorMessage : undefined) ??
           diagnosticsError(message.diagnostics) ??
           String(stopReason);
-        return { type: "result", ok: false, error };
+        const result: CliStreamEvent = { type: "result", ok: false, error };
+        return usage ? [usage, result] : result;
       }
       // stopReason:"toolUse" —— 中间轮,后续还有 message_end 收尾,这里不发 result。
-      return null;
+      return stopReason === "toolUse" ? (usage ?? null) : null;
     }
 
     // agent_end 与其他事件均忽略：result 已由最后一条 assistant message_end 发出,

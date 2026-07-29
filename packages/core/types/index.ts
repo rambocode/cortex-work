@@ -119,6 +119,11 @@ export interface TypingActivity {
   toolStartedAt?: number; // 当前工具起始时刻 —— 渲染层算慢工具「已运行 Ns」心跳
 }
 
+export interface TurnTokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 export type Message =
   | { kind: "day"; label: string; uid?: string }
   | {
@@ -202,6 +207,17 @@ export type Message =
       todos: TodoListItem[];
       // run 仍在进行:in_progress 项显示 spinner;finalizeRun / 落盘时归一为 false。
       active?: boolean;
+      uid?: string;
+    }
+  | {
+      // 一次用户回合的 token 汇总。独立消息保证纯工具回合也有稳定的轮末展示位；
+      // 与正文一起落盘并随回复分支切换，不保存缓存 token，避免跨供应商口径重复计算。
+      kind: "turnUsage";
+      who: string;
+      time: string;
+      runId: string;
+      inputTokens?: number;
+      outputTokens?: number;
       uid?: string;
     };
 

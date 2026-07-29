@@ -289,6 +289,9 @@ export function registerPiSessionHandlers(): void {
     try {
       // 就绪靠 get_state 轮询（冷启动 ~790ms,不能用固定 sleep）;顺带取 sessionFile 供恢复。
       const { sessionId, sessionFile } = await session.ready();
+      // 斜杠命令表缓存:让「扩展命令补发收尾」由命令来源精确判定,而非按 / 前缀猜。不 await——
+      // 它只影响补发判定的精度（缺失时自动退回宽限窗兜底），不该拖慢开会话这条关键路径。
+      void session.loadSlashCommands();
       return { uiSessionId: prepared.uiSessionId, sessionId, sessionFile };
     } catch (e) {
       session.stop();

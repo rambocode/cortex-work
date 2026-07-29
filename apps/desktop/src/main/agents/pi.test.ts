@@ -1,5 +1,6 @@
 // pi adapter 单测：参数构造 + --mode json 行解析（事件形状取自
-// @earendil-works/pi-coding-agent 0.79.2 实测输出）。
+// @earendil-works/pi-coding-agent 0.79.2 实测输出,已按 0.82.1 .d.ts 复核:基础 AgentEvent 九类
+// 未变,新增帧见 ignoredFrameTypes 用例）。
 // pi-locate 依赖 electron app,这里 mock 成固定路径避免引入运行时依赖。
 
 import { describe, expect, it, vi } from "vitest";
@@ -223,10 +224,13 @@ describe("piDef.parseLine", () => {
         role: "assistant",
         content: [{ type: "text", text: "PING" }],
         stopReason: "stop",
-        usage: {},
+        usage: { input: 8, output: 2, cacheRead: 5 },
       },
     });
-    expect(piDef.parseLine(line)).toEqual({ type: "result", ok: true, text: "PING" });
+    expect(piDef.parseLine(line)).toEqual([
+      { type: "usage", inputTokens: 8, outputTokens: 2 },
+      { type: "result", ok: true, text: "PING" },
+    ]);
   });
 
   it("message_end stopReason=error → ok=false 带 diagnostics 错误", () => {
@@ -265,12 +269,17 @@ describe("piDef.parseLine", () => {
     expect(piDef.parseLine(line)).toEqual({ type: "result", ok: false, error: "aborted" });
   });
 
-  it("message_end stopReason=toolUse → null(中间轮,不发 result)", () => {
+  it("message_end stopReason=toolUse → 只产 usage(中间轮不发 result)", () => {
     const line = JSON.stringify({
       type: "message_end",
-      message: { role: "assistant", content: [], stopReason: "toolUse" },
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "toolUse",
+        usage: { input: 21, output: 6, cacheRead: 11 },
+      },
     });
-    expect(piDef.parseLine(line)).toBeNull();
+    expect(piDef.parseLine(line)).toEqual({ type: "usage", inputTokens: 21, outputTokens: 6 });
   });
 
   it("agent_end / 其它事件 → null", () => {
@@ -316,5 +325,24 @@ describe("piDef.isIgnoredFrame(细粒度已知忽略,防止盲区补点刷屏)",
 
   it("其它顶层 type → 不忽略(交由 ignoredFrameTypes 集合判定)", () => {
     expect(piDef.isIgnoredFrame?.({ type: "agent_end" })).toBe(false);
+  });
+
+  // pi 0.82.1 新增帧。单发路径不消费它们,但必须在 ignoredFrameTypes 里——否则每轮都会打
+  // 「未映射的 pi 输出帧」,把真正的协议漂移信号淹没掉（本次升级 diff 的直接产物）。
+  it("0.82.1 新增帧 → 已在 ignoredFrameTypes(不污染盲区补点)", () => {
+    for (const type of [
+      "agent_settled",
+      "entry_appended",
+      "bash_execution_update",
+      "summarization_retry_scheduled",
+      "summarization_retry_attempt_start",
+      "summarization_retry_finished",
+    ]) {
+      expect(piDef.ignoredFrameTypes?.has(type)).toBe(true);
+    }
+  });
+
+  it("未来版本的新帧仍会告警(忽略清单不是通配)", () => {
+    expect(piDef.ignoredFrameTypes?.has("some_future_event")).toBe(false);
   });
 });

@@ -3,7 +3,9 @@ import reactConfig from "@cortex-work/eslint-config/react";
 export default [
   ...reactConfig,
   // 构建产物不参与 lint。resources/ 含 pi 的 bun 二进制 + 旁置资产(第三方压缩 JS 等)。
-  { ignores: ["out/", "dist/", "resources/"] },
+  // dist.bak-<时间戳>/ 是发版前手工备份的 dist 快照——`dist/` 这条匹配不到带后缀的目录名,漏掉它
+  // 会把备份里的 vendor JS(marked.min.js 等)全扫进来,实测刷出 1200+ 条 error 淹没真实问题。
+  { ignores: ["out/", "dist/", "dist.bak-*/", "resources/"] },
   // 构建脚本跑在 Node 上,补 node globals(reactConfig 默认按浏览器/源码环境)。
   {
     files: ["scripts/**/*.{mjs,js}"],

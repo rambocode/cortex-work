@@ -242,13 +242,16 @@ describe("parseAppServerEvent(U4)", () => {
     expect(parseAppServerEvent("item/started", { item: { type: "userMessage" } })).toBeNull();
   });
 
-  it("tokenUsage 嵌套 total → usage(缺失 → null)", () => {
+  it("tokenUsage 使用 last 回合快照而不是 total 会话累计值", () => {
     expect(
       parseAppServerEvent("thread/tokenUsage/updated", {
-        tokenUsage: { total: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 5 } },
+        tokenUsage: {
+          total: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 5 },
+          last: { inputTokens: 12, outputTokens: 3, cachedInputTokens: 2 },
+        },
       }),
-    ).toEqual({ type: "usage", inputTokens: 100, outputTokens: 20, cachedInputTokens: 5 });
-    expect(parseAppServerEvent("thread/tokenUsage/updated", { tokenUsage: { total: {} } })).toBeNull();
+    ).toEqual({ type: "usage", inputTokens: 12, outputTokens: 3, cachedInputTokens: 2 });
+    expect(parseAppServerEvent("thread/tokenUsage/updated", { tokenUsage: { total: {}, last: {} } })).toBeNull();
   });
 
   it("turn/completed status=completed → result ok;failed → result ok:false", () => {
@@ -517,7 +520,24 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
     fake.emit({ method: "item/started", params: { item: { type: "commandExecution", id: "c1", command: "ls" } } }); // → tool
     fake.emit({ method: "item/started", params: { item: { type: "agentMessage", id: "f", phase: "final_answer" } } });
     fake.emit({ method: "item/agentMessage/delta", params: { itemId: "f", delta: "这是答案" } }); // final → text
-    fake.emit({ method: "thread/tokenUsage/updated", params: { tokenUsage: { total: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 } } } });
+    fake.emit({
+      method: "thread/tokenUsage/updated",
+      params: {
+        tokenUsage: {
+          total: { inputTokens: 38, outputTokens: 11, cachedInputTokens: 3 },
+          last: { inputTokens: 8, outputTokens: 2, cachedInputTokens: 0 },
+        },
+      },
+    });
+    fake.emit({
+      method: "thread/tokenUsage/updated",
+      params: {
+        tokenUsage: {
+          total: { inputTokens: 40, outputTokens: 12, cachedInputTokens: 4 },
+          last: { inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 },
+        },
+      },
+    });
     fake.emit({ method: "turn/completed", params: { turn: { status: "completed" } } });
     // 过程(thinking + tool)与回复(text)分流;通道不自发 init(由 run 发,本测试直接驱动通道故无 init)。
     expect(events).toEqual([

@@ -10,6 +10,7 @@ import {
   stopDelegateHost,
   type DelegateSessionState,
 } from "./server";
+import { __resetAgentTraceForTest, agentTraceList } from "../../ipc/agent-trace";
 
 // 构造一个最小 DelegateSessionState（运行时回调用 noop / spy）。
 function makeState(sessionId: string, abort: () => void = () => {}): DelegateSessionState {
@@ -29,6 +30,7 @@ function makeState(sessionId: string, abort: () => void = () => {}): DelegateSes
 afterEach(() => {
   // 清空模块级 sessionStateMap，隔离测试间状态。
   killAllDelegates();
+  __resetAgentTraceForTest();
 });
 
 describe("safeToolId（ask_<id> 工具名安全化）", () => {
@@ -161,6 +163,57 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(list.status).toBe(200);
       // 真实 host 返回 SSE，body 含注册的工具名（端到端验证 tools/list 真返回 ask_codex）。
       expect(list.body).toContain("ask_codex");
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("子结果作为 tool_result 回主会话，并在 trace 记录上下文交接", async () => {
+    await startDelegateHost();
+    const sid = "context-session";
+    const runSubAgent = vi.fn(async () => ({ text: "子 Agent 的分析结果", ok: true }));
+    registerDelegateSession({
+      sessionId: sid,
+      runId: "main-run",
+      roles: [{ id: "codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }],
+      signal: new AbortController().signal,
+      abort: () => {},
+      pushEvent: () => {},
+      bumpWatchdog: () => {},
+      callCounts: new Map(),
+      runSubAgent,
+    });
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const call = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "ask_codex", arguments: { task: "结合必要材料完成子任务" } },
+      });
+      expect(call.status).toBe(200);
+      expect(call.body).toContain("子 Agent 的分析结果");
+      expect(runSubAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "codex" }),
+        "结合必要材料完成子任务",
+        expect.any(Function),
+      );
+      expect(agentTraceList()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            scope: "delegate",
+            phase: "context-return",
+            runId: "main-run",
+            sessionId: sid,
+            data: expect.objectContaining({
+              taskPreview: "结合必要材料完成子任务",
+              resultPreview: "子 Agent 的分析结果",
+              returnedToMain: true,
+            }),
+          }),
+        ]),
+      );
     } finally {
       stopDelegateHost();
       unregisterDelegateSession(sid);

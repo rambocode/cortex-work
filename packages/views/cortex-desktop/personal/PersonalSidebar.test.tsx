@@ -207,6 +207,63 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(switcher?.textContent).not.toContain("cortex-work");
   });
 
+  it("删除当前会话后仍停留在该会话所属项目", () => {
+    usePersonalStore.setState({
+      projects: [projectA, projectB],
+      sessions: [sessionA],
+      // 复现状态分叉：侧栏当前上下文以活动会话所属项目 A 为准，
+      // activeProjectId 仍保留此前的项目 B。
+      activeProjectId: projectB.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+
+    fireEvent.click(screen.getByTitle("删除"));
+    fireEvent.click(screen.getByTitle("再点确认删除"));
+
+    const state = usePersonalStore.getState();
+    expect(state.activeSessionId).toBeUndefined();
+    expect(state.activeProjectId).toBe(projectA.id);
+    expect(container.querySelector(".pw-context-card")?.textContent).toContain("cortex-work");
+  });
+
+  it("删除当前无项目会话后仍停留在无项目会话列表", () => {
+    const deleting = {
+      ...sessionA,
+      id: "no-project-deleting",
+      projectId: undefined,
+      title: "待删除无项目会话",
+      updatedAt: 4,
+    };
+    const remaining = {
+      ...sessionA,
+      id: "no-project-remaining",
+      projectId: undefined,
+      title: "保留无项目会话",
+      updatedAt: 3,
+    };
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [deleting, remaining],
+      // 从项目切到无项目会话时 activeProjectId 会保留，供浮层默认归属使用。
+      activeProjectId: projectA.id,
+      activeSessionId: deleting.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+
+    fireEvent.click(screen.getAllByTitle("删除")[0]!);
+    fireEvent.click(screen.getByTitle("再点确认删除"));
+
+    const state = usePersonalStore.getState();
+    expect(state.activeSessionId).toBeUndefined();
+    expect(state.activeProjectId).toBeUndefined();
+    expect(state.sessions.map((session) => session.id)).toEqual([remaining.id]);
+    expect(container.querySelector(".pw-context-card")?.textContent).toContain("无项目会话");
+    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("保留无项目会话");
+  });
+
   it("当前项目卡片保留项目更多操作入口", () => {
     usePersonalStore.setState({
       projects: [projectA],

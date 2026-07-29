@@ -654,6 +654,26 @@ function DaySep({ label }: { label: string }) {
   );
 }
 
+const TurnUsageMessage = memo(function TurnUsageMessage({
+  m,
+}: {
+  m: Extract<Message, { kind: "turnUsage" }>;
+}) {
+  const { t, i18n } = useTranslation("chat");
+  const locale = i18n.resolvedLanguage === "zh-Hans" ? "zh-CN" : "en-US";
+  const formatter = new Intl.NumberFormat(locale);
+  const format = (value: number | undefined) =>
+    typeof value === "number" ? formatter.format(value) : "—";
+  return (
+    <div className="m-turn-usage" aria-label={t("turnUsage.label")}>
+      <span>{t("turnUsage.input", { count: format(m.inputTokens) })}</span>
+      <span aria-hidden="true">·</span>
+      <span>{t("turnUsage.output", { count: format(m.outputTokens) })}</span>
+      <span>{t("turnUsage.unit")}</span>
+    </div>
+  );
+});
+
 // 个人工作区（PersonalChatArea）复用同一渲染管线，故导出。
 export function MessageStream({
   contact,
@@ -829,6 +849,8 @@ export function MessageStream({
               return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
             case "todoList":
               return <TodoListMessage key={key} m={m} grouped={grouped} />;
+            case "turnUsage":
+              return <TurnUsageMessage key={key} m={m} />;
             case "diff":
               return <DiffMessage key={key} m={m} grouped={grouped} onSelectFile={onSelectFile} activeFile={activeFile} />;
             case "approve":

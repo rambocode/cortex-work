@@ -31,3 +31,11 @@ apps/desktop/resources/slides/bento/
 
 # dev 模式下内置 skill(合同审查/故障致歉等)的运行时报告产物
 apps/desktop/outputs/
+
+# whisper 运行时(平台二进制 + 模型),由 apps/desktop/scripts/prepare-whisper-runner.mjs 生成
+apps/desktop/resources/whisper/
+
+# 发版前手工备份的 dist 快照(dist.bak-<时间戳>/,内含整个 .app,单份可达 GB 级)。
+# 根规则的 `dist/` 匹配不到带后缀的目录名,不显式忽略会被 eslint 扫进去、把 lint 结果刷成上千条
+# vendor JS 报错,也有整包误提交的风险。
+apps/desktop/dist.bak-*/

@@ -13,7 +13,7 @@ import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refre
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { writeTodoExtension } from "../agents/pi-extensions";
-import { mcpServerToBridge, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
+import { mcpServerToBridge, writeMcpBridgeExtension, type BridgeServer } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
@@ -425,6 +425,7 @@ function runDelegateSubAgent(
 
   const adapter = getAgentDef(role.agent);
   const spawnKey = randomUUID();
+  const roleBaseAgent = baseAgentKindOf(role.agent);
   // 主会话 base agent 是否 pi：决定 pi 协作者能否继承主会话 model/provider（同 deepseek 体系才匹配）。
   const parentIsPi = baseAgentKindOf(parent.agent) === "pi";
   const req: CliStartRequest = {
@@ -436,7 +437,7 @@ function runDelegateSubAgent(
     // 子 agent 用各自 agent 的默认 model，绝不跨体系继承主会话 model：主会话 model 属于主 agent 的
     // provider 体系——pi 的 deepseek 传给 codex（ChatGPT）会 400；反之 codex/claude 的 gpt/claude
     // model 串给 pi 也不匹配 pi 的 provider。仅当「子是 pi 且主也是 pi」时同体系，才继承。
-    model: role.agent === "pi" && parentIsPi ? parent.model : undefined,
+    model: roleBaseAgent === "pi" && parentIsPi ? parent.model : undefined,
     effort: parent.effort,
     permissionMode: parent.permissionMode,
     approvalPolicy: parent.approvalPolicy,
@@ -444,21 +445,25 @@ function runDelegateSubAgent(
     appendSystemPrompt: role.systemPrompt || undefined,
     // 子 agent 若为 pi 且主会话也是 pi，复用主会话 provider；主会话非 pi 时 parent 无 pi provider，
     // pi 协作者走内置默认（可能 deactivated，R6 已知限制——v1 协作者建议用 claude/codex）。
-    provider: role.agent === "pi" && parentIsPi ? parent.provider : undefined,
+    provider: roleBaseAgent === "pi" && parentIsPi ? parent.provider : undefined,
   };
   // pi 子 agent 需 provider extension(apiKey)才能调模型。
-  if (role.agent === "pi" && req.provider) {
+  if (roleBaseAgent === "pi" && req.provider) {
     req.piExtensionPath = writePiExtension(req.provider);
   }
   // codex 子 agent 清空 MCP(裸 spawn);claude/pi 不接 mcpArgs。
-  const mcpArgs = role.agent === "codex" ? CODEX_MCP_CLEAR : undefined;
+  const mcpArgs = roleBaseAgent === "codex" ? CODEX_MCP_CLEAR : undefined;
   const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs);
 
   recordAgentTrace({
     scope: "delegate", phase: "start", summary: `${role.agent}[${role.label}] sub start`,
-    runId: spawnKey, agent: role.agent,
+    runId: spawnKey, sessionId: parent.sessionId, agent: role.agent,
     data: {
       cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task),
+      parentRunId: parent.runId,
+      parentSessionId: parent.sessionId,
+      parentResumeSessionId: parent.resumeSessionId,
+      contextMode: "self-contained-task",
       // 诊断：确认 stdin 是否真带 task + 子 agent 实际 permissionMode（继承自主会话）。
       stdinLen: stdin?.length ?? 0, permissionMode: req.permissionMode ?? "(full-auto)",
       // model/effort:子 agent 实际模型(未继承时用 agent 自身默认)与推理强度(继承主会话)。
@@ -469,7 +474,7 @@ function runDelegateSubAgent(
   // 临时诊断：给 codex 子 agent 开 RUST_LOG，让它把内部失败原因（WebSocket 连接 / 认证 / plugin
   // 加载）写到 stderr——所有终端复现均成功，唯 Electron 主进程失败，需 codex 自身日志定位。
   const subEnv = spawnEnvForDef(req, adapter);
-  if (role.agent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
+  if (roleBaseAgent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
   const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
 
   return new Promise((resolve) => {
@@ -543,9 +548,12 @@ function runDelegateSubAgent(
       settle(() => {
         recordAgentTrace({
           scope: "delegate", phase: "exit", summary: `${role.agent}[${role.label}] sub exit(${code})`,
-          runId: spawnKey, agent: role.agent,
+          runId: spawnKey, sessionId: parent.sessionId, agent: role.agent,
           data: {
             code, outLen: out.length,
+            parentRunId: parent.runId,
+            parentSessionId: parent.sessionId,
+            resultPreview: promptPreview(out.trim()),
             stderr: stderrBuf.slice(-2000),
             rawStdout: rawOut.slice(0, 1500), // 诊断：codex 真实输出（turn.failed/认证错误在此）
             permissionMode: req.permissionMode ?? "(full-auto)",
@@ -569,6 +577,8 @@ function runDelegateSubAgent(
     });
   });
 }
+
+export const __runDelegateSubAgentForTest = runDelegateSubAgent;
 
 function verifyAgentCli(agent: Exclude<AgentKind, "pi">, env: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise((resolve) => {
@@ -835,6 +845,7 @@ export function registerCliHandlers(): void {
     // spawn 子 agent(runDelegateSubAgent)、过程实时推渲染端(roleId)、结果作 tool_result 返回。
     // AbortController 收口取消：主 agent 退出 / cli:kill → abort → 在途子 agent 被杀（见 onExit/onError）。
     let delegateAbort: AbortController | undefined;
+    let piDelegateBridge: BridgeServer | null = null;
     if (req.delegateRoles?.length) {
       const controller = new AbortController();
       delegateAbort = controller;
@@ -850,8 +861,8 @@ export function registerCliHandlers(): void {
         runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
       };
       registerDelegateSession(state);
-      // pi 主 agent 走单发,mcpInjection==="none" 不进上面 builtinServers 注入块,故在此单独生成
-      // delegate 桥接扩展(per-session 文件名避免并发覆盖,R3),经 -e 注入(pi.ts buildArgs 收集 extraExtensionPaths)。
+      // pi 主 agent 走单发,mcpInjection==="none" 不进上面 builtinServers 注入块。这里只收集 bridge，
+      // 稍后与 design/slides/research 合成一个扩展，避免 Pi 0.82+ 拒绝跨扩展的同名 ping 工具。
       // claude/codex 不进此分支(它们经 builtinServers + applyClaudeMcp/buildCodexMcpArgs 注入)。
       if (baseAgentKindOf(req.agent) === "pi") {
         const delegateCfg = await ensureDelegateMcpServerConfig(req.sessionId);
@@ -862,14 +873,7 @@ export function registerCliHandlers(): void {
           runId: req.runId, sessionId: req.sessionId, agent: req.agent,
           data: { hostAvailable: !!delegateCfg, url: delegateCfg?.url, roles: req.delegateRoles?.map((r) => r.id) },
         });
-        const bridge = delegateCfg ? mcpServerToBridge(delegateCfg) : null;
-        if (bridge) {
-          const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-          req.extraExtensionPaths = [
-            ...(req.extraExtensionPaths ?? []),
-            writeMcpBridgeExtension([bridge], `delegate-bridge-${safeSid}.js`),
-          ];
-        }
+        piDelegateBridge = delegateCfg ? mcpServerToBridge(delegateCfg) : null;
       }
     }
 
@@ -927,7 +931,7 @@ export function registerCliHandlers(): void {
       }
     }
 
-    // ── pi 的 MCP 桥接:design-delegate、cortex-slides 与 research **必须合成一个扩展文件** ──
+    // ── pi 的 MCP 桥接:delegate、design-delegate、cortex-slides 与 research **必须合成一个扩展文件** ──
     // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入;而 pi 的工具
     // 去重只在单个扩展内生效 —— 两个扩展各自注册 ping 会直接报
     //   Failed to load extension "…": Tool "ping" conflicts with "…"
@@ -955,12 +959,15 @@ export function registerCliHandlers(): void {
         slidesSessionActive ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
         researchCfg,
       ].filter((c): c is McpServerConfig => c !== null);
-      const bridges = piBridgeCfgs.map(mcpServerToBridge).filter((b): b is NonNullable<typeof b> => b !== null);
+      const bridges = [piDelegateBridge, ...piBridgeCfgs.map(mcpServerToBridge)]
+        .filter((b): b is BridgeServer => b !== null);
       if (bridges.length) {
         const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const bridgeKind =
+          req.runId.startsWith("design:") || slidesSessionActive || !piDelegateBridge ? "design" : "delegate";
         req.extraExtensionPaths = [
           ...(req.extraExtensionPaths ?? []),
-          writeMcpBridgeExtension(bridges, `design-bridge-${safeSid}.js`),
+          writeMcpBridgeExtension(bridges, `${bridgeKind}-bridge-${safeSid}.js`),
         ];
       }
       // 任务清单工具 todo_write:pi 无原生 TodoWrite,单发路径常驻注入(与 RPC 路径
@@ -1057,6 +1064,11 @@ export function registerCliHandlers(): void {
             return i >= 0 ? args[i + 1] : "(无)";
           })(),
           attempt,
+          // 上下文不做 UI 历史重放：记录主 agent 原生 session 的续接身份，便于在 traces 中
+          // 区分“同一主会话续接”与“fresh 主会话”。delegate 子任务的实际上下文另见 delegate trace。
+          contextMode: req.resumeSessionId ? "native-resume" : "fresh",
+          resumeSessionId: req.resumeSessionId,
+          delegateRoles: req.delegateRoles?.map((role) => role.id),
           promptPreview: promptPreview(req.prompt),
         },
       });

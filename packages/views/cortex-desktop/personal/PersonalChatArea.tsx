@@ -6,7 +6,6 @@ import { Icon } from "@cortex-work/ui/icons";
 import {
   resolveDefaultAgent,
   getTtsPlaybackState,
-  isOrchestrationSend,
   parseSkillSlash,
   resolveEnabledSkillRecords,
   resolveProjectFileRef,
@@ -31,7 +30,6 @@ import {
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
 import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/personal/devPreviewDetection";
-import { parseMentions } from "@cortex-work/core/personal/mention";
 import { MessageStream } from "../ChatArea";
 import { resolveSkillDispatch } from "./skillDispatch";
 import { agentContact } from "./agentMeta";
@@ -63,9 +61,6 @@ import {
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
-
-// isOrchestrationSend 改从 @cortex-work/core 导入(code review 修复):与 messages.ts 共用单一
-// 路由判断来源,避免两处各写一份、静默漂移(见 core/personal/skill-injection.ts 的注释)。
 
 // U6:/skill:name 三路派发已抽到 skillDispatch.ts(写作助手面板复用);此处 re-export 保持
 // 既有引用(含单测 import 路径)不变。
@@ -865,16 +860,8 @@ export function PersonalChatArea({
               const records = await resolveEnabledSkillRecords(bridge, project.path, session.useOwnSkills, session.agent);
               const skill = records.find((s) => s.name === parsed.name);
               if (skill) {
-                // 路由判断须与 messages.ts 完整对齐:@mention 委派时任何 agent 都走单发 startCli,故
-                // hasDelegateMentions 参与判断,不能只看编排开关(现为全局设置,缺省开启)。
-                const hasDelegateMentions =
-                  parseMentions(text, usePersonalStore.getState().roles).length > 0 && !!bridge.startCli;
-                const useOrchestration = isOrchestrationSend(
-                  usePersonalStore.getState().generalSettings.subagentOrchestration !== false,
-                  !!bridge.startOrchestration,
-                  hasDelegateMentions,
-                );
-                const dispatch = resolveSkillDispatch(session.agent, text, parsed.args, skill, useOrchestration, records);
+                // delegate 编排复用主会话 startCli，skill 派发与普通发送完全相同。
+                const dispatch = resolveSkillDispatch(session.agent, text, parsed.args, skill, records);
                 outText = dispatch.outText;
                 invokedSkill = dispatch.invokedSkill;
               }

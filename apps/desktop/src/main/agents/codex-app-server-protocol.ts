@@ -116,18 +116,24 @@ export interface CodexItem {
   exit_code?: number;
 }
 
-/** thread/tokenUsage/updated 通知:token 嵌套在 tokenUsage.total 下。 */
+/** thread/tokenUsage/updated 通知:last 是当前回合快照,total 是整条 thread 累计值。 */
 export interface TokenUsageParams {
   threadId?: string;
   turnId?: string;
   tokenUsage?: {
-    total?: {
-      totalTokens?: number;
-      inputTokens?: number;
-      cachedInputTokens?: number;
-      outputTokens?: number;
-    };
+    total?: TokenUsageBreakdown;
+    last?: TokenUsageBreakdown;
+    modelContextWindow?: number | null;
   };
+}
+
+export interface TokenUsageBreakdown {
+  totalTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
 }
 
 /** turn/completed 通知:turn.status 决定成败。 */

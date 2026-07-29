@@ -538,7 +538,7 @@ export function WritingAssistantPanel({
         const records = await resolveEnabledSkillRecords(curBridge, curSpace.root, true, curAgent);
         const skill = records.find((s) => s.name === parsed.name);
         if (skill) {
-          const d = resolveSkillDispatch(curAgent, body, parsed.args, skill, false, records);
+          const d = resolveSkillDispatch(curAgent, body, parsed.args, skill, records);
           invokedSkill = d.invokedSkill;
           const inj = buildSingleSendSkillInjection(curAgent, undefined, records);
           skillAppend = inj.appendWithSkills;
@@ -899,4 +899,3 @@ export function WritingAssistantPanel({
     </aside>
   );
 }
-

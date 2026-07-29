@@ -13,6 +13,8 @@ import type { PiOpenRequest, PiOpenResult } from "./types";
 const h = vi.hoisted(() => {
   const makeSession = () => ({
     ready: vi.fn().mockResolvedValue({ sessionId: "sess-x" }),
+    // 斜杠命令表缓存:pi:open 在 ready 后 fire-and-forget 调用（不 await,失败也不该影响开会话）。
+    loadSlashCommands: vi.fn().mockResolvedValue(undefined),
     prompt: vi.fn().mockResolvedValue({ success: true, data: { accepted: true } }),
     steer: vi.fn().mockResolvedValue({ success: true }),
     followUp: vi.fn().mockResolvedValue({ success: true }),

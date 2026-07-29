@@ -1,5 +1,5 @@
 // pi-rpc.ts 单测。U1:mapPiEvent 事件映射（AgentSessionEvent → PiSessionEvent）。
-// 事件形状取自 @earendil-works/pi-coding-agent 0.79.2 实测 + .d.ts 契约。
+// 事件形状取自 @earendil-works/pi-coding-agent 0.79.2 实测 + .d.ts 契约,已复核至 0.82.1。
 
 import { EventEmitter } from "node:events";
 
@@ -18,7 +18,15 @@ vi.mock("child_process", () => ({ spawn: (...args: unknown[]) => spawnMock(...ar
 vi.mock("electron", () => ({ app: {} }));
 vi.mock("../ipc/agent-trace", () => ({ recordAgentTrace: (...args: unknown[]) => traceMock(...args) }));
 
-import { mapPiEvent, PiRpcSession, buildRpcArgs, spawnPiRpc, sanitizeAskQuestionEnvelope, type RpcTransport } from "./pi-rpc";
+import {
+  mapPiEvent,
+  PiRpcSession,
+  buildRpcArgs,
+  spawnPiRpc,
+  sanitizeAskQuestionEnvelope,
+  slashCommandName,
+  type RpcTransport,
+} from "./pi-rpc";
 import type { PiSessionEvent, PiOpenRequest } from "../ipc/types";
 
 // child_process.spawn 返回值的最小替身:child 本体是 EventEmitter（close/error 可真实 emit）,
@@ -68,6 +76,23 @@ function fakeTransport() {
     lastCmd: () => JSON.parse(writes[writes.length - 1].trim()) as Record<string, unknown>,
   };
 }
+
+describe("slashCommandName", () => {
+  it("取 / 后首个 token,与 get_commands 的 name（无前导 /）同形", () => {
+    expect(slashCommandName("/foo")).toBe("foo");
+    expect(slashCommandName("/foo bar baz")).toBe("foo");
+    expect(slashCommandName("  /foo\t参数")).toBe("foo"); // 前导空白 + 制表符分隔
+    expect(slashCommandName("/skill:foo")).toBe("skill:foo"); // 冒号是命令名的一部分
+    expect(slashCommandName("/foo\n第二行")).toBe("foo"); // 换行同样算分隔
+  });
+
+  it("非 / 开头或空命令名 → undefined", () => {
+    expect(slashCommandName("普通问题")).toBeUndefined();
+    expect(slashCommandName("说明一下 /foo")).toBeUndefined(); // / 不在开头
+    expect(slashCommandName("/")).toBeUndefined();
+    expect(slashCommandName("/ 空格开头")).toBeUndefined();
+  });
+});
 
 describe("mapPiEvent", () => {
   it("message_update/text_delta → text 增量", () => {
@@ -135,9 +160,15 @@ describe("mapPiEvent", () => {
   });
 
   it("message_end 正常最终收尾（stop/length）→ result；toolUse 中间轮仍忽略", () => {
-    expect(mapPiEvent({ type: "message_end", message: { stopReason: "stop" } })).toEqual({
+    expect(
+      mapPiEvent({
+        type: "message_end",
+        message: { stopReason: "stop", usage: { input: 8, output: 2, cacheRead: 5 } },
+      }),
+    ).toEqual({
       type: "result",
       willRetry: false,
+      usage: { inputTokens: 8, outputTokens: 2 },
     });
     expect(mapPiEvent({ type: "message_end", message: { stopReason: "length" } })).toEqual({
       type: "result",
@@ -221,8 +252,17 @@ describe("mapPiEvent", () => {
     expect(long.output.endsWith("…")).toBe(true);
   });
 
-  it("turn_end → turn-end", () => {
-    expect(mapPiEvent({ type: "turn_end", message: {}, toolResults: [] })).toEqual({ type: "turn-end" });
+  it("turn_end 透出中间模型调用 usage，供同一用户回合累加", () => {
+    expect(
+      mapPiEvent({
+        type: "turn_end",
+        message: { usage: { input: 13, output: 4, cacheRead: 9 } },
+        toolResults: [],
+      }),
+    ).toEqual({
+      type: "turn-end",
+      usage: { inputTokens: 13, outputTokens: 4 },
+    });
   });
 
   it("agent_end → result（willRetry 透传）", () => {
@@ -236,6 +276,10 @@ describe("mapPiEvent", () => {
     });
     // willRetry 缺省按 false
     expect(mapPiEvent({ type: "agent_end", messages: [] })).toEqual({ type: "result", willRetry: false });
+  });
+
+  it("agent_settled → settled（pi 0.82.1 新增,无 payload）", () => {
+    expect(mapPiEvent({ type: "agent_settled" })).toEqual({ type: "settled" });
   });
 
   it("compaction_start / compaction_end → compaction（带 phase/reason）", () => {
@@ -519,6 +563,103 @@ describe("PiRpcSession", () => {
         vi.advanceTimersByTime(3000);
         expect(events.some((e) => e.type === "text")).toBe(true);
         expect(events.filter((e) => e.type === "result")).toHaveLength(0); // 无补发(真实 result 另由 agent_end 表达)
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // get_commands 缓存把「是不是扩展命令」从猜测变成查表。喂一份命令表给会话。
+    async function primeCommands(
+      f: ReturnType<typeof fakeTransport>,
+      s: PiRpcSession,
+      commands: Array<{ name: string; source: string }>,
+      opts: { success?: boolean } = {},
+    ): Promise<void> {
+      const p = s.loadSlashCommands();
+      await Promise.resolve();
+      const cmd = f.lastCmd();
+      f.emit(
+        JSON.stringify(
+          opts.success === false
+            ? { type: "response", id: cmd.id, command: "get_commands", success: false, error: "boom" }
+            : { type: "response", id: cmd.id, command: "get_commands", success: true, data: { commands } },
+        ) + "\n",
+      );
+      await p;
+    }
+
+    it("缓存命中 source=skill:完全不安排补发（不再依赖竞态窗口躲开）", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        await primeCommands(f, s, [{ name: "skill:foo", source: "skill" }]);
+        const p = s.prompt("/skill:foo", "run-s");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        // 宽限窗跑满也不补发:skill 会展开成真实 agent 轮次,收尾由 agent_end 负责。
+        vi.advanceTimersByTime(3000);
+        expect(events.filter((e) => e.type === "result")).toHaveLength(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("缓存命中 source=extension:照常补发收尾", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        await primeCommands(f, s, [{ name: "quietcmd", source: "extension" }]);
+        const p = s.prompt("/quietcmd", "run-e");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        vi.advanceTimersByTime(1600);
+        expect(events.filter((e) => e.type === "result")).toEqual([{ type: "result", willRetry: false }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("缓存就绪但命令未列入:仍走宽限窗兜底（漏列不得把 UI 卡死）", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        await primeCommands(f, s, [{ name: "other", source: "extension" }]);
+        const p = s.prompt("/unlisted", "run-u");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        vi.advanceTimersByTime(1600);
+        expect(events.filter((e) => e.type === "result")).toEqual([{ type: "result", willRetry: false }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("get_commands 失败:降级为旧的纯宽限窗行为", async () => {
+      vi.useFakeTimers();
+      try {
+        const events: PiSessionEvent[] = [];
+        const f = fakeTransport();
+        const s = new PiRpcSession(f.transport, (e) => events.push(e));
+        await primeCommands(f, s, [], { success: false });
+        const p = s.prompt("/skill:foo", "run-d");
+        const cmd = f.lastCmd();
+        f.emit(JSON.stringify({ type: "response", id: cmd.id, command: "prompt", success: true }) + "\n");
+        await p;
+        await Promise.resolve();
+        vi.advanceTimersByTime(1600);
+        expect(events.filter((e) => e.type === "result")).toEqual([{ type: "result", willRetry: false }]);
       } finally {
         vi.useRealTimers();
       }

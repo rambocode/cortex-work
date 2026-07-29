@@ -3,7 +3,6 @@
 // resolveEnabledSkillPaths 间接验证),此处聚焦渲染纯函数与防注入清洗。
 import { describe, expect, it } from "vitest";
 import {
-  isOrchestrationSend,
   parseSkillSlash,
   renderClaudeSkillSlash,
   renderSkillBlock,
@@ -196,22 +195,6 @@ describe("renderClaudeSkillSlash（U5 裸 slash 渲染,含 allRecords 批次一�
     const outB = renderClaudeSkillSlash(b, "", [a, b]);
     expect(outA).toBe("/my-skill");
     expect(outB).not.toBe(outA);
-  });
-});
-
-describe("isOrchestrationSend（U6 修复:单发/编排路由单一来源,与 messages.ts 共用）", () => {
-  it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
-    expect(isOrchestrationSend(true, true, false)).toBe(true);
-  });
-  it("未开启编排 → 单发", () => {
-    expect(isOrchestrationSend(false, true, false)).toBe(false);
-    expect(isOrchestrationSend(undefined, true, false)).toBe(false);
-  });
-  it("壳不支持 startOrchestration → 单发(即使开关开着)", () => {
-    expect(isOrchestrationSend(true, false, false)).toBe(false);
-  });
-  it("开启编排但本条带 @mention 委派 → 实际走单发", () => {
-    expect(isOrchestrationSend(true, true, true)).toBe(false);
   });
 });
 

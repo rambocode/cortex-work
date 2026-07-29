@@ -12,7 +12,7 @@ import {
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
-import { isOrchestrationSend, renderClaudeSkillSlash, renderSkillInvocation } from "@cortex-work/core";
+import { renderClaudeSkillSlash } from "@cortex-work/core";
 import type { InjectableSkill } from "@cortex-work/core";
 import { MessageStream } from "../ChatArea";
 import {
@@ -1407,41 +1407,25 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
     expect(prompt).not.toContain("v1.html");
   });
 
-  describe("isOrchestrationSend 路由判断", () => {
-    it("开启编排 + 支持 startOrchestration + 无 @mention 委派 → 走圆桌编排", () => {
-      expect(isOrchestrationSend(true, true, false)).toBe(true);
-    });
-    it("未开启编排 → 单发", () => {
-      expect(isOrchestrationSend(false, true, false)).toBe(false);
-      expect(isOrchestrationSend(undefined, true, false)).toBe(false);
-    });
-    it("壳不支持 startOrchestration → 单发(即使开关开着)", () => {
-      expect(isOrchestrationSend(true, false, false)).toBe(false);
-    });
-    it("开启编排但本条带 @mention 委派 → 实际走单发(与 messages.ts 完整路由对齐)", () => {
-      expect(isOrchestrationSend(true, true, true)).toBe(false);
-    });
-  });
-
-  describe("resolveSkillDispatch 三路改写", () => {
+  describe("resolveSkillDispatch 主会话改写", () => {
     // allRecords 传本批次全部已启用 skill(此处只有一条),供 claude 分支推导跨进程一致的命令名。
     const allRecords = [skill];
 
     it("claude 单发 → 裸 slash,不带 invokedSkill", () => {
-      const d = resolveSkillDispatch("claude", "/skill:my-skill foo bar", "foo bar", skill, false, allRecords);
+      const d = resolveSkillDispatch("claude", "/skill:my-skill foo bar", "foo bar", skill, allRecords);
       expect(d.outText).toBe(renderClaudeSkillSlash(skill, "foo bar", allRecords));
       expect(d.outText.startsWith("/")).toBe(true);
       expect(d.invokedSkill).toBeUndefined();
     });
 
     it("codex 单发 → 文本保留 args + 结构化 invokedSkill{name,path=dir}", () => {
-      const d = resolveSkillDispatch("codex", "/skill:my-skill foo bar", "foo bar", skill, false, allRecords);
+      const d = resolveSkillDispatch("codex", "/skill:my-skill foo bar", "foo bar", skill, allRecords);
       expect(d.outText).toBe("foo bar");
       expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
     });
 
     it("codex 单发 + 空 args → 文本为空但仍带 invokedSkill(不丢原生触发)", () => {
-      const d = resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false, allRecords);
+      const d = resolveSkillDispatch("codex", "/skill:my-skill", "", skill, allRecords);
       expect(d.outText).toBe("");
       expect(d.invokedSkill).toEqual({ name: "My Skill!", path: "/g/s" });
     });
@@ -1451,34 +1435,22 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
       const slides: InjectableSkill = { name: "slides", dir: "/builtin/slides" };
 
       expect(
-        resolveSkillDispatch("codex", "/skill:design landing page", "landing page", design, false, [design]),
+        resolveSkillDispatch("codex", "/skill:design landing page", "landing page", design, [design]),
       ).toMatchObject({ artifactKind: "design" });
       expect(
-        resolveSkillDispatch("claude", "/skill:slides quarterly review", "quarterly review", slides, false, [slides]),
+        resolveSkillDispatch("claude", "/skill:slides quarterly review", "quarterly review", slides, [slides]),
       ).toMatchObject({ artifactKind: "slides" });
-      expect(resolveSkillDispatch("codex", "/skill:my-skill", "", skill, false, allRecords)).not.toHaveProperty(
+      expect(resolveSkillDispatch("codex", "/skill:my-skill", "", skill, allRecords)).not.toHaveProperty(
         "artifactKind",
       );
-    });
-
-    it("claude 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
-      const d = resolveSkillDispatch("claude", "/skill:my-skill foo", "foo", skill, true, allRecords);
-      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
-      expect(d.invokedSkill).toBeUndefined();
-    });
-
-    it("codex 走圆桌编排 → 维持现状 prose,不带 invokedSkill", () => {
-      const d = resolveSkillDispatch("codex", "/skill:my-skill foo", "foo", skill, true, allRecords);
-      expect(d.outText).toBe(renderSkillInvocation(skill, "foo"));
-      expect(d.invokedSkill).toBeUndefined();
     });
 
     it("同批次命名碰撞时,裸 slash 与主进程桥接目录的消歧命名一致(code review 修复)", () => {
       // 两条 skill 归一化后同 slug("my/skill" 与 "my-skill" 都 → "my-skill")。
       const a: InjectableSkill = { name: "my/skill", dir: "/a" };
       const b: InjectableSkill = { name: "my-skill", dir: "/b" };
-      const dispatchA = resolveSkillDispatch("claude", "/skill:a", "", a, false, [a, b]);
-      const dispatchB = resolveSkillDispatch("claude", "/skill:b", "", b, false, [a, b]);
+      const dispatchA = resolveSkillDispatch("claude", "/skill:a", "", a, [a, b]);
+      const dispatchB = resolveSkillDispatch("claude", "/skill:b", "", b, [a, b]);
       // 先到者(a)拿裸 slug,后到者(b)必须拿到消歧后缀,两者裸 slash 不能相同——否则点 b 会误触发 a。
       expect(dispatchA.outText).toBe("/my-skill");
       expect(dispatchB.outText).not.toBe("/my-skill");
@@ -1664,7 +1636,7 @@ describe("PersonalChatArea /skill:research 派发分叉", () => {
   // 显示出来是噪音,还会经 applyFallbackTitle 把会话标题也污染成 "/skill:research ..."（用户反馈）。
   it("会话流里留下研究目标本身（不含 /skill:research 前缀）", async () => {
     await sendResearch(researchBridge());
-    expect(await screen.findByText("调研向量数据库选型")).toBeInTheDocument();
+    expect(await screen.findByText("调研向量数据库选型", { selector: ".m-text" })).toBeInTheDocument();
     expect(screen.queryByText(/\/skill:research/)).toBeNull();
   });
 
@@ -1751,6 +1723,29 @@ describe("PersonalChatArea 操作条只挂每轮末条 agent 文本", () => {
 
     expect(tailOf("第一段")).toBeNull();
     expect(tailOf("第二段")).not.toBeNull();
+  });
+
+  it("回合结束后在末尾常驻显示精确的输入和输出 token", async () => {
+    setup();
+    renderChat([
+      u("m1", "问题"),
+      a("a1", "回答"),
+      {
+        kind: "turnUsage",
+        who: "claude",
+        time: "12:01",
+        uid: "usage-1",
+        runId: "run-1",
+        inputTokens: 12_345,
+        outputTokens: 678,
+      } satisfies Message,
+    ]);
+    await screen.findByText("回答");
+
+    const usage = screen.getByLabelText("本轮 Token 用量");
+    expect(usage).toHaveTextContent("输入 12,345");
+    expect(usage).toHaveTextContent("输出 678");
+    expect(usage).toHaveTextContent("tokens");
   });
 
   it("running 时当前轮末段也不显示操作条", async () => {

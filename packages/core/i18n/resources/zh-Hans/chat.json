@@ -24,6 +24,12 @@
     "doneSummary": "已完成 {{count}} 项任务",
     "inProgress": "进行中"
   },
+  "turnUsage": {
+    "label": "本轮 Token 用量",
+    "input": "输入 {{count}}",
+    "output": "输出 {{count}}",
+    "unit": "tokens"
+  },
   "diff": {
     "applied": "已应用",
     "rejected": "已拒绝",
@@ -86,7 +92,8 @@
       "low": "思考·低",
       "medium": "思考·中",
       "high": "思考·高",
-      "xhigh": "思考·极高"
+      "xhigh": "思考·极高",
+      "max": "思考·最高"
     },
     "execPermission": {
       "label": "执行权限",

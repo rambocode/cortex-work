@@ -1,7 +1,14 @@
 // pi RPC 长驻会话通道（pi --mode rpc）。与单发 cli.ts 并存:pi 经此获得运行时控制
 // （steer/abort/fork/切模型/压缩），claude/codex 仍走 cli.ts 单发管线。
 //
-// 协议（实测 0.79.2，详见 docs/plans/2026-06-16-003-feat-pi-rpc-session-plan.md）：
+// 协议（0.79.2 实测建立，已按 0.82.1 的 rpc-types.d.ts / agent-session.d.ts 全量 diff 复核:
+// RpcCommand 只增不改、RpcResponse 与 RpcExtensionUIRequest 无变更、AgentSessionEvent 新增 6 类
+// 事件——详见 mapPiEvent 的忽略清单。原始设计详见
+// docs/plans/2026-06-16-003-feat-pi-rpc-session-plan.md）：
+//
+// ⚠️ 注意:pi 以 bun 自包含二进制分发（resources/pi/pi），npm 包被 electron-builder 排除出 asar,
+// 运行期不参与。故下述协议类型**不进 TS 编译期校验**,全靠本文件的手抄镜像 + 单测断言兜住。
+// 升级 pi 时必须重跑一次 .d.ts diff,否则协议漂移只会在运行时以「卡住 / 丢事件」的形式暴露。
 //   · stdin 逐行发命令 JSON（带 id 关联）；stdout 逐行回 {type:"response",id,...} 或事件。
 //   · 分帧严格按 \n（payload 可能含 U+2028/U+2029,只能切 \n）。
 //   · 启动不主动 emit sessionId,需发 get_state 取;冷启动 ~790ms,就绪靠 get_state 探测。
@@ -85,11 +92,42 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
 }
 
 /**
+ * 从 prompt 文本里取斜杠命令名（不含前导 /）。非 / 开头返回 undefined。
+ * 只切到首个空白，`/foo bar` → `foo`；与 get_commands 回传的 `name`（无前导 /）同形，可直接比对。
+ */
+export function slashCommandName(message: string): string | undefined {
+  const s = message.trimStart();
+  if (!s.startsWith("/")) return undefined;
+  const name = s.slice(1).split(/\s/, 1)[0];
+  return name || undefined;
+}
+
+function piTurnUsage(value: unknown): { inputTokens?: number; outputTokens?: number } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const usage = value as Record<string, unknown>;
+  const inputTokens = typeof usage.input === "number" ? usage.input : undefined;
+  const outputTokens = typeof usage.output === "number" ? usage.output : undefined;
+  if (inputTokens === undefined && outputTokens === undefined) return undefined;
+  return { inputTokens, outputTokens };
+}
+
+/**
  * 把 pi 的 AgentSessionEvent（stdout 事件行）映射为归一化 PiSessionEvent。
  * 无状态纯函数:无法识别 / 需忽略的事件（agent_start、turn_start、message_start、
  * text_start、text_end、toolcall_start/delta/end、auto_retry_end、response、以及 toolUse 中间收尾的
  * message_end）返回 null。run 失败的 message_end（stopReason=error|aborted）映射为 error 事件。
  * 正常最终 message_end（stop/length）也映射为 result，兜住 pi 偶发缺 agent_end 的终态。
+ *
+ * pi 0.82.1 新增、此处**有意不映射**的事件（0.79.2→0.82.1 协议 diff 结论，与 pi.ts 的
+ * IGNORED_FRAME_TYPES 同源，改动时两边同步）：
+ *   · entry_appended        —— pi session JSONL 逐条追加；Cortex 自持消息流,不据此重建。
+ *   · bash_execution_update —— bash 输出增量 {id?, delta}；当前只取 tool_execution_end 的最终结果,
+ *                              日后做工具行实时输出时从这里接。
+ *   · summarization_retry_scheduled / _attempt_start / _finished —— 压缩与分支摘要的重试链。
+ *     已知限制:压缩期重试对用户不可见。复用现有 retry 通道会有副作用——手动 /compact 时没有活跃
+ *     run,setPiRuntime 的 retry 状态没有 result 来清理,会永久残留在 UI 上。要做需配套
+ *     _finished 的清理路径,超出本次升级范围。
+ * agent_settled 已映射（见下方 case），是唯一被消费的新事件。
  */
 export function mapPiEvent(raw: unknown): PiSessionEvent | null {
   if (!raw || typeof raw !== "object") return null;
@@ -100,7 +138,8 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       if (!ev || typeof ev !== "object") return null;
       if (ev.type === "text_delta" && typeof ev.delta === "string") return { type: "text", delta: ev.delta };
       if (ev.type === "thinking_delta" && typeof ev.delta === "string") return { type: "reasoning", delta: ev.delta };
-      // 防御性:实测 pi 0.79.2 的错误不走这里（走 message_end，见下），保留以防协议变体。
+      // 防御性:实测 pi 0.79.2 的错误不走这里（走 message_end，见下）。0.82.1 的 AgentEvent 联合
+      // 未变（已 diff），故该结论沿用;保留分支以防协议变体。
       if (ev.type === "error") {
         const errObj = ev.error as Record<string, unknown> | undefined;
         const error =
@@ -126,7 +165,8 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       }
       // stop/length 是最终边界,产出 result,兜住 pi 偶发缺 agent_end 时 renderer 永久卡 running。
       if (stopReason === "stop" || stopReason === "length") {
-        return { type: "result", willRetry: false };
+        const usage = piTurnUsage(msg?.usage);
+        return { type: "result", willRetry: false, ...(usage ? { usage } : {}) };
       }
       // 盲区补点(R10):非空的未知 stopReason → 不产任何终态事件,renderer 可能永久卡「思考中」。
       // 记录原始值便于定位 pi 协议漂移;已知值(error/aborted/stop/length/toolUse)与缺省静默,不噪声。
@@ -173,10 +213,18 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       if (output !== undefined) out.output = output;
       return out;
     }
-    case "turn_end":
-      return { type: "turn-end" };
+    case "turn_end": {
+      const message = o.message as Record<string, unknown> | undefined;
+      const usage = piTurnUsage(message?.usage);
+      return { type: "turn-end", ...(usage ? { usage } : {}) };
+    }
     case "agent_end":
       return { type: "result", willRetry: !!o.willRetry };
+    // pi 0.82.1 新增:agent 完全静默（无活跃 run / 重试 / 自动压缩 / 排队续跑）的权威终态。
+    // 正常轮次里 agent_end 已先产 result,此事件是纯冗余;真正价值在异常路径——pi 漏发
+    // agent_end 时它是最后一道终态保险,渲染侧据此收尾而非干等宽限（见 messages.ts 的 settled 分支）。
+    case "agent_settled":
+      return { type: "settled" };
     case "compaction_start":
     case "compaction_end": {
       const out: Extract<PiSessionEvent, { type: "compaction" }> = {
@@ -412,6 +460,10 @@ export interface PiImageContent {
 }
 
 // RPC 命令的应答行（{type:"response", id, command, success, data|error}）。
+// 斜杠命令来源（镜像 pi rpc-types.d.ts 的 RpcSlashCommand.source）。只有 extension 来源的命令
+// 由 pi 即时执行、不跑 agent（无 agent_end）;prompt / skill 会展开成真实 agent 轮次。
+export type RpcSlashCommandSource = "extension" | "prompt" | "skill";
+
 export interface RpcResponse {
   type: "response";
   id?: string;
@@ -465,6 +517,9 @@ export class PiRpcSession {
   private slashSawAgentEvent = false;
   private slashSawNotify = false;
   private slashFinalizeTimer?: ReturnType<typeof setTimeout>;
+  // 斜杠命令名 → 来源（get_commands 缓存,ready 后拉一次）。undefined = 未就绪/拉取失败,
+  // 此时 prompt() 退回纯宽限窗兜底（旧行为）。命中 extension 才精确安排补发收尾。
+  private slashCommandSources?: Map<string, RpcSlashCommandSource>;
 
   constructor(
     private readonly transport: RpcTransport,
@@ -642,7 +697,7 @@ export class PiRpcSession {
     if (runId !== undefined) this.currentRunId = runId;
     // 扩展命令(/cmd)由 pi 即时执行后提前返回、不跑 agent → 永不发 agent_end,renderer 会永久卡
     // 「思考中」。仅对 / 前缀重置跟踪并在 response 落定后判定是否补发收尾;普通 prompt 零影响。
-    const isSlash = message.trimStart().startsWith("/");
+    const isSlash = this.needsExtensionCommandFinalize(message);
     if (this.slashFinalizeTimer) {
       clearTimeout(this.slashFinalizeTimer);
       this.slashFinalizeTimer = undefined;
@@ -661,6 +716,42 @@ export class PiRpcSession {
       );
     }
     return p;
+  }
+
+  /**
+   * 本次 prompt 是否需要「扩展命令补发收尾」跟踪。三态（保守收窄，不引入新的卡死路径）：
+   *   · 非 / 开头 → false（普通 prompt 走正常 agent_end 收尾）
+   *   · 命中缓存且 source=prompt|skill → false。这两类会展开成真实 agent 轮次、有 agent_end,
+   *     旧实现按 / 前缀一律跟踪,靠 response→agent_start 的 1.5s 竞态窗口才躲开误补发,是既有误判源。
+   *   · 命中缓存且 source=extension，或缓存未就绪 / 命令不在缓存里 → true（保留宽限窗兜底）。
+   *     未知命令仍走兜底而非直接放弃,避免 get_commands 漏列时反而把 UI 卡死。
+   */
+  private needsExtensionCommandFinalize(message: string): boolean {
+    const name = slashCommandName(message);
+    if (!name) return false;
+    const source = this.slashCommandSources?.get(name);
+    return source !== "prompt" && source !== "skill";
+  }
+
+  /**
+   * 拉取并缓存斜杠命令表（ready 之后调用）。失败静默降级为「无缓存」——此时 prompt() 退回纯
+   * 宽限窗兜底，与升级前行为一致，绝不因为这一步失败而阻断会话可用性。
+   */
+  async loadSlashCommands(): Promise<void> {
+    try {
+      const resp = await this.getCommands();
+      if (!resp.success) return;
+      const list = (resp.data as { commands?: Array<{ name?: unknown; source?: unknown }> } | undefined)?.commands;
+      if (!Array.isArray(list)) return;
+      const map = new Map<string, RpcSlashCommandSource>();
+      for (const c of list) {
+        if (typeof c?.name !== "string" || typeof c?.source !== "string") continue;
+        map.set(c.name, c.source as RpcSlashCommandSource);
+      }
+      this.slashCommandSources = map;
+    } catch {
+      // 超时 / 进程退出:保持 undefined,走宽限窗兜底。
+    }
   }
 
   // 扩展命令 prompt 的 response 在 pi 跑完 handler 后才落定（故此刻命令已结束）。判定:
@@ -724,6 +815,10 @@ export class PiRpcSession {
   }
   getLastAssistantText(): Promise<RpcResponse> {
     return this.send({ type: "get_last_assistant_text" });
+  }
+  // 可用斜杠命令表（含 source: extension|prompt|skill）。供 loadSlashCommands 建缓存。
+  getCommands(): Promise<RpcResponse> {
+    return this.send({ type: "get_commands" });
   }
 
   /** 主动停止:不再上报 crashed。 */

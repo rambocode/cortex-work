@@ -52,19 +52,6 @@ export function renderSkillBlock(skills: InjectableSkill[]): string {
   ].join("\n");
 }
 
-// U6(修复):单发/圆桌编排路由判断的单一来源。原先 messages.ts 内联判断与
-// PersonalChatArea.tsx 各写一份「subagentOrchestration && startOrchestration && !hasDelegateMentions」,
-// 靠注释手工保持一致——一旦其中一处的路由条件调整,另一处会静默漂移,导致「该走原生 skill 调用的
-// 组合悄悄退回 prose」或「该退回 prose 的组合却发了裸 slash/invokedSkill 到编排路径」(见 code review:
-// maintainability/agent-native 交叉确认)。现在两处都从这里导入,不再各自复刻判断逻辑。
-export function isOrchestrationSend(
-  subagentOrchestration: boolean | undefined,
-  hasStartOrchestration: boolean,
-  hasDelegateMentions: boolean,
-): boolean {
-  return subagentOrchestration === true && hasStartOrchestration && !hasDelegateMentions;
-}
-
 // 解析输入是否为「/skill:<name> [args]」形态(claude/codex 的 slash skill 触发)。命中返回
 // { name, args };否则 null。pi 会话不用它(pi CLI 自行展开 /skill:name),仅 claude/codex 发送侧
 // 拦截后转定向 prompt(见 renderSkillInvocation / PersonalChatArea onSend)。

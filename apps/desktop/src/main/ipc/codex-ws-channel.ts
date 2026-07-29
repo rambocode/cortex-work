@@ -186,12 +186,12 @@ export function parseAppServerEvent(
       };
     }
     case CODEX_NOTIF.tokenUsage: {
-      const total = (params as TokenUsageParams)?.tokenUsage?.total;
-      if (!total) return null;
+      const last = (params as TokenUsageParams)?.tokenUsage?.last;
+      if (!last) return null;
       const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-      const inputTokens = num(total.inputTokens);
-      const outputTokens = num(total.outputTokens);
-      const cachedInputTokens = num(total.cachedInputTokens);
+      const inputTokens = num(last.inputTokens);
+      const outputTokens = num(last.outputTokens);
+      const cachedInputTokens = num(last.cachedInputTokens);
       if (inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined)
         return null;
       return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
@@ -293,6 +293,7 @@ export class CodexWsChannel {
   private _threadId: string | undefined;
   private _turnId: string | undefined;
   private turnSettled = false; // 当前 turn 是否已产出终态 result(防重复 result)
+  private pendingUsage: Extract<CliStreamEvent, { type: "usage" }> | undefined;
   // agentMessage itemId → phase(commentary/final_answer):delta 通知不带 phase,从 item/started 记下,
   // 供 parseAppServerEvent 把 commentary 分流到 thinking(右侧过程)、final_answer 留在 text(回复)。
   private agentMsgPhases = new Map<string, string>();
@@ -404,6 +405,7 @@ export class CodexWsChannel {
   }): Promise<string> {
     if (!this._threadId) throw new Error("startTurn 前需先 startThread/resumeThread");
     this.turnSettled = false;
+    this.pendingUsage = undefined;
     this.agentMsgPhases.clear(); // 新 turn 重置 phase 表
     const res = (await this.request("turn/start", {
       threadId: this._threadId,
@@ -511,10 +513,20 @@ export class CodexWsChannel {
       if (!mapped) return;
       const events = Array.isArray(mapped) ? mapped : [mapped];
       for (const e of events) {
+        // app-server 的 tokenUsage/updated 是当前回合快照，可能更新多次；只保留最新一份，
+        // 在终态前发出一次，避免 renderer 把多个快照累加成虚高的本轮消耗。
+        if (e.type === "usage") {
+          this.pendingUsage = e;
+          continue;
+        }
         // 每 turn 仅放行一个终态 result,防 error + turn/completed 双 result
         if (e.type === "result") {
           if (this.turnSettled) continue;
           this.turnSettled = true;
+          if (this.pendingUsage) {
+            this.opts.onEvent(this.pendingUsage);
+            this.pendingUsage = undefined;
+          }
         }
         this.opts.onEvent(e);
       }

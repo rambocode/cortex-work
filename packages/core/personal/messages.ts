@@ -27,7 +27,7 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
-import { isOrchestrationSend, renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
+import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { usePetStore } from "../store/pet";
@@ -41,6 +41,7 @@ import { buildMemoryAppend } from "../memory/inject";
 import { retrieveChatEvidence } from "../research/chat-retrieval";
 import {
   abortPi,
+  calibratePiSessionFile,
   closePiSession,
   compactPi,
   ensurePiSession,
@@ -61,6 +62,10 @@ import { derivePiCapabilities, toAdapterPermissions } from "./permissionMode";
 import { speakText } from "./tts";
 import { parseMentions } from "./mention";
 import { normalizeLoadedChat, sanitizeBranchGroups, type BranchGroup, type LoadedChat } from "./branches";
+import {
+  buildAutoSubagentRole,
+  buildDelegateOrchestrationGuide,
+} from "./delegate-orchestration";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -217,6 +222,7 @@ interface RunState {
   buffer: string;
   gotResult: boolean;
   resultOk?: boolean;
+  tokenUsage?: { inputTokens?: number; outputTokens?: number };
   // 启动状态机:starting(进程启动中)→ thinking(收到 init,等首个输出)。
   phase: "starting" | "thinking";
   // 最近一次收到事件的时间,看门狗据此判定卡死。
@@ -233,6 +239,12 @@ interface RunState {
   nestedRoleEvents?: boolean;
   changedFiles?: Set<string>;
   resultExitFallback?: ReturnType<typeof setTimeout>;
+  // Pi 先发 error、后用 result.willRetry 宣布自动重试；记录本轮错误气泡，确认重试时精确移除。
+  retryErrorUid?: string;
+  // result{willRetry:true} 已宣布重试、但 auto_retry_start 尚未到达的窗口。该窗口内 gotResult 被
+  // 复位成 false（等下一轮），若此时 settled 到达会被误判为「未收尾」而抢收尾,把还要重试的轮次
+  // 提前结束。pi 侧 isIdle 显式排除 retry、协议上不该发 settled,这里是防协议漂移的兜底闸。
+  awaitingRetry?: boolean;
   // 本轮运行模式(plan/accept-edits/full-auto):用于检测「被模式拦截的工具尝试」→ 切档提示。
   permissionMode?: PermissionMode;
   // 本轮已检测到的被拦工具(写/执行类),轮结束时据此弹切档提示。只记首个,避免重复。
@@ -261,6 +273,32 @@ interface RunState {
   // typing 活动行(TypingActivity)的进度状态:本轮已完成工具步数 / 当前工具起始时刻。
   stepCount?: number;
   toolStartedAt?: number;
+}
+
+function addRunTokenUsage(
+  run: RunState,
+  usage: { inputTokens?: number; outputTokens?: number } | undefined,
+): void {
+  if (!usage) return;
+  const inputTokens =
+    typeof usage.inputTokens === "number" && Number.isFinite(usage.inputTokens) && usage.inputTokens >= 0
+      ? usage.inputTokens
+      : undefined;
+  const outputTokens =
+    typeof usage.outputTokens === "number" && Number.isFinite(usage.outputTokens) && usage.outputTokens >= 0
+      ? usage.outputTokens
+      : undefined;
+  if (inputTokens === undefined && outputTokens === undefined) return;
+  run.tokenUsage = {
+    inputTokens:
+      inputTokens === undefined
+        ? run.tokenUsage?.inputTokens
+        : (run.tokenUsage?.inputTokens ?? 0) + inputTokens,
+    outputTokens:
+      outputTokens === undefined
+        ? run.tokenUsage?.outputTokens
+        : (run.tokenUsage?.outputTokens ?? 0) + outputTokens,
+  };
 }
 
 const runs = new Map<string, RunState>();
@@ -1096,6 +1134,14 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     if ("roleId" in ev && ev.roleId && runUsesNestedRoleEvents(run)) {
       run.phase = "thinking";
       run.activeRoleId = ev.roleId;
+      // delegate 子 Agent 不是主聊天里的另一个回答者：其原始输出只进运行过程/traces，
+      // tool_result 回到主 agent 后，主 agent 的无 roleId 文本才是最终回答。
+      if (run.delegate) {
+        finalizeProcessAgentLog(qc, sessionId, run);
+        finalizeRunReasoning(qc, run);
+        updateTypingMsg(qc, sessionId, run.typingUid, `${ev.stageLabel ?? "子 Agent"} 思考中…`);
+        return;
+      }
       if (!run.roleCursors) run.roleCursors = new Map();
       if (!run.roleCursors.has(ev.roleId)) {
         run.roleCursors.set(ev.roleId, emptyFoldCursor());
@@ -1124,10 +1170,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 进程已起来:启动中 → 思考中。
     run.phase = "thinking";
     updateTypingMsg(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0));
-    // 编排子段（ev.stage 存在）与委派轮次的 init 携带的是一次性子会话 thread_id，绝不能写进主会话
-    // resume id：否则下一轮普通对话会 resume 到该一次性上下文，丢失主对话历史。它们均 fresh spawn
-    // 不 resume，故只推进 phase/typing，不落 session patch。
-    if (!ev.stage && !run.delegate) {
+    // stage 子段是旧三段编排的一次性会话，不能写回主 resume id。delegate 子 agent 的 init
+    // 已在上面的 roleId 分支提前 return；能走到这里的无 roleId init 就是主 agent 原生会话，
+    // 即使本轮启用了 delegate 也必须持久化，下一轮才能继续同一主会话上下文。
+    if (!ev.stage) {
       const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
       if (sess) {
         const patch = run.artifactResumeKey
@@ -1153,8 +1199,9 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "usage") {
-    // 流式 usage/cost(U3):M1 仅采集(主进程已 trace 记录),UI 展示延后到后续里程碑;持久权威在
-    // usage.ts 磁盘路径(KTD3)。此处显式忽略以表意「按设计暂不展示」,而非遗漏。
+    // 同一用户回合可能包含编排阶段、delegate 子 Agent 与安全重试的多次模型调用；
+    // usage 事件均是调用级增量，在 renderer run 内汇总，成功收尾后落一条 turnUsage。
+    addRunTokenUsage(run, ev);
     return;
   }
 
@@ -1236,6 +1283,12 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       usePetStore.getState().set("thinking");
       finalizeProcessAgentLog(qc, sessionId, run);
       foldReasoning(qc, run, ev.delta); // 与 reasoning 同通道，进过程流
+      return;
+    }
+    if (run.delegate && ev.roleId) {
+      usePetStore.getState().set("thinking");
+      finalizeProcessAgentLog(qc, sessionId, run);
+      foldReasoning(qc, run, ev.delta);
       return;
     }
     // 圆桌模式：文本折叠到当前活跃角色的独立游标，每个角色输出各自成独立消息块。
@@ -1416,6 +1469,16 @@ function finalizeRun(
   // 过程流终态处理（KTD4/KTD8）:成功轮收尾打勾后**保留**（收起为可重开入口,数据在内存,不落盘,
   // 切走/下一轮才清,见 clearProcess 各出口）;失败/异常退出轮立即清空（错误文案已走 text 进消息流）。
   const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
+  if (runOk && run.tokenUsage) {
+    appendMsg(qc, sessionId, {
+      kind: "turnUsage",
+      who: run.agent,
+      time: realHHMM(),
+      runId,
+      ...run.tokenUsage,
+      uid: uid("usage"),
+    });
+  }
   if (runOk) finalizeProcessForRetain(qc, sessionId);
   else clearProcess(qc, sessionId);
   // 会话产物成功落定后重新聚焦编辑器。生成期间用户可能收起/切走右栏；仅当前仍停留在
@@ -1699,18 +1762,20 @@ function finalizeLastToolItem(qc: QueryClient, run: RunState, isError: boolean):
   );
 }
 
-function appendPiError(qc: QueryClient, run: RunState, error: string): void {
+function appendPiError(qc: QueryClient, run: RunState, error: string): string {
   // 鉴权类错误补一句去哪配供应商（与单发 result 错误分支同款）。
   const piAuthHint = /api.?key|auth|credential|unauthorized|401|provider/i.test(error)
     ? t("chat:core.piAuthHint")
     : "";
+  const errorUid = uid("err");
   appendMsg(qc, run.sessionId, {
     kind: "text",
     who: run.agent,
     time: realHHMM(),
     text: t("chat:core.execError", { error: error || t("chat:core.unknownError"), authHint: piAuthHint }),
-    uid: uid("err"),
+    uid: errorUid,
   });
+  return errorUid;
 }
 
 // 取某会话当前活跃的 pi run（一个会话同时至多一轮）。
@@ -1736,8 +1801,10 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   const activeRunId = store.runningBySession[sessionId];
   if (evRunId && activeRunId && evRunId !== activeRunId && ev.type !== "crashed") return;
   // 任何新事件都说明本轮仍活跃 → 取消下面 error 分支挂的「防卡死」兜底收尾。
+  // 例外 settled:它恰恰表示 agent 已彻底静默,若在此被当成「仍活跃」而取消兜底,就再没人收尾了
+  // （run 永久卡「思考中」）。故跳过统一取消,交由下方 settled 分支自行判定并收尾。
   const activeAny = piRunFor(sessionId);
-  if (activeAny) stopResultExitFallback(activeAny.run);
+  if (activeAny && ev.type !== "settled") stopResultExitFallback(activeAny.run);
   switch (ev.type) {
     case "queue":
       store.setPiRuntime(sessionId, { steering: ev.steering, followUp: ev.followUp });
@@ -1747,6 +1814,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "retry":
       store.setPiRuntime(sessionId, { retry: { attempt: ev.attempt, max: ev.maxAttempts } });
+      // 新一次尝试已真正开始 → 解除 settled 闸门,使这一轮若再漏发 agent_end 时 settled 仍能兜底。
+      if (activeAny) activeAny.run.awaitingRetry = undefined;
       // 重试也进运行事件流(详情弹层的重试可见性)。
       if (activeRunId) {
         recordRunEvent(qc, sessionId, activeRunId, {
@@ -1761,6 +1830,23 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "session-info":
       return; // 预留:暂不据此改标题（避免覆盖用户改名）。
+    case "settled": {
+      // pi 0.82.1 的 agent_settled:agent 已彻底静默（无活跃 run / 重试 / 自动压缩 / 排队续跑）。
+      // 幂等三态——
+      //   · 正常轮:result 先到已 finalizeRun（runs 里已删）→ piRunFor 取不到,直接 no-op;
+      //   · run 已 gotResult:同上,收尾逻辑已跑过,不重复（否则会多出空卡片 / usage 双计）;
+      //   · 仅剩「pi 漏发 agent_end」的异常轮:此处补收尾,把 error 分支那 4s 宽限提前引爆。
+      // 依赖 pi 侧语义:重试链进行中不发 settled（AgentSession.isIdle 显式排除 retry），故这里
+      // 不会误伤 result{willRetry:true} 后保留等下一轮的 run。
+      const settled = piRunFor(sessionId);
+      if (!settled || settled.run.gotResult || settled.run.awaitingRetry) return;
+      stopResultExitFallback(settled.run);
+      finalizeRunReasoning(qc, settled.run);
+      finalizeProcessAgentLog(qc, sessionId, settled.run);
+      store.setPiRuntime(sessionId, undefined);
+      finalizeRun(qc, settled.runId, 0, undefined, sessionId);
+      return;
+    }
     case "notify": {
       // 扩展命令（如 /memory-index-sessions）经 ctx.ui.notify 的输出——不走 agent 文本流,直接作为
       // 一条 pi 消息呈现。置 sawText 以免随后的（补发）result 收尾再加「纯工具轮」占位。
@@ -1875,6 +1961,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       });
       return;
     case "turn-end":
+      addRunTokenUsage(run, ev.usage);
       finalizeProcessAgentLog(qc, sessionId, run);
       return;
     case "error":
@@ -1884,7 +1971,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       if (/^aborted$/i.test(ev.error)) {
         appendMsg(qc, sessionId, { kind: "text", who: run.agent, time: realHHMM(), text: t("chat:core.aborted"), uid: uid("err") });
       } else {
-        appendPiError(qc, run, ev.error);
+        run.retryErrorUid = appendPiError(qc, run, ev.error);
       }
       // 防卡死:挂宽限兜底,若 pi 不发后续 agent_end/retry 则自行收尾（下个事件会取消它）。
       run.resultExitFallback = setTimeout(
@@ -1893,10 +1980,16 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       );
       return;
     case "result": {
+      addRunTokenUsage(run, ev.usage);
       if (ev.willRetry) {
+        if (run.retryErrorUid) {
+          dropMsg(qc, sessionId, run.retryErrorUid);
+          run.retryErrorUid = undefined;
+        }
         // 自动重试:保留 run 等下一轮事件,不收尾（retry 事件已驱动状态指示）。
         // 复位上一尝试的失败态 + 折叠游标 + buffer,避免成功的重试被误判失败或文本续错块。
         finalizeRunReasoning(qc, run);
+        run.awaitingRetry = true; // 挡住重试窗口内可能到达的 settled（见字段注释）
         run.gotResult = false;
         run.resultOk = undefined;
         run.cursor = emptyFoldCursor();
@@ -2028,8 +2121,8 @@ export async function resolveEnabledSkillPaths(
 //    列表渲染成 prose 并入 appendSystemPrompt(R5),appendWithSkills 只保留原始 appendSystemPrompt。
 //  - codex:无目录桥接,维持现状 —— renderSkillBlock 渲染成 prose 并入 appendSystemPrompt,不带 skillRecords。
 //  - pi:把共享记录与本轮第一方产物 skill 变成 skillPaths,由 adapter 逐项生成 --skill；不 prose 注入。
-// ⚠️ 仅用于单发分支;圆桌编排(bridge.startOrchestration)分支不走此函数,继续沿用现状批量 prose
-// 注入(见 System-Wide Impact / U5 Approach)。纯函数,便于单测。
+// 普通发送与 delegate 编排都走这条主会话 startCli 路径，确保 skill 与原生 resume 上下文共存。
+// 纯函数,便于单测。
 export function buildSingleSendSkillInjection(
   agent: string,
   appendSystemPrompt: string | undefined,
@@ -2857,6 +2950,16 @@ export function usePersonalActions(): PersonalActions {
   const send = useCallback<PersonalActions["send"]>(
     async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs, artifact) => {
       if (!bridge) return false;
+      // 子 agent 编排的主体始终是当前主会话：主 agent 走正常 startCli/resume，
+      // 子 agent 仅作为 ask_* 工具执行者。显式 @mention 与全局自动编排共用同一条 delegate 链。
+      const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
+      const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
+      const autoDelegateOrchestration =
+        !artifact &&
+        usePersonalStore.getState().generalSettings.subagentOrchestration === true &&
+        !!bridge.startCli &&
+        !hasDelegateMentions;
+      const usesCliDelegate = hasDelegateMentions || autoDelegateOrchestration;
       const hasImages = !!(images?.length || presavedImages?.length);
       const hasDocs = !!(docFiles?.length || presavedDocs?.length);
       // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
@@ -2884,9 +2987,9 @@ export function usePersonalActions(): PersonalActions {
         flushChat(qc, session.id);
         return false;
       }
-      // 普通 Pi 对话依赖长驻 RPC；会话产物则刻意走隔离 cwd 的 fresh startCli，
+      // 普通 Pi 对话依赖长驻 RPC；会话产物与 delegate 编排都走 startCli，
       // 不应被无关的 piOpen/onPiEvent 能力门禁拦住。
-      if (session.agent === "pi" && !artifact && !piRpcAvailable(bridge)) {
+      if (session.agent === "pi" && !artifact && !usesCliDelegate && !piRpcAvailable(bridge)) {
         await ensureChatLoaded(qc, bridge, session.id);
         // editResend 复用的已落盘图(presavedImages)仍回显,避免兜底分支静默丢图;
         // 新待发图此刻尚未落盘(imageSave 在下方),留在 composer(return false 保留)。
@@ -3057,20 +3160,9 @@ export function usePersonalActions(): PersonalActions {
       // claude/codex 单发与编排:附件块前缀进 prompt 文本(run.promptText / 显示层仍存原始 text)。
       const cliText = buildTurnPromptText(text, attachmentPrompt);
 
-      // 委派（delegate）@mention 优先级高于 pi 专有路径：消息含 @mention 时任何 agent 都走单发
-      // startCli + delegate 工具注入（主 agent 经 ask_<id> 自主委派），不走 pi RPC。提前检测以避免
-      // pi 分支 return 后再也走不到 delegate 注入。
-      const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
-      const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
-      // 三段编排开关（claude/codex/pi 通用，12790c0 起 pi 也参与）:开启后走下面统一 orchestrate 管线。
-      // 全局设置(设置 → Agent),缺省 = 开启,仅显式 false 关闭(原会话级开关已升级为全局)。
-      const orchestrationEnabled = usePersonalStore.getState().generalSettings.subagentOrchestration !== false;
-      const useOrchestration = !artifact && orchestrationEnabled && bridge.startOrchestration;
-
-      // pi 走 RPC 长驻会话（steer/abort/fork);claude/codex 仍走下面单发 startCli 管线。有 @mention 委派
-      // 或开启三段编排时,pi 也改走下面单发/编排管线（per-turn delegate 工具集 / 编排各段都需 fresh
-      // spawn，RPC 工具集在 pi:open 时冻结无法逐轮变化）。
-      if (session.agent === "pi" && !artifact && !hasDelegateMentions && !useOrchestration) {
+      // Pi 无委派时继续复用 RPC 长驻会话；委派时主会话改走可注入 ask_* 工具的 startCli，
+      // 并用原生 resumeSessionId 续接同一 Pi session。
+      if (session.agent === "pi" && !artifact && !usesCliDelegate) {
         await sendPiTurn(qc, bridge, session, projectPath, text, piAppendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
@@ -3156,18 +3248,30 @@ export function usePersonalActions(): PersonalActions {
 
       try {
         const resumeKey = artifact ? artifactResumeKey(session, artifact) : undefined;
-        let resumeSessionId = resumeKey
-          ? session.artifactSessionIds?.[resumeKey]
-          : sessionResumeId(session);
         let sendSession = session;
+        // Pi 的 RPC 长驻进程和 delegate CLI 不能同时持有同一会话文件。切入委派前先从
+        // get_state 校准最新 sessionFile，再关闭温 RPC；delegate 主进程随后用该文件原生
+        // --session 续接。切回普通 Pi 对话时 ensurePiSession 会再次从同一文件恢复。
+        if (session.agent === "pi" && usesCliDelegate) {
+          const calibratedFile = await calibratePiSessionFile(bridge, session.id);
+          if (calibratedFile && calibratedFile !== session.piSessionFile) {
+            usePersonalStore.getState().updateSession(session.id, { piSessionFile: calibratedFile });
+            sendSession = { ...session, piSessionFile: calibratedFile };
+          }
+          await closePiSession(bridge, session.id);
+        }
+        let resumeSessionId = resumeKey
+          ? sendSession.artifactSessionIds?.[resumeKey]
+          : sessionResumeId(sendSession) ??
+            (sendSession.agent === "pi" ? sendSession.piSessionFile : undefined);
         if (resumeSessionId && bridge.agentSessionExists) {
-          const exists = await bridge.agentSessionExists({ agent: session.agent, agentSessionId: resumeSessionId });
+          const exists = await bridge.agentSessionExists({ agent: sendSession.agent, agentSessionId: resumeSessionId });
           if (!exists) {
             const patch = resumeKey
-              ? clearArtifactSessionPatch(session, resumeKey)
-              : clearAgentSessionPatch(session, session.agent);
+              ? clearArtifactSessionPatch(sendSession, resumeKey)
+              : clearAgentSessionPatch(sendSession, sendSession.agent);
             usePersonalStore.getState().updateSession(session.id, patch);
-            sendSession = { ...session, ...patch };
+            sendSession = { ...sendSession, ...patch };
             resumeSessionId = undefined;
           }
         }
@@ -3178,50 +3282,9 @@ export function usePersonalActions(): PersonalActions {
         // 派生 agent(U7):spawn 用 derivedAgentId(后端 getAgentDef 按 id 解析),失效则回退 base(见
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
-        // 子 agent 编排（U1）：会话开关开启、bridge 支持、且本轮无 @mention 委派时，走主进程三段编排
-        // （意图理解→子 agent 执行→二次加工，见 orchestrate.ts）。claude/codex/pi 通用——pi 经
-        // buildPiOpenForSession 提供 piOpen（含 --skill/审批等）。delegate @mention 优先级更高,落 else 单发。
-        // 编排无状态、各段 fresh spawn，故不传 resumeSessionId；看门狗/stop 据 run.orchestrated 改走 killOrchestration。
-        // 已知限制：本版编排不透传图片（images 仅单发支持）。
-        // 路由判断收敛到 isOrchestrationSend(code review 修复):PersonalChatArea.tsx 的 skill 派发
-        // 也据此函数判断走原生调用还是 prose 回退,单一来源避免两处条件手工同步、静默漂移。
-        // bridge.startOrchestration 的 truthy 已经过 isOrchestrationSend 的 hasStartOrchestration 参数
-        // 校验,但 TS 无法跨函数边界做该窄化,故此处补一次直接判空(不改变判断逻辑,只为类型收窄)。
-        if (
-          isOrchestrationSend(orchestrationEnabled, !!bridge.startOrchestration, hasDelegateMentions) &&
-          bridge.startOrchestration
-        ) {
-          run.orchestrated = true;
-          const isPiOrchestration = sendSession.agent === "pi";
-          const piOpen = isPiOrchestration ? await buildPiOpenForSession(bridge, sendSession, projectPath) : undefined;
-          // 跨 agent skill 注入(U2):claude/codex 用 prose 注入;Pi 用 --skill 路径注入(piOpen.skillPaths),
-          // 不双注入(R3)。
-          const skillBlock = isPiOrchestration
-            ? undefined
-            : renderSkillBlock(
-                await resolveEnabledSkillRecords(bridge, projectPath, sendSession.useOwnSkills, sendSession.agent),
-              );
-          const appendWithSkills =
-            [appendSystemPrompt, skillBlock].filter(Boolean).join("\n\n") || undefined;
-          await bridge.startOrchestration({
-            orchestrationRunId: runId,
-            sessionId: sendSession.id,
-            agent: isPiOrchestration ? "pi" : spawnAgent,
-            cwd: artifact?.workspaceRoot ?? projectPath,
-            // 编排各段 fresh spawn 无历史,附件块随 prompt 文本直达(cliText)。
-            prompt: cliText,
-            model: sendSession.model,
-            effort: sendSession.effort,
-            // 仅段2透传：让子 agent 真实执行尊重会话执行/目录权限，并带 skills/附件/项目上下文。
-            permissionMode: adapterPerm.permissionMode,
-            approvalPolicy: adapterPerm.approvalPolicy,
-            appendSystemPrompt: appendWithSkills,
-            piOpen,
-          });
-        } else {
-          // 跨 agent skill 注入:普通 Pi 对话已在上面 sendPiTurn return；会话产物 Pi 为隔离 cwd /
-          // resume 槽而走本 fresh startCli 分支。派发(U5):claude 走原生目录发现，codex 走 prose +
-          // invokedSkill，Pi 走 skillPaths；三路互斥，避免重复注入。
+        {
+          // 主会话统一走 startCli：普通发送不带 delegateRoles；自动编排注入同底层 agent 的
+          // ask_subagent；显式 @mention 注入指定角色。主 agent 的 resumeSessionId 始终保留。
           const enabledSkillRecords = await resolveEnabledSkillRecords(
             bridge,
             projectPath,
@@ -3237,10 +3300,12 @@ export function usePersonalActions(): PersonalActions {
               ...(artifact && invokedSkill ? { artifactSkill: invokedSkill } : {}),
             },
           );
-          // 委派（delegate，@mention 触发）：主 agent 单发 startCli + 注入 cortex-delegate 工具集，
-          // 经 ask_<id> 自主委派给被 @ 的协作者。子 agent 事件带 roleId（渲染端 roleHeader 分隔），
-          // 取消/超时走标准 killCli（主 agent 在 running map；onExit→abort 收口在途子 agent）。
-          if (hasDelegateMentions) {
+          const delegateRoles = hasDelegateMentions
+            ? earlyMentions.map((mention) => mention.role)
+            : autoDelegateOrchestration
+              ? [buildAutoSubagentRole(spawnAgent)]
+              : undefined;
+          if (delegateRoles?.length) {
             run.delegate = true;
             run.roleCursors = new Map();
           }
@@ -3258,12 +3323,10 @@ export function usePersonalActions(): PersonalActions {
               ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
               : undefined;
           }
-          // 委派引导（system prompt）：告知主 agent 本轮可委派的协作者 + task 必须自包含
-          //（子 agent 是独立进程，看不到主 agent 当前对话上下文，凡未写进 task 的信息都拿不到）。
-          const delegateGuide = hasDelegateMentions
-            ? `本轮你可以把子任务委派给以下协作者（调用对应的 ask_ 工具），它们各自独立执行并把结果返回给你供你整合：` +
-              earlyMentions.map((m) => `「${m.role.label}」`).join("、") +
-              `。重要：协作者是独立进程，看不到你当前对话的任何上下文——委派时必须在 task 参数里写清完整任务，并附上它所需的全部数据/材料。`
+          const delegateGuide = delegateRoles?.length
+            ? buildDelegateOrchestrationGuide(delegateRoles, {
+                requireDelegation: autoDelegateOrchestration,
+              })
             : undefined;
           const appendWithDelegate =
             [appendWithSkills, delegateGuide].filter(Boolean).join("\n\n") || undefined;
@@ -3277,8 +3340,8 @@ export function usePersonalActions(): PersonalActions {
             ...(artifact ? { artifactContext: artifact } : {}),
             model: resolvedModel,
             effort: sendSession.effort,
-            // 委派 fresh spawn，不续接（per-turn 独立编排）；普通对话照常 resume。
-            resumeSessionId: hasDelegateMentions ? undefined : resumeSessionId,
+            // 这是主会话的原生 session；子 agent 的 fresh session 只存在于 delegate handler 内。
+            resumeSessionId,
             appendSystemPrompt: appendWithDelegate,
             useOwnSkills: sendSession.useOwnSkills,
             skillPaths,
@@ -3293,9 +3356,7 @@ export function usePersonalActions(): PersonalActions {
             // 逐轮 fresh spawn,改值下一轮即生效,无需重开。
             permissionMode: adapterPerm.permissionMode,
             approvalPolicy: adapterPerm.approvalPolicy,
-            // 委派：本轮被 @ 的协作者 → cli.ts 据此 per-turn 注册 ask_<id> 工具集（claude/codex 经
-            // builtinServers；pi 阶段2 另生成桥接）。无 @mention 时 undefined，正常单发。
-            delegateRoles: hasDelegateMentions ? earlyMentions.map((m) => m.role) : undefined,
+            delegateRoles,
             // 会话级联网:主进程据此决定是否注入研究引擎 MCP（web_search / web_read）。
             // 逐轮 fresh spawn,改开关下一轮即生效,无需重开。
             webSearch: sendSession.webSearch === true,
@@ -3420,9 +3481,15 @@ export function usePersonalActions(): PersonalActions {
       if (!bridge || !runId) return;
       const session = store.sessions.find((x) => x.id === sessionId);
       const r = runs.get(runId);
-      if (r?.orchestrated) {
+      if (r?.roundtable) {
+        await bridge.killRoundtable?.(runId);
+      } else if (r?.orchestrated) {
         cancelPendingPiUiForSession(bridge, sessionId);
         await bridge.killOrchestration?.(runId);
+      } else if (r?.delegate) {
+        // delegate 的主 agent 在 cli.ts running map；killCli 会同时 abort 在途子 agent。
+        // 即使底层 agent 是 Pi，也不是长驻 RPC 轮次，不能误发 pi:abort。
+        await bridge.killCli(runId);
       } else if (session?.agent === "pi") {
         // 待答的 askquestion/confirm 卡:abort **不会** reject pi 端 ctx.ui 的 await（rpc-mode 仅在传 signal
         // 时挂 abort 监听）,故停止前必须对该会话每张待答卡显式回 {cancelled} 解锁 pi 的 execute 并出队,
@@ -3436,11 +3503,7 @@ export function usePersonalActions(): PersonalActions {
           /* 会话未就绪/已退出,忽略,靠下面兜底 */
         }
       } else {
-        // 编排/圆桌轮走各自 kill 通道（独立注册表）；普通单发走 killCli。
-        const r = runs.get(runId);
-        if (r?.roundtable) await bridge.killRoundtable?.(runId);
-        else if (r?.orchestrated) await bridge.killOrchestration?.(runId);
-        else await bridge.killCli(runId);
+        await bridge.killCli(runId);
       }
       // 兜底:若 4 秒内没收到收尾事件（进程早已不在/事件丢失）,强制复位 UI。
       // 仅当本次捕获的 runId 仍是当前轮才清,且只删该 runId（不扫该会话全部 run,避免误掐

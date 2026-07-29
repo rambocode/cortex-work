@@ -551,8 +551,8 @@ function migrateSession(sess: SessionMeta): SessionMeta {
     const { dirPermission: _dropped, ...rest } = withDir;
     s = rest;
   }
-  // ④ 剥离已升为全局设置的会话级 subagentOrchestration（现读 GeneralSettings,默认开启;
-  //    旧会话字段不迁移值——按用户决策全局默认开,旧的会话级关闭不保留）。
+  // ④ 剥离已升为全局设置的会话级 subagentOrchestration（现读 GeneralSettings,默认关闭;
+  //    旧会话字段不迁移值，全局编排只有用户在设置中显式开启才生效）。
   const withOrch = s as SessionMeta & { subagentOrchestration?: boolean };
   if (withOrch.subagentOrchestration !== undefined) {
     const { subagentOrchestration: _dropped2, ...rest } = withOrch;
@@ -974,10 +974,17 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   removeSession: (id) =>
-    set((s) => ({
-      sessions: s.sessions.filter((x) => x.id !== id),
-      activeSessionId: s.activeSessionId === id ? undefined : s.activeSessionId,
-    })),
+    set((s) => {
+      const removingActiveSession = s.activeSessionId === id;
+      const removedSession = removingActiveSession ? s.sessions.find((x) => x.id === id) : undefined;
+      return {
+        sessions: s.sessions.filter((x) => x.id !== id),
+        activeSessionId: removingActiveSession ? undefined : s.activeSessionId,
+        // 侧栏上下文优先取活动会话所属项目；删除它前先固化该项目，
+        // 无项目会话的 projectId=undefined 也是有效上下文，不能回退到旧项目。
+        activeProjectId: removingActiveSession && removedSession ? removedSession.projectId : s.activeProjectId,
+      };
+    }),
 
   addTodo: (projectId, title, detailPath) => {
     const now = Date.now();

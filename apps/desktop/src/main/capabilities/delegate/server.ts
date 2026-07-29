@@ -22,6 +22,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
 import type { McpServerConfig, RoleConfig, CliStreamEvent } from "../../ipc/types";
+import { recordAgentTrace } from "../../ipc/agent-trace";
 
 // 工具名安全化（与 pi-providers.safeId 同源逻辑，内联以解除 electron 依赖、便于单测）：
 // ask_<id> 须为合法 MCP 工具名（仅字母数字 - _）。
@@ -152,6 +153,22 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
         state.bumpWatchdog();
       };
       const result = await state.runSubAgent(role, taskText, onEvent);
+      recordAgentTrace({
+        scope: "delegate",
+        phase: "context-return",
+        summary: `子 Agent「${role.label}」结果回传主会话`,
+        runId: state.runId,
+        sessionId: state.sessionId,
+        agent: role.agent,
+        data: {
+          roleId: role.id,
+          taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
+          resultPreview:
+            result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
+          ok: result.ok,
+          returnedToMain: true,
+        },
+      });
       if (!result.ok) {
         return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
       }

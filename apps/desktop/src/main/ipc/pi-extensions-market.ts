@@ -4,7 +4,8 @@
 // pi-ext:remove → spawn `pi remove <ref>`。
 // 安全/一致性:env 复用 spawnEnvFor({agent:"pi"})——与长驻 RPC 会话同 HOME,故 install 与运行看到同一
 // ~/.pi/agent/settings.json（C7）。装≠启用:本模块只管下载/列举/卸载,启用集/信任在 core store。
-// 实测(pi 0.79.2):pi install 不跑生命周期脚本、本地源不解析依赖;pi list 仅给路径、无 version/origin
+// 实测(pi 0.79.2,0.82.1 未重测这几条 CLI 行为):pi install 不跑生命周期脚本、本地源不解析依赖;
+// pi list 仅给路径、无 version/origin
 // （故溯源在 core 安装时持久化）。串行化回避并发写 settings.json 竞争。
 
 import { ipcMain } from "electron";

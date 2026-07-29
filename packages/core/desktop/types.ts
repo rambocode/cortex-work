@@ -5,6 +5,11 @@ import type { PetKind, PetMode, PetState } from "../store/pet";
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+export interface TurnTokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 export type ConversationArtifactKind = "design" | "slides";
 
 /**
@@ -667,8 +672,8 @@ export interface GeneralSettings {
   // import 语句——本文件已远超 1200 行硬上限，只能减不能加。主进程读 enabled/deepResearchEnabled/
   // searchServer 决定是否拉起 Research Worker，**进** main 镜像（main/ipc/types-research.ts）。
   researchEngine?: import("../research/settings").ResearchEngineSettings;
-  // 子 agent 编排(全局,原会话级开关升级而来):开启后发送走主进程三段编排（意图理解→子 agent 执行→
-  // 二次加工,见 orchestrate.ts）。缺省 = 开启,仅显式 false 关闭(与 memoryEnabled 同款语义)。
+  // 子 agent 编排(全局,原会话级开关升级而来):开启后主会话可经 ask_subagent 委派独立子 agent，
+  // 子结果回传主会话总结。缺省 = 关闭，只有显式 true 才启用。
   // 仅 renderer 发送边界读,不进 main GeneralSettings 镜像。
   subagentOrchestration?: boolean;
   // 公司知识库（远端 MCP server）。主进程读它构建注入配置,**进** main 镜像。
@@ -776,7 +781,8 @@ export const DEFAULT_PI_SKILLS: PiSkillSettings = {
 // ── pi 扩展市场（U2）─────────────────────────────────────────────────────────
 // 用 pi 原生 `pi install` 作扩展（npm/git 包）的安装运行时。与 Skill 的「默认启用 + 禁用列表」
 // 相反:扩展是「装≠启用」——默认禁用,经 enabled allowlist 显式启用;trusted allowlist 记过信任门。
-// 安全模型(实测 pi 0.79.2):`--no-extensions` 抑制已装包自动发现,故仅显式 -e 注入的才加载;
+// 安全模型(实测 pi 0.79.2,0.82.1 未重测;相关 CLI flag 经 diff 确认仍在):`--no-extensions` 抑制
+// 已装包自动发现,故仅显式 -e 注入的才加载;
 // `-a` 整批信任,UI 信任门是唯一逐扩展强制点。v1 仅用户级(global);scope/ref 复合键为后续项目级
 // (默认不授信)留路。唯一键 ref = 源类型+标识(npm:@foo/bar 与 git:... 视为两项)。
 // 溯源(version/origin/installedAt)是安装时数据——`pi list` 仅给路径、不含这些,故安装时持久化于此。
@@ -859,8 +865,18 @@ export const DEFAULT_PI_APPROVAL_TOOLS = ["bash", "write", "edit"];
 export const PI_APPROVAL_TOOL_OPTIONS = ["bash", "write", "edit", "read", "grep", "find", "ls"];
 
 // pi 思考强度（阶段5）。与 pi-agent-core 的 ThinkingLevel 对齐（升级 pi 时复核 args.js 校验值）。
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-export const PI_THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+// 已复核至 pi 0.82.1（dist/cli/args.js 的 --thinking 接受 off..max）。注意 xhigh / max 只有部分
+// 模型族支持,pi 侧对不支持的模型会自行降级,故此处给全集、不按模型过滤。
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const PI_THINKING_LEVELS: ThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
 // 档位中文展示名。
 // @deprecated 展示文案改走 i18n（settings:thinkingLevel.* / 各消费方就近 t(...)）。此常量已无组件消费，仅保留导出兼容。
 export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
@@ -870,6 +886,7 @@ export const PI_THINKING_LABELS: Record<ThinkingLevel, string> = {
   medium: "中",
   high: "高",
   xhigh: "极高",
+  max: "最高",
 };
 
 // 本地 URL 默认打开目标:内置 webview 面板 / 系统默认浏览器（仅作用于本地 / loopback URL）。
@@ -908,6 +925,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   log: { enabled: true, retentionDays: 2 },
   agentBrowser: { enabled: true },
   piSkills: DEFAULT_PI_SKILLS,
+  subagentOrchestration: false,
 };
 
 // 媒体生成/ASR 类型定义集中在 ./media-gen-types 以免本已超 1200 行的类型文件继续膨胀。
@@ -1393,9 +1411,12 @@ export type PiSessionEvent =
   // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
   // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
   | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
-  | { type: "turn-end" } // 一轮（含工具）结束
+  | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
-  | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）
+  | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）
+  // agent 完全静默（pi 0.82.1 agent_settled）。正常轮次晚于 result 到达、纯冗余;
+  // pi 漏发 agent_end 时作为终态兜底,渲染侧幂等收尾（见 personal/messages.ts）。
+  | { type: "settled" }
   | { type: "compaction"; phase: "start" | "end"; reason?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; error?: string }
   | { type: "queue"; steering: number; followUp: number }
@@ -1561,7 +1582,7 @@ export type TraceSegmentType = "text" | "reasoning";
 export interface AgentTraceEvent {
   id: string;
   ts: number;
-  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc";
+  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc" | "roundtable" | "delegate";
   phase: string;
   summary: string;
   runId?: string;

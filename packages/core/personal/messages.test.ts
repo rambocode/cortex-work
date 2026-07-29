@@ -1052,6 +1052,54 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     vi.useRealTimers();
   });
 
+  // settled（pi 0.82.1 agent_settled）三种到达顺序都必须幂等——重复收尾会多出空卡片 / usage 双计。
+  it("settled 在 result 之后到达 → no-op（run 已删,不重复收尾）", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const afterResult = cacheOf(qc);
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    // 消息流不因迟到的 settled 增删任何条目。
+    expect(cacheOf(qc)).toEqual(afterResult);
+    vi.useRealTimers();
+  });
+
+  it("settled 单独到达（pi 漏发 agent_end）→ 补收尾,清 running", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("settled 先到、result 随后 → 只收尾一次,running 不复活", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    const afterSettled = cacheOf(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    expect(cacheOf(qc)).toEqual(afterSettled);
+    vi.useRealTimers();
+  });
+
+  it("settled 不误伤 result(willRetry:true) 保留的 run", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+    // 重试链进行中 pi 不会发 settled;真发了也不该收尾——gotResult 已被 willRetry 分支复位为 false,
+    // 故此处显式钉住「settled 不抢收尾」的边界（见 handlePiEvent 的 settled 分支注释）。
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+  });
+
   it("result(willRetry:true) 不收尾,running 保持", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
@@ -1214,7 +1262,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     vi.useRealTimers();
   });
 
-  it("error→willRetry:true→text→result:重试文本进新块,不续在错误后", () => {
+  it("error→willRetry:true→text→result:清掉瞬态错误,重试文本进新块", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "首答" });
@@ -1225,6 +1273,14 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     // 首答与重试答案各自成块（游标已在 willRetry 复位,不并入同一块）。
     expect(texts.some((m) => m.kind === "text" && m.text === "重试答案")).toBe(true);
+    expect(
+      texts.some(
+        (m) =>
+          m.kind === "text" &&
+          typeof m.text === "string" &&
+          m.text.includes("执行出错"),
+      ),
+    ).toBe(false);
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
   });
 
@@ -2489,6 +2545,62 @@ describe("运行事件流(personalRunEventsKeys)采集与 tool phase:end 守卫"
     expect(recs[1]!.ev).toMatchObject({ type: "thinking", delta: "先想再想" });
     expect(recs[3]!.ev).toMatchObject({ type: "text", delta: "回复" });
     expect(recs.every((r) => r.runId === "run-c1")).toBe(true);
+  });
+
+  it("CLI 回合结束时聚合多条 usage 并追加一条可持久化 turnUsage", () => {
+    const qc = new QueryClient();
+    setupCliRun(qc);
+    __handleCliEventForTest(qc, "run-c1", { type: "text", delta: "完成" }, "s1");
+    __handleCliEventForTest(qc, "run-c1", { type: "usage", inputTokens: 10, outputTokens: 2 }, "s1");
+    __handleCliEventForTest(
+      qc,
+      "run-c1",
+      { type: "usage", inputTokens: 4, outputTokens: 3, roleId: "reviewer" },
+      "s1",
+    );
+    __handleCliEventForTest(qc, "run-c1", { type: "result", ok: true }, "s1");
+    __handleCliExitForTest(qc, "run-c1", 0, undefined, "s1");
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(messages.filter((m) => m.kind === "turnUsage")).toEqual([
+      expect.objectContaining({
+        kind: "turnUsage",
+        runId: "run-c1",
+        inputTokens: 14,
+        outputTokens: 5,
+      }),
+    ]);
+    expect(sanitizeForSave(messages).some((m) => m.kind === "turnUsage")).toBe(true);
+  });
+
+  it("Pi 同一用户回合累加中间 turn-end 与最终 result 的 usage", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    beginPiRun(qc, { runId: "prun-1", sessionId: "s1", typingUid: "typ-1", cwd: "/p", promptText: "hi" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "turn-end",
+      usage: { inputTokens: 20, outputTokens: 4 },
+    });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "result",
+      willRetry: false,
+      usage: { inputTokens: 8, outputTokens: 2 },
+    });
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    expect(messages.filter((m) => m.kind === "turnUsage")).toEqual([
+      expect.objectContaining({
+        kind: "turnUsage",
+        runId: "prun-1",
+        inputTokens: 28,
+        outputTokens: 6,
+      }),
+    ]);
   });
 
   it("运行事件流环形上限 1000:超限丢最旧", () => {

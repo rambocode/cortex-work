@@ -7,6 +7,11 @@ export type { ResearchEngineMainSettings, ResearchSearchServerSettings } from ".
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+export interface TurnTokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 export type ConversationArtifactKind = "design" | "slides";
 
 export interface ConversationArtifactRef {
@@ -766,7 +771,7 @@ export interface CliExitEvent {
 export interface AgentTraceEvent {
   id: string;
   ts: number;
-  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc";
+  scope: "cli" | "oneshot" | "ask" | "pi" | "pi-rpc" | "roundtable" | "delegate";
   phase: string;
   summary: string;
   runId?: string;
@@ -842,9 +847,12 @@ export type PiSessionEvent =
   // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
   // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
   | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
-  | { type: "turn-end" } // 一轮（含工具）结束
+  | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
-  | { type: "result"; willRetry: boolean } // 一次 run 结束（agent_end）
+  | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）
+  // agent 完全静默（pi 0.82.1 agent_settled）。晚于 result 到达,正常轮次是冗余信号;
+  // pi 漏发 agent_end 时作为终态兜底,由渲染侧幂等收尾。
+  | { type: "settled" }
   | { type: "compaction"; phase: "start" | "end"; reason?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; error?: string }
   | { type: "queue"; steering: number; followUp: number }
@@ -855,7 +863,8 @@ export type PiSessionEvent =
   | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
 
 // pi extension 经 ctx.ui.* 发起的「需用户输入」请求（pi → host，独立于单向 PiSessionEvent 流）。
-// 镜像 pi 0.79.2 rpc-types.d.ts 的 RpcExtensionUIRequest（已 spike 实测 confirm envelope）。
+// 镜像 pi rpc-types.d.ts 的 RpcExtensionUIRequest（0.79.2 spike 实测 confirm envelope 建立,
+// 已 diff 复核至 0.82.1:9 个 method 及其字段逐条一致,无漂移）。
 // 9 个 method 中需回写的仅 confirm/select/input/editor;其余 5 个 fire-and-forget。`id` 是 pi 侧
 // crypto.randomUUID()，回写必须原样带回（见 PiUiResponsePayload）。
 export type PiUiRequest =

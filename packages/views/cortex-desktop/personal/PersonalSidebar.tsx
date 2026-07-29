@@ -323,7 +323,11 @@ export function PersonalSidebar({
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const contextProjectId = activeSession ? activeSession.projectId : activeProjectId;
   const contextProject = projects.find((project) => project.id === contextProjectId);
-  const contextIsNoProject = Boolean(activeSession && !activeSession.projectId);
+  // 删除当前无项目会话后 activeSession 会清空；只要仍有无项目会话且没有选中项目，
+  // 就继续展示无项目列表，而不是退回「选择一个项目开始」。
+  const contextIsNoProject = activeSession
+    ? !activeSession.projectId
+    : !activeProjectId && noProjectSessions.length > 0;
   const contextSessions = sessions
     .filter((session) => {
       if (session.archivedAt != null) return false;
