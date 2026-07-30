@@ -3,6 +3,17 @@
 // core/views 永不直接触碰 window.desktopAPI 或 node API（见 docs/floder.md）。
 
 import type {
+  CustomProviderDefinition,
+  CustomProviderValidation,
+  GatewayCompleteRequest,
+  GatewayCompleteResult,
+  GatewayStreamEvent,
+  ProviderAuthEvent,
+  ProviderAuthSnapshot,
+  ProviderCatalogResult,
+  ProviderConnectionTestResult,
+} from "./provider-catalog";
+import type {
   AgentKind,
   ConversationArtifactCreateRequest,
   ConversationArtifactRef,
@@ -374,6 +385,30 @@ export interface DesktopBridge {
   // 供应商连接测试：主进程按 endpointFormat 选鉴权头探测 {baseUrl}/models,返回可用模型。
   // 可选（web 端为 null;custom 协议返回不支持探测）。
   probeProvider?(input: ProviderProbeInput): Promise<ProviderProbeResult>;
+  // ── Provider Catalog / 认证 / Model Gateway ────────────────────────────────
+  // 类型见 ./provider-catalog.ts（主进程侧镜像 apps/desktop/src/main/providers/contract.ts）。
+  // 三条红线：① 模型能力来自 Pi 内置目录、对用户只读；② 明文/密文凭据永不过桥，renderer
+  // 只拿 configured/type/source/error；③ 文本补全一律走 modelGateway*，业务模块不得自拼 URL。
+  // 全部可选（Web 端为 null；旧壳无方法时调用方须走降级分支）。
+  providerCatalogGet?(): Promise<ProviderCatalogResult>;
+  providerAuthStatus?(): Promise<ProviderAuthSnapshot>;
+  providerAuthLogin?(providerId: string): Promise<{ ok: boolean; error?: string }>;
+  providerAuthRespond?(requestId: string, value: string): Promise<{ ok: boolean; error?: string }>;
+  providerAuthCancel?(providerId: string): Promise<{ ok: boolean; error?: string }>;
+  providerAuthLogout?(providerId: string): Promise<{ ok: boolean; error?: string }>;
+  providerAuthSetApiKey?(providerId: string, apiKey: string): Promise<{ ok: boolean; error?: string }>;
+  providerAuthSetSecrets?(secrets: Record<string, string>): Promise<{ ok: boolean; error?: string }>;
+  providerAuthSetHidden?(providerIds: string[]): Promise<{ ok: boolean; error?: string }>;
+  onProviderAuthEvent?(cb: (event: ProviderAuthEvent) => void): () => void;
+  providerConnectionTest?(providerId: string, modelId?: string): Promise<ProviderConnectionTestResult>;
+  providerCustomList?(): Promise<CustomProviderDefinition[]>;
+  providerCustomSave?(def: CustomProviderDefinition): Promise<{ ok: boolean; error?: string }>;
+  providerCustomDelete?(id: string): Promise<{ ok: boolean; error?: string }>;
+  providerCustomValidate?(json: string): Promise<CustomProviderValidation>;
+  modelGatewayComplete?(req: GatewayCompleteRequest): Promise<GatewayCompleteResult>;
+  modelGatewayStream?(req: GatewayCompleteRequest): Promise<{ ok: boolean; error?: string }>;
+  modelGatewayAbort?(requestId: string): Promise<{ ok: boolean; error?: string }>;
+  onModelGatewayEvent?(cb: (requestId: string, event: GatewayStreamEvent) => void): () => void;
   // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
   //（登录项是系统设置,须即时设置）。可选（web 端为 null）。
   setDesktopBehavior?(behavior: DesktopBehavior): Promise<void>;

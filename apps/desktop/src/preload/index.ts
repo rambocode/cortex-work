@@ -1,4 +1,18 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+// Provider Catalog / 认证 / Gateway 的跨进程契约（通道名常量 + 类型）。通道名一律走
+// PROVIDER_IPC，不再手写字符串——两侧写歪会表现为「invoke 永远挂起且无报错」。
+import { PROVIDER_IPC } from "../main/providers/contract";
+import type {
+  CustomProviderDefinition,
+  CustomProviderValidation,
+  GatewayCompleteRequest,
+  GatewayCompleteResult,
+  GatewayStreamEvent,
+  ProviderAuthEvent,
+  ProviderAuthSnapshot,
+  ProviderCatalogResult,
+  ProviderConnectionTestResult,
+} from "../main/providers/contract";
 import type {
   AgentKind,
   ConversationArtifactCreateRequest,
@@ -395,6 +409,56 @@ const personal = {
     endpointFormat: "chat_completions" | "responses" | "messages" | "custom";
   }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
     ipcRenderer.invoke("provider:probe", input),
+
+  // ── Provider Catalog / 认证 / Model Gateway（跨进程契约见 main/providers/contract.ts）──
+  // Catalog 只读、不含秘密；认证只回 configured/type/source/error，明文与密文永不过桥；
+  // Gateway 是全仓文本补全的唯一出口（业务模块不得再自行拼 Provider URL）。
+  providerCatalogGet: (): Promise<ProviderCatalogResult> => ipcRenderer.invoke(PROVIDER_IPC.catalogGet),
+  providerAuthStatus: (): Promise<ProviderAuthSnapshot> => ipcRenderer.invoke(PROVIDER_IPC.authStatus),
+  providerAuthLogin: (providerId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authLogin, providerId),
+  // requestId 对回具体那一问（OAuth 可能连续多问：登录方式 → 回调码）。
+  providerAuthRespond: (requestId: string, value: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authRespond, requestId, value),
+  providerAuthCancel: (providerId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authCancel, providerId),
+  providerAuthLogout: (providerId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authLogout, providerId),
+  // 明文 key 只在这一次调用里过桥进主进程加密落盘，之后 renderer 再也读不回来。
+  providerAuthSetApiKey: (providerId: string, apiKey: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authSetApiKey, providerId, apiKey),
+  providerAuthSetSecrets: (secrets: Record<string, string>): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authSetSecrets, secrets),
+  // 用户级「隐藏 Provider」偏好，与认证解耦：防止 shell 里的 ambient key 让选择器涌入几十个 Provider。
+  providerAuthSetHidden: (providerIds: string[]): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.authSetHidden, providerIds),
+  onProviderAuthEvent: (cb: (event: ProviderAuthEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: ProviderAuthEvent) => cb(event);
+    ipcRenderer.on(PROVIDER_IPC.authEvent, listener);
+    return () => ipcRenderer.removeListener(PROVIDER_IPC.authEvent, listener);
+  },
+  // 显式连接测试：真发一次最小请求，可能产生少量费用 —— UI 调用前必须提示。
+  providerConnectionTest: (providerId: string, modelId?: string): Promise<ProviderConnectionTestResult> =>
+    ipcRenderer.invoke(PROVIDER_IPC.connectionTest, providerId, modelId),
+  providerCustomList: (): Promise<CustomProviderDefinition[]> => ipcRenderer.invoke(PROVIDER_IPC.customList),
+  providerCustomSave: (def: CustomProviderDefinition): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.customSave, def),
+  providerCustomDelete: (id: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.customDelete, id),
+  providerCustomValidate: (json: string): Promise<CustomProviderValidation> =>
+    ipcRenderer.invoke(PROVIDER_IPC.customValidate, json),
+  modelGatewayComplete: (req: GatewayCompleteRequest): Promise<GatewayCompleteResult> =>
+    ipcRenderer.invoke(PROVIDER_IPC.gatewayComplete, req),
+  // 流式：invoke 只负责发起，事件经 onModelGatewayEvent 按 requestId 分发。
+  modelGatewayStream: (req: GatewayCompleteRequest): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.gatewayStream, req),
+  modelGatewayAbort: (requestId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(PROVIDER_IPC.gatewayAbort, requestId),
+  onModelGatewayEvent: (cb: (requestId: string, event: GatewayStreamEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, requestId: string, event: GatewayStreamEvent) => cb(requestId, event);
+    ipcRenderer.on(PROVIDER_IPC.gatewayEvent, listener);
+    return () => ipcRenderer.removeListener(PROVIDER_IPC.gatewayEvent, listener);
+  },
   setDesktopBehavior: (behavior: {
     openAtLogin: boolean;
     startMinimized: boolean;

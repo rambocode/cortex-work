@@ -25,6 +25,7 @@
     "./desktop/types": "./desktop/types.ts",
     "./desktop/tasks-types": "./desktop/tasks-types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
+    "./desktop/provider-catalog": "./desktop/provider-catalog.ts",
     "./desktop/research-bridge": "./desktop/research-bridge.ts",
     "./desktop/writing-retrieval-types": "./desktop/writing-retrieval-types.ts",
     "./desktop/slides-ipc-types": "./desktop/slides-ipc-types.ts",

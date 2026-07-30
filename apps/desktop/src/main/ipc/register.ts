@@ -17,6 +17,9 @@ import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
 import { registerProviderHandlers } from "./provider";
+import { registerProviderCatalogHandlers } from "./provider-catalog";
+import { registerProviderAuthHandlers } from "./provider-auth";
+import { registerModelGatewayHandlers } from "./model-gateway";
 import { registerPtyHandlers } from "./pty";
 import { registerAgentProjectsHandlers } from "./agent-projects";
 import { registerWatchHandlers } from "./watch";
@@ -80,6 +83,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerPushHandlers();
   registerLlmHandlers();
   registerProviderHandlers();
+  // Provider 三件套（Catalog 只读目录 / 凭据与 OAuth / 文本补全 Gateway）。顺序有意义：
+  // Catalog 是另两者的事实来源（认证按 Catalog 列 Provider，Gateway 按 Catalog 解析模型能力）。
+  registerProviderCatalogHandlers();
+  registerProviderAuthHandlers();
+  registerModelGatewayHandlers();
   registerPtyHandlers();
   registerAgentProjectsHandlers();
   registerUpdateHandlers(options.update);
