@@ -27,6 +27,7 @@ import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
+import { resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
@@ -236,6 +237,21 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
   }
 
+  // Computer Use（pi-computer-use package,操作真实桌面 GUI）。
+  // 独立 try 而非并进上面那块:它不是 MCP 桥接,混进去会让失败日志张冠李戴。
+  // 只在这条 RPC 路径注入——单发路径无审批 UI,详见 capabilities/computer-use/inject.ts 的说明。
+  try {
+    const gs = (await getPersistedState()).generalSettings;
+    const cu = await resolveComputerUse(gs?.computerUse);
+    if (cu.path) {
+      extra.push(cu.path);
+      // env 经 prepared 传到下面的 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）。
+      if (Object.keys(cu.env).length) prepared.computerUseEnv = cu.env;
+    }
+  } catch (e) {
+    log.warn(`Computer Use 注入决策失败,本轮不注入: ${String(e)}`);
+  }
+
   prepared.extraExtensionPaths = extra;
   prepared.extensionPaths = filterLoadableExtensionPaths(prepared.extensionPaths);
   return prepared;
@@ -266,7 +282,9 @@ export function registerPiSessionHandlers(): void {
     });
     const transport = spawnPiRpc(args, {
       cwd: prepared.cwd,
-      env: spawnEnvFor({ agent: "pi", provider: prepared.provider }),
+      // computerUseEnv 由 preparePiOpenRequest 填充（Computer Use 的 grounding 模型）;
+      // 后合并使其覆盖同名基础变量,缺省为空对象、不影响原行为。
+      env: { ...spawnEnvFor({ agent: "pi", provider: prepared.provider }), ...prepared.computerUseEnv },
     });
     const session = new PiRpcSession(
       transport,

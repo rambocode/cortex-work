@@ -2254,7 +2254,10 @@ async function buildPiOpenForSession(
   // 执行权限 → 线格式 → pi 能力派生:plan 收窄只读白名单;ask 注入审批 extension(写/执行类前审批);
   // auto 沿用 piCustom。切档/切审批经 extensionFingerprint 触发会话重开。
   const piPerm = toAdapterPermissions(session.execPermission);
-  const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom);
+  // Computer Use 开启时,gui_* 写工具强制进审批集且 auto 档也强制开审批（安全红线,见 permissionMode）。
+  // 缺省视为开启——与主进程 inject.ts 的门控取值口径一致。
+  const computerUseEnabled = usePersonalStore.getState().generalSettings.computerUse?.enabled !== false;
+  const piCaps = derivePiCapabilities(piPerm.permissionMode, piPerm.approvalPolicy, piCustom, computerUseEnabled);
   // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
   // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
   const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;

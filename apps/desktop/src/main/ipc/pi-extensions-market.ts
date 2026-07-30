@@ -25,7 +25,9 @@ const INSTALL_TIMEOUT_MS = 120_000;
 const SHORT_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 3_000;
 
-function defaultRunner(args: string[]): Promise<PiRunResult> {
+// 导出供 capabilities/computer-use/install.ts 复用（内置能力的预装也要跑 pi install/list,
+// 必须与市场路径同 HOME、同超时/强杀语义,复制一份必然漂移）。
+export function runPiCli(args: string[]): Promise<PiRunResult> {
   return new Promise((res) => {
     const child = spawn(resolvePiBinary(), args, { env: spawnEnvFor({ agent: "pi" }) });
     let stdout = "";
@@ -59,10 +61,10 @@ function defaultRunner(args: string[]): Promise<PiRunResult> {
   });
 }
 
-let runner: PiRunner = defaultRunner;
+let runner: PiRunner = runPiCli;
 /** 测试注入 fake runner;传 null 复位为真实 spawn。 */
 export function __setPiRunnerForTest(r: PiRunner | null): void {
-  runner = r ?? defaultRunner;
+  runner = r ?? runPiCli;
 }
 
 // pi list 输出形如:`User packages:\n  <显示路径>\n    <绝对路径>`。取缩进>=4 空格的绝对路径行。

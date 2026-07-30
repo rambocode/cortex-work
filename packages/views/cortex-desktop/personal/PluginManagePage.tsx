@@ -1,6 +1,7 @@
 // 管理页（三层 IA 第二层 · 管理）。四 sub-tab：插件 / MCP / 技能 / 市场。
 //   - 插件：已装插件标准列表 + 启停 + 进详情。
-//   - MCP：MCP 工具（McpCard）+ pi 原生扩展（ExtensionPanel）两个并列区（pi 扩展并入 MCP 同级，KTD6）。
+//   - MCP：MCP 工具（McpCard）+ 电脑操作（ComputerUseSection）+ pi 原生扩展（ExtensionPanel）三个并列区
+//     （pi 扩展并入 MCP 同级，KTD6；电脑操作同属「只在 pi 会话生效」的一类，故并列于此而非设置→Pi）。
 //   - 技能：SkillPanel（沿用）。
 //   - 市场：MarketplaceList（只读 + 错误卡；安装/升级占位禁用）。
 // 无「应用」sub-tab（本期不做，R16）。
@@ -12,6 +13,7 @@ import type { McpServerConfig, McpSettings } from "@cortex-work/core";
 import { McpCard } from "./McpSection";
 import { McpServerForm } from "./McpServerForm";
 import { ExtensionPanel } from "./ExtensionPanel";
+import { ComputerUseSection } from "./ComputerUseSection";
 import { SkillPanel } from "./SkillPanel";
 import { MarketplaceList } from "./MarketplaceList";
 import { PluginRow } from "./PluginRow";
@@ -137,6 +139,10 @@ export function PluginManagePage({
       {tab === "mcp" ? (
         <div className="pw-plg-manage-mcp">
           <McpCard onEdit={(index) => setMcpEditing({ index })} />
+          {/* 电脑操作（Computer Use）:由第三方 pi package 供能,与 pi 原生扩展同属「只在 pi 会话生效」
+              的一类,故与 ExtensionPanel 并列放在这里、而不是设置→Pi（避免同一个开关出现在两处）。
+              自带「独属 pi」标记与非 mac 隐藏,故不并入下面那条共用提示。 */}
+          <ComputerUseSection />
           <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
             <b>pi 原生扩展</b> 仅在 pi 会话中加载，对 <b>claude</b> / <b>codex</b> 无效。
           </div>

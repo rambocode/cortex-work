@@ -14,6 +14,7 @@
 //     auto(自动执行) → 沿用用户 piCustomization 审批设置(历史默认行为)。
 
 import {
+  COMPUTER_USE_WRITE_TOOLS,
   DEFAULT_PI_APPROVAL_TOOLS,
   PI_PLAN_TOOL_WHITELIST,
   DEFAULT_EXEC_PERMISSION,
@@ -57,12 +58,27 @@ export interface PiPermissionCapabilities {
 }
 
 // 【线格式 → pi 能力】把 permissionMode/approvalPolicy 翻译成 pi RPC 可兑现的能力。
+//
+// computerUseEnabled:Computer Use 总开关（GeneralSettings.computerUse.enabled,缺省视为 true）。
+// 为 true 时 gui_* 写工具**无条件**进审批集,且 auto 档也强制打开审批开关——见下方红线说明。
 export function derivePiCapabilities(
   mode: PermissionMode | undefined,
   approval: ApprovalPolicy | undefined,
   prefs?: PiApprovalPrefs,
+  computerUseEnabled = true,
 ): PiPermissionCapabilities {
+  // 【安全红线】gui_* 写工具（点击/输入/拖拽/热键/剪贴板写/批量）会真实操作用户的电脑,
+  // 一次误点可能发出消息、删除文件、确认付款。因此只要 Computer Use 没被关掉,这些工具就
+  // **必须**逐次经用户确认,不接受「用户没开审批开关」这个理由。
+  //
+  // 这里无条件把工具名加进审批集是安全的:renderApprovalExtension 只是把它编成一个 NEEDS
+  // 集合,包没装/没注入时这些名字永不命中。这么做的好处是 renderer 不必知道主进程那边
+  // 五门控（平台/开关/已装/swiftc/授权）的结论——把「要不要真给工具」和「给了要不要审批」
+  // 解耦,避免两侧判断漂移导致「注入了但不审批」这种最坏组合。
+  const guiNeeds = computerUseEnabled ? COMPUTER_USE_WRITE_TOOLS : [];
+
   // plan(只读) → 只读白名单,无写/执行工具可调,审批无意义关闭。
+  // gui_* 写工具不在 PI_PLAN_TOOL_WHITELIST 里,被 --tools 物理拦下,故此处无需审批兜底。
   if (mode === "plan") {
     return { toolWhitelist: [...PI_PLAN_TOOL_WHITELIST], enableToolApproval: false, approvalTools: undefined };
   }
@@ -70,11 +86,23 @@ export function derivePiCapabilities(
   if (approval === "ask") {
     const base = prefs?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
     // 安全底线:审批集至少覆盖 write/edit/bash(否则空集经 pi-extensions 会放行全部工具)。
-    const need = ["write", "edit", "bash"];
+    const need = ["write", "edit", "bash", ...guiNeeds];
     const approvalTools = [...new Set([...base, ...need])];
     return { toolWhitelist: undefined, enableToolApproval: true, approvalTools };
   }
   // auto(自动执行):不收窄工具,审批沿用用户设置(toolApproval 关→无审批 extension,= 历史默认)。
+  //
+  // ⚠️ 例外:Computer Use 开启时,即使用户没开「工具执行审批」,也强制打开审批并把 gui_* 写工具
+  // 塞进审批集。否则 auto 档下 gui_click / gui_type 会**无任何确认**直接操作用户电脑——
+  // 这是本功能唯一不可让步的行为。用户原有的审批集（若配了）一并保留,不覆盖其选择。
+  if (guiNeeds.length) {
+    const base = prefs?.toolApproval ? (prefs.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS) : [];
+    return {
+      toolWhitelist: undefined,
+      enableToolApproval: true,
+      approvalTools: [...new Set([...base, ...guiNeeds])],
+    };
+  }
   return {
     toolWhitelist: undefined,
     enableToolApproval: prefs?.toolApproval || undefined,

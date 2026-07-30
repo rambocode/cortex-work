@@ -80,7 +80,9 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 
 ### Agent CLI 适配器
 
-`apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。每个 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`）。`ipc/cli.ts` 的 spawn / 流式管线对所有 agent 通用。`pi` 经 `@earendil-works/pi-coding-agent` 用 `utilityProcess.fork` 启动（避免 macOS Dock 闪现）。
+`apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。每个 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`）。`ipc/cli.ts` 的 spawn / 流式管线对所有 agent 通用。`pi` 是由 `@earendil-works/pi-coding-agent` 经 bun `--compile` 打成的自包含单二进制（`scripts/build-pi-binary.mjs` → `resources/pi/pi`，`resolvePiBinary()` 定位），与其它 agent 一样用 `child_process.spawn` 启动。（曾用 `utilityProcess.fork` 直跑 npm 包，因纯 ESM 依赖闭包在 asar 里反复 `ERR_MODULE_NOT_FOUND` 而改为编译二进制。）
+
+「电脑操作」（Computer Use）由第三方 pi package `pi-computer-use` 供能，**默认启用**：首启后台 `pi install` 到 `~/.pi`，注入决策集中在 `capabilities/computer-use/inject.ts` 的五门控，且**只在聊天 RPC 路径**注入（单发路径无审批 UI）。`gui_*` 写工具在 `core/personal/permissionMode.ts` 里强制进审批集——包括「自动执行」档，这是不可让步的安全红线。
 
 
 ## 代码质量约束（务必遵守）

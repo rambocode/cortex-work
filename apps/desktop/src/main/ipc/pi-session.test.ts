@@ -55,7 +55,9 @@ const h = vi.hoisted(() => {
     makeSession,
     PiRpcSession,
     buildRpcArgs: vi.fn((_req: PiOpenRequest) => ["--mode", "rpc"]),
-    spawnPiRpc: vi.fn(() => ({})),
+    // 形参显式声明:让用例能按类型读 mock.calls（验证注入进子进程的 env）。
+    // 零参写法会把 calls 推成 [],取 [1] 直接类型错。
+    spawnPiRpc: vi.fn((_args: string[], _opts: { cwd?: string; env: NodeJS.ProcessEnv }) => ({})),
     writePiExtension: vi.fn(() => "/ext/deepseek.js"),
     writeApprovalExtension: vi.fn(() => "/ext/approval.js"),
     writeCustomToolExtension: vi.fn(() => "/ext/sample-tools.js"),
@@ -82,6 +84,12 @@ const h = vi.hoisted(() => {
     migrateLegacyAgentBrowserMcp: vi.fn((settings: unknown) => settings),
     collectBridgeServers: vi.fn((_servers?: unknown[], _browser?: unknown): unknown[] => []),
     writeMcpBridgeExtension: vi.fn(() => "/ext/mcp-bridge.js"),
+    // Computer Use 注入决策（五门控本身在 capabilities/computer-use/inject.test.ts 里测,
+    // 这里只验「决策结果如何流进 -e 批次与子进程 env」）。
+    resolveComputerUse: vi.fn(async (): Promise<{ path: string | null; env: Record<string, string> }> => ({
+      path: null,
+      env: {},
+    })),
   };
 });
 
@@ -120,6 +128,7 @@ vi.mock("../agents/pi-mcp-bridge", () => ({
   collectBridgeServers: h.collectBridgeServers,
   writeMcpBridgeExtension: h.writeMcpBridgeExtension,
 }));
+vi.mock("../capabilities/computer-use/inject", () => ({ resolveComputerUse: h.resolveComputerUse }));
 
 import {
   registerPiSessionHandlers,
@@ -173,6 +182,7 @@ beforeEach(() => {
   h.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   h.collectBridgeServers.mockReset().mockReturnValue([]);
   h.writeMcpBridgeExtension.mockReset().mockReturnValue("/ext/mcp-bridge.js");
+  h.resolveComputerUse.mockReset().mockResolvedValue({ path: null, env: {} });
   registerPiSessionHandlers();
 });
 
@@ -533,6 +543,61 @@ describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
     expect(h.writePiExtension).toHaveBeenCalledWith(provider); // provider 注入不动
     expect(req.piExtensionPath).toBe("/ext/deepseek.js");
     expect(req.extraExtensionPaths).toEqual(["/ext/approval.js", "/ext/askquestion.js", "/ext/todo.js"]);
+  });
+});
+
+// Computer Use 只在这条 RPC 路径注入（单发路径无审批 UI,刻意不给）。五门控判定本身在
+// capabilities/computer-use/inject.test.ts,这里只守「决策 → -e 批次 + 子进程 env」这段接线。
+describe("pi:open Computer Use 注入", () => {
+  const PKG = "/home/u/.pi/agent/npm/node_modules/pi-computer-use";
+
+  it("门控通过 → 包路径进 extraExtensionPaths", async () => {
+    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(req.extraExtensionPaths).toContain(PKG);
+  });
+
+  it("门控不通过 → 路径不出现,原有 extension 批次不受影响", async () => {
+    h.resolveComputerUse.mockResolvedValue({ path: null, env: {} });
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(req.extraExtensionPaths).toEqual(["/ext/askquestion.js", "/ext/todo.js"]);
+    expect(req.computerUseEnv).toBeUndefined();
+  });
+
+  it("grounding 模型经 env 传到 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）", async () => {
+    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: { PI_COMPUSE_GROUNDING_MODEL: "qwen-vl-max" } });
+    await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" });
+    const spawnOpts = h.spawnPiRpc.mock.calls[0]![1];
+    expect(spawnOpts.env.PI_COMPUSE_GROUNDING_MODEL).toBe("qwen-vl-max");
+  });
+
+  it("无 grounding 配置 → 不往 env 里塞该变量", async () => {
+    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
+    await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" });
+    const spawnOpts = h.spawnPiRpc.mock.calls[0]![1];
+    expect(spawnOpts.env.PI_COMPUSE_GROUNDING_MODEL).toBeUndefined();
+  });
+
+  // 决策失败不该拖垮开会话——最坏是这一轮没有 GUI 工具。
+  it("决策抛错 → 会话照常开起来,只是不注入", async () => {
+    h.resolveComputerUse.mockRejectedValue(new Error("probe boom"));
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
+    const res = (await h.handlers.get("pi:open")!(fakeEvent(), req)) as PiOpenResult;
+    expect(res.sessionId).toBe("sess-x");
+    expect(req.extraExtensionPaths).not.toContain(PKG);
+  });
+
+  // 库存根闸只管市场扩展（settings 可被外部篡改）;内置能力的路径来自主进程自己的 marker,
+  // 不经该闸——这条用例把这个刻意的差异钉住,避免日后有人"顺手统一"掉它而让内置能力失效。
+  it("包路径不经 filterLoadableExtensionPaths 的库存根闸（与市场扩展的威胁模型不同）", async () => {
+    __setPiExtStoreRootForTest("/nonexistent-store-root");
+    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
+    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(req.extraExtensionPaths).toContain(PKG);
+    __setPiExtStoreRootForTest(null);
   });
 });
 

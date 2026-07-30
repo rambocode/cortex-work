@@ -304,6 +304,8 @@ export interface GeneralSettings {
   researchEngine?: ResearchEngineMainSettings;
   // 公司知识库（远端 MCP server）。主进程读它构建注入配置（capabilities/knowledge/inject.ts）。
   knowledgeBase?: KnowledgeBaseSettings;
+  // Computer Use（与 core 镜像）。主进程读它做注入门控（capabilities/computer-use/inject.ts）。
+  computerUse?: ComputerUseSettings;
 }
 
 // 公司知识库接入配置（与 packages/core/desktop/types.ts 逐字镜像）。
@@ -824,6 +826,10 @@ export interface PiOpenRequest {
   webSearch?: boolean;
   // 主进程内部填充:askquestion extension 的会话级 sentinel。renderer 不传。
   askQuestionSentinel?: string;
+  // 主进程内部填充（同 piExtensionPath 的模式）:Computer Use 需要经环境变量传给 pi 子进程的
+  // 额外配置（当前只有 PI_COMPUSE_GROUNDING_MODEL）。空/缺省 = 不加任何变量。
+  // 走 env 而非 CLI 参数,因为这是 pi-computer-use package 自己读的配置,pi 无对应 flag。
+  computerUseEnv?: Record<string, string>;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。
@@ -1097,9 +1103,34 @@ export type PermissionMode = "plan" | "accept-edits" | "full-auto" | "sandbox";
 export type ApprovalPolicy = "auto" | "ask";
 // UI 单一真源执行权限单轴(与 core 镜像;主进程仅 round-trip 持久化,不按字段消费——发送边界在渲染端派生成线格式)。
 export type ExecPermission = "plan" | "ask" | "auto";
+// ── Computer Use 常量,与 core/desktop/types.ts 逐字镜像（改一处必改两处）──────────
+// 工具名按 pi-computer-use@0.1.0 的 src/index.ts 实测抄录(17 个),官网文档漏了 gui_triple_click,
+// 升级版本时必须重新核对源码:漏一个写工具 = 一个不经审批即可操作用户电脑的缺口。
+export const COMPUTER_USE_SOURCE_REF = "npm:pi-computer-use@0.1.0";
+export const COMPUTER_USE_READONLY_TOOLS = [
+  "gui_read",
+  "gui_screenshot",
+  "gui_cursor_position",
+  "gui_clipboard_read",
+];
+export const COMPUTER_USE_WRITE_TOOLS = [
+  "gui_click",
+  "gui_right_click",
+  "gui_double_click",
+  "gui_triple_click",
+  "gui_hover",
+  "gui_drag",
+  "gui_scroll",
+  "gui_type",
+  "gui_keypress",
+  "gui_hotkey",
+  "gui_clipboard_write",
+  "gui_batch",
+];
+
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
-// 浏览器控制工具(browser_*,沙箱 + URL 闸)并入,须与 core 镜像逐字一致。
+// 浏览器控制工具(browser_*,沙箱 + URL 闸)与 Computer Use 只读工具并入,须与 core 镜像逐字一致。
 export const PI_PLAN_TOOL_WHITELIST = [
   "read",
   "grep",
@@ -1113,7 +1144,39 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "browser_type",
   "browser_network",
   "browser_accessibility",
+  ...COMPUTER_USE_READONLY_TOOLS,
 ];
+
+// Computer Use 设置,与 core/desktop/types.ts 的 ComputerUseSettings 逐字镜像。
+// enabled 缺省视为启用;groundingModel 为空则回退会话模型（详见 core 侧注释）。
+export interface ComputerUseSettings {
+  enabled?: boolean;
+  groundingModel?: string;
+}
+
+// Computer Use 环境自检结果（与 core/desktop/types.ts 逐字镜像）。
+// ready 与「此刻会不会真给 Agent 注入 gui_* 工具」等价——它和注入决策共用 resolveComputerUse,
+// 不是另算一遍,避免 UI 说可用而实际不注入。
+export interface ComputerUseStatus {
+  ready: boolean;
+  installed: boolean;
+  // ready=false 时的原因,设置页据此给出对应的引导（去授权 / 装 CLT / 重试安装）。
+  reason?: ComputerUseBlockReason;
+  groundingModel?: string;
+}
+
+// 可「重新申请授权」的权限种类（与 core/desktop/types.ts 镜像）。
+// 只有这两项没有应用内授权弹窗、必须靠系统提示或手动添加,故只对它们做 reprompt。
+export type ComputerUsePermissionKind = "accessibility" | "screenRecording";
+
+// 不可用原因。与 capabilities/computer-use/env.ts 的同名联合类型同源。
+export type ComputerUseBlockReason =
+  | "not-macos"
+  | "disabled"
+  | "not-installed"
+  | "no-swiftc"
+  | "no-accessibility"
+  | "no-screen-recording";
 
 // weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 export type ScheduleSpec =

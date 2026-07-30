@@ -36,6 +36,7 @@
 | 供应商 / 模型连接测试 | `personal/ProviderManagerModal.tsx` | — | `ipc/provider.ts`、`ipc/llm.ts`（单发补全） |
 | MCP 配置 / 注入 | `personal/McpSection.tsx`、`McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
 | 公司知识库 / 知识库检索 / 引用预览（远端 MCP，server 在 `../../knowledge-base-system` 的 `/api/mcp`） | `personal/KnowledgeSettingsSection.tsx`（设置）、`personal/KnowledgeDocRef.tsx`（正文里 `kb://` 引用 chip）、`personal/KnowledgeDocPanel.tsx`（右栏正文预览） | `store/personal.ts` 的 `openKnowledgeDoc` / `knowledgeDocRequest`（rightView `knowledge`） | `capabilities/knowledge/inject.ts`（三门控注入）、`capabilities/knowledge/client.ts`（主进程自用的极简 MCP 客户端）、`ipc/knowledge.ts`（令牌加密落盘 + 连通性自检 + 取文） |
+| 电脑操作 / Computer Use / GUI 自动化（pi 点鼠标按键盘操作本机 app，由第三方 package `pi-computer-use` 供能，**默认启用**、**独属 pi**） | `personal/ComputerUseSection.tsx`（总开关 / 环境状态行 / GUI 定位模型 / `/learn` 告知）——挂在**管理页 → MCP 标签**，与 `ExtensionPanel` 并列（`PluginManagePage.tsx`），**不在**设置→Pi：同一开关只挂一处 | `personal/permissionMode.ts`（**安全红线**：`gui_*` 写工具强制进审批集，auto 档也强制开审批）、`desktop/types.ts` 的 `COMPUTER_USE_*` 常量与 `ComputerUseSettings` | `capabilities/computer-use/inject.ts`（五门控唯一决策点）、`install.ts`（首启后台 `pi install` 到 `~/.pi` + userData marker 幂等）、`env.ts`（swiftc 探测 + 复用 `reply/permissions.ts` 查两项 TCC）、`ipc/computer-use.ts`（状态自检 / 重试安装 / 重新申请授权 / 在 Finder 中显示）、`reply/permission-reprompt.ts`（`tccutil reset` + 重新弹提示，破解「授权提示只弹一次、之后应用再也不进列表」的死角；辅助功能与屏幕录制专用） |
 | 执行权限（单轴:计划/询问/自动） | `personal/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
 | 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/PersonalProcessPanel.tsx`、`personal/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
 | Agent 追踪窗口 | `personal/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
@@ -105,7 +106,7 @@
 
 **设计 / 演示 / 研究**：`artifact.ts` + `artifact-workspace.ts`（会话产物创建、索引与路径校验）、`design-types.ts`（历史设计工作台持久化契约）、`slides.ts` + `slides-ipc-types.ts`（演示文稿）、`research.ts` + `types-research.ts`（深度研究）、`agent-browser.ts`（Agent 用浏览器）。
 
-主进程另有非 ipc 的功能目录：`agents/`（CLI 适配器）、`capabilities/`（给 Agent 的 MCP 能力：browser / doc-extract / delegate / design-delegate / knowledge / loop-workflows / media-gen / research / slides / whisper / mcp-host）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
+主进程另有非 ipc 的功能目录：`agents/`（CLI 适配器）、`capabilities/`（给 Agent 的能力：browser / computer-use / doc-extract / delegate / design-delegate / knowledge / loop-workflows / media-gen / research / slides / whisper / mcp-host——其中 `computer-use` 是唯一不走 MCP 的一个，它以 pi extension 形式经 `-e` 注入，且**只在聊天 RPC 路径**生效）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
 
 ## packages/core 域速查
 

@@ -678,6 +678,54 @@ export interface GeneralSettings {
   subagentOrchestration?: boolean;
   // 公司知识库（远端 MCP server）。主进程读它构建注入配置,**进** main 镜像。
   knowledgeBase?: KnowledgeBaseSettings;
+  // Computer Use（pi 操作真实桌面 GUI）。主进程读它做注入门控,**进** main 镜像。
+  // 缺省 = 启用（只有显式 false 才关）——这是产品决策:默认开箱即用。
+  computerUse?: ComputerUseSettings;
+}
+
+// Computer Use 设置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像,改一处必改两处）。
+//
+// 由 pi-computer-use package 供能,首启后台 pi install 落 ~/.pi,注入决策唯一点在
+// main/capabilities/computer-use/inject.ts。仅聊天（RPC）路径生效——单发路径（ask 追问 /
+// 定时任务 / 编排子会话）无审批 UI,在那里放开鼠标键盘等于无人监督地操作用户电脑。
+export interface ComputerUseSettings {
+  // 总开关。缺省（undefined）视为启用,只有显式 false 才关。
+  enabled?: boolean;
+  // 「GUI 定位模型」:带 target 的工具（click/type/hover/drag/scroll/batch）要先截图再由
+  // **视觉模型**定位元素。留空则 pi-computer-use 回退用当前会话模型,而当前模型若没勾
+  // 「支持图片输入」(ProviderModelOption.vision),该包会直接抛错 → 于是这些工具必然失败。
+  //
+  // 取值是模型 id,且必须属于**当前会话的 provider**:pi 侧只注册了会话选中的那一个
+  // provider（见 main/agents/pi-providers.ts writePiExtension 是单数），别的 provider 的
+  // 模型压根不在 pi 的 modelRegistry 里,填了也找不到。
+  // 经 PI_COMPUSE_GROUNDING_MODEL 环境变量注入。
+  groundingModel?: string;
+}
+
+export const DEFAULT_COMPUTER_USE: ComputerUseSettings = { enabled: true };
+
+// 可「重新申请授权」的权限种类（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
+// 只有这两项没有应用内授权弹窗,必须靠系统提示或手动添加,故只对它们做 reprompt。
+export type ComputerUsePermissionKind = "accessibility" | "screenRecording";
+
+// Computer Use 不可用原因（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
+export type ComputerUseBlockReason =
+  | "not-macos" // 只支持 macOS
+  | "disabled" // 用户在设置里关了
+  | "not-installed" // package 未装好（首启联网失败等）
+  | "no-swiftc" // 缺 Xcode Command Line Tools,编不出原生 GUI helper
+  | "no-accessibility" // 未授权「辅助功能」
+  | "no-screen-recording"; // 未授权「屏幕录制」
+
+// Computer Use 环境自检结果（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
+//
+// ready 与「此刻会不会真给 Agent 注入 gui_* 工具」等价:它由主进程和注入决策共用同一个
+// resolveComputerUse 算出,不是 UI 侧另猜一遍——否则会出现「设置页说可用、实际不注入」。
+export interface ComputerUseStatus {
+  ready: boolean;
+  installed: boolean;
+  reason?: ComputerUseBlockReason;
+  groundingModel?: string;
 }
 
 // 公司知识库接入配置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像,改一处必改两处）。
@@ -1680,9 +1728,52 @@ export const BROWSER_MCP_PLAN_TOOLS = [
   "browser_network",
   "browser_accessibility",
 ];
+// ── Computer Use（pi-computer-use package,操作真实桌面 GUI）─────────────────────
+// 工具名按 pi-computer-use@0.1.0 的 src/index.ts 逐个 registerTool 实测抄录(共 17 个),
+// **不是**照官网文档抄——官网页面漏了 gui_triple_click。升级版本时必须重新核对源码:
+// 漏一个写工具 = 一个不经审批即可操作用户电脑的缺口。
+//
+// 安装 ref 钉死版本:该包是第三方个人包(作者 swairshah),且本产品默认启用、不经市场的
+// 来源门/信任门,钉版本是仅剩的供应链漂移防线。bump 时连同上面的工具名清单一起复核。
+export const COMPUTER_USE_SOURCE_REF = "npm:pi-computer-use@0.1.0";
+// 只读观察类:不改变系统状态,并入 plan 档白名单(同 browser_* 的处理)。
+// gui_wait 只是 sleep,同样无副作用,但它对 plan 档无意义故不并入白名单、也不需审批。
+export const COMPUTER_USE_READONLY_TOOLS = [
+  "gui_read",
+  "gui_screenshot",
+  "gui_cursor_position",
+  "gui_clipboard_read",
+];
+// 会真实操作用户电脑的工具:强制进审批集(见 personal/permissionMode.ts 的红线)。
+// gui_hover 保守归此类——它不点击,但会触发悬浮菜单等 UI 副作用。
+// gui_batch 尤其危险:一次调用可串起任意多个 click/type/keypress,审批一次等于批准整条链,
+// 故审批弹窗需展示其 actions 全文(见 PiToolConfirmDialog)。
+export const COMPUTER_USE_WRITE_TOOLS = [
+  "gui_click",
+  "gui_right_click",
+  "gui_double_click",
+  "gui_triple_click",
+  "gui_hover",
+  "gui_drag",
+  "gui_scroll",
+  "gui_type",
+  "gui_keypress",
+  "gui_hotkey",
+  "gui_clipboard_write",
+  "gui_batch",
+];
+
 // pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。并入浏览器控制
 // 工具:否则「新会话默认 plan」会让浏览器控制开箱即用不了(pi 用 --tools 硬限工具集,白名单外即被拦)。
-export const PI_PLAN_TOOL_WHITELIST = ["read", "grep", "find", "ls", ...BROWSER_MCP_PLAN_TOOLS];
+// 同理并入 Computer Use 只读工具:让计划档能看屏幕取证,而写操作被 --tools 物理拦下。
+export const PI_PLAN_TOOL_WHITELIST = [
+  "read",
+  "grep",
+  "find",
+  "ls",
+  ...BROWSER_MCP_PLAN_TOOLS,
+  ...COMPUTER_USE_READONLY_TOOLS,
+];
 
 // 定时规则。weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。
 // minute 0-59,hour 0-23。cron 为 5 段标准表达式（分 时 日 月 周）。

@@ -98,6 +98,8 @@ import type {
   PushSettings,
   AgentBrowserRuntimeStatus,
   KnowledgeBaseSettings,
+  ComputerUsePermissionKind,
+  ComputerUseStatus,
   KnowledgeDocResult,
 } from "./types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
@@ -802,5 +804,30 @@ export interface DesktopBridge {
      * 走主进程自己的 MCP 通道,**与 agent 会话无关**——用户点一下引用不该触发一次 agent 回合。
      */
     readDoc(input: { sourceId: string; relPath: string }): Promise<KnowledgeDocResult>;
+  };
+
+  // ── Computer Use（pi 操作真实桌面 GUI）─────────────────────────────────────────
+  // 整段可选：Web 端与非 mac 没有它,设置区据此整体降级隐藏(同本文件全可选约定)。
+  // 实现在 apps/desktop/src/preload/index.ts,挂在 window.desktopAPI.personal.computerUse。
+  //
+  // 这里只有「问状态」和「装一次」——总开关与定位模型是普通设置项,走 generalSettings 持久化,
+  // 不占桥的方法。状态必须问主进程:五门控里 swiftc / 两项 TCC 授权 / 落盘 marker 都是 renderer
+  // 拿不到的信息。
+  computerUse?: {
+    /** 环境自检。ready = 此刻真会给 Agent 注入 gui_* 工具;false 时 reason 指明缺什么。 */
+    status(): Promise<ComputerUseStatus>;
+    /** 手动重试预装（首启联网失败或用户删了包）。自带在途去重,连点只跑一次;回最新状态。 */
+    install(): Promise<ComputerUseStatus>;
+    /**
+     * 重新申请一项系统授权:清掉 TCC 的「已提示过」记录 → 重新弹系统提示 → 打开设置面板。
+     *
+     * 存在的理由:macOS 每个应用只弹一次授权提示,用户忽略后本应用就再也不会自动出现在
+     * 「隐私与安全性」列表里,只开面板会看到空列表、无从下手。回最新状态。
+     *
+     * ⚠️ 会重置本应用该项授权记录,故调用方应仅在未授权时提供入口并先让用户确认。
+     */
+    repromptPermission(kind: ComputerUsePermissionKind): Promise<ComputerUseStatus>;
+    /** 在 Finder 中显示当前运行的 .app,供用户直接拖进授权列表（reset 不奏效时的兜底）。 */
+    revealApp(): Promise<void>;
   };
 }

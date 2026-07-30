@@ -172,6 +172,11 @@ mac:
     NSSpeechRecognitionUsageDescription: "Cortex 需要访问语音识别权限，以便在快捷回复中将语音输入转换为文字。"
     NSCalendarsUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
     NSCalendarsFullAccessUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
+    # NSAccessibilityUsageDescription：辅助功能授权（快捷回复的输入框定位/粘贴，以及
+    # Computer Use 的鼠标键盘操作都依赖它）。此前留空，系统授权弹窗与「隐私与安全性」
+    # 列表里就只有一个没有理由说明的条目，用户无从判断该不该给——尤其 Computer Use 要的是
+    # 「控制这台电脑」这种高权限，不写清用途几乎必然被拒。
+    NSAccessibilityUsageDescription: "Cortex 需要辅助功能权限，以便定位当前应用的输入框（快捷回复）以及在您确认后代您操作鼠标键盘（电脑操作）。"
   # 显式覆盖命名模板,强制所有架构文件名都带 ${arch}。electron-builder 默认把 x64 当"默认架构"、
   # 文件名不带 arch 后缀(如 Cortex-x.dmg),与 arm64 的 Cortex-x-arm64.dmg 长得不对称、极易看混——
   # 这正是此前 v0.1.27 发布事故里 x64 产物被误当 arm64 上传覆盖的根源之一。

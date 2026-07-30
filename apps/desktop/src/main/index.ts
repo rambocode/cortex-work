@@ -31,6 +31,7 @@ import { startResearchHost, stopResearchHost } from "./capabilities/research/ser
 import { startDelegateHost, stopDelegateHost, killAllDelegates } from "./capabilities/delegate/server";
 import { startDesignDelegateHost, stopDesignDelegateHost, killAllDesignDelegates } from "./capabilities/design-delegate/server";
 import { stopSlidesHost } from "./capabilities/slides/server";
+import { ensureComputerUsePackage } from "./capabilities/computer-use/install";
 import { clearAllSlidesSessions } from "./capabilities/slides/session";
 import { initWorkflowRuntime, killAllWorkflows } from "./workflow/index";
 import { loadWorkflows, markOrphanRunsKilled } from "./workflow/store";
@@ -568,6 +569,12 @@ if (!app.requestSingleInstanceLock()) {
     void getPersistedState().then((state) => {
       syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
     }).catch((err) => log.warn("[agent-browser] 启动检查失败", err));
+    // Computer Use（pi 操作真实桌面 GUI）默认启用:后台预装 pi-computer-use package 到 ~/.pi。
+    // fire-and-forget + marker 幂等——装过就只做一次 statSync,没装过才联网走 npm,失败仅 warn
+    // 并在下次启动重试。绝不阻塞建窗（首装可能耗数秒）。
+    // 注:总开关关闭时仍预装。预装只是把包放到本地,是否给 Agent 由 inject.ts 的门控决定;
+    // 这样用户在设置里打开开关后能立即可用,不必等下次启动。
+    void ensureComputerUsePackage().catch((err) => log.warn("[computer-use] 预装失败", err));
     // 研究引擎（CRE）：先同步设置快照,再跑启动恢复（非终态 Session → interrupted、
     // 未提交 operation 标记可重试、清理过期 tmp）。引擎关闭时 runResearchStartupTasks 是
     // no-op——连数据库都不会打开。fire-and-forget:恢复失败已内部降级,不阻塞建窗。

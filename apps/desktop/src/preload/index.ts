@@ -94,6 +94,8 @@ import type {
   ReplyBubbleVoiceResult,
   PetStateSnapshot,
   AgentBrowserRuntimeStatus,
+  ComputerUsePermissionKind,
+  ComputerUseStatus,
   KnowledgeBaseSettings,
   KnowledgeDocResult,
 } from "../main/ipc/types";
@@ -959,6 +961,16 @@ const personal = {
     // 取一篇文档正文（会话里点开引用时预览）。走主进程自己的 MCP 通道，不触发 agent 回合。
     readDoc: (input: { sourceId: string; relPath: string }): Promise<KnowledgeDocResult> =>
       ipcRenderer.invoke("knowledge:readDoc", input),
+  },
+  // ── Computer Use（pi 操作真实桌面 GUI）子域 ────────────────────────────────
+  // 只暴露「问状态」与「装一次」；总开关与定位模型是普通设置项，走 generalSettings 持久化。
+  computerUse: {
+    status: (): Promise<ComputerUseStatus> => ipcRenderer.invoke("computer-use:status"),
+    install: (): Promise<ComputerUseStatus> => ipcRenderer.invoke("computer-use:install"),
+    // 重新申请授权：清 TCC「已提示过」记录 → 重新弹提示 → 开面板（详见 main/reply/permission-reprompt.ts）。
+    repromptPermission: (kind: ComputerUsePermissionKind): Promise<ComputerUseStatus> =>
+      ipcRenderer.invoke("computer-use:repromptPermission", kind),
+    revealApp: (): Promise<void> => ipcRenderer.invoke("computer-use:revealApp"),
   },
 };
 

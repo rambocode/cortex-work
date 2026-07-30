@@ -168,9 +168,11 @@ function parseSseForId(text, id) {
   return fallback;
 }
 
-// 一次 HTTP POST。**刻意用 node:http/https 而非全局 fetch**:pi 跑在 Electron utilityProcess 里,
-// 其全局 fetch(undici)在该宿主可能不可用/抛 "fetch failed"(实测 undici 版本错配会崩);
-// node:http 在 Electron 里铁打不动。返回 { status, headers, body }(body 已读全;响应带 content-length)。
+// 一次 HTTP POST。**刻意用 node:http/https 而非全局 fetch**:本文件是注入进 pi 进程执行的扩展源码,
+// 该宿主的全局 fetch(undici)曾实测不可用/抛 "fetch failed"(版本错配会崩);node:http 铁打不动。
+// (历史背景:此约束是 pi 跑在 Electron utilityProcess 时期定的;现在 pi 是 bun 编译的独立二进制,
+//  但没有理由为此回头换成 fetch——node:http 在两种宿主下都好使。)
+// 返回 { status, headers, body }(body 已读全;响应带 content-length)。
 function httpPostRaw(urlStr, headers, bodyStr) {
   return new Promise((resolve, reject) => {
     let u;
