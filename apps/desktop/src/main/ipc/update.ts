@@ -5,6 +5,7 @@
 
 import { app, ipcMain, BrowserWindow, powerMonitor } from "electron";
 import { autoUpdater } from "electron-updater";
+import { createLogger } from "../log";
 import { reduceUpdate, normalizeReleaseNotes, type UpdaterEvent } from "./update-state";
 import type { UpdateState } from "./types";
 
@@ -46,6 +47,10 @@ export function registerUpdateHandlers(options: RegisterUpdateHandlersOptions = 
   // autoInstallOnAppQuit 保留——下载完成后既可点「重启更新」,也会在下次正常退出时静默安装。
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // 接通 electron-updater 内部日志到统一日志管线(scope: updater)。
+  // 关键价值:blockmap 差量下载失败时 electron-updater 会静默回退全量
+  // ("Cannot download differentially, fallback to full download"),不接日志则完全不可观测。
+  autoUpdater.logger = createLogger("updater");
 
   autoUpdater.on("checking-for-update", () => dispatch({ type: "checking" }));
   // 采集 info.releaseNotes(来自打包写入清单的 markdown)并归一化,供更新弹窗展示。
