@@ -17,6 +17,31 @@ function clampPercent(p: number | undefined): number {
   return Math.max(0, Math.min(100, Math.round(p ?? 0)));
 }
 
+// 字节数格式化:B/KB/MB/GB 自适应,1000 进制(与 macOS Finder 口径一致),1 位小数。
+// 导出供单测;字节单位文案跨语言通用,不走 i18n。
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "0 B";
+  if (n < 1000) return `${Math.round(n)} B`;
+  const units = ["KB", "MB", "GB"] as const;
+  let v = n;
+  for (const unit of units) {
+    v /= 1000;
+    if (v < 1000 || unit === "GB") return `${v.toFixed(1)} ${unit}`;
+  }
+  return `${v.toFixed(1)} GB`;
+}
+
+// 下载明细行:"12.3 MB / 54.9 MB (1.2 MB/s)"。差量下载时 total 即差量字节数,
+// 用户由此能直观看到「本次只需下载差量而非整包」。缺 transferred/total(旧主
+// 进程未透传字节字段)时返回 null,UI 降级只显示百分比。
+export function formatProgressDetail(state: UpdateState): string | null {
+  if (state.transferred == null || state.total == null) return null;
+  const base = `${formatBytes(state.transferred)} / ${formatBytes(state.total)}`;
+  return state.bytesPerSecond != null && state.bytesPerSecond > 0
+    ? `${base} (${formatBytes(state.bytesPerSecond)}/s)`
+    : base;
+}
+
 // 底部操作区：按 phase 决定主操作 + 次操作（关闭/稍后）。
 function DialogFooter({
   state,
@@ -33,11 +58,13 @@ function DialogFooter({
 }) {
   if (state.phase === "downloading") {
     const pct = clampPercent(state.percent);
+    const detail = formatProgressDetail(state);
     return (
       <div className="pw-upd-foot">
         <div className="pw-upd-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
           <div className="pw-upd-progress-bar" style={{ width: `${pct}%` }} />
         </div>
+        {detail ? <div className="pw-upd-bytes">{detail}</div> : null}
         <button className="pw-tl-gen pw-btn-primary" disabled>
           {t("updateDialog.downloading", { percent: pct })}
         </button>

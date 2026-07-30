@@ -58,7 +58,15 @@ export function registerUpdateHandlers(options: RegisterUpdateHandlersOptions = 
     dispatch({ type: "available", version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) }),
   );
   autoUpdater.on("update-not-available", () => dispatch({ type: "not-available" }));
-  autoUpdater.on("download-progress", (p) => dispatch({ type: "progress", percent: p.percent }));
+  autoUpdater.on("download-progress", (p) =>
+    dispatch({
+      type: "progress",
+      percent: p.percent,
+      transferred: p.transferred,
+      total: p.total,
+      bytesPerSecond: p.bytesPerSecond,
+    }),
+  );
   autoUpdater.on("update-downloaded", (info) =>
     dispatch({ type: "downloaded", version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) }),
   );

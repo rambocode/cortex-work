@@ -1620,6 +1620,12 @@ export interface UpdateState {
   version?: string;
   // downloading:下载进度 0-100
   percent?: number;
+  // downloading:已下载/总字节数与瞬时速率(B/s)。差量下载时 total 即本次实际需
+  // 下载的差量字节数,用户可据此看出「只需 55MB 而非整包」。可选:缺字段时 UI
+  // 降级只显示百分比(旧主进程无此字段)。
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
   // error:失败描述
   error?: string;
   // available 及之后:本次更新的 markdown 说明,来自打包写入清单的 release notes

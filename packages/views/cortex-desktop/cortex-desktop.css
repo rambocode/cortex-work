@@ -6499,6 +6499,13 @@ button.sb-row {
   border-radius: 3px;
   transition: width 0.2s ease;
 }
+/* 进度条下的字节明细行(已下载/总量/速率);差量下载时总量即差量大小 */
+.pw-upd-bytes {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
 .pw-confirm-origin {
   font-size: 11px;
   color: var(--text-3);

@@ -2,7 +2,7 @@ import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import type { UpdateState } from "@cortex-work/core";
-import { UpdateDialog } from "./UpdateDialog";
+import { UpdateDialog, formatBytes, formatProgressDetail } from "./UpdateDialog";
 
 function renderDialog(state: UpdateState) {
   const onDownload = vi.fn();
@@ -42,6 +42,23 @@ describe("UpdateDialog", () => {
     expect(screen.getAllByRole("button", { name: "关闭" }).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("downloading 带字节字段:进度条下渲染字节明细行(差量下载时 total 即差量大小)", () => {
+    renderDialog({
+      phase: "downloading",
+      version: "0.2.0",
+      percent: 41.6,
+      transferred: 12_300_000,
+      total: 54_900_000,
+      bytesPerSecond: 1_200_000,
+    });
+    expect(screen.getByText("12.3 MB / 54.9 MB (1.2 MB/s)")).toBeTruthy();
+  });
+
+  it("downloading 缺字节字段(旧主进程未透传)时降级:不渲染字节明细行", () => {
+    renderDialog({ phase: "downloading", version: "0.2.0", percent: 41.6 });
+    expect(document.querySelector(".pw-upd-bytes")).toBeNull();
+  });
+
   it("downloaded:显示重启更新,点击触发 onInstall", () => {
     const { onInstall } = renderDialog({ phase: "downloaded", version: "0.2.0" });
     fireEvent.click(screen.getByRole("button", { name: "重启更新" }));
@@ -61,5 +78,39 @@ describe("UpdateDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("formatBytes", () => {
+  it("B/KB/MB/GB 自适应,1000 进制", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(999)).toBe("999 B");
+    expect(formatBytes(1000)).toBe("1.0 KB");
+    expect(formatBytes(54_900_000)).toBe("54.9 MB");
+    expect(formatBytes(1_234_000_000)).toBe("1.2 GB");
+  });
+
+  it("非法输入(负数/NaN)兜底为 0 B", () => {
+    expect(formatBytes(-1)).toBe("0 B");
+    expect(formatBytes(Number.NaN)).toBe("0 B");
+  });
+});
+
+describe("formatProgressDetail", () => {
+  it("完整字段 → 已下载/总量(速率)", () => {
+    expect(
+      formatProgressDetail({ phase: "downloading", transferred: 12_300_000, total: 54_900_000, bytesPerSecond: 1_200_000 }),
+    ).toBe("12.3 MB / 54.9 MB (1.2 MB/s)");
+  });
+
+  it("缺速率时只显示已下载/总量", () => {
+    expect(formatProgressDetail({ phase: "downloading", transferred: 12_300_000, total: 54_900_000 })).toBe(
+      "12.3 MB / 54.9 MB",
+    );
+  });
+
+  it("缺 transferred/total(旧主进程)→ null 降级", () => {
+    expect(formatProgressDetail({ phase: "downloading", percent: 42 })).toBeNull();
+    expect(formatProgressDetail({ phase: "downloading", transferred: 1 })).toBeNull();
   });
 });

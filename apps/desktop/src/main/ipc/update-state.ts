@@ -9,7 +9,7 @@ export type UpdaterEvent =
   | { type: "checking" }
   | { type: "available"; version: string; releaseNotes?: string }
   | { type: "not-available" }
-  | { type: "progress"; percent: number }
+  | { type: "progress"; percent: number; transferred?: number; total?: number; bytesPerSecond?: number }
   | { type: "downloaded"; version: string; releaseNotes?: string }
   | { type: "error"; message: string };
 
@@ -44,10 +44,14 @@ export function reduceUpdate(state: UpdateState, event: UpdaterEvent): UpdateSta
       return state.phase === "idle" || state.phase === "checking" ? { phase: "idle" } : state;
     case "progress":
       // 下载中保留已发现的 version 与 releaseNotes,弹窗在下载过程中仍能展示更新内容。
+      // 字节字段直接透传:差量下载时 total 即差量大小,UI 据此可视化「本次实际下多少」。
       return {
         phase: "downloading",
         version: state.version,
         percent: event.percent,
+        transferred: event.transferred,
+        total: event.total,
+        bytesPerSecond: event.bytesPerSecond,
         releaseNotes: state.releaseNotes,
       };
     case "downloaded":

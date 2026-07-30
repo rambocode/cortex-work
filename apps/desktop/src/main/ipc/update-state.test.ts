@@ -14,10 +14,25 @@ describe("reduceUpdate 状态机", () => {
     expect(s).toEqual({ phase: "checking" });
     s = run([{ type: "available", version: "0.2.0" }], s);
     expect(s).toEqual({ phase: "available", version: "0.2.0" });
-    s = run([{ type: "progress", percent: 42.4 }], s);
-    expect(s).toEqual({ phase: "downloading", version: "0.2.0", percent: 42.4 });
+    s = run([{ type: "progress", percent: 42.4, transferred: 23_000_000, total: 54_900_000, bytesPerSecond: 1_200_000 }], s);
+    expect(s).toEqual({
+      phase: "downloading",
+      version: "0.2.0",
+      percent: 42.4,
+      transferred: 23_000_000,
+      total: 54_900_000,
+      bytesPerSecond: 1_200_000,
+    });
     s = run([{ type: "downloaded", version: "0.2.0" }], s);
     expect(s).toEqual({ phase: "downloaded", version: "0.2.0" });
+  });
+
+  it("progress 缺字节字段(向后兼容)时不带字节信息也能正常流转", () => {
+    const s = run([{ type: "available", version: "0.2.0" }, { type: "progress", percent: 10 }]);
+    expect(s.phase).toBe("downloading");
+    expect(s.transferred).toBeUndefined();
+    expect(s.total).toBeUndefined();
+    expect(s.bytesPerSecond).toBeUndefined();
   });
 
   it("没有新版本:checking → not-available 回 idle", () => {
