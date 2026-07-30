@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cortex 发布控制台</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="top">
+  <div class="ident">
+    <h1>Cortex 发布控制台</h1>
+    <div class="meta">
+      <span class="chip" id="chip-version">—</span>
+      <span class="chip" id="chip-tag">—</span>
+      <span class="chip dim" id="chip-repo">—</span>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="btn-start" class="primary">开始发布</button>
+    <button id="btn-rerun">全部重跑</button>
+    <button id="btn-stop" class="danger" disabled>停止</button>
+  </div>
+</header>
+
+<main>
+  <section class="col pipeline">
+    <div class="card">
+      <div class="card-head">
+        <h2>发布流程</h2>
+        <span class="hint" id="overall">未开始</span>
+      </div>
+      <div id="steps"></div>
+      <p class="foot-note">
+        失败后点「开始发布」会<b>跳过已完成阶段、从断点续跑</b>——不必为一次公证超时重来一遍双架构构建。
+      </p>
+    </div>
+  </section>
+
+  <section class="col side">
+    <div class="card">
+      <div class="card-head">
+        <h2>前置检查</h2>
+        <button class="link" id="btn-preflight">重新检查</button>
+      </div>
+      <div id="preflight" class="checks"><span class="hint">检查中…</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Apple 公证队列</h2>
+        <button class="link" id="btn-notary">刷新</button>
+      </div>
+      <div id="notary" class="notary"><span class="hint">加载中…</span></div>
+      <p class="foot-note">
+        公证是整条链上唯一不受本机控制的一环。提交长时间停在 <b>In Progress</b> 说明 Apple 侧在排队，
+        等就行，不是产物有问题；<b>Invalid</b> 才需要查产物。
+      </p>
+    </div>
+  </section>
+</main>
+
+<section class="logs card">
+  <div class="card-head">
+    <h2>实时日志</h2>
+    <div class="log-tools">
+      <input id="filter" type="search" placeholder="过滤日志…" />
+      <label class="tick"><input type="checkbox" id="autoscroll" checked /> 自动滚动</label>
+      <button class="link" id="btn-clear-view">清空视图</button>
+    </div>
+  </div>
+  <div id="log" class="log"></div>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>

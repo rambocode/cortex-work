@@ -22,7 +22,8 @@
     "i18n:extract": "i18next-cli extract",
     "i18n:status": "i18next-cli status",
     "i18n:types": "i18next-cli types",
-    "clean": "turbo clean && rm -rf node_modules"
+    "clean": "turbo clean && rm -rf node_modules",
+    "release:ui": "node scripts/release-ui/server.mjs"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {

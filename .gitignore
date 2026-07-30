@@ -39,3 +39,6 @@ apps/desktop/resources/whisper/
 # 根规则的 `dist/` 匹配不到带后缀的目录名,不显式忽略会被 eslint 扫进去、把 lint 结果刷成上千条
 # vendor JS 报错,也有整包误提交的风险。
 apps/desktop/dist.bak-*/
+
+# 发布控制台的产物暂存目录与流程状态(scripts/release-ui)，跨进程持久化用,不入库
+.release-stage/
