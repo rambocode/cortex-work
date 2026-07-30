@@ -13,6 +13,8 @@ coverage/
 
 # pi 的 bun 编译产物(二进制 + 旁置资产),由 apps/desktop/scripts/build-pi-binary.mjs 生成
 apps/desktop/resources/pi/
+# pi 编译产物缓存(按 pi版本-bun目标-bun版本 分目录),同上脚本生成,命中免重编
+apps/desktop/.pi-build-cache/
 
 # Cortex_Helper 的 swift 编译产物,由 apps/desktop/scripts/build-cortex-helper.mjs 生成
 apps/desktop/resources/Cortex_Helper/
