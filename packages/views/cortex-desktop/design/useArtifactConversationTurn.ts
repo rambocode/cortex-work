@@ -14,7 +14,7 @@ import {
   setArtifactTurnDispatcher,
   type ArtifactTurnDispatcher,
 } from "@cortex-work/core/design/artifact-turn-dispatch";
-import { buildConversationArtifactPrompt } from "../personal/artifactDispatch";
+import { buildConversationArtifactPrompt } from "../personal/chat/artifactDispatch";
 
 /**
  * 会话的工作目录:真实项目取其路径,无项目会话取创建时定下的 noProjectDir。

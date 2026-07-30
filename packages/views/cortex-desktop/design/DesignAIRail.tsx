@@ -36,7 +36,7 @@ import type { ComposerPendingImage, ComposerPendingTextFile } from './compat/Flo
 import type { DesignComposerContext } from './compat/FloatingComposer'
 import type { ComposerReasoningEffort } from './compat/FloatingComposerModelPicker'
 import { DesignTargetToggle } from './DesignTargetToggle'
-import { AgentSelect } from '../personal/AgentSelect'
+import { AgentSelect } from '../personal/chat/AgentSelect'
 
 type Props = {
   input: string

@@ -80,12 +80,12 @@ import {
 import { Icon } from "@cortex-work/ui/icons";
 // 顶栏图标用 lucide-react,与写作模块其余组件(WritingToolbar/WritingSidebar)对齐 Kun 的惯例一致。
 import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
-import { AgentSelect } from "../personal/AgentSelect";
-import { ModelThinkingPill } from "../personal/ModelThinkingPill";
-import { matchSlashCommands, type SlashCommand } from "../personal/ComposerShell";
-import { resolveSkillDispatch } from "../personal/skillDispatch";
-import { skillTitleCase } from "../personal/skillDisplay";
-import { useDismissableMenu } from "../personal/useDismissableMenu";
+import { AgentSelect } from "../personal/chat/AgentSelect";
+import { ModelThinkingPill } from "../personal/chat/composer/ModelThinkingPill";
+import { matchSlashCommands, type SlashCommand } from "../personal/chat/composer/ComposerShell";
+import { resolveSkillDispatch } from "../personal/skills/skillDispatch";
+import { skillTitleCase } from "../personal/skills/skillDisplay";
+import { useDismissableMenu } from "../personal/shared/useDismissableMenu";
 import { WritingEmptyState } from "./WritingEmptyState";
 import { WritingMessageRow } from "./WritingMessageRow";
 import { WritingSlashMenu } from "./WritingSlashMenu";

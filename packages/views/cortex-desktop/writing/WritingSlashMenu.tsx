@@ -4,7 +4,7 @@
 // textarea(无 skill pill 形态),且只有 skill 项(无 /clear 等内建命令)。
 import type { ReactElement } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import type { SlashCommand } from "../personal/ComposerShell";
+import type { SlashCommand } from "../personal/chat/composer/ComposerShell";
 
 interface Props {
   // 已按输入过滤排序的命中项(matchSlashCommands 产出)。

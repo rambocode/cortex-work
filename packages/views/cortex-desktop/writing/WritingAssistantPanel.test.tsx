@@ -18,7 +18,7 @@ import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { defaultWritingQuickActions } from "@cortex-work/core/writing/quick-actions";
 import { WritingAssistantPanel } from "./WritingAssistantPanel";
 
-vi.mock("../personal/MarkdownView", () => ({
+vi.mock("../personal/markdown/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 

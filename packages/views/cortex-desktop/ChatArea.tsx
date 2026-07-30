@@ -7,10 +7,10 @@ import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cor
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
-import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chatMarkdown";
-import { normalizeKnowledgeLinks } from "./personal/KnowledgeDocRef";
-import { ChatImages } from "./personal/ChatImages";
-import { ChatFiles } from "./personal/ChatFiles";
+import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chat/chatMarkdown";
+import { normalizeKnowledgeLinks } from "./personal/knowledge/KnowledgeDocRef";
+import { ChatImages } from "./personal/chat/ChatImages";
+import { ChatFiles } from "./personal/chat/ChatFiles";
 
 // 会话流的语法高亮插件。必须是模块级常量:TextMessage 被 memo 包裹,内联字面量每次渲染都是新引用,
 // 会让 <Markdown> 的 props 恒变、白费 memo 短路(长会话流式输出时代价明显)。

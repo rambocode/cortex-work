@@ -22,7 +22,7 @@ import { ChatArea } from "./ChatArea";
 import { RightPanel } from "./RightPanel";
 import { ToastStack } from "./ToastStack";
 import { SectionPage } from "./Sections";
-import { PersonalWorkspace } from "./personal/PersonalWorkspace";
+import { PersonalWorkspace } from "./personal/layout/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
 import { PetBridge } from "./pet/PetBridge";
 import { useTweaksPersistence } from "./useTweaksPersistence";

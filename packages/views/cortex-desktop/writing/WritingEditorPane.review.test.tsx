@@ -25,7 +25,7 @@ vi.mock("../personal/editor/NoteCodeMirrorEditor", () => ({
   }) => <textarea data-testid="cm" value={value} onChange={(e) => onChange(e.target.value)} />,
 }));
 
-vi.mock("../personal/MarkdownView", () => ({
+vi.mock("../personal/markdown/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 

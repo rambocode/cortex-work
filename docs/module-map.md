@@ -13,6 +13,8 @@
 | main | `apps/desktop/src/main/` |
 | renderer | `apps/desktop/src/renderer/` |
 
+`views/personal/` 已按功能域分子目录：`layout/`（三栏外壳）、`chat/`（会话主区，输入区在 `chat/composer/`）、`home/`（落地页）、`sessions/`（会话检索/归档）、`tasks/`、`projects/`、`files/`（含 `files/sheet/` 表格查看器）、`markdown/`（跨域 Markdown 渲染栈）、`notes/`、`editor/`（跨域 CodeMirror 编辑器，notes/tasks/writing 共用）、`timeline/`、`automation/`、`workflow/`（含 `workflow/node-config/` 节点表单）、`browser/`、`terminal/`、`plugins/`、`skills/`、`knowledge/`、`settings/`、`shared/`（跨域通用 hook/小组件）。
+
 ## 入口三件套
 
 定位任何功能前，先看这三个「地图文件」：
@@ -20,59 +22,59 @@
 | 文件 | 作用 |
 |---|---|
 | `main/ipc/register.ts` | 主进程全部 40+ IPC 域一屏可见，找主进程功能先看这里 |
-| `views/personal/PersonalWorkspace.tsx` | 个人工作区三栏容器，主区视图互斥切换总表 |
+| `views/personal/layout/PersonalWorkspace.tsx` | 个人工作区三栏容器，主区视图互斥切换总表 |
 | `core/store/personal.ts` | 视图开关（`designOpen`/`writingOpen`/…）与个人工作区客户端态总店。注意 `designOpen` 目前**没有任何渲染方**（死开关），新入口勿挂 `openDesign()`，设计稿走 `/skill:design`；深度研究无整窗视图态，入口是会话 `/skill:research`，右栏 `rightView:"research"` 展示 |
 
 ## 一级功能名词表
 
 | 名词（含别名） | views | core | main |
 |---|---|---|---|
-| 会话 / 跑 Agent / CLI 流式管线 | `personal/PersonalChatArea.tsx`、`PersonalComposer.tsx`、`ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
-| 追问 / 编辑重发 | `personal/FollowupOverlay.tsx` | `personal/followup.ts` | `ipc/ask.ts`、`ipc/session-trim.ts` |
-| 圆桌（多角色 @ 调度） | `personal/MentionAutocomplete.tsx` | `personal/mention.ts` | `ipc/roundtable.ts` |
-| 角色库 | `personal/RolesSettingsSection.tsx` | — | `ipc/roles.ts` |
-| Agent 适配（claude/codex/pi/自定义） | `personal/AgentSelect.tsx` | — | `agents/`（`index.ts` 注册表、`agent-profiles.ts` 自定义） |
+| 会话 / 跑 Agent / CLI 流式管线 | `personal/chat/PersonalChatArea.tsx`、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
+| 追问 / 编辑重发 | `personal/chat/FollowupOverlay.tsx` | `personal/followup.ts` | `ipc/ask.ts`、`ipc/session-trim.ts` |
+| 圆桌（多角色 @ 调度） | `personal/chat/composer/MentionAutocomplete.tsx` | `personal/mention.ts` | `ipc/roundtable.ts` |
+| 角色库 | `personal/settings/RolesSettingsSection.tsx` | — | `ipc/roles.ts` |
+| Agent 适配（claude/codex/pi/自定义） | `personal/chat/AgentSelect.tsx` | — | `agents/`（`index.ts` 注册表、`agent-profiles.ts` 自定义） |
 | pi / codex 长驻会话 | — | — | `ipc/pi-session.ts`、`ipc/codex-ws-channel.ts` |
-| 供应商 / 模型连接测试 | `personal/ProviderManagerModal.tsx` | — | `ipc/provider.ts`、`ipc/llm.ts`（单发补全） |
-| MCP 配置 / 注入 | `personal/McpSection.tsx`、`McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
-| 公司知识库 / 知识库检索 / 引用预览（远端 MCP，server 在 `../../knowledge-base-system` 的 `/api/mcp`） | `personal/KnowledgeSettingsSection.tsx`（设置）、`personal/KnowledgeDocRef.tsx`（正文里 `kb://` 引用 chip）、`personal/KnowledgeDocPanel.tsx`（右栏正文预览） | `store/personal.ts` 的 `openKnowledgeDoc` / `knowledgeDocRequest`（rightView `knowledge`） | `capabilities/knowledge/inject.ts`（三门控注入）、`capabilities/knowledge/client.ts`（主进程自用的极简 MCP 客户端）、`ipc/knowledge.ts`（令牌加密落盘 + 连通性自检 + 取文） |
-| 电脑操作 / Computer Use / GUI 自动化（pi 点鼠标按键盘操作本机 app，由第三方 package `pi-computer-use` 供能，**默认启用**、**独属 pi**） | `personal/ComputerUseSection.tsx`（总开关 / 环境状态行 / GUI 定位模型 / `/learn` 告知）——挂在**管理页 → MCP 标签**，与 `ExtensionPanel` 并列（`PluginManagePage.tsx`），**不在**设置→Pi：同一开关只挂一处 | `personal/permissionMode.ts`（**安全红线**：`gui_*` 写工具强制进审批集，auto 档也强制开审批）、`desktop/types.ts` 的 `COMPUTER_USE_*` 常量与 `ComputerUseSettings` | `capabilities/computer-use/inject.ts`（五门控唯一决策点）、`install.ts`（首启后台 `pi install` 到 `~/.pi` + userData marker 幂等）、`env.ts`（swiftc 探测 + 复用 `reply/permissions.ts` 查两项 TCC）、`ipc/computer-use.ts`（状态自检 / 重试安装 / 重新申请授权 / 在 Finder 中显示）、`reply/permission-reprompt.ts`（`tccutil reset` + 重新弹提示，破解「授权提示只弹一次、之后应用再也不进列表」的死角；辅助功能与屏幕录制专用） |
-| 执行权限（单轴:计划/询问/自动） | `personal/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
-| 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/PersonalProcessPanel.tsx`、`personal/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
-| Agent 追踪窗口 | `personal/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
+| 供应商 / 模型连接测试 | `personal/settings/ProviderManagerModal.tsx` | — | `ipc/provider.ts`、`ipc/llm.ts`（单发补全） |
+| MCP 配置 / 注入 | `personal/plugins/McpSection.tsx`、`plugins/McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
+| 公司知识库 / 知识库检索 / 引用预览（远端 MCP，server 在 `../../knowledge-base-system` 的 `/api/mcp`） | `personal/settings/KnowledgeSettingsSection.tsx`（设置）、`personal/knowledge/KnowledgeDocRef.tsx`（正文里 `kb://` 引用 chip）、`personal/knowledge/KnowledgeDocPanel.tsx`（右栏正文预览） | `store/personal.ts` 的 `openKnowledgeDoc` / `knowledgeDocRequest`（rightView `knowledge`） | `capabilities/knowledge/inject.ts`（三门控注入）、`capabilities/knowledge/client.ts`（主进程自用的极简 MCP 客户端）、`ipc/knowledge.ts`（令牌加密落盘 + 连通性自检 + 取文） |
+| 电脑操作 / Computer Use / GUI 自动化（pi 点鼠标按键盘操作本机 app，由第三方 package `pi-computer-use` 供能，**默认启用**、**独属 pi**） | `personal/plugins/ComputerUseSection.tsx`（总开关 / 环境状态行 / GUI 定位模型 / `/learn` 告知）——挂在**管理页 → MCP 标签**，与 `ExtensionPanel` 并列（`plugins/PluginManagePage.tsx`），**不在**设置→Pi：同一开关只挂一处 | `personal/permissionMode.ts`（**安全红线**：`gui_*` 写工具强制进审批集，auto 档也强制开审批）、`desktop/types.ts` 的 `COMPUTER_USE_*` 常量与 `ComputerUseSettings` | `capabilities/computer-use/inject.ts`（五门控唯一决策点）、`install.ts`（首启后台 `pi install` 到 `~/.pi` + userData marker 幂等）、`env.ts`（swiftc 探测 + 复用 `reply/permissions.ts` 查两项 TCC）、`ipc/computer-use.ts`（状态自检 / 重试安装 / 重新申请授权 / 在 Finder 中显示）、`reply/permission-reprompt.ts`（`tccutil reset` + 重新弹提示，破解「授权提示只弹一次、之后应用再也不进列表」的死角；辅助功能与屏幕录制专用） |
+| 执行权限（单轴:计划/询问/自动） | `personal/chat/composer/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
+| 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/chat/PersonalProcessPanel.tsx`、`personal/settings/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
+| Agent 追踪窗口 | `personal/chat/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
 | Agent 项目扫描（本机项目聚合） | — | — | `ipc/agent-projects.ts` |
 | 写作 / 写作台 | `writing/`（`WritingWorkspace.tsx` 三栏容器） | `writing/` | `ipc/writing-*.ts`（见下文写作域） |
-| 设计 / 会话产物 / 画布 | `personal/artifactDispatch.ts`（含落盘布局契约）、`design/ArtifactEditorPanel.tsx`、`design/useArtifactConversationTurn.ts` + `design/useDesignArtifactAutoRefresh.ts`（动作回流会话 / 回合结束重扫）、`design/DesignWorkspaceView.tsx`、`design/canvas/` | `personal/messages.ts`（产物 resume 隔离）、`design/`（子域见下文 core 表） | `ipc/artifact.ts`、`ipc/artifact-workspace.ts`、`ipc/design-types.ts` |
+| 设计 / 会话产物 / 画布 | `personal/chat/artifactDispatch.ts`（含落盘布局契约）、`design/ArtifactEditorPanel.tsx`、`design/useArtifactConversationTurn.ts` + `design/useDesignArtifactAutoRefresh.ts`（动作回流会话 / 回合结束重扫）、`design/DesignWorkspaceView.tsx`、`design/canvas/` | `personal/messages.ts`（产物 resume 隔离）、`design/`（子域见下文 core 表） | `ipc/artifact.ts`、`ipc/artifact-workspace.ts`、`ipc/design-types.ts` |
 | 演示文稿 / Slides / 放映 | `design/ArtifactEditorPanel.tsx`、`design/slides/SlidesWorkspace.tsx`、`design/useArtifactConversationTurn.ts`（面板动作回流发起会话） | `design/slides/`（含 `bento/`、`slides-text-files.ts`）、`design/artifact-turn-dispatch.ts`（回合派发端口，与设计稿共用） | `ipc/artifact.ts`、`ipc/slides.ts`、`capabilities/slides/`、`capabilities/research/inject.ts`（会话级联网准入）、`presenter-window.ts` |
-| 研究 / 深度研究（CRE） | `research/`（`ResearchArtifactPanel.tsx` 右栏面板 + `ResearchRunView` 等子组件；入口是会话 `/skill:research`，派发在 `personal/researchDispatch.ts`，已无整窗覆盖层） | `research/` | `research/`（引擎，报告归档见 `research/report-archive.ts`）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
-| 任务 | `personal/TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx` | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
-| 项目管理 / 项目阶段（独立窗口） | `personal/ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx` | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |
-| 闪记（Flash Notes） | `personal/NotesView.tsx`、`FlashNoteEditor.tsx` | `personal/notes.ts` | `ipc/notes*.ts`、`notes-overlay.ts`（浮层窗口） |
-| 时间线 / 日报 | `personal/TimelineView.tsx` | `personal/timeline.ts` | `ipc/timeline.ts` |
-| 自动化（定时任务） | `personal/AutomationView.tsx`、`Automation*.tsx` | `personal/automation.ts` | `automation/`（scheduler/runner/store） |
-| Loop 工作流 | `personal/WorkflowView.tsx`、`WorkflowCanvas.tsx` 等 | `personal/workflow.ts` | `workflow/`（DSL/scheduler/webhook）、`capabilities/loop-workflows/` |
+| 研究 / 深度研究（CRE） | `research/`（`ResearchArtifactPanel.tsx` 右栏面板 + `ResearchRunView` 等子组件；入口是会话 `/skill:research`，派发在 `personal/chat/researchDispatch.ts`，已无整窗覆盖层） | `research/` | `research/`（引擎，报告归档见 `research/report-archive.ts`）、`ipc/research.ts`、`capabilities/research/`；chat 与 slides 均由各自会话栏按轮准入 |
+| 任务 | `personal/tasks/`（`TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx`） | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
+| 项目管理 / 项目阶段（独立窗口） | `personal/projects/`（`ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx`） | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |
+| 闪记（Flash Notes） | `personal/notes/`（`NotesView.tsx`、`FlashNoteEditor.tsx`；共用编辑器在 `personal/editor/`） | `personal/notes.ts` | `ipc/notes*.ts`、`notes-overlay.ts`（浮层窗口） |
+| 时间线 / 日报 | `personal/timeline/TimelineView.tsx` | `personal/timeline.ts` | `ipc/timeline.ts` |
+| 自动化（定时任务） | `personal/automation/`（`AutomationView.tsx`、`Automation*.tsx`） | `personal/automation.ts` | `automation/`（scheduler/runner/store） |
+| Loop 工作流 | `personal/workflow/`（`WorkflowView.tsx`、`WorkflowCanvas.tsx`、节点表单 `node-config/`） | `personal/workflow.ts` | `workflow/`（DSL/scheduler/webhook）、`capabilities/loop-workflows/` |
 | 推送（企微/钉钉/飞书/邮件） | 设置分区 | `personal/push.ts` | `ipc/push.ts` |
 | 桌面宠物 | `pet/`（状态机 + sprite） | `store/pet.ts` | `ipc/pet.ts`、`pet-overlay-window.ts` |
-| 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts` |
+| 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/settings/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts` |
 | Spotlight 浮动框 / 全局热键 | renderer `src/spotlight.tsx` | `personal/spotlightHandoff.ts` | `ipc/spotlight.ts`、`hotkey.ts` |
-| 记忆 / 做梦 | `personal/MemorySettingsSection.tsx`、`ResearchMemoryCandidates.tsx` | `memory/` | `ipc/memory.ts`、`memory/`（dreamer/scheduler） |
-| 内嵌浏览器 / 页面标注 | `personal/BrowserView.tsx`、`BrowserAnnotator.tsx` | — | `ipc/browser.ts`、`browser/`、`capabilities/browser/` |
-| 内嵌终端 | `personal/TerminalPanel.tsx` | — | `ipc/pty.ts` |
-| 文件树 / 文件预览 / Git 信息条 | `personal/FilesView.tsx` + 各 Viewer（`MarkdownView`/`MonacoViewer`/`PdfViewer`/`DocxViewer`/`PptxViewer`/`sheet/`） | `personal/filePaths.ts` | `ipc/fs.ts`、`ipc/watch.ts`、`ipc/git-info.ts` |
-| 图片 / 文档上传 | `personal/PersonalComposer.tsx` | — | `ipc/image.ts`、`ipc/doc.ts`、`capabilities/doc-extract/` |
-| 语音输入 / 语音转文字（STT） | `personal/useComposerVoice.ts`、`SttLocalWhisperPanel.tsx` | `whisper/models.ts` | `ipc/stt.ts`、`capabilities/whisper/` |
+| 记忆 / 做梦 | `personal/settings/MemorySettingsSection.tsx`、`settings/ResearchMemoryCandidates.tsx` | `memory/` | `ipc/memory.ts`、`memory/`（dreamer/scheduler） |
+| 内嵌浏览器 / 页面标注 | `personal/browser/`（`BrowserView.tsx`、`BrowserAnnotator.tsx`） | — | `ipc/browser.ts`、`browser/`、`capabilities/browser/` |
+| 内嵌终端 | `personal/terminal/TerminalPanel.tsx` | — | `ipc/pty.ts` |
+| 文件树 / 文件预览 / Git 信息条 | `personal/files/`（`FilesView.tsx` + `MonacoViewer`/`PdfViewer`/`DocxViewer`/`PptxViewer`/`sheet/`；Markdown 渲染栈独立在 `personal/markdown/`） | `personal/filePaths.ts` | `ipc/fs.ts`、`ipc/watch.ts`、`ipc/git-info.ts` |
+| 图片 / 文档上传 | `personal/chat/composer/PersonalComposer.tsx` | — | `ipc/image.ts`、`ipc/doc.ts`、`capabilities/doc-extract/` |
+| 语音输入 / 语音转文字（STT） | `personal/chat/composer/useComposerVoice.ts`、`settings/SttLocalWhisperPanel.tsx` | `whisper/models.ts` | `ipc/stt.ts`、`capabilities/whisper/` |
 | 语音播报（TTS） | 设置「语音」分区 | `personal/tts.ts` | — |
-| 媒体生成（图像/语音/音乐/视频） | `personal/MediaGenSettingsSection.tsx` | — | `capabilities/media-gen/` |
-| 插件 / 扩展市场 | `personal/PluginManager.tsx`、`PluginsHome.tsx`、`ExtensionPanel.tsx` | `personal/extensions.ts` | `ipc/plugins.ts`、`plugins/` |
-| 技能（Skill） | `personal/SkillPanel.tsx` | `personal/skill-injection.ts`、`piSkills.ts` | `ipc/skills.ts`、`skills/` |
-| 内置默认 skill（随包分发） | — | — | 内容在 `apps/desktop/resources/skills/<name>/`（见该目录 `SOURCE.md`）；**光放目录不会进 `/skill:` 菜单**——`resources/skills` 只喂「按名硬编码取用」那条链（`registry.ts` + `notes.ts` / `artifactDispatch.ts`），会话 skill 链的默认根是 `~/.cortex-desktop/skills`。要对用户可用须加进 `ipc/skills.ts` 的 `DEFAULT_BUILTIN_SKILLS` 白名单，其扫描根**必须 unshift 到最前**（去重是后者胜出，排后面会盖掉用户同名 skill）。落地页入口在 `personal/SceneChips.tsx` 的 `SCENES`，中文展示名在 `personal/useSlashCommands.ts` 的 `DOC_SKILL_COMMANDS`（不声明的话扫描项会退化成英文 Title-Case + 「个人」标签） |
-| 快速打开 / 斜杠命令 | `personal/QuickOpenDialog.tsx`、`useSlashCommands.ts` | — | — |
-| 落地页 / 新会话首页 / 场景快捷入口 | `personal/HomeView.tsx`（**HomeBoard = 落地内容单一来源**，`NewSessionLanding.tsx` 与 `PersonalChatArea.tsx` 空会话态共用）、`SceneChips.tsx`、`LandingHero.tsx` | `store/personal.ts`（`composerInsert.skill` 预置 skill pill、`composerSkill` 由 ComposerShell 单向镜像供示例区联动、`openResearch`/`openWriting`/`openAutomation`/`openWorkflow`） | — |
-| 归档会话 | `personal/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |
+| 媒体生成（图像/语音/音乐/视频） | `personal/settings/MediaGenSettingsSection.tsx` | — | `capabilities/media-gen/` |
+| 插件 / 扩展市场 | `personal/plugins/`（`PluginManager.tsx`、`PluginsHome.tsx`、`ExtensionPanel.tsx`） | `personal/extensions.ts` | `ipc/plugins.ts`、`plugins/` |
+| 技能（Skill） | `personal/skills/SkillPanel.tsx` | `personal/skill-injection.ts`、`piSkills.ts` | `ipc/skills.ts`、`skills/` |
+| 内置默认 skill（随包分发） | — | — | 内容在 `apps/desktop/resources/skills/<name>/`（见该目录 `SOURCE.md`）；**光放目录不会进 `/skill:` 菜单**——`resources/skills` 只喂「按名硬编码取用」那条链（`registry.ts` + `notes.ts` / `artifactDispatch.ts`），会话 skill 链的默认根是 `~/.cortex-desktop/skills`。要对用户可用须加进 `ipc/skills.ts` 的 `DEFAULT_BUILTIN_SKILLS` 白名单，其扫描根**必须 unshift 到最前**（去重是后者胜出，排后面会盖掉用户同名 skill）。落地页入口在 `personal/home/SceneChips.tsx` 的 `SCENES`，中文展示名在 `personal/chat/composer/useSlashCommands.ts` 的 `DOC_SKILL_COMMANDS`（不声明的话扫描项会退化成英文 Title-Case + 「个人」标签） |
+| 快速打开 / 斜杠命令 | `personal/projects/QuickOpenDialog.tsx`、`chat/composer/useSlashCommands.ts` | — | — |
+| 落地页 / 新会话首页 / 场景快捷入口 | `personal/home/HomeView.tsx`（**HomeBoard = 落地内容单一来源**，`home/NewSessionLanding.tsx` 与 `chat/PersonalChatArea.tsx` 空会话态共用）、`home/SceneChips.tsx`、`home/LandingHero.tsx` | `store/personal.ts`（`composerInsert.skill` 预置 skill pill、`composerSkill` 由 ComposerShell 单向镜像供示例区联动、`openResearch`/`openWriting`/`openAutomation`/`openWorkflow`） | — |
+| 归档会话 | `personal/sessions/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |
 | 在编辑器打开（VS Code 等） | — | — | `ipc/editors.ts` |
 | 应用更新 | `UpdateButton.tsx`、`UpdateDialog.tsx` | `desktop/useUpdateState.ts` | `ipc/update.ts` |
 | 通知卡片 | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
-| 设置（个人工作区整页） | `personal/SettingsMenu.tsx` + 各 `*SettingsSection.tsx` | `store/personal.ts` | `ipc/store.ts`（持久化总仓） |
+| 设置（个人工作区整页） | `personal/settings/SettingsMenu.tsx` + 各 `*SettingsSection.tsx` | `store/personal.ts` | `ipc/store.ts`（持久化总仓） |
 | 团队工作区（issue/智能体/用量看板） | `CortexDesktopView.tsx`、`Sections.tsx`、`Sidebar.tsx`、`ChatArea.tsx` | `cortex/`、`mock/`、`api/`、`live/` | — |
 | 外观 Tweaks（主题/字号/密度） | `useTweaksPersistence.ts` | `store/ui.ts`（`DEFAULT_TWEAKS`，不在 ui 包！） | — |
 

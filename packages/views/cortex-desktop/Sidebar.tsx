@@ -4,7 +4,7 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import { GROUPS, type Section } from "@cortex-work/core";
 import type { Contact, Group, SidebarMode } from "@cortex-work/core/types";
 import { OrgSwitcher } from "./OrgSwitcher";
-import { WorkspaceTabs } from "./personal/WorkspaceTabs";
+import { WorkspaceTabs } from "./personal/layout/WorkspaceTabs";
 
 function SidebarTop({
   search,

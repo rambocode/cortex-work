@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core";
 import type { UpdateState } from "@cortex-work/core";
-import { MarkdownView } from "./personal/MarkdownView";
+import { MarkdownView } from "./personal/markdown/MarkdownView";
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 

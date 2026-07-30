@@ -25,7 +25,7 @@ import {
   WRITING_FONT_SIZE_MIN,
   type WritingPreviewMode,
 } from "@cortex-work/core/writing/spaces";
-import { useDismissableMenu } from "../personal/useDismissableMenu";
+import { useDismissableMenu } from "../personal/shared/useDismissableMenu";
 
 // 四档视图的图标 + 展示名(rich 富文本置首,默认档)。
 const MODE_ITEMS: { mode: WritingPreviewMode; label: string; icon: ReactElement }[] = [

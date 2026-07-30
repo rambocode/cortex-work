@@ -49,13 +49,13 @@ import {
   type WritingPreviewMode,
 } from "@cortex-work/core/writing/spaces";
 import { buildWritingGhostTextExtension } from "./completion/ghost-text";
-import { MarkdownView } from "../personal/MarkdownView";
+import { MarkdownView } from "../personal/markdown/MarkdownView";
 import {
   NoteCodeMirrorEditor,
   type NoteEditorAppearance,
   type NoteEditorSelection,
 } from "../personal/editor/NoteCodeMirrorEditor";
-import { useNoteAutosave } from "../personal/useNoteAutosave";
+import { useNoteAutosave } from "../personal/notes/useNoteAutosave";
 import { WritingDiffReview } from "./WritingDiffReview";
 import { WritingToolbar } from "./WritingToolbar";
 // 富文本编辑器:本组件顶层无 tiptap(全动态 import),故可静态引用,tiptap 不会被卷进 web 产物。

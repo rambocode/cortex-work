@@ -37,7 +37,7 @@ vi.mock("./pdf/WritingPdfViewer", () => ({
   ),
 }));
 
-vi.mock("../personal/MarkdownView", () => ({
+vi.mock("../personal/markdown/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 

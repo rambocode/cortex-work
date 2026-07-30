@@ -44,7 +44,7 @@ vi.mock("../personal/editor/NoteCodeMirrorEditor", () => ({
     </div>
   ),
 }));
-vi.mock("../personal/MarkdownView", () => ({
+vi.mock("../personal/markdown/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 vi.mock("./WritingDiffReview", () => ({

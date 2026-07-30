@@ -38,7 +38,7 @@ vi.mock("../personal/editor/NoteCodeMirrorEditor", () => ({
 }));
 
 // 预览渲染桩:避免拉起 react-markdown/mermaid 重依赖,只回显内容供断言。
-vi.mock("../personal/MarkdownView", () => ({
+vi.mock("../personal/markdown/MarkdownView", () => ({
   MarkdownView: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 

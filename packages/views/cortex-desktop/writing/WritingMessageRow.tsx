@@ -8,7 +8,7 @@ import { useState, type ReactElement } from "react";
 import { ChevronRight } from "lucide-react";
 import type { WritingMessage } from "@cortex-work/core/writing/run/writing-run-manager";
 import { Icon } from "@cortex-work/ui/icons";
-import { MarkdownView } from "../personal/MarkdownView";
+import { MarkdownView } from "../personal/markdown/MarkdownView";
 
 export function WritingMessageRow({ message }: { message: WritingMessage }): ReactElement {
   if (message.role === "user") {
