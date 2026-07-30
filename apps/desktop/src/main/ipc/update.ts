@@ -78,6 +78,13 @@ export function registerUpdateHandlers(options: RegisterUpdateHandlersOptions = 
     return state;
   });
   ipcMain.handle("update:download", () => {
+    // 即时反馈:downloadUpdate 在发出首个 download-progress 前要先取更新信息、下载新旧
+    // blockmap、并整读本地 update.zip 计算差量区间,慢网络下这段静默准备期可达数秒~数十秒,
+    // 期间 phase 停在 available,按钮看似没反应。受理请求时先行进入 downloading(0%),
+    // 后续真实进度事件自然覆盖。仅从 available/error 进入,避免下载中重复点击把进度条打回 0。
+    if (state.phase === "available" || state.phase === "error") {
+      dispatch({ type: "progress", percent: 0 });
+    }
     autoUpdater.downloadUpdate().catch(() => {
       /* 失败已由 error 事件驱动状态机 */
     });

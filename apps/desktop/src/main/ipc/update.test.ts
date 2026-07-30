@@ -62,4 +62,21 @@ describe("registerUpdateHandlers", () => {
     registerUpdateHandlers();
     expect(autoUpdater.logger).toBeTruthy();
   });
+
+  it("update:download 受理即先行进入 downloading(0%),下载中重复点击不回退进度", () => {
+    registerUpdateHandlers();
+    const download = h.handlers.get("update:download")!;
+    const getState = h.handlers.get("update:getState")!;
+
+    // 先驱动到 available(用户只有此时能看到「下载更新」按钮)。
+    h.updaterEvents.get("update-available")!({ version: "0.9.9", releaseNotes: null });
+    // 点击下载:blockmap/差量准备期的首个 progress 事件到来之前,状态已即时切到 downloading。
+    download();
+    expect(getState()).toMatchObject({ phase: "downloading", percent: 0, version: "0.9.9" });
+
+    // 真实进度到达后,重复点击下载不应把进度条打回 0。
+    h.updaterEvents.get("download-progress")!({ percent: 42, transferred: 1, total: 2, bytesPerSecond: 3 });
+    download();
+    expect(getState()).toMatchObject({ phase: "downloading", percent: 42 });
+  });
 });
