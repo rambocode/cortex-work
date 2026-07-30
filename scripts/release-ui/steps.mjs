@@ -16,6 +16,11 @@ const PRODUCT = "Cortex";
 const REPO = "rambocode/cortex-work-release";
 const CSC_NAME = "Jiangwei Lan (HQ537XMLJY)";
 
+// 上传通道:默认 gh(官方客户端,--clobber 幂等)。
+// `RELEASE_UPLOAD_VIA=curl` 切到 curl 兜底——它能限速,代理链路不稳、大文件反复被重置时才需要。
+// v0.1.49 那次连续中断是本机代理的问题,不是 gh 的问题,所以默认保持 gh。
+const VIA_CURL = process.env.RELEASE_UPLOAD_VIA === "curl";
+
 /** 在目录里按后缀找文件（替代 bash 的 glob）。 */
 function findFiles(dir, predicate) {
   if (!fs.existsSync(dir)) return [];
@@ -284,34 +289,42 @@ export function buildSteps() {
 
           const MAX = 8;
           for (let attempt = 1; ; attempt++) {
-            // GitHub 不允许同名资产共存,重传前必须先删——这也是不能直接用 curl --retry 的原因
-            // （它重发时服务端可能已建好资产，只会得到 422 already_exists）。
-            const cur = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | .id`], { env });
-            if (cur.stdout) {
-              await ctx.run.capture("gh", ["api", "--method", "DELETE", `repos/${REPO}/releases/assets/${cur.stdout}`], { env });
+            let r;
+            if (VIA_CURL) {
+              // 兜底通道:仅在 RELEASE_UPLOAD_VIA=curl 时启用。gh 不支持限速,而代理链路不稳时
+              // 大文件全速跑更容易被重置,降速反而传得完——这是 v0.1.49 期间试出来的经验解。
+              // GitHub 不允许同名资产共存,curl 直传前必须先删掉旧的(gh 的 --clobber 自带这步)。
+              const cur = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | .id`], { env });
+              if (cur.stdout) {
+                await ctx.run.capture("gh", ["api", "--method", "DELETE", `repos/${REPO}/releases/assets/${cur.stdout}`], { env });
+              }
+              const rate = attempt >= 2 ? ["--limit-rate", attempt >= 4 ? "2m" : "5m"] : [];
+              r = await ctx.run.capture("curl", [
+                "-sS", "-X", "POST",
+                "-H", `Authorization: token ${env.GH_TOKEN}`,
+                "-H", "Content-Type: application/octet-stream",
+                "--data-binary", `@${asset}`,
+                "--max-time", "3600",
+                ...rate,
+                "-w", "%{http_code}",
+                `https://uploads.github.com/repos/${REPO}/releases/${relId}/assets?name=${encodeURIComponent(name)}`,
+              ], { env });
+              r.uploaded = r.ok && /(^|\D)201$/.test(r.stdout.trim());
+            } else {
+              // 默认走 gh:--clobber 覆盖同名资产,天然幂等,重试安全。
+              r = await ctx.run.capture("gh", ["release", "upload", ctx.tag, "--repo", REPO, "--clobber", asset], { env });
+              r.uploaded = r.ok;
             }
 
-            // 第 2 次起限速:实测大文件全速跑时更容易被中间链路重置,降速反而传得完。
-            const rate = attempt >= 2 ? ["--limit-rate", attempt >= 4 ? "2m" : "5m"] : [];
-            const r = await ctx.run.capture("curl", [
-              "-sS", "-X", "POST",
-              "-H", `Authorization: token ${env.GH_TOKEN}`,
-              "-H", "Content-Type: application/octet-stream",
-              "--data-binary", `@${asset}`,
-              "--max-time", "3600",
-              ...rate,
-              "-w", "%{http_code}",
-              `https://uploads.github.com/repos/${REPO}/releases/${relId}/assets?name=${encodeURIComponent(name)}`,
-            ], { env });
-
-            if (r.ok && /(^|\D)201$/.test(r.stdout.trim())) {
-              // 201 只代表请求被接受,还要回查一次 state:确认 GitHub 侧真的落成 uploaded 而非 starter。
+            if (r.uploaded) {
+              // 命令成功只代表请求被接受,还要回查一次 state:确认 GitHub 侧真的落成 uploaded 而非
+              // starter(中断残骸)。这道校验与用哪个上传通道无关,两条路径都要过。
               const chk = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | .state`], { env });
               if (chk.stdout === "uploaded") {
                 ctx.run.log(`✓ ${label}${attempt > 1 ? `（第 ${attempt} 次成功）` : ""}`, "ok");
                 break;
               }
-              ctx.run.log(`⚠ ${label} 返回 201 但服务端状态为 ${chk.stdout || "未知"}，按失败处理`, "warn");
+              ctx.run.log(`⚠ ${label} 上传命令成功但服务端状态为 ${chk.stdout || "未知"}，按失败处理`, "warn");
             }
             if (attempt >= MAX) {
               throw new Error(`上传 ${name} 失败（已重试 ${MAX} 次）：${(r.stderr || r.stdout).slice(0, 200)}`);

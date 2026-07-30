@@ -113,3 +113,5 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
   - 失败后再点「开始发布」会**跳过已完成阶段、从断点续跑**——阶段状态落盘在 `.release-stage/<tag>.state.json`，产物暂存在 `.release-stage/<tag>/`，跨进程重启有效。这解决了 bash 脚本「一次公证超时就得重跑整轮双架构构建（20+ 分钟）」的问题。
   - 公证是全链唯一不受本机控制的一环：提交长时间停在 `In Progress` 是 Apple 侧排队，等即可；`Invalid` 才需要查产物。`electron-builder` 在这种情况下只会吐一句没有正文的 "Failed to notarize"，光看日志无法区分二者，所以要看队列面板。
   - 阶段顺序不可调整：两架构必须串行（`resources/pi/` 是单一共享目录，重建即覆盖），且发布只在最后合并双架构清单后做一次（分次上传会互相覆盖，即 v0.1.27 事故根源）。
+  - 上传默认走 `gh release upload --clobber`。代理链路不稳、大文件反复被重置时，可用 `RELEASE_UPLOAD_VIA=curl pnpm release:ui` 切到 curl 兜底通道（支持失败降速，gh 不支持限速）。
+  - **资产完整性判据必须看 `state`**：上传中断会在 release 上留下 `state="starter"` 的空壳，它带着完整的 name 与 size（GitHub 按 Content-Length 预写），只比对 name+size 会把「传失败的空壳」当成「已传好」而跳过，最终发布"成功"但用户下载 404（v0.1.49 实测踩到）。publish 阶段结束前有逐项护栏校验 名称/大小/state。
