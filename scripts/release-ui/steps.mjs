@@ -66,11 +66,53 @@ async function verifySigned(run, appDir, dmgSuffix) {
  * 构造阶段列表。每个阶段 { id, title, group, run(ctx) }。
  * ctx: { run, repoRoot, tag, version, stageDir, env }
  */
+// 公证上传是瞬态故障高发点:产物 zip 有数百 MB,经 notarytool 分片上传到 Apple 的 S3,
+// 链路一抖就是 abortedUpload / "Connection reset by peer"——v0.1.49 连续三轮栽在同一处。
+// electron-builder 自身不重试,失败即整个 build 退出。
+const TRANSIENT_NOTARY_PATTERNS = [
+  /abortedUpload/i,
+  /Failed to notarize/i,
+  /Connection reset by peer/i,
+  /NWError error 54/i,
+  /The network connection was lost/i,
+];
+
+/** 从最近日志里判断这次失败是不是「公证上传被中断」这类值得重试的瞬态故障。 */
+function looksTransient(run) {
+  const tail = run.logs.slice(-80).map((l) => l.text).join("\n");
+  return TRANSIENT_NOTARY_PATTERNS.some((re) => re.test(tail));
+}
+
 export function buildSteps() {
   const pnpmDesktop = (script, extraEnv = {}) => async (ctx) => {
     await ctx.run.exec("pnpm", ["--filter", "@cortex-work/desktop", "run", script], {
       env: { ...ctx.env, ...extraEnv },
     });
+  };
+
+  /**
+   * 打包+公证专用:失败后若判定为瞬态网络故障就自动重试。
+   * 只对「看起来是公证/网络」的失败重试——签名证书错误、编译失败这类确定性问题重试多少次都一样,
+   * 白烧十几分钟还会把真正的错误埋进一堆重复日志里。
+   */
+  const buildWithRetry = (script) => async (ctx) => {
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await ctx.run.exec("pnpm", ["--filter", "@cortex-work/desktop", "run", script], {
+          env: { ...ctx.env, CSC_NAME },
+        });
+        return;
+      } catch (err) {
+        if (ctx.run.aborted) throw err;
+        if (attempt >= MAX_ATTEMPTS || !looksTransient(ctx.run)) throw err;
+        ctx.run.log(
+          `⟳ 第 ${attempt} 次公证上传中断（瞬态网络故障），30 秒后重试（最多 ${MAX_ATTEMPTS} 次）`,
+          "warn",
+        );
+        await new Promise((r) => setTimeout(r, 30_000));
+      }
+    }
   };
 
   return [
@@ -99,7 +141,7 @@ export function buildSteps() {
       id: "arm64:build",
       group: "macOS arm64",
       title: "打包 + 签名 + 公证（zip/dmg）",
-      run: pnpmDesktop("build:mac-arm64", { CSC_NAME }),
+      run: buildWithRetry("build:mac-arm64"),
     },
     {
       id: "arm64:verify",
@@ -135,7 +177,7 @@ export function buildSteps() {
       id: "x64:build",
       group: "macOS x64",
       title: "打包 + 签名 + 公证（zip/dmg）",
-      run: pnpmDesktop("build:mac-x64", { CSC_NAME }),
+      run: buildWithRetry("build:mac-x64"),
     },
     {
       id: "x64:verify",
@@ -211,8 +253,92 @@ export function buildSteps() {
         if (!exists.ok) {
           await ctx.run.exec("gh", ["release", "create", ctx.tag, "--repo", REPO, "--title", ctx.tag.replace(/^v/, ""), "--notes-file", notes], { env });
         }
+
+        // 逐个上传而不是一次传完:单个 dmg/zip 有 200MB,一次性传 9 个时任何一个连接被重置都会让
+        // 整批重来(v0.1.49 实测踩到)。
         const assets = findFiles(ctx.stageDir, (f) => /\.(dmg|zip)(\.blockmap)?$/.test(f) || f === "latest-mac.yml");
-        await ctx.run.exec("gh", ["release", "upload", ctx.tag, "--repo", REPO, "--clobber", ...assets], { env });
+        // latest-mac.yml 放最后传:更新清单一旦就位,客户端就认为该版本可用。必须保证它出现时
+        // 所有安装包都已传完,否则抢先更新的用户会撞上 404。
+        assets.sort((a, b) => Number(a.endsWith("latest-mac.yml")) - Number(b.endsWith("latest-mac.yml")));
+
+        const relId = (await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/tags/${ctx.tag}`, "--jq", ".id"], { env })).stdout;
+        if (!relId) throw new Error("取不到 release id");
+
+        for (const [i, asset] of assets.entries()) {
+          const name = path.basename(asset);
+          const sizeMB = Math.round(fs.statSync(asset).size / 1048576);
+          const label = `[${i + 1}/${assets.length}] ${name}（${sizeMB}MB）`;
+
+          // 已经传完的直接跳过——续跑时不必重传几百 MB。
+          //
+          // 【必须校验 state】上传中断会在 release 上留下 state="starter" 的残骸,它带着完整的 name 和
+          // size(GitHub 建记录时就按 Content-Length 预写了 size),只比对 name+size 会把「传失败的空壳」
+          // 认成「已传好」,于是静默跳过 → 发布"成功"但用户下载 404。v0.1.49 实测踩到,只有
+          // state=="uploaded" 才算数。
+          const existing = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | "\\(.size) \\(.state)"`], { env });
+          const [assetSize, assetState] = existing.stdout.split(/\s+/);
+          if (assetState === "uploaded" && Number(assetSize) === fs.statSync(asset).size) {
+            ctx.run.log(`⏭ ${label} 已完整存在，跳过`, "skip");
+            continue;
+          }
+
+          const MAX = 8;
+          for (let attempt = 1; ; attempt++) {
+            // GitHub 不允许同名资产共存,重传前必须先删——这也是不能直接用 curl --retry 的原因
+            // （它重发时服务端可能已建好资产，只会得到 422 already_exists）。
+            const cur = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | .id`], { env });
+            if (cur.stdout) {
+              await ctx.run.capture("gh", ["api", "--method", "DELETE", `repos/${REPO}/releases/assets/${cur.stdout}`], { env });
+            }
+
+            // 第 2 次起限速:实测大文件全速跑时更容易被中间链路重置,降速反而传得完。
+            const rate = attempt >= 2 ? ["--limit-rate", attempt >= 4 ? "2m" : "5m"] : [];
+            const r = await ctx.run.capture("curl", [
+              "-sS", "-X", "POST",
+              "-H", `Authorization: token ${env.GH_TOKEN}`,
+              "-H", "Content-Type: application/octet-stream",
+              "--data-binary", `@${asset}`,
+              "--max-time", "3600",
+              ...rate,
+              "-w", "%{http_code}",
+              `https://uploads.github.com/repos/${REPO}/releases/${relId}/assets?name=${encodeURIComponent(name)}`,
+            ], { env });
+
+            if (r.ok && /(^|\D)201$/.test(r.stdout.trim())) {
+              // 201 只代表请求被接受,还要回查一次 state:确认 GitHub 侧真的落成 uploaded 而非 starter。
+              const chk = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | select(.name=="${name}") | .state`], { env });
+              if (chk.stdout === "uploaded") {
+                ctx.run.log(`✓ ${label}${attempt > 1 ? `（第 ${attempt} 次成功）` : ""}`, "ok");
+                break;
+              }
+              ctx.run.log(`⚠ ${label} 返回 201 但服务端状态为 ${chk.stdout || "未知"}，按失败处理`, "warn");
+            }
+            if (attempt >= MAX) {
+              throw new Error(`上传 ${name} 失败（已重试 ${MAX} 次）：${(r.stderr || r.stdout).slice(0, 200)}`);
+            }
+            ctx.run.log(`⟳ ${label} 上传中断，15 秒后重试（第 ${attempt}/${MAX} 次${attempt >= 2 ? "，已降速" : ""}）`, "warn");
+            await new Promise((res) => setTimeout(res, 15_000));
+          }
+        }
+        // 【最终护栏】逐个比对 release 上的资产:名字齐、大小对、state 全是 uploaded,才算真的发布完成。
+        // 没有这道校验,「某个包其实没传上去」会一路静默到用户更新时才暴露成 404。
+        const remote = await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/${relId}/assets`, "--jq", `.[] | "\\(.name)\\t\\(.size)\\t\\(.state)"`], { env });
+        const remoteMap = new Map(remote.stdout.split("\n").filter(Boolean).map((l) => {
+          const [n, sz, st] = l.split("\t");
+          return [n, { size: Number(sz), state: st }];
+        }));
+        const missing = [];
+        for (const asset of assets) {
+          const name = path.basename(asset);
+          const got = remoteMap.get(name);
+          const want = fs.statSync(asset).size;
+          if (!got) missing.push(`${name}（未上传）`);
+          else if (got.state !== "uploaded") missing.push(`${name}（state=${got.state}）`);
+          else if (got.size !== want) missing.push(`${name}（大小 ${got.size} ≠ 本地 ${want}）`);
+        }
+        if (missing.length) throw new Error(`发布校验失败，以下资产不完整：${missing.join("、")}`);
+
+        ctx.run.log(`✓ 全部 ${assets.length} 个资产校验通过（名称/大小/state 均一致）`, "ok");
         ctx.run.log(`✓ 已发布 ${ctx.tag}(macOS arm64 + x64) → https://github.com/${REPO}/releases/tag/${ctx.tag}`, "ok");
       },
     },
