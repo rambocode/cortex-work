@@ -21,7 +21,8 @@ import {
 import { getAgentDef, parseLineEvents } from '../agents/index.js'
 import { CODEX_MCP_CLEAR } from '../ipc/mcp-config.js'
 import { writePiExtension } from '../agents/pi-providers.js'
-import { getPersistedState, getWorkspaceRoot } from '../ipc/store.js'
+import { resolvePiProviderInput } from '../providers/pi-provider-input.js'
+import { getWorkspaceRoot } from '../ipc/store.js'
 import type { CliStartRequest, ReasoningEffort } from '../ipc/types.js'
 
 // 30 分钟——AI 节点任务可能远比 oneshot(60s) 长，对齐 automation 的 10min 基础上再放宽
@@ -48,32 +49,12 @@ export function killAllHeadlessPrompts(): void {
   headlessProcs.clear()
 }
 
-// ── Provider 解析（复用 runner.ts 的 resolveProvider 逻辑）─────────────────────
-// 从持久化 providerSettings 取回完整 provider，拍平成 CliStartRequest.provider。
-async function resolveProvider(
-  providerId: string,
-): Promise<CliStartRequest['provider'] | null> {
-  const state = await getPersistedState()
-  const legacy = state as typeof state & {
-    piSettings?: {
-      channels?: {
-        id: string
-        baseUrl: string
-        apiKey?: string
-        enabled: boolean
-        models: { id: string; label?: string }[]
-      }[]
-    }
-  }
-  const list = state.providerSettings?.providers ?? legacy.piSettings?.channels ?? []
-  const p = list.find((c) => c.id === providerId && c.enabled)
-  if (!p) return null
-  return {
-    id: p.id,
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    models: p.models.map((m) => ({ id: m.id, name: m.label })),
-  }
+// ── Provider 解析 ───────────────────────────────────────────────────────────
+// 阶段③ 收编：来源改为「Catalog + provider-prefs + 凭据金库」。旧实现读
+// PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让工作流的每个 AI 节点
+// 都解析不到 provider 而失败（后台执行，用户不在场）。与 automation/runner.ts 同源。
+async function resolveProvider(providerId: string): Promise<CliStartRequest['provider'] | null> {
+  return (await resolvePiProviderInput(providerId)) ?? null
 }
 
 // ── 对外接口 ──────────────────────────────────────────────────────────────────

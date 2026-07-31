@@ -55,7 +55,6 @@ export {
   resetProviderCatalogCache,
   classifyImageSupport,
   checkImageSupport,
-  lookupCatalogModel,
   lookupCatalogProvider,
   isDanglingModelRef,
   useProviderCatalog,

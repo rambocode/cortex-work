@@ -20,7 +20,6 @@ import type { DesktopBridge } from "../desktop/bridge";
 import {
   findCatalogModel,
   modelSupportsImage,
-  type CatalogModel,
   type CatalogProvider,
   type ModelRef,
   type ProviderCatalog,
@@ -77,7 +76,15 @@ export function peekProviderCatalog(): ProviderCatalog | undefined {
   return cached?.catalog;
 }
 
-/** 清空进程内缓存。测试用；主进程重装 Catalog 后也可调用。 */
+/**
+ * 清空进程内缓存。**仅测试用**（Catalog 是模块级缓存，跨用例不清会串台）。
+ *
+ * ⚠️ 只清模块缓存，**不**失效 `providerCatalogKey` 那份 React Query 缓存（它是
+ * staleTime/gcTime 皆 Infinity）。生产代码刻意不调用本函数，所以两者不同步不会发生：
+ * Catalog 随应用打包、同一版本内不可变，天然不需要运行期失效。
+ * 若将来真出现「运行期换 Catalog」的需求，必须同时 `queryClient.invalidateQueries`，
+ * 否则 UI 会继续显示旧目录 —— 那时再补联动，现在补属于为不存在的需求造机关。
+ */
 export function resetProviderCatalogCache(): void {
   cached = undefined;
   inflight = undefined;
@@ -142,14 +149,6 @@ export async function checkImageSupport(
   if (!ref?.providerId || !ref.modelId) return "unknown";
   const { catalog } = await loadProviderCatalog(bridge);
   return classifyImageSupport(catalog, ref);
-}
-
-/** 在 Catalog 中定位模型（re-export，省得调用方再从 desktop/provider-catalog 引一次）。 */
-export function lookupCatalogModel(
-  catalog: ProviderCatalog | undefined,
-  ref: ModelRef | undefined,
-): CatalogModel | undefined {
-  return findCatalogModel(catalog, ref);
 }
 
 /** 在 Catalog 中定位 Provider。 */

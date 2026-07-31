@@ -55,6 +55,19 @@ vi.mock('../ipc/store.js', () => ({
 
 vi.mock('../agents/pi-providers.js', () => ({
   writePiExtension: mocks.writePiExtension,
+  // resolvePiProviderInput 会经 pi-providers 取 safeId 归一化 providerId，故 mock 需带上它。
+  safeId: (id: string) => id,
+}))
+
+// provider 解析已收敛到主进程（Catalog + provider-prefs + 凭据金库）；本文件只测 headless
+// 流程，故整体替身，避免拉起金库与目录加载。
+vi.mock('../providers/pi-provider-input.js', () => ({
+  resolvePiProviderInput: async (providerId: string) => ({
+    id: providerId,
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-test',
+    models: [],
+  }),
 }))
 
 vi.mock('../ipc/mcp-config.js', () => ({

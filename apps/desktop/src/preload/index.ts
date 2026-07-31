@@ -405,12 +405,6 @@ const personal = {
   // 阶段③·4.1 收编：寻址改为 Catalog 引用，明文 apiKey 不再过桥（凭据由主进程从金库取）。
   openaiComplete: (req: { providerId: string; modelId: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),
-  probeProvider: (input: {
-    baseUrl: string;
-    apiKey?: string;
-    endpointFormat: "chat_completions" | "responses" | "messages" | "custom";
-  }): Promise<{ ok: boolean; models?: string[]; error?: string }> =>
-    ipcRenderer.invoke("provider:probe", input),
 
   // ── Provider Catalog / 认证 / Model Gateway（跨进程契约见 main/providers/contract.ts）──
   // Catalog 只读、不含秘密；认证只回 configured/type/source/error，明文与密文永不过桥；

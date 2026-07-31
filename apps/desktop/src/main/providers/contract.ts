@@ -1,7 +1,11 @@
 // 主进程侧的 Provider Catalog / 认证 / Gateway 类型契约。
 //
-// ⚠️ 与 `packages/core/desktop/provider-catalog.ts` **逐字镜像**，两份必须同步改。
+// ⚠️ 本文件的**类型声明部分**与 `packages/core/desktop/provider-catalog.ts` 逐字镜像，两份必须同步改。
 // 主进程刻意不依赖 `@cortex-work/core`（见 main/ipc/types.ts 文件头），故手工镜像而非导入。
+// 两侧各有不镜像的附加物：本文件多 `PROVIDER_IPC`（通道名只有主进程与 preload 需要），
+// core 侧多 `modelSupportsImage` / `findCatalogModel` 两个纯函数（渲染端查询用）。
+// 「类型部分保持一致」由 `contract-mirror.test.ts` 静态守护 —— 手工镜像没有编译期约束，
+// 靠人记必然腐坏，而漂移的表现是跨进程传的对象字段对不上、且 typecheck 两侧各自都能过。
 //
 // 本文件同时是 IPC 通道名的唯一出处：preload 与主进程 handler 都从这里取常量，
 // 防止两侧字符串写歪导致「invoke 挂起且无报错」。

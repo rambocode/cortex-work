@@ -1422,21 +1422,29 @@ export function initialAgent(s: Pick<PersonalState, "lastAgent" | "agentsAvailab
   return defaultAgent(s.agentsAvailable);
 }
 
-// 与 initialAgent 配对的初始模型/供应商（pi 走 provider;其余 lastModel 仅同 agent 时沿用,否则取该 agent 默认）。
+// 与 initialAgent 配对的初始模型/供应商（pi 走 Catalog 引用;其余 lastModel 仅同 agent 时沿用,
+// 否则取该 agent 默认）。
+//
+// pi 分支的来源改为「上次用过的 → 全局 defaultModelRef」，不再读 @deprecated 的 providerSettings
+// （§5 首启即删除，继续读它会让新会话草稿恒定没有供应商）。原实现末尾那两级静默兜底
+// （`?? enabled[0]` 取第一个启用的供应商、`?? provider.models[0].id` 取第一个模型）也已删除：
+// 那会让用户在毫无提示的情况下被安排一个自己没选过的模型（§5 明令禁止）。
+// 解析不出就返回 undefined，由消费方进「未配置模型」阻断态。
 export function initialModelDraft(
-  s: Pick<PersonalState, "lastAgent" | "lastModel" | "lastProviderId" | "agentsAvailable" | "providerSettings">,
+  s: Pick<PersonalState, "lastAgent" | "lastModel" | "lastProviderId" | "agentsAvailable" | "defaultModelRef">,
 ): { agent: AgentKind; model: string | undefined; providerId: string | undefined } {
   const agent = initialAgent(s);
   const sameAgent = agent === s.lastAgent;
   if (agent === "pi") {
-    // 仅在启用的 provider 中选默认（停用项不挂到新会话/草稿）。
-    const enabled = s.providerSettings.providers.filter((p) => p.enabled);
-    const provider =
-      enabled.find((p) => p.id === (s.lastProviderId ?? s.providerSettings.defaultProviderId)) ?? enabled[0];
+    const providerId = s.lastProviderId ?? s.defaultModelRef?.providerId;
     return {
       agent,
-      model: (sameAgent ? s.lastModel : undefined) ?? s.providerSettings.defaultModel ?? provider?.models[0]?.id,
-      providerId: provider?.id,
+      // 沿用上次模型只在「同 agent 且同 provider」时成立：换了供应商还带着旧 modelId，
+      // 会拼出一个 Catalog 里不存在的组合，白白落进阻断态。
+      model:
+        (sameAgent && providerId === s.lastProviderId ? s.lastModel : undefined) ??
+        (providerId === s.defaultModelRef?.providerId ? s.defaultModelRef?.modelId : undefined),
+      providerId,
     };
   }
   return { agent, model: (sameAgent ? s.lastModel : undefined) ?? DEFAULT_MODEL[agent], providerId: undefined };

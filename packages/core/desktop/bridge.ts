@@ -71,8 +71,6 @@ import type {
   PiSessionEvent,
   PiUiRequest,
   PiUiResponsePayload,
-  ProviderProbeInput,
-  ProviderProbeResult,
   PluginSkill,
   PluginListResult,
   MarketplaceListResult,
@@ -385,9 +383,6 @@ export interface DesktopBridge {
   }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
-  // 供应商连接测试：主进程按 endpointFormat 选鉴权头探测 {baseUrl}/models,返回可用模型。
-  // 可选（web 端为 null;custom 协议返回不支持探测）。
-  probeProvider?(input: ProviderProbeInput): Promise<ProviderProbeResult>;
   // ── Provider Catalog / 认证 / Model Gateway ────────────────────────────────
   // 类型见 ./provider-catalog.ts（主进程侧镜像 apps/desktop/src/main/providers/contract.ts）。
   // 三条红线：① 模型能力来自 Pi 内置目录、对用户只读；② 明文/密文凭据永不过桥，renderer

@@ -58,6 +58,21 @@ export function assertHttps(url: string): void {
 
 // ── 内部辅助：从 ProviderSettings 查找 ProviderProfile ──────────────────────
 
+/**
+ * 「继承供应商」失败时的补充提示。
+ *
+ * 媒体生成**不在** Provider 收编范围内（计划 §0/§4.1 的排除项），它仍走自己的
+ * `mediaGenSettings`；但它的「继承供应商」选项读的是 `PersistedState.providerSettings`，
+ * 而那份旧配置已被新版本首启清除（计划 §5，含全部明文 apiKey）。
+ * 于是老用户升级后这里必然查不到 —— 报「已配置的供应商：（无）」会让人以为是自己配丢了，
+ * 所以补一句指向真实原因与出路的提示。列表非空时不加提示（那是普通的 id 写错）。
+ */
+function legacyProviderHint(providerSettings: ProviderSettings): string {
+  return providerSettings.providers.length === 0
+    ? "供应商配置已升级为新体系，媒体生成暂不支持继承；请在「媒体生成」设置中直接填写接口地址与密钥。"
+    : "";
+}
+
 function findProviderById(providerSettings: ProviderSettings, id: string) {
   return providerSettings.providers.find((p) => p.id === id);
 }
@@ -88,7 +103,8 @@ export function resolveImageGenConfig(
   if (!provider) {
     throw new Error(
       `找不到图片生成供应商（id="${providerId}"）。` +
-      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}`,
+      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}。` +
+      legacyProviderHint(providerSettings),
     );
   }
 
@@ -126,7 +142,8 @@ export function resolveSpeechGenConfig(
   if (!provider) {
     throw new Error(
       `找不到语音生成供应商（id="${providerId}"）。` +
-      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}`,
+      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}。` +
+      legacyProviderHint(providerSettings),
     );
   }
 
@@ -164,7 +181,8 @@ export function resolveMusicGenConfig(
   if (!provider) {
     throw new Error(
       `找不到音乐生成供应商（id="${providerId}"）。` +
-      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}`,
+      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}。` +
+      legacyProviderHint(providerSettings),
     );
   }
 
@@ -204,7 +222,8 @@ export function resolveVideoGenConfig(
   if (!provider) {
     throw new Error(
       `找不到视频生成供应商（id="${providerId}"）。` +
-      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}`,
+      `已配置的供应商：${providerSettings.providers.map((p) => p.id).join(", ") || "（无）"}。` +
+      legacyProviderHint(providerSettings),
     );
   }
 

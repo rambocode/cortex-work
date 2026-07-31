@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { initialAgent, initialModelDraft, resolveDefaultAgent } from "./personal";
-import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PROVIDER_SETTINGS, type GeneralSettings } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, type GeneralSettings } from "../desktop/types";
 
 const general = (patch: Partial<GeneralSettings>): GeneralSettings => ({ ...DEFAULT_GENERAL_SETTINGS, ...patch });
 
@@ -39,7 +39,7 @@ describe("initialAgent", () => {
 });
 
 describe("initialModelDraft", () => {
-  const base = { agentsAvailable: { claude: true, codex: true }, providerSettings: DEFAULT_PROVIDER_SETTINGS };
+  const base = { agentsAvailable: { claude: true, codex: true }, defaultModelRef: undefined };
   it("无记忆 → 该 agent 默认模型", () => {
     const d = initialModelDraft({ ...base, lastAgent: undefined, lastModel: undefined, lastProviderId: undefined });
     expect(d.agent).toBe("claude");
@@ -51,10 +51,41 @@ describe("initialModelDraft", () => {
     expect(d.agent).toBe("codex");
     expect(d.model).toBe("gpt-5.4");
   });
+  // pi 分支：来源只有「上次用过的」与「全局 defaultModelRef」，没有任何「取第一个」兜底（§5）。
+  it("pi 无任何记忆且无全局默认 → 供应商与模型都为 undefined（进阻断态，不擅自挑一个）", () => {
+    const d = initialModelDraft({ ...base, lastAgent: "pi", lastModel: undefined, lastProviderId: undefined });
+    expect(d.agent).toBe("pi");
+    expect(d.providerId).toBeUndefined();
+    expect(d.model).toBeUndefined();
+  });
+
+  it("pi 回落全局 defaultModelRef", () => {
+    const d = initialModelDraft({
+      ...base,
+      defaultModelRef: { providerId: "openai", modelId: "gpt-5" },
+      lastAgent: "pi",
+      lastModel: undefined,
+      lastProviderId: undefined,
+    });
+    expect(d).toMatchObject({ agent: "pi", providerId: "openai", model: "gpt-5" });
+  });
+
+  it("pi 换了供应商时不沿用旧 modelId（否则拼出 Catalog 里不存在的组合）", () => {
+    const d = initialModelDraft({
+      ...base,
+      defaultModelRef: { providerId: "anthropic", modelId: "claude-sonnet-4" },
+      lastAgent: "pi",
+      lastModel: "gpt-5",
+      lastProviderId: "openai",
+    });
+    // lastProviderId 优先，但 lastModel 属于同一个 provider，故沿用。
+    expect(d).toMatchObject({ providerId: "openai", model: "gpt-5" });
+  });
+
   it("记忆 agent 不可用回退后不沿用旧 model（取新 agent 默认）", () => {
     const d = initialModelDraft({
       agentsAvailable: { claude: true, codex: false },
-      providerSettings: DEFAULT_PROVIDER_SETTINGS,
+      defaultModelRef: undefined,
       lastAgent: "codex",
       lastModel: "gpt-5.4",
       lastProviderId: undefined,

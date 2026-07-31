@@ -56,12 +56,15 @@ export function SpotlightBar(): React.ReactElement {
       setProjects(ps.projects ?? []);
       setProviderSettings(provider);
       setAvail(availability);
+      // pi 的初始供应商/模型来自「上次用过的 → 全局 defaultModelRef」（Catalog 引用）。
+      // 不再喂 providerSettings —— §5 首启即删除该字段，且旧实现有「取第一个可用供应商/模型」
+      // 的静默兜底，会让 Spotlight 新建的会话用上用户没选过的模型。
       const d = initialModelDraft({
         lastAgent: ps.lastAgent,
         lastModel: ps.lastModel,
         lastProviderId: ps.lastProviderId ?? legacy.lastPiChannelId,
         agentsAvailable: availability,
-        providerSettings: provider,
+        defaultModelRef: ps.defaultModelRef,
       });
       setDraft({ agent: d.agent, model: d.model, providerId: d.providerId, projectId: undefined });
     } catch {

@@ -14,7 +14,8 @@ import { assertSpawnCwd, detectAgents, spawnEnvForDef, startAgentProcess } from 
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "../ipc/mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
-import { getPersistedState, getWorkspaceRoot } from "../ipc/store";
+import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
 import { broadcastChanged, broadcastRunEvent } from "./events";
 import { computeNextRun } from "./schedule-cron";
@@ -44,24 +45,13 @@ export function killAllAutomations(): void {
   pending.clear();
 }
 
-// 据 providerId 从持久化的 providerSettings 取回完整 provider,拍平成 CliStartRequest.provider。
-// 兼容旧档：providerSettings.providers（新）优先,回退 piSettings.channels（旧）。
+// 据 providerId 解析出 pi extension 所需的 provider（endpoint + 密钥）。
+//
+// 阶段③ 收编：来源改为「Catalog + provider-prefs + 凭据金库」（resolvePiProviderInput）。
+// 旧实现读 PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让**每一次**
+// 定时自动化都解析不到 provider 而失败，且失败点在后台、用户不在场。
 async function resolveProvider(providerId: string): Promise<CliStartRequest["provider"] | null> {
-  const state = await getPersistedState();
-  const legacy = state as typeof state & {
-    piSettings?: {
-      channels?: { id: string; baseUrl: string; apiKey?: string; enabled: boolean; models: { id: string; label?: string }[] }[];
-    };
-  };
-  const list = state.providerSettings?.providers ?? legacy.piSettings?.channels ?? [];
-  const p = list.find((c) => c.id === providerId && c.enabled);
-  if (!p) return null;
-  return {
-    id: p.id,
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    models: p.models.map((m) => ({ id: m.id, name: m.label })),
-  };
+  return (await resolvePiProviderInput(providerId)) ?? null;
 }
 
 function makeRun(meta: AutomationMeta, trigger: AutomationRun["trigger"]): AutomationRun {
