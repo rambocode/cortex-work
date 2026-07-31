@@ -700,8 +700,12 @@ export interface CliStartRequest {
   permissionMode?: PermissionMode;
   // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval。缺省 = auto。
   approvalPolicy?: ApprovalPolicy;
-  // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
-  // 并注入 key env。形状与 PiOpenRequest.provider 同源（PiProviderInput）。
+  // pi 专用:renderer 只传 Catalog 中的 providerId,主进程据此从
+  // 「Catalog + provider-prefs + 凭据金库」解析出 provider（resolvePiProviderInput）。
+  // 阶段② 后凭据只在主进程金库里,渲染端不再持有 baseUrl/apiKey。
+  providerId?: string;
+  // 主进程内部填充（由 providerId 解析而来）:据此生成 extension 并注入 key env。
+  // ⚠️ 含明文 apiKey,**不得**回传 renderer 或进日志/argv。
   provider?: PiProviderInput;
   // 主进程内部填充:生成的 extension 文件绝对路径（buildArgs 读取）。
   piExtensionPath?: string;
@@ -850,8 +854,14 @@ export interface PiOpenRequest {
   skillPaths?: string[];
   // pi 扩展市场（U3）:已启用+已授信的扩展 -e 路径,core 解析后传入,buildRpcArgs 折入 -e 批次。
   extensionPaths?: string[];
-  // 供应商配置:与 CliStartRequest.provider 同一形状（PiProviderInput）。主进程据此生成
-  // extension 并注入 key。两条路径共用同一契约,避免「RPC 能力字段全、单发字段缺」的漂移。
+  // 供应商:与 CliStartRequest 同一契约 —— renderer 只传 providerId,主进程解析出 provider。
+  // 两条路径共用同一契约,避免「RPC 能力字段全、单发字段缺」的漂移。
+  providerId?: string;
+  // 同一 providerId 下「会影响 extension 内容」的配置摘要（endpoint 覆盖 / 认证来源）,
+  // 由渲染端从 ProviderAuthSnapshot 派生,仅用于 extensionFingerprint 判定是否重开会话。
+  // ⚠️ 不含任何密钥或其摘要。
+  providerFingerprint?: string;
+  // 主进程内部填充（由 providerId 解析而来）。⚠️ 含明文 apiKey,不得回传 renderer。
   provider?: PiProviderInput;
   // 主进程内部填充:生成的 provider extension 文件绝对路径（buildRpcArgs 读取）。
   piExtensionPath?: string;

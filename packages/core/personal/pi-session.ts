@@ -79,10 +79,14 @@ function evictLruIfFull(bridge: DesktopBridge): void {
   void closePiSession(bridge, victim.sessionId);
 }
 
-// 影响 extension 加载的指纹（审批工具集 / 样例工具 / 样例命令 / 自定义供应商配置）。同设置→同
-// 指纹(字段定序稳定)。provider 的 baseUrl/apiKey/endpointFormat/per-model 能力变化都会重渲
-// extension,故纳入指纹 → 改配置后温会话重开,新 extension 经 -e 真正加载（否则改了端点格式/模型
-// 能力却不生效）。注意:运行时态(thinkingLevel/model 实时切换)绝不进此指纹。
+// 影响 extension 加载的指纹（审批工具集 / 样例工具 / 样例命令 / 供应商配置）。同设置→同指纹
+//(字段定序稳定) → 改配置后温会话重开,新 extension 经 -e 真正加载（否则改了配置却不生效）。
+// 注意:运行时态(thinkingLevel/model 实时切换)绝不进此指纹。
+//
+// 供应商部分在阶段② 后拆成两项:`providerId`（换供应商）与 `providerFingerprint`（同一供应商
+// 下的 endpoint 覆盖 / 认证来源变化,由 modelCapabilities.providerConfigFingerprint 从
+// ProviderAuthSnapshot 派生）。渲染端已不持有 baseUrl/apiKey,只能这样表达;
+// 旧实现把 apiKey 与 per-model 能力标记直接塞进指纹,后者正是本次能力事故的输入端。
 function extensionFingerprint(req: PiOpenRequest): string {
   return JSON.stringify({
     toolApproval: !!req.enableToolApproval,
@@ -104,20 +108,11 @@ function extensionFingerprint(req: PiOpenRequest): string {
     // 不进指纹会让中途切开关复用温会话的旧工具集——开了却没有 web_search、或关了仍留着一套
     // 能出站的工具（后者是安全问题）。与 skillPaths 同类。
     webSearch: !!req.webSearch,
-    provider: req.provider
-      ? {
-          id: req.provider.id,
-          baseUrl: req.provider.baseUrl,
-          apiKey: req.provider.apiKey ?? null,
-          endpointFormat: req.provider.endpointFormat ?? null,
-          models: req.provider.models.map((m) => ({
-            id: m.id,
-            reasoning: m.reasoning ?? null,
-            vision: m.vision ?? null,
-            contextTokens: m.contextTokens ?? null,
-          })),
-        }
-      : null,
+    // 换供应商 → 指纹漂移 → 下一轮重开。
+    providerId: req.providerId ?? null,
+    // 同一供应商下的 endpoint 覆盖 / 认证来源变化。缺省（Web 端、旧壳、认证状态读失败）时
+    // 退化为「只有换 id 才重开」—— 那种情况下改了自建网关要到下次冷启才生效。
+    providerFingerprint: req.providerFingerprint ?? null,
   });
 }
 

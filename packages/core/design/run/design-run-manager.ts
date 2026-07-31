@@ -246,38 +246,30 @@ export function resolveDesignRunAgent(
 function resolveDesignRunConfiguration(personal: PersonalState): {
   agent: AgentKind;
   derivedId?: string;
-  provider?: CliStartRequest["provider"];
+  providerId?: string;
   model?: string;
 } {
   const { agent, derivedId } = resolveDesignRunAgent(personal);
-  const enabledProviders = (personal.providerSettings?.providers ?? []).filter((p) => p.enabled !== false);
-  const providerProfile =
-    agent === "pi"
-      ? enabledProviders.find(
-          (p) =>
-            p.id ===
-            (personal.designSettings.providerId ||
-              personal.lastProviderId ||
-              personal.providerSettings?.defaultProviderId),
-        ) ?? enabledProviders[0]
-      : undefined;
-  const provider = providerProfile
-    ? {
-        id: providerProfile.id,
-        baseUrl: providerProfile.baseUrl,
-        apiKey: providerProfile.apiKey,
-        models: providerProfile.models.map((m) => ({ id: m.id, name: m.label })),
-      }
-    : undefined;
+  if (agent !== "pi") return { agent, derivedId, model: personal.designSettings.model || undefined };
+  // pi:只解析出 {providerId, modelId} 引用,endpoint 与密钥由主进程从 Catalog + provider-prefs +
+  // 凭据金库解析（阶段②后渲染端拿不到明文）。
+  //
+  // 回退链:设计工作台设置 → 上次用过的（仅当上次也是 pi）→ 全局默认 defaultModelRef。
+  // 旧实现末尾还有 `?? enabledProviders[0]` 与 `?? providerProfile.models[0].id` 两级
+  // 「取第一个」兜底,且数据源是 §5 会清掉的 providerSettings —— 清理后前几级全落空,
+  // 用户会在毫无提示的情况下被换成另一个供应商的另一个模型。两级兜底已删除（计划 §5）。
+  const defaultRef = personal.defaultModelRef;
+  const providerId =
+    personal.designSettings.providerId ||
+    (personal.lastAgent === "pi" ? personal.lastProviderId : undefined) ||
+    defaultRef?.providerId ||
+    undefined;
   const model =
-    agent === "pi"
-      ? personal.designSettings.model ||
-        (personal.lastAgent === "pi" ? personal.lastModel : undefined) ||
-        personal.providerSettings?.defaultModel ||
-        providerProfile?.models?.[0]?.id ||
-        undefined
-      : personal.designSettings.model || undefined;
-  return { agent, derivedId, provider, model };
+    personal.designSettings.model ||
+    (personal.lastAgent === "pi" ? personal.lastModel : undefined) ||
+    defaultRef?.modelId ||
+    undefined;
+  return { agent, derivedId, providerId, model };
 }
 
 // ── 回合派发 ────────────────────────────────────────────────────────────
@@ -320,11 +312,11 @@ export async function sendDesignMessage(
   const activeDoc = ws.documents.find((d) => d.id === ws.activeDocumentId);
   const slidesMode = activeDoc ? designDocumentKind(activeDoc) === "slides" : false;
   await ensureDesignAssistantSessionLoaded(cwd, docId, slidesMode);
-  const { agent, derivedId, provider, model } = resolveDesignRunConfiguration(personal);
+  const { agent, derivedId, providerId, model } = resolveDesignRunConfiguration(personal);
   const resumeKey = [
     docId,
     derivedId ?? agent,
-    provider?.id ?? "",
+    providerId ?? "",
     model ?? "",
   ].join("\u0000");
   let preparedResume = prepareDesignResumeSession(docId, resumeKey);
@@ -424,7 +416,7 @@ export async function sendDesignMessage(
     cwd,
     prompt: text,
     ...(model ? { model } : {}),
-    ...(provider ? { provider } : {}),
+    ...(providerId ? { providerId } : {}),
     ...(memoryAppend ? { appendSystemPrompt: memoryAppend } : {}),
     ...(imageRefs?.length ? { images: imageRefs } : {}),
     ...(overrides?.webSearch ? { webSearch: true } : {}),

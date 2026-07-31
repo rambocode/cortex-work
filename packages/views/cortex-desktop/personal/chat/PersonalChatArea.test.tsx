@@ -1001,12 +1001,9 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
         prompt: "/skill:slides 帮我做一个简单的演示文稿",
         artifactContext: artifact,
         model: "deepseek-v4-flash",
-        provider: {
-          id: "deepseek",
-          baseUrl: "https://api.deepseek.com",
-          apiKey: "sk-test",
-          models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }],
-        },
+        // 只传 providerId：endpoint 与密钥由主进程从「Catalog + provider-prefs + 凭据金库」
+        // 解析，渲染端不再拍平 baseUrl/apiKey，也不再产出任何模型能力字段（事故输入端）。
+        providerId: "deepseek",
         skillPaths: ["/builtin/slides"],
         invokedSkill: undefined,
       }),

@@ -664,6 +664,9 @@ export function registerCliHandlers(): void {
     // cwd 归一必须在最前:后面产物身份校验、MCP 配置落盘、媒体/幻灯片能力都要用 req.cwd,
     // 只在 spawn 那一步兜底会让这些环节仍拿到空串(见 resolveSpawnCwd 的注释)。
     req.cwd = resolveSpawnCwd(req.cwd);
+    // 供应商解析:renderer 只给 providerId,endpoint 与密钥从「Catalog + provider-prefs + 凭据金库」取。
+    // 必须早于下方所有 writePiExtension / spawnEnvFor 的消费点（含 delegate 子 agent 继承 parent.provider）。
+    if (!req.provider && req.providerId) req.provider = await resolvePiProviderInput(req.providerId);
     assertConversationArtifactRequestShape(req.runId, req.artifactContext);
     if (req.artifactContext) {
       const fallbackRoot = join(documentsCortexDir(), "design");

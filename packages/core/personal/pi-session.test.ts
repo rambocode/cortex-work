@@ -149,24 +149,47 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
-  it("provider 配置变化（endpointFormat）→ 指纹漂移关旧重开,新 extension 生效", async () => {
+  it("换供应商 → 指纹漂移关旧重开,新 extension 生效", async () => {
     const bridge = fakeBridge();
-    const p = (endpointFormat: "chat_completions" | "messages"): PiOpenRequest => ({
-      ...req(),
-      provider: { id: "ds", baseUrl: "https://x/v1", endpointFormat, models: [{ id: "m" }] },
-    });
-    await ensurePiSession(bridge, p("chat_completions"));
-    await ensurePiSession(bridge, p("messages")); // 改端点格式
+    const p = (providerId: string): PiOpenRequest => ({ ...req(), providerId });
+    await ensurePiSession(bridge, p("ds"));
+    await ensurePiSession(bridge, p("openai")); // 换供应商
     expect(bridge.piClose).toHaveBeenCalledWith("s1");
     expect(bridge.piOpen).toHaveBeenCalledTimes(2);
   });
 
-  it("provider 配置不变 → 指纹一致复用不重开", async () => {
+  it("供应商不变 → 指纹一致复用不重开", async () => {
     const bridge = fakeBridge();
-    const p: PiOpenRequest = {
-      ...req(),
-      provider: { id: "ds", baseUrl: "https://x/v1", endpointFormat: "messages", models: [{ id: "m", reasoning: true }] },
-    };
+    const p: PiOpenRequest = { ...req(), providerId: "ds" };
+    await ensurePiSession(bridge, { ...p });
+    await ensurePiSession(bridge, { ...p });
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("providerId 缺省 ↔ 有值 → 视为不同配置,重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, { ...req() });
+    await ensurePiSession(bridge, { ...req(), providerId: "ds" });
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  // 同一 providerId 下改了自建网关端点 / 认证来源：渲染端看不到 baseUrl/apiKey，
+  // 靠 providerConfigFingerprint 从 ProviderAuthSnapshot 派生的非敏感指纹表达。
+  // 没有它，「填了自建网关但请求还发往官方端点」会是无报错的静默失败。
+  it("同一供应商下 providerFingerprint 变化（如 baseUrl 覆盖）→ 温会话重开", async () => {
+    const bridge = fakeBridge();
+    const p = (providerFingerprint: string): PiOpenRequest => ({ ...req(), providerId: "ds", providerFingerprint });
+    await ensurePiSession(bridge, p('{"baseUrlOverride":null}'));
+    await ensurePiSession(bridge, p('{"baseUrlOverride":"https://my-gateway/v1"}'));
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("providerFingerprint 不变 → 复用温会话,不白白重开", async () => {
+    const bridge = fakeBridge();
+    const p: PiOpenRequest = { ...req(), providerId: "ds", providerFingerprint: '{"baseUrlOverride":null}' };
     await ensurePiSession(bridge, { ...p });
     await ensurePiSession(bridge, { ...p });
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);

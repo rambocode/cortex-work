@@ -305,7 +305,9 @@ export interface SendWritingMessageParams {
   displayText?: string; // 转录展示用的用户正文(剥掉上下文噪音)
   agent: string; // 选定 agent(claude/codex/pi,U8 面板选择)
   model?: string;
-  provider?: CliStartRequest["provider"]; // pi 专用供应商配置
+  // pi 专用:只传供应商 id,endpoint 与密钥由主进程从 Catalog + provider-prefs + 凭据金库解析
+  // （阶段②后渲染端不再持有明文，也不再产出任何模型能力字段——那是本次事故的输入端）。
+  providerId?: string;
   // 推理强度(面板 ModelThinkingPill 选择,claude --effort / codex model_reasoning_effort;pi 忽略)。
   effort?: ReasoningEffort;
   // skill 注入(面板 slash 呼出,与 personal 单发路径同源;见 buildSingleSendSkillInjection):
@@ -355,7 +357,7 @@ export async function sendWritingMessage(params: SendWritingMessageParams): Prom
     cwd: params.cwd,
     prompt: params.prompt,
     ...(params.model ? { model: params.model } : {}),
-    ...(params.provider ? { provider: params.provider } : {}),
+    ...(params.providerId ? { providerId: params.providerId } : {}),
     ...(params.effort ? { effort: params.effort } : {}),
     // skill 注入(有传才带;useOwnSkills 恒 true——写作面板无会话级一键关 skill 的开关)。
     ...(params.skillRecords?.length ? { skillRecords: params.skillRecords, useOwnSkills: true } : {}),

@@ -260,6 +260,9 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(screen.getByText("工具执行审批")).toBeTruthy();
     // 默认模型改为 Catalog 驱动的单一引用字段；未配置时是阻断态而不是两级下拉。
     expect(screen.getByText("默认模型")).toBeTruthy();
+    // 全局默认模型读的是 PersistedState.defaultModelRef（主进程 default-model.ts 同源），
+    // 未配置时必须是阻断态——绝不能悄悄显示某个「第一个可用模型」（计划 §5）。
+    expect(screen.getByText("未配置模型")).toBeTruthy();
     expect(screen.queryByText("从模板添加")).toBeNull();
   });
 

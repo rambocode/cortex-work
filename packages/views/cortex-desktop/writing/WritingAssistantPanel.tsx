@@ -39,7 +39,7 @@ import type {
   CliStartRequest,
   DerivedAgentMeta,
   InjectableSkill,
-  ProviderSettings,
+  DefaultModelRef,
 } from "@cortex-work/core";
 import type { WritingSpacesState } from "@cortex-work/core/writing/spaces";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
@@ -86,6 +86,7 @@ import { matchSlashCommands, type SlashCommand } from "../personal/chat/composer
 import { resolveSkillDispatch } from "../personal/skills/skillDispatch";
 import { skillTitleCase } from "../personal/skills/skillDisplay";
 import { useDismissableMenu } from "../personal/shared/useDismissableMenu";
+import { collectModelOptions, useProviderViews } from "../personal/settings/provider/useProviderData";
 import { WritingEmptyState } from "./WritingEmptyState";
 import { WritingMessageRow } from "./WritingMessageRow";
 import { WritingSlashMenu } from "./WritingSlashMenu";
@@ -119,38 +120,30 @@ interface AgentDispatchOverride {
   piProviderId?: string; // pi 模型所属供应商 id(与 model 配对)
 }
 
-// 按选定 agent 解析发送用的 model / provider:优先面板选择(override),回落默认——
-// pi 从 providerSettings 取(override 供应商 → 默认供应商 → 首个启用)并拍平传主进程
-// (与新会话落地页 draftDefaultsForAgent 同源);其余内置 agent 用 override.model ?? DEFAULT_MODEL。
+// 按选定 agent 解析发送用的 model / providerId:优先面板选择(override),回落默认。
+//
+// pi 侧只解析出 Catalog 引用 {providerId, modelId} —— endpoint 与密钥由主进程从
+// 「Catalog + provider-prefs + 凭据金库」解析（阶段②后渲染端拿不到明文，也不再产出任何
+// 模型能力字段，那是本次事故的输入端）。
+//
+// 回退链：面板选择 → 全局默认 defaultModelRef。旧实现还有 `?? enabled[0]` 与
+// `?? provider.models[0].id` 两级「取第一个」兜底，且数据源是 §5 会清掉的 providerSettings：
+// 清理后前几级全落空，用户会在毫无提示的情况下被换成另一个供应商的另一个模型。已删除（§5）。
 function resolveAgentDispatch(
   agent: AgentKind,
-  providerSettings: ProviderSettings,
+  defaultRef: DefaultModelRef | undefined,
   override?: AgentDispatchOverride,
-): { model?: string; provider?: CliStartRequest["provider"] } {
+): { model?: string; providerId?: string } {
   if (agent !== "pi") {
     // 面板选择可能是旧档脏值(不在 AGENT_MODELS 中):校验后回落默认。
     const valid = AGENT_MODELS[agent].some((m) => m.value === override?.model);
     return { model: valid ? override!.model : DEFAULT_MODEL[agent] };
   }
-  const enabled = providerSettings.providers.filter((p) => p.enabled);
-  const provider =
-    enabled.find((p) => p.id === override?.piProviderId) ??
-    enabled.find((p) => p.id === providerSettings.defaultProviderId) ??
-    enabled[0];
-  if (!provider) return {}; // 未配置 pi 供应商:交由主进程回退/报错
-  const model =
-    provider.models.find((m) => m.id === override?.model)?.id ??
-    provider.models.find((m) => m.id === providerSettings.defaultModel)?.id ??
-    provider.models[0]?.id;
+  const providerId = override?.piProviderId || defaultRef?.providerId || undefined;
+  const model = override?.model || defaultRef?.modelId || undefined;
   return {
     ...(model ? { model } : {}),
-    provider: {
-      id: provider.id,
-      baseUrl: provider.baseUrl,
-      ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
-      // provider 模型展示名字段在设置里叫 label,拍平进主进程 DTO 的 name。
-      models: provider.models.map((m) => ({ id: m.id, ...(m.label ? { name: m.label } : {}) })),
-    },
+    ...(providerId ? { providerId } : {}),
   };
 }
 
@@ -216,7 +209,9 @@ export function WritingAssistantPanel({
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const derivedAgents = usePersonalStore((s) => s.derivedAgents);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  // 全局默认模型引用（Catalog 时代）+ Catalog 候选集：与全局模型选择器同一份数据。
+  const defaultModelRef = usePersonalStore((s) => s.defaultModelRef);
+  const providerViews = useProviderViews().views;
 
   // 检索上下文开关(U4,跨空间共享,持久化在 spaces store)。UI 入口已移到写作设置节(单一真源),
   // 面板不再放快捷开关;此处仅读值供发送时的检索注入门控。
@@ -446,24 +441,25 @@ export function WritingAssistantPanel({
   const piModelOptions = useMemo(
     () =>
       isPi
-        ? providerSettings.providers
-            .filter((p) => p.enabled)
-            .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: m.label ?? m.id })))
+        ? collectModelOptions(providerViews).map((o) => ({
+            value: `${o.providerId}::${o.modelId}`,
+            label: o.model.name,
+          }))
         : [],
-    [isPi, providerSettings],
+    [isPi, providerViews],
   );
   // pill 展示值与发送实际生效值同源:经 resolveAgentDispatch 解析(选择缺失/脏值回落默认)。
   const piDispatchPreview = useMemo(
     () =>
       isPi
-        ? resolveAgentDispatch("pi", providerSettings, {
+        ? resolveAgentDispatch("pi", defaultModelRef, {
             model: modelByAgent["pi"],
             ...(piProviderId ? { piProviderId } : {}),
           })
         : null,
-    [isPi, providerSettings, modelByAgent, piProviderId],
+    [isPi, defaultModelRef, modelByAgent, piProviderId],
   );
-  const piModelValue = `${piDispatchPreview?.provider?.id ?? ""}::${piDispatchPreview?.model ?? ""}`;
+  const piModelValue = `${piDispatchPreview?.providerId ?? ""}::${piDispatchPreview?.model ?? ""}`;
 
   const onChangeModel = useCallback(
     (model: string): void => setAssistantModel(agent, model),
@@ -595,7 +591,7 @@ export function WritingAssistantPanel({
 
     // 模型:优先面板 pill 选择(脏值在 resolveAgentDispatch 内校验回落);
     // 思考强度:mapThinkingForAgent 映射(claude/codex → effort;pi 无 effort 通道,不透传)。
-    const dispatch = resolveAgentDispatch(curAgent, providerSettings, {
+    const dispatch = resolveAgentDispatch(curAgent, defaultModelRef, {
       model: curModelByAgent[curAgent],
       ...(curPiProviderId ? { piProviderId: curPiProviderId } : {}),
     });
@@ -611,7 +607,7 @@ export function WritingAssistantPanel({
       displayText: body || "(仅引用片段)",
       agent: curAgent,
       ...(dispatch.model ? { model: dispatch.model } : {}),
-      ...(dispatch.provider ? { provider: dispatch.provider } : {}),
+      ...(dispatch.providerId ? { providerId: dispatch.providerId } : {}),
       ...(effort ? { effort } : {}),
       ...(skillRecords?.length ? { skillRecords } : {}),
       ...(invokedSkill ? { invokedSkill } : {}),
@@ -627,7 +623,7 @@ export function WritingAssistantPanel({
     ensureActiveThread,
     setThreadTitle,
     onFlushBeforeSend,
-    providerSettings,
+    defaultModelRef,
     onToast,
   ]);
 

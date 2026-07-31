@@ -818,16 +818,14 @@ function AgentTraceWindowCard({ bridge }: { bridge: DesktopBridge }) {
 // 默认供应商 → Thinking → System Prompt → 工具审批 → 高级定制。
 function PiSection() {
   const { t } = useTranslation("settings");
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
-  // 默认模型的统一引用形态 {providerId, modelId}。二者缺一即视为「未配置」，
-  // 由 ModelRefField 渲染阻断态——不再像旧版那样悄悄回退到「第一个 provider 的第一个模型」。
-  const defaultRef =
-    providerSettings.defaultProviderId && providerSettings.defaultModel
-      ? { providerId: providerSettings.defaultProviderId, modelId: providerSettings.defaultModel }
-      : undefined;
+  // 全局默认模型：Catalog 时代的单一引用 PersistedState.defaultModelRef。
+  // 主进程侧 providers/default-model.ts 读的是同一个字段（Reply / Research / 做梦蒸馏的兜底源），
+  // 所以这里写进去的值就是那三处真正会用的——不再经已废弃、且首启即被清理的 providerSettings。
+  // 二者缺一即「未配置」，由 ModelRefField 渲染阻断态，不回退到任何模型（计划 §5）。
+  const defaultRef = usePersonalStore((s) => s.defaultModelRef);
+  const setDefaultModelRef = usePersonalStore((s) => s.setDefaultModelRef);
   // 供应商管理弹窗:由「默认供应商」卡片里的按钮打开(低频管理不占页面)。
   const [provMgrOpen, setProvMgrOpen] = useState(false);
 
@@ -845,7 +843,7 @@ function PiSection() {
           label={t("pi.defaultModel")}
           hint={t("pi.defaultProviderDesc")}
           value={defaultRef}
-          onChange={(ref) => setProviderDefaults({ defaultProviderId: ref.providerId, defaultModel: ref.modelId })}
+          onChange={(ref) => setDefaultModelRef(ref)}
         />
         <SRow label={t("providers.manageHint")} end>
           <button className="pw-btn-sm" onClick={() => setProvMgrOpen(true)}>

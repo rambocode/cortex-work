@@ -11,6 +11,7 @@ import {
   __handleCliExitForTest,
   __handlePiEventForTest,
   __resetPersonalMessageRunsForTest,
+  __resolveSessionModelRefForTest,
   __setBridgeForTest,
   __flushChatForTest,
   __clearProcessForTest,
@@ -2867,5 +2868,44 @@ describe("appendLocalUserMessage 本地追加(不 spawn CLI)", () => {
       "先前的对话",
       "调研向量数据库选型",
     ]);
+  });
+});
+
+describe("resolveSessionModelRef 回退语义（计划 §5：不静默回退）", () => {
+  const piSession = (over: Partial<SessionMeta> = {}): SessionMeta => ({
+    id: "s-ref",
+    projectId: "p1",
+    title: "t",
+    agent: "pi",
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  });
+
+  beforeEach(() => {
+    usePersonalStore.setState({ defaultModelRef: { providerId: "gp", modelId: "gm" } });
+  });
+
+  it("会话两个字段都有 → 原样用，不看全局默认", () => {
+    expect(__resolveSessionModelRefForTest(piSession({ providerId: "sp", model: "sm" }))).toEqual({
+      providerId: "sp",
+      modelId: "sm",
+    });
+  });
+
+  it("只有 session.model → 保留它（用户对本会话的显式选择会真的发出去），provider 取全局默认", () => {
+    expect(__resolveSessionModelRefForTest(piSession({ model: "sm" }))).toEqual({
+      providerId: "gp",
+      modelId: "sm",
+    });
+  });
+
+  it("两者都无 → 整体落全局默认", () => {
+    expect(__resolveSessionModelRefForTest(piSession())).toEqual({ providerId: "gp", modelId: "gm" });
+  });
+
+  it("全局默认也没有 → 空引用（消费方据此进「未配置模型」阻断态，不兜底任何模型）", () => {
+    usePersonalStore.setState({ defaultModelRef: undefined });
+    expect(__resolveSessionModelRefForTest(piSession())).toEqual({ providerId: "", modelId: "" });
   });
 });

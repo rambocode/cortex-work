@@ -1294,14 +1294,11 @@ export interface CliStartRequest {
   // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval(codex approval_policy /
   // claude 审批 / pi 审批 extension)。缺省 = auto。
   approvalPolicy?: ApprovalPolicy;
-  // pi 专用:renderer 把当前会话选中的供应商完整配置拍平传入,主进程据此生成
-  // extension（registerProvider）+ 注入 key env（与 llm.ts「主进程不读设置文件」惯例一致）。
-  provider?: {
-    id: string;
-    baseUrl: string;
-    apiKey?: string;
-    models: { id: string; name?: string }[];
-  };
+  // pi 专用:renderer 只传 Catalog 中的 providerId,主进程据此从
+  // 「Catalog + provider-prefs + 凭据金库」解析出 endpoint 与密钥（resolvePiProviderInput）。
+  // 阶段② 后凭据只在主进程金库里,渲染端不再持有 baseUrl/apiKey;能力字段更是彻底不再由
+  // 渲染端产出（旧的 per-model reasoning/vision/contextTokens 正是本次能力事故的输入端）。
+  providerId?: string;
   // 主进程内部填充:生成的 extension 文件绝对路径（renderer 不传,buildArgs 读取）。
   piExtensionPath?: string;
   // 委派（delegate）：本轮被 @ 的协作者角色。非空时主进程注入 cortex-delegate MCP server
@@ -1455,16 +1452,14 @@ export interface PiOpenRequest {
   // buildRpcArgs 折入 -e 批次。与 skillPaths 同为「core 解析、装配单点」。仅长驻 RPC 会话注入;
   // 单发 headless（pi.ts buildArgs,用于闪记深化/plan 生成）有意不加载市场扩展。
   extensionPaths?: string[];
-  // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
-  // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
-  // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。
-  provider?: {
-    id: string;
-    baseUrl: string;
-    apiKey?: string;
-    endpointFormat?: EndpointFormat;
-    models: { id: string; name?: string; reasoning?: boolean; vision?: boolean; contextTokens?: number }[];
-  };
+  // 供应商:与 CliStartRequest 同一契约 —— 只传 providerId,主进程解析出 endpoint 与密钥。
+  // 旧形状还额外带 per-model 能力标记（reasoning/vision/contextTokens）交给 renderPiExtension
+  // 「渲染高级配置」—— 那正是覆盖 pi 内置模型目录、把多模态模型降级成纯文本的入口，已彻底移除。
+  providerId?: string;
+  // 同一 providerId 下影响 extension 内容的配置摘要（endpoint 覆盖 / 认证来源）,供
+  // extensionFingerprint 判定温会话是否需重开。由 modelCapabilities.providerConfigFingerprint
+  // 派生,**不含任何密钥或其摘要**。
+  providerFingerprint?: string;
   // 主进程内部填充:生成的 provider extension 文件绝对路径（renderer 不传,buildRpcArgs 读取）。
   piExtensionPath?: string;
   // 阶段3 深度定制开关（renderer 传）。

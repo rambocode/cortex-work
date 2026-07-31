@@ -29,7 +29,7 @@ import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-t
 import type { DesktopBridge } from "../desktop/bridge";
 import type { ModelRef } from "../desktop/provider-catalog";
 // 发送前 vision 阻断（计划 §2.3）：能力只读、三态（含 unknown），见 modelCapabilities 文件头。
-import { checkImageSupport } from "./modelCapabilities";
+import { checkImageSupport, providerConfigFingerprint } from "./modelCapabilities";
 import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, type VisionBlockHint } from "../store/personal";
@@ -2252,10 +2252,11 @@ async function buildPiOpenForSession(
   // 由主进程按未配置处理。
   const modelRef = resolveSessionModelRef(session);
   const model = modelRef.modelId || undefined;
-  // provider 对象仍走 @deprecated 的 providerSettings（主进程首启清理后自然为 undefined）。
-  // 阶段②后凭据由主进程金库负责，这里不再是真相来源，保留只为旧壳过渡期不炸。
-  const providerSettings = usePersonalStore.getState().providerSettings;
-  const provider = providerSettings.providers.find((p) => p.id === modelRef.providerId && p.enabled);
+  // 只传 providerId：endpoint 与密钥由主进程从「Catalog + provider-prefs + 凭据金库」解析
+  // （resolvePiProviderInput，pi:open 的 preparePiOpenRequest 里统一做）。
+  // 旧实现在这里从 @deprecated 的 providerSettings 找 provider 对象拍平下传；§5 清理后那份配置
+  // 恒为空 → provider 永远是 undefined → pi 静默退回自己的默认 provider，用户以为在用选定的
+  // 模型、实际不是。这是主聊天路径，静默错得最贵。
   // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
   // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
   const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
@@ -2281,23 +2282,14 @@ async function buildPiOpenForSession(
     useOwnSkills: session.useOwnSkills,
     skillPaths,
     extensionPaths,
-    provider: provider
-      ? {
-          id: provider.id,
-          baseUrl: provider.baseUrl,
-          apiKey: provider.apiKey,
-          endpointFormat: provider.endpointFormat,
-          // ProviderModelOption 用 label,pi 端用 name → 此处映射;并带上 per-model 能力标记
-          // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置。
-          models: provider.models.map((m) => ({
-            id: m.id,
-            name: m.label,
-            reasoning: m.reasoning,
-            vision: m.vision,
-            contextTokens: m.contextTokens,
-          })),
-        }
-      : undefined,
+    // 只给 id。旧实现在这里拍平出 baseUrl/apiKey **以及一份 per-model 能力标记**
+    // (reasoning/vision/contextTokens) —— 后者正是本次事故的输入端：它一路喂到
+    // renderPiExtension，替换掉 pi 内置模型目录。能力现在只从 Catalog 读、对用户只读，
+    // 渲染端不再产出任何能力字段。
+    providerId: modelRef.providerId || undefined,
+    // 同一 provider 下改了自建网关端点 / 换了认证来源时，靠这个摘要漂移 extensionFingerprint
+    // 触发温会话重开；否则新 extension 要到下次冷启才加载（= 填了自建网关却仍发往官方端点）。
+    providerFingerprint: await providerConfigFingerprint(bridge, modelRef.providerId || undefined),
     // 审批开关/清单由运行模式派生（full-auto 档内部已沿用 piCustom 设置,故此处不再单独读）。
     // 空数组 [] 原样穿透(=不审批任何工具),undefined→默认三件 是 renderApprovalExtension 的职责。
     enableToolApproval: piCaps.enableToolApproval,
@@ -3398,20 +3390,18 @@ export function usePersonalActions(): PersonalActions {
           }
           // Pi 只要走 fresh startCli（@mention 委派或隔离产物）都必须继承当前供应商；否则即使
           // 普通长驻会话已配置 API key，fresh 进程仍会退回 Pi 默认 provider 并报未登录。
-          let piProvider:
-            | { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] }
-            | undefined;
+          // 只传 providerId：endpoint 与密钥由主进程从「Catalog + provider-prefs + 凭据金库」
+          // 解析（cli:start 入口的 resolvePiProviderInput）。旧实现从 @deprecated 的
+          // providerSettings 拍平出 baseUrl/apiKey，§5 清理后恒为空 → fresh 进程退回 pi 默认
+          // provider 并报未登录，正是上面那段注释担心的场景。
+          let piProviderId: string | undefined;
           let resolvedModel = sendSession.model;
           if (sendSession.agent === "pi") {
             // 与 RPC 路径（buildPiOpenForSession）及发送前阻断共用 resolveSessionModelRef，
             // 三处同口径；同样不再用「第一个模型」静默兜底（§5）。
             const modelRef = resolveSessionModelRef(sendSession);
             resolvedModel = modelRef.modelId || undefined;
-            const ps = usePersonalStore.getState().providerSettings;
-            const p = ps.providers.find((x) => x.id === modelRef.providerId && x.enabled);
-            piProvider = p
-              ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
-              : undefined;
+            piProviderId = modelRef.providerId || undefined;
           }
           const delegateGuide = delegateRoles?.length
             ? buildDelegateOrchestrationGuide(delegateRoles, {
@@ -3450,8 +3440,9 @@ export function usePersonalActions(): PersonalActions {
             // 会话级联网:主进程据此决定是否注入研究引擎 MCP（web_search / web_read）。
             // 逐轮 fresh spawn,改开关下一轮即生效,无需重开。
             webSearch: sendSession.webSearch === true,
-            // Pi fresh 单发的 provider（生成 provider extension）；claude/codex 为 undefined。
-            provider: piProvider,
+            // Pi fresh 单发的供应商 id（主进程据此解析并生成 provider extension）；
+            // claude/codex 为 undefined。
+            providerId: piProviderId,
           });
         }
         // 主对话 spawn 成功后再异步生成标题（CLI 缺失时不会白跑）。

@@ -88,6 +88,7 @@ export {
   type EditorInfo,
   type ProviderSettings,
   type ProviderProfile,
+  type DefaultModelRef,
   type ProviderModelOption,
   type ProviderPreset,
   type EndpointFormat,

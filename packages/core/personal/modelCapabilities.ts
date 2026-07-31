@@ -84,6 +84,40 @@ export function resetProviderCatalogCache(): void {
 }
 
 /**
+ * 派生某 Provider 的「会影响 pi extension 内容」的配置摘要，供 `extensionFingerprint` 使用。
+ *
+ * 为什么需要它：阶段② 后渲染端只持有 providerId，看不到 baseUrl 覆盖与密钥。若指纹只认
+ * providerId，用户改了自建网关端点或换了密钥时**温会话不会重开**，新 extension 到下次冷启才
+ * 加载 —— 表现为「设置里填了自建网关，请求还发往官方端点」这类无报错的静默失败，正是计划
+ * §6「配置变更后经 extensionFingerprint 在下一轮重启」要防的。
+ *
+ * ⚠️ 只取 `baseUrlOverride` / `configured` / `source` 三项非敏感字段。**绝不放密钥或其摘要**：
+ * 指纹会进渲染端内存与比较逻辑，放进去等于把凭据泄回渲染层。密钥更换时 `configured`/`source`
+ * 未必变，这一点是已知取舍——换密钥而不换来源时仍需冷启，但那不会指向错误的端点。
+ *
+ * 拿不到认证状态（Web 端、旧壳、主进程未就绪）时返回 undefined，退化成「只有换 id 才重开」。
+ */
+export async function providerConfigFingerprint(
+  bridge: DesktopBridge | null | undefined,
+  providerId: string | undefined,
+): Promise<string | undefined> {
+  if (!providerId || !bridge?.providerAuthStatus) return undefined;
+  try {
+    const snapshot = await bridge.providerAuthStatus();
+    const status = snapshot.statuses.find((s) => s.providerId === providerId);
+    if (!status) return undefined;
+    return JSON.stringify({
+      baseUrlOverride: status.baseUrlOverride ?? null,
+      configured: status.configured,
+      source: status.source,
+    });
+  } catch {
+    // 认证状态读失败不该阻断开会话：退化成「只有换 id 才重开」，比整条链路挂掉好。
+    return undefined;
+  }
+}
+
+/**
  * 由已加载的 Catalog 判定图片能力。纯函数、可单测。
  * `modelSupportsImage` 返回 undefined 即「目录里没有这个 {providerId, modelId}」→ unknown。
  */

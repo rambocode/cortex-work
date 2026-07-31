@@ -13,6 +13,7 @@ import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcRe
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
 import { writePiExtension } from "../agents/pi-providers";
+import { resolvePiProviderInput } from "../providers/pi-provider-input";
 import {
   writeApprovalExtension,
   writeAskQuestionExtension,
@@ -175,6 +176,13 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   // cwd 归一放在最前:空串会让 spawn 继承 Electron 自己的工作目录
   //(dev 下 = apps/desktop/,agent 产物写进程序目录)。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
+  // 供应商解析:renderer 只给 providerId,endpoint 与密钥从「Catalog + provider-prefs + 凭据金库」取。
+  // 这里是 pi 主会话与三段编排子会话的共同入口,放这一处即两条路径都覆盖。
+  // 不接的话,§5 清掉 providerSettings 后 provider 恒为 undefined —— pi 会静默退回自己的默认
+  // provider,用户以为在用选定的模型,实际不是。
+  if (!prepared.provider && prepared.providerId) {
+    prepared.provider = await resolvePiProviderInput(prepared.providerId);
+  }
   if (prepared.provider) prepared.piExtensionPath = writePiExtension(prepared.provider);
 
   const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];

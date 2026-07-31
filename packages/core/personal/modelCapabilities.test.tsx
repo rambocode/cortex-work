@@ -22,6 +22,7 @@ import {
   classifyImageSupport,
   checkImageSupport,
   isDanglingModelRef,
+  providerConfigFingerprint,
   resetProviderCatalogCache,
 } from "./modelCapabilities";
 import { __resetPiSessionsForTest } from "./pi-session";
@@ -262,5 +263,94 @@ describe("send：多模态模型 + 图片 → 正常放行", () => {
     expect(piPrompt).toHaveBeenCalledTimes(1);
     // 无图不查 Catalog：发送路径零额外 IPC 开销。
     expect(providerCatalogGet).not.toHaveBeenCalled();
+  });
+});
+
+describe("providerConfigFingerprint：同一供应商下的配置变更也要触发温会话重开", () => {
+  // 背景：渲染端阶段②后已不持有 baseUrl/apiKey，extensionFingerprint 只能看到 providerId。
+  // 若不额外派生这个指纹，用户填了自建网关覆盖、温会话却不重开 → 请求仍发往官方端点且**毫无报错**，
+  // 正是「能填但不生效」那类静默失败（我们为此专门没把 Base URL 输入框做成假可用）。
+  function authBridge(status: Record<string, unknown> | undefined) {
+    return {
+      providerAuthStatus: vi.fn(async () => ({
+        statuses: status ? [status] : [],
+        health: { available: true },
+        hiddenProviderIds: [],
+      })),
+    } as unknown as DesktopBridge;
+  }
+
+  it("baseUrl 覆盖变化 → 指纹变化（换自建网关会在下一轮重开）", async () => {
+    const a = await providerConfigFingerprint(
+      authBridge({ providerId: "openai", configured: true, source: "safe-storage" }),
+      "openai",
+    );
+    const b = await providerConfigFingerprint(
+      authBridge({
+        providerId: "openai",
+        configured: true,
+        source: "safe-storage",
+        baseUrlOverride: "https://my-gateway/v1",
+      }),
+      "openai",
+    );
+    expect(a).not.toBe(b);
+  });
+
+  it("认证来源变化（env → safe-storage）→ 指纹变化", async () => {
+    const a = await providerConfigFingerprint(
+      authBridge({ providerId: "openai", configured: true, source: "env" }),
+      "openai",
+    );
+    const b = await providerConfigFingerprint(
+      authBridge({ providerId: "openai", configured: true, source: "safe-storage" }),
+      "openai",
+    );
+    expect(a).not.toBe(b);
+  });
+
+  it("配置不变 → 指纹稳定（不会白白重开温会话）", async () => {
+    const status = { providerId: "openai", configured: true, source: "safe-storage", baseUrlOverride: "https://g/v1" };
+    expect(await providerConfigFingerprint(authBridge(status), "openai")).toBe(
+      await providerConfigFingerprint(authBridge(status), "openai"),
+    );
+  });
+
+  it("**绝不含密钥或其摘要**：指纹里只有 baseUrlOverride / configured / source 三项", async () => {
+    const fp = await providerConfigFingerprint(
+      authBridge({
+        providerId: "openai",
+        configured: true,
+        source: "safe-storage",
+        baseUrlOverride: "https://g/v1",
+        // 就算主进程哪天不小心多塞了字段，也不能漏进指纹。
+        apiKey: "sk-LEAKED",
+        token: "tok-LEAKED",
+      }),
+      "openai",
+    );
+    expect(fp).not.toContain("sk-LEAKED");
+    expect(fp).not.toContain("tok-LEAKED");
+    expect(JSON.parse(fp!)).toEqual({
+      baseUrlOverride: "https://g/v1",
+      configured: true,
+      source: "safe-storage",
+    });
+  });
+
+  it("拿不到认证状态（Web 端 / 旧壳 / 该 provider 无状态）→ undefined，退化成只认 id，不阻断开会话", async () => {
+    expect(await providerConfigFingerprint(null, "openai")).toBeUndefined();
+    expect(await providerConfigFingerprint(authBridge(undefined), "openai")).toBeUndefined();
+    expect(await providerConfigFingerprint(authBridge({ providerId: "other" }), "openai")).toBeUndefined();
+    expect(await providerConfigFingerprint(authBridge({ providerId: "openai" }), undefined)).toBeUndefined();
+  });
+
+  it("providerAuthStatus 抛错 → undefined 而不是让整条开会话链路挂掉", async () => {
+    const bridge = {
+      providerAuthStatus: vi.fn(async () => {
+        throw new Error("main not ready");
+      }),
+    } as unknown as DesktopBridge;
+    await expect(providerConfigFingerprint(bridge, "openai")).resolves.toBeUndefined();
   });
 });
