@@ -43,11 +43,19 @@ export const RP_LEFT_RESERVED = 250;
 // 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) / :has(.pw-research-panel) 的默认宽度公式
 // 是同一个数,改一处要改三处(两条 CSS 规则 + 本常量)。
 export const RP_LEFT_RESERVED_ARTIFACT = 660;
+// 文件预览是覆盖在中栏上的侧边层；拖拽上限要露出 660px 中栏，并给右侧
+// --pw-float-gap 留 8px。默认文件列表仍是同层三栏，不使用这个拖拽档位。
+const RP_LEFT_RESERVED_FILES = RP_LEFT_RESERVED_ARTIFACT + 8;
 
 /// 这些视图按「宽面板」档位给中栏保留 660px；其余走 RP_LEFT_RESERVED。
 /// knowledge 同档的理由：知识库文档常含宽表格，320px 窄栏里每列会被压成一列一个字。
 function isWidePanel(view: string): boolean {
   return view === "artifact" || view === "research" || view === "knowledge";
+}
+
+function reservedWidthForView(view: string): number {
+  if (view === "files") return RP_LEFT_RESERVED_FILES;
+  return isWidePanel(view) ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
 }
 
 /// 允许放大（绝对定位盖住中栏）的视图。放大是强状态，只给「读长文/宽内容」的面板开放；
@@ -117,7 +125,7 @@ export function PersonalRightPanel({
       const startWidth = rect.width || RP_MIN_WIDTH;
       // 用位移增量算宽度,不依赖 rect.left/right 是否等于视觉拖拽条位置。正常状态给
       // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
-      const reserved = isWidePanel(view) ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
+      const reserved = reservedWidthForView(view);
       const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - reserved);
       const max = startWidth > reservedMax
         ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth)
@@ -169,6 +177,7 @@ export function PersonalRightPanel({
   return (
     <aside
       className={`right pw-prompts${maximized ? " is-maximized" : ""}`}
+      data-right-view={view}
       style={
         width
           ? ({ "--rp-custom-width": `${width}px` } as React.CSSProperties)

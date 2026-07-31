@@ -102,6 +102,7 @@ import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
 import { installAppMenu } from "./app-menu";
 import { createLogger } from "./log";
+import { createMainWindowOptions } from "./main-window-geometry";
 
 const log = createLogger("main");
 
@@ -413,33 +414,11 @@ function createWindow(): void {
   // 把侧栏背后的背景链一路打透到窗口(见 packages/views/cortex-desktop/cortex-desktop.css §Sidebar vibrancy)。
   // 二者门控条件一致——都仅 macOS;此处不设 transparent:true(那是给镂空/穿透窗用的,会让 vibrancy 失效)。
   const isMacOS = process.platform === "darwin";
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 820,
-    minWidth: 520,
-    minHeight: 640,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 13 },
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: isMacOS ? "#00000000" : "#cfcbc1",
-    ...(isMacOS
-      ? {
-          vibrancy: "sidebar" as const,
-          // active:窗口失焦时仍保持磨砂(默认 followWindow 会在失焦时把材质褪为灰色平面),
-          // 保证左侧菜单栏在任何焦点状态下都稳定透出壁纸。
-          visualEffectState: "active" as const,
-        }
-      : {}),
+  mainWindow = new BrowserWindow(createMainWindowOptions({
+    isMacOS,
     icon: appIconPath,
-    webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
-      // 开启内嵌浏览器 <webview> 能力。webview 的安全靠 installBrowserWebviewGuards()
-      // 的三道闸门兜底(强制安全 prefs + 导航/新窗口闸门),见 browser/webviewGuards.ts。
-      webviewTag: true,
-    },
-  });
+    preload: join(__dirname, "../preload/index.js"),
+  }));
 
   // 启动最小化：不显示主窗口（仅托盘常驻）;否则就绪即显示。
   mainWindow.on("ready-to-show", () => {

@@ -231,6 +231,81 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     expect(usePersonalStore.getState().rightPanelWidth).toBe(RP_MIN_WIDTH);
   });
 
+  it("文件预览 overlay 拖到最宽时仍露出 660px 中栏与 8px 浮动间距", () => {
+    usePersonalStore.setState({ rightView: "files" });
+    const { container } = renderPanel();
+    const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
+    const resizer = container.querySelector<HTMLElement>(".pw-rp-resizer")!;
+    aside.getBoundingClientRect = () =>
+      ({ right: 900, left: 480, width: 420, top: 0, bottom: 0, x: 480, y: 0, height: 0, toJSON() {} }) as DOMRect;
+    aside.parentElement!.getBoundingClientRect = () =>
+      ({ right: 1600, left: 0, width: 1600, top: 0, bottom: 0, x: 0, y: 0, height: 0, toJSON() {} }) as DOMRect;
+
+    fireEvent.mouseDown(resizer, { clientX: 480 });
+    fireEvent.mouseMove(document, { clientX: -5000 });
+
+    // overlay 宽度上限 = 宿主宽度 - 660px 可见中栏 - 8px 右栏浮动间距。
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe("932px");
+    fireEvent.mouseUp(document);
+  });
+
+  it("默认文件列表仍参与同层三栏 flex 布局", () => {
+    expect(desktopCss).toMatch(
+      /\.pw-prompts\s*\{[^}]*width:\s*320px;[^}]*position:\s*relative/s,
+    );
+    // files 标记本身不能令右栏脱离文档流；只有打开预览后的 is-fileopen 才切 overlay。
+    expect(desktopCss).not.toMatch(
+      /\.pw-prompts\[data-right-view="files"\]\s*\{[^}]*position:\s*absolute/s,
+    );
+  });
+
+  it("会话内打开文件预览后脱离三栏流,作为覆盖在中栏上的侧边层", () => {
+    const block = desktopCss.match(
+      /\.pw-prompts\[data-right-view="files"\]:has\(\.pw-rp-view\.is-fileopen\)\s*\{([^}]*)\}/s,
+    )?.[1];
+    expect(block).toContain("position: absolute;");
+    expect(block).toContain("top: 0;");
+    expect(block).toContain("right: 0;");
+    expect(block).toContain("bottom: 0;");
+    expect(block).toMatch(/z-index:\s*\d+;/);
+    // 绝对定位必须锚在 .pw-upper，而不是跑到整个窗口。
+    expect(desktopCss).toMatch(/\.pw-upper\s*\{[^}]*position:\s*relative/s);
+    // 中栏本体继续铺满，不再用 min-width 把预览和中栏混成同层 flex。
+    expect(desktopCss).not.toMatch(
+      /\.pw-upper:has\(>\s*\.pw-prompts\[data-right-view="files"\][^)]*\)\s*>\s*\.pw-center-col/,
+    );
+  });
+
+  it("文件预览 overlay 会夹住默认及旧持久化宽度,始终露出 660px 中栏", () => {
+    const block = desktopCss.match(
+      /\.pw-prompts\[data-right-view="files"\]:has\(\.pw-rp-view\.is-fileopen\)\s*\{([^}]*)\}/s,
+    )?.[1];
+    expect(block).toContain(
+      "max-width: calc(100% - 660px - var(--pw-float-gap));",
+    );
+    // 自定义值只参与期望宽度；若继续直接成为 min-width，CSS 的 min 会压过 max。
+    expect(block).toContain(
+      "min-width: min(var(--rp-custom-width, 480px), 480px);",
+    );
+  });
+
+  it("右栏容器暴露文件专属标记,避免其他右栏视图误触发 660px 中栏约束", () => {
+    usePersonalStore.setState({ rightView: "files" });
+    const files = renderPanel();
+    expect(files.container.querySelector("aside.pw-prompts")).toHaveAttribute(
+      "data-right-view",
+      "files",
+    );
+    files.unmount();
+
+    usePersonalStore.setState({ rightView: "todos" });
+    const todos = renderPanel();
+    expect(todos.container.querySelector("aside.pw-prompts")).toHaveAttribute(
+      "data-right-view",
+      "todos",
+    );
+  });
+
   it("点击在拖拽热区内时保留按下偏移,第一帧左右拖动都不先向右跳", () => {
     usePersonalStore.setState({ rightView: "browser", rightPanelWidth: undefined });
     const { container, unmount } = renderPanel();
