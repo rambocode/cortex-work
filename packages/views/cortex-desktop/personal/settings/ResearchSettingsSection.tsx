@@ -12,7 +12,7 @@
 //      不全时会整段丢弃 searchServer，若拿归一化结果直接回写就会把密文抹掉（clobber）。
 //
 // 文案硬编码 zh-Hans（个人工作区惯例，不走 t()）；「用哪个模型 + 数据会去哪」经
-// resolveResearchModelDisplay 解析，与新建表单、主进程编排层同走 core 的 selectResearchModel，
+// useResearchModelDisplay 解析，与右栏面板、主进程 llm-hooks-wiring 同走「两级各自成套」规则，
 // 设置页不另写一套规则，避免「设置里显示 A、实际跑 B」。
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
@@ -28,9 +28,10 @@ import {
 } from "@cortex-work/core/research/direct-search";
 import type { ResearchMode } from "@cortex-work/core/research/types";
 import { RESEARCH_MODE_LABELS } from "../../research/labels";
-import { resolveResearchModelDisplay } from "../../research/modelDisplay";
+import { useResearchModelDisplay } from "../../research/modelDisplay";
 import "../../research/research.css";
 import { SettingCard, SRow } from "./settingsControls";
+import { ModelRefField } from "./provider/ModelRefField";
 
 /// 可禁用的开关行。settingsControls 的 SwitchRow 不支持禁用与角标，此处就近扩一个本地版本，
 /// 不动共享控件（改共享控件会波及十余个设置分区）。
@@ -75,22 +76,18 @@ export function ResearchSettingsSection(): ReactElement {
   const raw = usePersonalStore((s) => s.generalSettings.researchEngine);
   const setGeneralSettings = usePersonalStore((s) => s.setGeneralSettings);
   const settings = useMemo(() => normalizeResearchEngineSettings(raw), [raw]);
-  // 全局供应商配置：模型下拉的选项来源，同时提供「跟随全局默认」这一档的实际取值。
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-
-  // 实际生效的研究模型。**显示这个而不是显示用户填的字面值**：偏好指向的供应商被删掉时，
-  // core 会静默降级到全局默认，界面必须站在实际那一侧，否则用户以为在用 A、其实跑的是 B。
-  const model = useMemo(
-    () =>
-      resolveResearchModelDisplay(providerSettings, {
+  // 「本次研究将使用 X + 数据会去哪」：与右栏面板、以及主进程的 llm-hooks-wiring 共用
+  // useResearchModelDisplay（「研究偏好 → 全局默认」两级各自成套，不做「取第一个模型」兜底）。
+  // 三处同源，避免出现「设置里显示 A、右栏显示 B、主进程跑 C」。
+  const model = useResearchModelDisplay(
+    useMemo(
+      () => ({
         ...(settings.modelProviderId ? { providerId: settings.modelProviderId } : {}),
         ...(settings.modelId ? { modelId: settings.modelId } : {}),
       }),
-    [providerSettings, settings.modelProviderId, settings.modelId],
+      [settings.modelProviderId, settings.modelId],
+    ),
   );
-  // 模型下拉只列**生效供应商**名下的模型：列出别家的模型，用户选了也会被选型丢弃。
-  const modelOptions =
-    providerSettings.providers.find((p) => p.id === model.providerId)?.models ?? [];
 
   // Search Server 的 baseUrl / workspaceId 用本地草稿驱动显示：归一化在两者不全时会整段丢弃
   // searchServer，若直接以归一化结果回填输入框，用户「先填地址后填工作区」的中间态会被清空。
@@ -325,41 +322,19 @@ export function ResearchSettingsSection(): ReactElement {
           研究是长任务，一次会话的 token 消耗比一次聊天高一到两个数量级，可以在这里单独指定模型。
           留「跟随全局默认」则使用「供应商」分区里的默认模型。
         </div>
-        <label className="pw-set-field">
-          <span className="pw-set-lbl">研究模型供应商</span>
-          {/* 换供应商时必须一并清掉 modelId：模型 id 属于某个供应商，留着旧的会在下拉里
-              显示一个不属于新供应商的值（选型侧会丢弃它，但界面看着像生效了）。 */}
-          <select
-            className="pw-set-input"
-            aria-label="研究模型供应商"
-            value={settings.modelProviderId ?? ""}
-            onChange={(e) => patch({ modelProviderId: e.target.value, modelId: "" })}
-          >
-            <option value="">跟随全局默认</option>
-            {providerSettings.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name?.trim() || p.id}
-                {p.enabled ? "" : "（已停用）"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="pw-set-field">
-          <span className="pw-set-lbl">研究模型</span>
-          <select
-            className="pw-set-input"
-            aria-label="研究模型"
-            value={settings.modelId ?? ""}
-            onChange={(e) => patch({ modelId: e.target.value })}
-          >
-            <option value="">跟随全局默认</option>
-            {modelOptions.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* 模型引用改为 Catalog 驱动的单一 {providerId, modelId}（计划 §4.2/§5）：
+            候选是「认证可用 ∧ 未隐藏」的 Provider，能力徽标只读；旧的「跟随全局默认」两级
+            下拉已删除——它会在默认模型变化时悄悄改掉研究实际用的模型，而研究是长任务、
+            换模型的代价与出站路径都不一样。引用悬空时进阻断态，不自动回退。 */}
+        <ModelRefField
+          label="研究模型"
+          value={
+            settings.modelProviderId && settings.modelId
+              ? { providerId: settings.modelProviderId, modelId: settings.modelId }
+              : undefined
+          }
+          onChange={(ref) => patch({ modelProviderId: ref.providerId, modelId: ref.modelId })}
+        />
         {/* 出站说明由所选模型是否在本机推导（core 的 describeModelEgress），
             不是一个可配置项——用户选完模型就已经决定了数据去哪。 */}
         <div className={`pw-res-notice is-${model.isLocal ? "local" : "remote"}`}>

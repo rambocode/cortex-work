@@ -206,5 +206,6 @@
         }
       }
     }
-  }
+  },
+  "summaryModelNotConfigured": "No summary model configured. Pick one in Settings → Timeline — Cortex will not silently fall back to another model."
 }

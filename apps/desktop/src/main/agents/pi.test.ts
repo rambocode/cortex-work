@@ -3,7 +3,10 @@
 // 未变,新增帧见 ignoredFrameTypes 用例）。
 // pi-locate 依赖 electron app,这里 mock 成固定路径避免引入运行时依赖。
 
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./pi-locate", () => ({
   resolvePiBinary: () => "/fake/resources/pi/pi",
@@ -11,10 +14,32 @@ vi.mock("./pi-locate", () => ({
 // pi.ts 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
 vi.mock("electron", () => ({ app: {} }));
 
-import { piDef } from "./pi";
+import { piDef, PiImageArgError } from "./pi";
 import type { CliStartRequest } from "../ipc/types";
 
 const BIN = "/fake/resources/pi/pi";
+
+// 图片校验读真实文件（pi 侧同样按魔数嗅探）,故用真临时文件而非 mock fs —— mock 掉魔数检测
+// 等于把这条链路上唯一有价值的断言删掉。
+const imgDir = mkdtempSync(join(tmpdir(), "cortex-pi-img-"));
+afterAll(() => rmSync(imgDir, { recursive: true, force: true }));
+
+// 最小合法 PNG:8 字节签名 + 长度 13 的 IHDR 块（pi utils/mime.js 的 isPng 判据）。
+function writePng(name: string): string {
+  const path = join(imgDir, name);
+  const buf = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+  buf.writeUInt32BE(13, 8);
+  buf.write("IHDR", 12, "ascii");
+  writeFileSync(path, buf);
+  return path;
+}
+
+function writeBytes(name: string, bytes: number[] | Buffer): string {
+  const path = join(imgDir, name);
+  writeFileSync(path, Buffer.from(bytes as number[]));
+  return path;
+}
 
 const baseReq: CliStartRequest = {
   runId: "r1",
@@ -126,6 +151,142 @@ describe("piDef.buildArgs", () => {
     const { args } = piDef.buildArgs({ ...baseReq, effort: "high" });
     expect(args.join(" ")).not.toContain("effort");
     expect(args.join(" ")).not.toContain("reasoning");
+  });
+});
+
+describe("piDef.buildArgs 图片投递（pi 原生 @<path> 文件参数）", () => {
+  it("能力位声明为 arg-at-path(不再是 none)", () => {
+    expect(piDef.imageDelivery).toBe("arg-at-path");
+  });
+
+  it("无图片:参数与此前完全一致,不出现任何 @ 参数", () => {
+    const { args } = piDef.buildArgs(baseReq);
+    expect(args.some((a) => a.startsWith("@"))).toBe(false);
+    expect(args.at(-1)).toBe("hello");
+  });
+
+  it("单图:追加一个 @<path>,且排在 prompt 之前", () => {
+    const png = writePng("one.png");
+    const { args } = piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/png" }] });
+    expect(args.at(-2)).toBe(`@${png}`);
+    expect(args.at(-1)).toBe("hello");
+  });
+
+  it("多图:数量与顺序逐一对应", () => {
+    const a = writePng("a.png");
+    const b = writeBytes("b.gif", [...Buffer.from("GIF89a"), 0, 0]);
+    const c = writeBytes("c.jpg", [0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+    const { args } = piDef.buildArgs({
+      ...baseReq,
+      images: [
+        { path: a, mimeType: "image/png" },
+        { path: b, mimeType: "image/gif" },
+        { path: c, mimeType: "image/jpeg" },
+      ],
+    });
+    expect(args.filter((x) => x.startsWith("@"))).toEqual([`@${a}`, `@${b}`, `@${c}`]);
+  });
+
+  it("WebP 与 image/jpg 别名都能通过（别名归一后与魔数一致）", () => {
+    const webp = writeBytes("d.webp", [...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WEBP")]);
+    const jpg = writeBytes("e.jpg", [0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+    const { args } = piDef.buildArgs({
+      ...baseReq,
+      images: [
+        { path: webp, mimeType: "image/webp" },
+        { path: jpg, mimeType: "image/jpg" },
+      ],
+    });
+    expect(args.filter((x) => x.startsWith("@"))).toEqual([`@${webp}`, `@${jpg}`]);
+  });
+
+  it("@<path> 不会紧跟在值型 flag 之后（pi 的 --append-system-prompt 会无条件吃掉下一个 arg）", () => {
+    const png = writePng("after-flag.png");
+    const { args } = piDef.buildArgs({
+      ...baseReq,
+      appendSystemPrompt: "S",
+      images: [{ path: png, mimeType: "image/png" }],
+    });
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("S");
+    expect(args.at(-2)).toBe(`@${png}`);
+  });
+
+  it("路径含空格/特殊字符:原样带 @ 前缀（spawn 传数组不过 shell,无需转义）", () => {
+    const png = writePng("with space & 中文.png");
+    const { args } = piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/png" }] });
+    expect(args.at(-2)).toBe(`@${png}`);
+  });
+
+  it("路径不存在 → 结构化错误,不静默丢图", () => {
+    expect(() =>
+      piDef.buildArgs({ ...baseReq, images: [{ path: join(imgDir, "nope.png"), mimeType: "image/png" }] }),
+    ).toThrow(PiImageArgError);
+  });
+
+  it("空文件 → 报错（pi 侧会静默跳过空文件,那正是要避免的静默丢图）", () => {
+    const empty = writeBytes("empty.png", []);
+    try {
+      piDef.buildArgs({ ...baseReq, images: [{ path: empty, mimeType: "image/png" }] });
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as PiImageArgError).code).toBe("empty");
+    }
+  });
+
+  it("内容不是受支持的图片 → unsupported（否则 pi 会当文本文件读进 prompt）", () => {
+    const bad = writeBytes("bad.png", [...Buffer.from("not an image at all")]);
+    try {
+      piDef.buildArgs({ ...baseReq, images: [{ path: bad, mimeType: "image/png" }] });
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as PiImageArgError).code).toBe("unsupported");
+    }
+  });
+
+  it("动图 PNG(APNG) → unsupported（pi 判定其非图片,会退化成文本读取）", () => {
+    const buf = Buffer.alloc(64);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+    buf.writeUInt32BE(13, 8);
+    buf.write("IHDR", 12, "ascii");
+    // IHDR 块之后紧跟 acTL(动图控制块) → APNG。
+    buf.writeUInt32BE(8, 8 + 8 + 13 + 4);
+    buf.write("acTL", 8 + 8 + 13 + 4 + 4, "ascii");
+    const apng = writeBytes("anim.png", buf);
+    try {
+      piDef.buildArgs({ ...baseReq, images: [{ path: apng, mimeType: "image/png" }] });
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as PiImageArgError).code).toBe("unsupported");
+    }
+  });
+
+  it("声明 MIME 与实际内容不符 → mime-mismatch", () => {
+    const png = writePng("mismatch.png");
+    try {
+      piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/webp" }] });
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as PiImageArgError).code).toBe("mime-mismatch");
+    }
+  });
+
+  it("以 @ 开头的 prompt 被加前导空格,避免被 pi 当成文件参数吞掉（实测会 exit 1 且无任何输出）", () => {
+    expect(piDef.buildArgs({ ...baseReq, prompt: "@张三 帮我看看" }).args.at(-1)).toBe(" @张三 帮我看看");
+    // 非 @ 开头一律原样,不引入任何多余空白。
+    expect(piDef.buildArgs({ ...baseReq, prompt: "看看 @张三 的意见" }).args.at(-1)).toBe("看看 @张三 的意见");
+  });
+
+  it("超过 6 张 → too-many,整体拒绝", () => {
+    const images = Array.from({ length: 7 }, (_, i) => ({
+      path: writePng(`many-${i}.png`),
+      mimeType: "image/png",
+    }));
+    try {
+      piDef.buildArgs({ ...baseReq, images });
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as PiImageArgError).code).toBe("too-many");
+    }
   });
 });
 

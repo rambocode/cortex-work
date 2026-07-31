@@ -1,14 +1,15 @@
-// 草稿生成器（U7 / R4）：对 reply 专属解析出的 OpenAI 兼容供应商，直连 /v1/chat/completions
-// 单发生成一条回复草稿，无会话。
+// 草稿生成器（U7 / R4）：按 reply 专属解析出的模型引用，经 Pi Model Gateway 单发生成一条
+// 回复草稿，无会话。
 //
 // 关键取舍（KTD3，生成通道从「默认 agent CLI」改为「模型直连」）：
-//   - agent CLI 冷启动重（数百 ms~秒级）且无 temperature，快捷回复要秒回；改直连既快、又能分层温度。
+//   - agent CLI 冷启动重（数百 ms~秒级）且无 temperature，快捷回复要秒回；改走 Gateway 既快、
+//     又能分层温度。（阶段③·4.1 前这里是自拼 OpenAI 兼容端点的直连，现已收编。）
 //   - 温度分层（源项目契约经直连恢复）：首条候选 0.3、预生成/翻牌 0.9、语气蒸馏 0.2；由调用方按场景传入。
 //     避重列表机制（buildReplyPrompt.avoidReplies）保留不动，与温度叠加提升多样性。
-//   - system 走独立消息通道（直连支持 system role，不再拼接进 user）。
-//   - 请求发送/解析/错误契约收敛在 ../ipc/openai-chat.ts（与 llm:openaiComplete 共用真源，
-//     apiKey 不出 main）；本文件只补 reply 场景差异：30s 超时（比 llm.ts 的 60s 短，避免用户久等）、
-//     调用方取消信号（controller esc / 重入时 abort 即中止在途请求）。
+//   - system 走独立消息通道（Gateway 把 system 归到 pi 的 Context.systemPrompt，不拼接进 user）。
+//   - 请求/错误契约收敛在 ../ipc/openai-chat.ts（现已改架在 providers/gateway.ts 之上，
+//     本模块拿不到也不需要任何 baseUrl/apiKey）；本文件只补 reply 场景差异：30s 超时
+//     （比 llm.ts 的 60s 短，避免用户久等）、调用方取消信号（controller esc / 重入时 abort）。
 //   - 输出经 cleanAgentOutput 清洗（剥围栏 / 特殊 token / 开场白 / 引号）后返回；清洗后为空视为「空候选」
 //     抛 EmptyDraftError，由 controller 推气泡错误态（不静默回 idle）。
 
@@ -17,6 +18,7 @@ import type { ReplyStance } from "@cortex-work/core/reply/stance";
 import { parseStanceLine } from "@cortex-work/core/reply/stance";
 import type { ResolvedReplyModel } from "./resolve-model";
 import { postChatCompletion, postChatCompletionStream } from "../ipc/openai-chat";
+import type { PiGatewayRuntime } from "../providers/pi-runtime";
 import { cleanAgentOutput } from "./controller-state";
 
 /** 清洗后草稿为空（模型只吐了围栏 / 寒暄 / 空白）。controller 据此推「空候选」错误态。 */
@@ -42,15 +44,15 @@ export const REPLY_TEMPERATURES = {
   distill: 0.2,
 } as const;
 
-/** 依赖注入口（测试可替换 fetchFn，默认走全局 fetch，从不真发网络请求）。 */
+/** 依赖注入口（测试传替身 pi 运行时，默认走真实 Gateway，从不真发网络请求）。 */
 export interface ChatCompleteDeps {
-  fetchFn?: typeof fetch;
+  runtime?: PiGatewayRuntime;
 }
 
 /** chatComplete/generateDraft 共用入参（蒸馏也走 chatComplete，故命名不限于 draft）。 */
 export interface ChatCompleteParams {
   prompt: ReplyPrompt;
-  /** 已解析的直连目标（供应商 baseUrl/apiKey/model；由 resolveReplyModel 产出）。 */
+  /** 已解析的模型引用（{providerId, modelId}；由 resolveReplyModel 产出）。 */
   target: ResolvedReplyModel;
   /** 采样温度（首条 0.3 / 预生成翻牌 0.9 / 蒸馏 0.2，由调用方按场景传）。 */
   temperature: number;
@@ -59,7 +61,7 @@ export interface ChatCompleteParams {
 }
 
 /**
- * 底层单发补全：system+user 两条消息直连 chat completions（带 temperature 与取消信号），返回
+ * 底层单发补全：system+user 两条消息经 Gateway 出站（带 temperature 与取消信号），返回
  * 模型原始输出（不清洗）。语气蒸馏走此入口（原始 bullet 行交 cleanDistilledRules 过滤，不能被
  * cleanAgentOutput 误伤）；候选生成走下方 generateDraft 包装。非 2xx / 无内容抛错。
  */
@@ -69,10 +71,9 @@ export async function chatComplete(
 ): Promise<string> {
   const { target, prompt } = params;
   return postChatCompletion({
-    baseUrl: target.baseUrl,
-    apiKey: target.apiKey,
-    model: target.model,
-    // system 走独立消息（直连有 system 通道，不再拼接进 user）。
+    providerId: target.providerId,
+    modelId: target.modelId,
+    // system 走独立消息（Gateway 归并到 pi 的 Context.systemPrompt，不拼接进 user）。
     messages: [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user },
@@ -80,7 +81,7 @@ export async function chatComplete(
     temperature: params.temperature,
     signal: params.signal,
     timeoutMs: REQUEST_TIMEOUT_MS,
-    fetchFn: deps.fetchFn,
+    ...(deps.runtime ? { runtime: deps.runtime } : {}),
   });
 }
 
@@ -140,9 +141,8 @@ export async function generateDraftStream(
 ): Promise<StancedDraft> {
   const { target, prompt } = params;
   const content = await postChatCompletionStream({
-    baseUrl: target.baseUrl,
-    apiKey: target.apiKey,
-    model: target.model,
+    providerId: target.providerId,
+    modelId: target.modelId,
     messages: [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user },
@@ -150,7 +150,7 @@ export async function generateDraftStream(
     temperature: params.temperature,
     signal: params.signal,
     timeoutMs: REQUEST_TIMEOUT_MS,
-    fetchFn: deps.fetchFn,
+    ...(deps.runtime ? { runtime: deps.runtime } : {}),
     onDelta: (accumulated) => {
       const text = displayableStreamText(accumulated);
       if (text != null) onUpdate(text, parseStanceLine(accumulated).stance);

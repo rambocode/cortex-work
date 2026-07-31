@@ -9,37 +9,13 @@
 // 纯装配判定函数 buildResearchLlmHooks。
 import { describe, expect, it } from "vitest";
 
-import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import type { ResearchSessionSummary } from "@cortex-work/core/research/types";
 
 import { buildResearchLlmHooks } from "./llm-hooks-wiring";
 
-/// 一个指向本机的 provider（loopback）：选中它等于「正文不出本机」。
-const localProviders: ProviderSettings = {
-  providers: [
-    {
-      id: "local",
-      name: "本地",
-      baseUrl: "http://127.0.0.1:11434/v1",
-      endpointFormat: "chat_completions",
-      models: [{ id: "qwen3" }],
-      enabled: true,
-    },
-  ],
-};
-
-const cloudProviders: ProviderSettings = {
-  providers: [
-    {
-      id: "cloud",
-      name: "云",
-      baseUrl: "https://api.example.com/v1",
-      endpointFormat: "chat_completions",
-      models: [{ id: "gpt-x" }],
-      enabled: true,
-    },
-  ],
-};
+/// 阶段③·4.1 收编后装配层只看「有没有一个完整的模型引用」，不再看 provider 列表。
+const CLOUD = { providerId: "cloud", modelId: "gpt-x" };
+const LOCAL = { providerId: "local", modelId: "qwen3" };
 
 function summary(overrides: Partial<ResearchSessionSummary> = {}): ResearchSessionSummary {
   return {
@@ -58,10 +34,10 @@ function summary(overrides: Partial<ResearchSessionSummary> = {}): ResearchSessi
 }
 
 describe("buildResearchLlmHooks", () => {
-  it("配置了 provider 时装配出三个 LLM 注入项", () => {
+  it("有完整模型引用时装配出三个 LLM 注入项", () => {
     const hooks = buildResearchLlmHooks({
       summary: summary(),
-      providerSettings: cloudProviders,
+      fallback: CLOUD,
     });
 
     expect(hooks).not.toBeNull();
@@ -70,31 +46,37 @@ describe("buildResearchLlmHooks", () => {
     expect(typeof hooks?.generateReport).toBe("function");
   });
 
-  it("没有任何 provider 时返回 null（编排层沿用确定性行为，而不是让 Session 失败）", () => {
-    const hooks = buildResearchLlmHooks({
-      summary: summary(),
-      providerSettings: { providers: [] },
-    });
-
-    expect(hooks).toBeNull();
+  it("没有任何模型引用时返回 null（编排层沿用确定性行为，而不是让 Session 失败）", () => {
+    expect(buildResearchLlmHooks({ summary: summary() })).toBeNull();
+    expect(buildResearchLlmHooks({ summary: summary(), fallback: null })).toBeNull();
   });
 
-  it("providerSettings 为 null 时返回 null", () => {
-    const hooks = buildResearchLlmHooks({
-      summary: summary(),
-      providerSettings: null,
-    });
-
-    expect(hooks).toBeNull();
+  it("引用只有一半时也返回 null（不跨级拼 providerId + modelId）", () => {
+    expect(
+      buildResearchLlmHooks({
+        summary: summary(),
+        preference: { providerId: "cloud" },
+        fallback: { providerId: "", modelId: "gpt-x" },
+      }),
+    ).toBeNull();
   });
 
-  it("研究模型偏好指向已失效的供应商时仍装配 hooks —— 降级由网关选型负责", () => {
-    // 这里刻意**不**在装配层提前拒绝：网关的 selectResearchModel 才是 spec §19.2.5 的
-    // 单一判定点（失效偏好在那里静默降级）。装配层若也判一次，两处规则会漂移，
-    // 且会把「你选的供应商被删了」误报成「你没配模型」。
+  it("研究偏好完整时压过全局默认；偏好不完整时整级作废、落全局默认", () => {
+    // 装配层不返回引用本身，故用「装没装出来」间接断言两级回落都成立。
+    expect(
+      buildResearchLlmHooks({ summary: summary(), preference: { providerId: "x", modelId: "y" } }),
+    ).not.toBeNull();
+    expect(
+      buildResearchLlmHooks({ summary: summary(), preference: { providerId: "x" }, fallback: CLOUD }),
+    ).not.toBeNull();
+  });
+
+  it("模型引用指向已失效的模型时仍装配 hooks —— 阻断由 Pi Model Gateway 负责", () => {
+    // 这里刻意**不**在装配层提前拒绝：Gateway 出站前的 config 判定才是单一判定点
+    //（计划 §5 的阻断态）。装配层若也判一次，两处规则会漂移，
+    // 且会把「你选的模型下线了」误报成「你没配模型」。
     const hooks = buildResearchLlmHooks({
       summary: summary(),
-      providerSettings: cloudProviders,
       preference: { providerId: "已删除的供应商", modelId: "不存在的模型" },
     });
 
@@ -102,20 +84,10 @@ describe("buildResearchLlmHooks", () => {
   });
 
   it("loopback provider（本地模型）同样正常装配", () => {
-    const hooks = buildResearchLlmHooks({
-      summary: summary(),
-      providerSettings: localProviders,
-    });
-
-    expect(hooks).not.toBeNull();
+    expect(buildResearchLlmHooks({ summary: summary(), fallback: LOCAL })).not.toBeNull();
   });
 
   it("按 Session 的 consumer 装配（consumer 影响 Planner 的默认来源范围）", () => {
-    const hooks = buildResearchLlmHooks({
-      summary: summary({ consumer: "chat" }),
-      providerSettings: cloudProviders,
-    });
-
-    expect(hooks).not.toBeNull();
+    expect(buildResearchLlmHooks({ summary: summary({ consumer: "chat" }), fallback: CLOUD })).not.toBeNull();
   });
 });

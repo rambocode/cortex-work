@@ -1,50 +1,25 @@
 // P7 装配层的接线测试：网关 + Planner + Report Generator 拼起来之后，
 // 三条注入项的签名与安全语义是否仍然成立。
 //
-// 这里刻意用**真的 ResearchModelGateway**（只注入假 fetch），
-// 因为要验的正是「装配之后，选型失败依然零出站」这条跨模块的性质。
-import { describe, expect, it } from "vitest";
-import type { ProviderSettings } from "@cortex-work/core/desktop/types";
+// 这里刻意用**真的 ResearchModelGateway**（只注入假 pi 运行时），
+// 因为要验的正是「装配之后，模型引用悬空依然零出站」这条跨模块的性质。
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clampResearchBudget } from "@cortex-work/core/research/budget";
 import type { EvidenceChunk, ResearchDocument } from "@cortex-work/core/research/evidence";
 import type { ResearchPlan } from "@cortex-work/core/research/types";
+let catalog: ReturnType<typeof fakeCatalog> | undefined;
+vi.mock("../../providers/catalog", () => ({ getProviderCatalog: () => catalog }));
+vi.mock("electron", () => ({ safeStorage: { isEncryptionAvailable: () => false } }));
+
+import { createFakePiRuntime, fakeCatalog } from "../../providers/__fixtures__/fake-pi-runtime";
 import { resolveReportMaxTokens } from "../report-generator";
 import { createResearchLlmHooks } from "./llm-hooks";
 
-function cloudOnly(): ProviderSettings {
-  return {
-    providers: [
-      {
-        id: "cloud",
-        name: "Cloud",
-        baseUrl: "https://api.example.com/v1",
-        apiKey: "sk-secret",
-        endpointFormat: "chat_completions",
-        models: [{ id: "cloud-model" }],
-        enabled: true,
-      },
-    ],
-  };
-}
+const CLOUD = { providerId: "cloud", modelId: "cloud-model" };
 
-function makeFetch(content: string): { fetchFn: typeof fetch; calls: number } {
-  const state = { calls: 0 };
-  const fetchFn = (async () => {
-    state.calls += 1;
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: { content } }] }),
-      text: async () => "",
-    };
-  }) as unknown as typeof fetch;
-  return {
-    fetchFn,
-    get calls() {
-      return state.calls;
-    },
-  };
-}
+beforeEach(() => {
+  catalog = fakeCatalog("cloud", "cloud-model");
+});
 
 const BUDGET = clampResearchBudget("quick");
 
@@ -98,12 +73,13 @@ const CHUNK: EvidenceChunk = {
 };
 
 describe("createResearchLlmHooks", () => {
-  it("一个可用供应商都没有：三个注入项全部走确定性降级，fetch 一次都不发", async () => {
-    const fetcher = makeFetch("不该被调用");
+  it("模型引用悬空：三个注入项全部走确定性降级，出站一次都不发", async () => {
+    const runtime = createFakePiRuntime({ texts: ["不该被调用"] });
     const hooks = createResearchLlmHooks({
-      providerSettings: { providers: [] },
+      // Catalog 里没有这个 provider → Gateway 出站前 config 阻断（计划 §5，不回退）。
+      model: { providerId: "已下线的供应商", modelId: "不存在的模型" },
       consumer: "deep_research",
-      fetchFn: fetcher.fetchFn,
+      runtime,
     });
     const signal = new AbortController().signal;
 
@@ -138,8 +114,8 @@ describe("createResearchLlmHooks", () => {
     });
     expect(typeof generated === "string" ? generated : generated.markdown).toContain("[^ch_1]");
 
-    // spec §19.2.5：选型失败时没有任何请求出站（一个字节都不发）
-    expect(fetcher.calls).toBe(0);
+    // spec §19.2.5 / 计划 §5：引用不可用时没有任何请求出站（一个字节都不发）
+    expect(runtime.calls).toHaveLength(0);
   });
 
   it("模型可用时按模型输出产出计划与报告", async () => {
@@ -150,7 +126,7 @@ describe("createResearchLlmHooks", () => {
       initialQueries: [{ queryId: "q_a", subquestionId: "sq_a", text: "node sqlite stability" }],
     });
     const hooks = createResearchLlmHooks({
-      providerSettings: cloudOnly(),
+      model: CLOUD,
       consumer: "deep_research",
       complete: async (params) =>
         params.messages[0]!.content.includes("Markdown 研究报告")
@@ -184,7 +160,7 @@ describe("createResearchLlmHooks", () => {
   it("按研究强度给出输出上限，不受任何篇幅配置影响", async () => {
     const seen: Array<number | undefined> = [];
     const hooks = createResearchLlmHooks({
-      providerSettings: cloudOnly(),
+      model: CLOUD,
       consumer: "deep_research",
       complete: async (params) => {
         seen.push(params.maxTokens);

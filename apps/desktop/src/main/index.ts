@@ -88,13 +88,14 @@ import type { ReplyRelearnResult } from "./ipc/reply-types";
 import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
-import { getPersistedState } from "./ipc/store";
+import { getPersistedState, purgeLegacyPlaintextCredentials } from "./ipc/store";
 // 用户记忆做梦管线（跨工作台持久记忆,与 reply 域独立）。
 import { Dreamer } from "./memory/dreamer";
 import { initMemoryDream } from "./memory/dream-scheduler";
 import { readEpisodicInputs } from "./memory/episodic-source";
 import { userMemoryStore, dreamStateStore, setMemoryDreamer } from "./ipc/memory";
 import { postChatCompletion } from "./ipc/openai-chat";
+import { getDefaultModelRef } from "./providers/default-model";
 import type { DreamPrompt } from "@cortex-work/core/memory/dream-prompt";
 import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from "./desktop-behavior";
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
@@ -197,15 +198,15 @@ let stopMemoryDream: (() => void) | null = null;
 // 启动混合触发调度（深睡 03:00 / 启动与唤醒补跑 / 会话空闲小睡）。
 function initUserMemory(): void {
   const memoryLog = createLogger("memory");
-  // 做梦蒸馏的 LLM 直连闭包：模型走全局默认供应商回退链（resolveReplyModel 传 null settings
-  // 即跳过 reply 专属级,纯函数复用）;未配置时抛错,被 Dreamer catch 后静默跳过、水位不动。
+  // 做梦蒸馏的 LLM 闭包：经 Pi Model Gateway 出站,模型走全局默认（resolveReplyModel 传 null
+  // settings 即跳过 reply 专属级,纯函数复用）;未配置时抛错,被 Dreamer catch 后静默跳过、水位不动。
+  // 全局默认已被 §5 清理时同样落到这条抛错分支——做梦是后台行为,宁可跳过也不能自动挑一个模型。
   const dreamGenerate = async (prompt: DreamPrompt): Promise<string> => {
-    const target = resolveReplyModel(null, (await getPersistedState()).providerSettings ?? null);
+    const target = resolveReplyModel(null, await getDefaultModelRef());
     if (!target) throw new Error("memory: 生成模型未配置，跳过做梦整理");
     return postChatCompletion({
-      baseUrl: target.baseUrl,
-      apiKey: target.apiKey,
-      model: target.model,
+      providerId: target.providerId,
+      modelId: target.modelId,
       messages: [
         { role: "system", content: prompt.system },
         { role: "user", content: prompt.user },
@@ -259,10 +260,10 @@ async function initReply(): Promise<void> {
   // 权限中心 IPC（reply:getPermissions）的 helper 兜底源：与 syncReplyInputMode 用同一 one-shot 命令。
   const helperForPerms = replyHelper;
   setReplyHelperPermissionsSource(() => helperForPerms.permissions());
-  // reply 生成模型解析（KTD3）：每次唤起/蒸馏时现解析——最新 reply 设置（快照）+ 持久化
-  // providerSettings 走回退链（专属 → 供应商默认 → null）。现解析保证设置变更即时生效，无需快照同步机制。
+  // reply 生成模型解析（KTD3）：每次唤起/蒸馏时现解析——最新 reply 设置（快照）+ 全局默认模型
+  // 走回退链（专属 → 全局默认 → null）。现解析保证设置变更即时生效，无需快照同步机制。
   const resolveModel = async () =>
-    resolveReplyModel(getLastReplySnapshot()?.settings ?? null, (await getPersistedState()).providerSettings ?? null);
+    resolveReplyModel(getLastReplySnapshot()?.settings ?? null, await getDefaultModelRef());
   // 语气蒸馏（U10 / R11）：写回成功 → 采样 → 后台模型直连蒸馏（温度 0.2）→ 分区 auto 要点回推渲染端持久化。
   // generate 闭包走 chatComplete 取原始输出（不套 cleanAgentOutput，交 cleanDistilledRules 过滤）；
   // 生成模型未配置时抛错，被蒸馏器 catch 后静默跳过。
@@ -615,6 +616,12 @@ if (!app.requestSingleInstanceLock()) {
       onToggleSpotlight: toggleSpotlight,
     });
     await initScheduler();
+    // 阶段③·4.1：抹掉写作 / 日报设置里残留的明文凭据（旧档才有）。
+    // 与 providerAuth 那侧的 purgeLegacyProviderSettings 分开：那个删的是整块 providerSettings，
+    // 这个只摘掉凭据字段、保留用户调过的行为参数。失败只记日志——抹不掉不该拦住启动。
+    void purgeLegacyPlaintextCredentials().catch((err) => {
+      log.warn("[store] 清除残留明文凭据失败（下次启动重试）:", err);
+    });
     // 用户记忆做梦管线（跨平台）：Dreamer 依赖注入 + 混合触发调度。失败不阻断启动。
     try {
       initUserMemory();

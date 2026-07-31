@@ -27,9 +27,12 @@ import type {
 import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
+import type { ModelRef } from "../desktop/provider-catalog";
+// 发送前 vision 阻断（计划 §2.3）：能力只读、三态（含 unknown），见 modelCapabilities 文件头。
+import { checkImageSupport } from "./modelCapabilities";
 import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
-import { usePersonalStore } from "../store/personal";
+import { usePersonalStore, type VisionBlockHint } from "../store/personal";
 import { usePetStore } from "../store/pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
@@ -2242,12 +2245,17 @@ async function buildPiOpenForSession(
   session: SessionMeta,
   projectPath: string,
 ): Promise<Omit<PiOpenRequest, "uiSessionId" | "cwd">> {
-  // provider/model 解析:复用单发 isPi 分支策略（只取已启用 provider;停用/失效落空走 pi 内置默认）。
+  // 模型解析走 resolveSessionModelRef —— 与发送前 vision 阻断**同一个函数**，
+  // 否则「拦截时判的模型」与「真正开会话用的模型」会错位，那道拦截就形同虚设。
+  // 旧实现末尾还有个 `?? provider?.models[0]?.id`（悄悄用「第一个模型」兜底），已删除：
+  // 那正是 §5 禁止的静默回退，用户会以为在用 A、实际跑的是 B。解析不出就传 undefined，
+  // 由主进程按未配置处理。
+  const modelRef = resolveSessionModelRef(session);
+  const model = modelRef.modelId || undefined;
+  // provider 对象仍走 @deprecated 的 providerSettings（主进程首启清理后自然为 undefined）。
+  // 阶段②后凭据由主进程金库负责，这里不再是真相来源，保留只为旧壳过渡期不炸。
   const providerSettings = usePersonalStore.getState().providerSettings;
-  const provider = providerSettings.providers.find(
-    (p) => p.id === (session.providerId ?? providerSettings.defaultProviderId) && p.enabled,
-  );
-  const model = session.model ?? providerSettings.defaultModel ?? provider?.models[0]?.id;
+  const provider = providerSettings.providers.find((p) => p.id === modelRef.providerId && p.enabled);
   // pi 深度定制开关（阶段3）:从通用设置读,塞进 piOpen,主进程据此生成审批/样例 extension。
   // 会话开启时生效（extension 在 open 时加载）;改设置需重开会话才应用。
   const piCustom = usePersonalStore.getState().generalSettings.piCustomization;
@@ -2946,6 +2954,60 @@ export interface PersonalActions {
   appendLocalAgentMessage: (sessionId: string, who: string, text: string) => Promise<void>;
 }
 
+/**
+ * 解析某会话当前生效的模型引用 `{providerId, modelId}`。发送前 vision 阻断、RPC 开会话
+ * (buildPiOpenForSession) 与 delegate 单发三处**必须走这同一个函数**，否则「拦截时判的模型」
+ * 与「真正发出去的模型」会错位，那道拦截就是假的。
+ *
+ * 回退规则（全局默认源 = Catalog 时代的 `defaultModelRef`，替代已废弃的 providerSettings）：
+ *   · 会话两个字段都有 → 原样用；
+ *   · 只有 `session.model` → 保留它（这是用户对本会话的显式选择，真正会随 `--model` 发出去），
+ *     providerId 取全局默认的；
+ *   · 两者都无 → 整体落全局默认（它本身也要求两个 id 成套，见 store 的 hydrate）。
+ *
+ * **刻意不做的事**：绝不在这里「取第一个可用模型」兜底。旧实现末尾有个
+ * `?? provider?.models[0]?.id`，那是 §5 明令禁止的静默回退——用户以为在用 A、实际跑的是 B，
+ * 能力、输出与账单全变了却毫无提示。
+ *
+ * 关于「混搭」引用（会话的 model + 全局的 providerId）：这不是 bug 而是对现实的如实建模——
+ * 那个 model 确实会被发出去。若这对组合在 Catalog 里不存在，能力判定会得到 `unknown` 并
+ * **阻断带图发送**（保守，不静默丢图），这正是我们想要的结果。
+ */
+function resolveSessionModelRef(session: SessionMeta): ModelRef {
+  const fallback = usePersonalStore.getState().defaultModelRef;
+  return {
+    providerId: session.providerId || fallback?.providerId || "",
+    modelId: session.model || fallback?.modelId || "",
+  };
+}
+
+/** 测试用：验证回退语义。 */
+export const __resolveSessionModelRefForTest = resolveSessionModelRef;
+
+/**
+ * 本轮带图发送是否应被拦下。返回 undefined 表示放行，否则返回要展示的拦截提示。
+ *
+ * 只对 `pi` 会话生效：Catalog 是 pi 的内置模型目录，claude / codex 走各自 CLI 的原生
+ * 多模态链路，不在这份目录里——对它们判 unknown 会把本来能用的图片链路整条拦死。
+ */
+async function checkSendImageCapability(
+  bridge: DesktopBridge,
+  session: SessionMeta,
+): Promise<VisionBlockHint | undefined> {
+  if (session.agent !== "pi") return undefined;
+  const ref = resolveSessionModelRef(session);
+  const support = await checkImageSupport(bridge, ref);
+  if (support === "supported") return undefined;
+  return {
+    reason: support === "unsupported" ? "unsupported" : "unknown",
+    providerId: ref.providerId || undefined,
+    modelId: ref.modelId || undefined,
+  };
+}
+
+/** 测试用：直接验证阻断判定，不必拉起整条 send 链路。 */
+export const __checkSendImageCapabilityForTest = checkSendImageCapability;
+
 export function usePersonalActions(): PersonalActions {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
@@ -2968,8 +3030,30 @@ export function usePersonalActions(): PersonalActions {
       // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
       // 不能按「皆空」拒发,否则原生 skill 触发被静默丢弃(相较现状 prose 改写是回归)。
       if (!text.trim() && !hasImages && !hasDocs && !invokedSkill) return false; // 纯图/纯文档(无文本)允许发送;皆空才拒
-      // 新一轮发送 → 清掉上一轮可能留下的运行模式拦截提示(用户已切档自动重发,或手动重发/换话题)。
+
+      // ── 发送前 vision 阻断（计划 §2.3） ────────────────────────────────────────
+      // 位置刻意选在这里：这是 RPC（下方 sendPiTurn）与 CLI（下方 bridge.startCli，含
+      // delegate / artifact 两路）**唯一的共同上游**，且此刻还没有任何副作用——图片尚未
+      // imageSave 落盘、用户消息尚未 appendUserMessage、pi 进程锁尚未占用。
+      // 因此 `return false` 就是完整的「保留草稿」：文本/图片/附件/编辑状态全部留在 composer。
+      //
+      // 判据是 Catalog 里模型的 `input` 是否含 "image"，三态：
+      //   supported   → 放行
+      //   unsupported → 阻断（模型明确只吃文本）
+      //   unknown     → **同样阻断**，但文案不同。研究文档 §5.1：把「目录不知道」当成
+      //                 「不支持」会让图片被静默丢弃，是本次事故的形态之一，绝不允许。
+      // 这一层只是友好拦截，主进程 + pi 自身的 transform-messages 才是最终权威。
+      if (hasImages) {
+        const blocked = await checkSendImageCapability(bridge, session);
+        if (blocked) {
+          usePersonalStore.getState().setVisionBlockHint(session.id, blocked);
+          return false; // 未发出 → composer 完整保留文本/图片/附件/编辑态
+        }
+      }
+      // 新一轮发送 → 清掉上一轮可能留下的运行模式 / 图片能力拦截提示
+      //（用户已切档自动重发,或手动重发/换话题/换了支持图片的模型）。
       usePersonalStore.getState().setModeBlockHint(session.id, undefined);
+      usePersonalStore.getState().setVisionBlockHint(session.id, undefined);
       if (session.agent !== "pi" && usePersonalStore.getState().agentsAvailable?.[session.agent] === false) {
         await ensureChatLoaded(qc, bridge, session.id);
         appendUserMessage(
@@ -3319,9 +3403,12 @@ export function usePersonalActions(): PersonalActions {
             | undefined;
           let resolvedModel = sendSession.model;
           if (sendSession.agent === "pi") {
+            // 与 RPC 路径（buildPiOpenForSession）及发送前阻断共用 resolveSessionModelRef，
+            // 三处同口径；同样不再用「第一个模型」静默兜底（§5）。
+            const modelRef = resolveSessionModelRef(sendSession);
+            resolvedModel = modelRef.modelId || undefined;
             const ps = usePersonalStore.getState().providerSettings;
-            const p = ps.providers.find((x) => x.id === (sendSession.providerId ?? ps.defaultProviderId) && x.enabled);
-            resolvedModel = sendSession.model ?? ps.defaultModel ?? p?.models[0]?.id;
+            const p = ps.providers.find((x) => x.id === modelRef.providerId && x.enabled);
             piProvider = p
               ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
               : undefined;

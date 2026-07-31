@@ -50,7 +50,7 @@ export interface ReplyDistillerDeps {
   getExistingAuto: (scope: MemoryScope) => Promise<string>;
   /**
    * 后台跑蒸馏 prompt（模型直连单发，返回原始文本）。
-   * 由 index.ts 注入的闭包内部解析生成模型（resolveReplyModel）并直连 chat completions（温度 0.2）；
+   * 由 index.ts 注入的闭包内部解析生成模型（resolveReplyModel）并经 Pi Model Gateway 出站（温度 0.2）；
    * 生成模型未配置时应 throw（被本模块 catch 后静默跳过，不打扰）。
    */
   generate: (prompt: DistillPrompt) => Promise<string>;

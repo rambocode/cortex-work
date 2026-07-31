@@ -191,10 +191,17 @@ export interface HiddenHistoryMeta {
 
 // 日报生成模型：现有集成 Agent,或自定义 OpenAI 兼容端点（Ollama/LM Studio 等）。
 export type SummaryModelConfig =
-  // providerId 仅对 agent === "pi" 有意义:指向 providerSettings 里选中的供应商;
-  // 缺省时回退 providerSettings.defaultProviderId。其余 agent 忽略该字段。
+  // providerId 仅对 agent === "pi" 有意义:指向 Catalog 中的 Provider。其余 agent 忽略该字段。
   | { kind: "agent"; agent: AgentKind; model?: string; providerId?: string }
-  | { kind: "openai"; baseUrl: string; apiKey?: string; model: string };
+  // 阶段③·4.1 收编:日报/Tasks 归档的文本补全改走 Model Gateway,寻址统一成 Catalog 引用。
+  //
+  // ⚠️ 取代了旧的 `{ kind: "openai"; baseUrl; apiKey; model }` —— 那是全仓**第三处明文密钥
+  // 落盘点**（与 writingLlmSettings、mediaGenSettings 并列）。刻意改 kind 名而非复用 "openai"：
+  // 旧档的 `kind:"openai"` 因此不会被误当成新形状解析,hydrate 会把它整条丢弃（连同明文 apiKey),
+  // 落到 `ref` 缺省的未配置态。
+  //
+  // `ref` 缺省 = 未配置 → 按计划 §5 进**阻断态**并引导去设置,**不自动回退任何模型**。
+  | { kind: "gateway"; ref?: DefaultModelRef };
 
 export interface WecomPushConfig {
   enabled: boolean;
@@ -298,6 +305,13 @@ export interface ProviderModelOption {
 
 // 一个 LLM 供应商（qwen / deepseek / kimi / 本地 / 企业网关 / anthropic 兼容均走此抽象）。
 // 主进程把启用的 provider 渲染成 pi extension（registerProvider）,provider.id 即 pi provider 名。
+//
+// @deprecated 阶段②起废弃，**不做迁移**（计划 §5）。三个致命问题：
+//   ① apiKey 明文落在 personal-workspace.json；
+//   ② models[] 只有 id/name/少量能力位，写进 extension 会**覆盖 pi 内置模型目录**（本次事故根因）；
+//   ③ enabled 把「认证」与「显示/隐藏」混成一个开关。
+// 替代：Provider Catalog（只读能力）+ safeStorage 凭据金库 + PersistedState.hiddenProviderIds。
+// 主进程首启会删除 PersistedState.providerSettings，本类型仅为清理逻辑与旧代码编译保留。
 export interface ProviderProfile {
   id: string; // slug,合法标识（无空格）,同时作为 pi provider 名
   name: string; // 展示名:"DeepSeek"、"通义千问"
@@ -308,6 +322,7 @@ export interface ProviderProfile {
   enabled: boolean; // 关闭的 provider 不出现在会话/自动化模型下拉
 }
 
+/** @deprecated 见 ProviderProfile：阶段②起废弃且不迁移，首启即被主进程删除。 */
 export interface ProviderSettings {
   providers: ProviderProfile[];
   defaultProviderId?: string; // 新建 pi 会话/未指定时用
@@ -561,10 +576,12 @@ export interface PushResult {
   error?: string;
 }
 
+// 一次性文本补全（日报 / Tasks 归档）。阶段③·4.1 收编后寻址走 Catalog 引用,
+// **明文 apiKey 不再过桥** —— 凭据由主进程从 safeStorage 金库取,渲染端无从接触。
+// 名字保留 `OpenAiComplete*` 只为不动 `llm:openaiComplete` 这条既有 IPC 通道名。
 export interface OpenAiCompleteRequest {
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
+  providerId: string;
+  modelId: string;
   prompt: string;
 }
 
@@ -1009,6 +1026,7 @@ export interface PersistedState {
   timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
+  /** @deprecated 阶段②起不再写入；主进程首启会**删除**该字段（含全部明文 apiKey），见 §5。 */
   providerSettings?: ProviderSettings;
   // 通用设置（工作目录/桌面行为/通知/日志;主进程消费）。
   generalSettings?: GeneralSettings;
@@ -1049,6 +1067,39 @@ export interface PersistedState {
   writingUi?: WritingUiState;
   //   writingLlmSettings — 写作续写/改写(U3)独立模型配置(baseUrl/apiKey/model + ghost text 开关)。
   writingLlmSettings?: WritingLlmSettings;
+  // ── Provider 新体系（阶段②；与 apps/desktop/src/main/ipc/types.ts 镜像） ──────
+  // Catalog 时代的全局默认模型，替代已废弃的 providerSettings.defaultProviderId/defaultModel。
+  // 模型引用统一为 `{ providerId, modelId }`（计划 §1）。新建会话 / 未指定模型时用它兜底；
+  // 引用在 Catalog 中不存在或未认证时**不自动回退**，进「未配置模型」阻断态（计划 §5）。
+  //
+  // ⚠️ 渲染端接入要求（同下方 legacyProviderSettingsCleared）：`toPersistedState`
+  //（packages/core/store/personal.ts）是**白名单**构造、会整份覆盖磁盘，本字段必须一并加进
+  // 白名单并在 hydrate 时回灌，否则用户设的默认模型会被下一次全量保存静默抹掉。
+  defaultModelRef?: DefaultModelRef;
+  // 旧 providerSettings 清理留痕（计划 §5，不迁移）：主进程首启删除旧字段后写入，
+  // renderer 据 noticeAcknowledged 决定是否弹一次「Provider 配置已升级，请重新添加」，
+  // 展示后置 true 并随全量保存落盘。
+  //
+  // ⚠️ 渲染端接入要求：`toPersistedState` 是**白名单**构造，必须把本字段一并透传，
+  // 否则主进程写入的标记会被下一次全量保存抹掉（提示随之丢失）。
+  // 清理本身**不依赖**该标记（幂等判据是 providerSettings 是否存在），故最坏情况只是少弹一次提示。
+  //
+  // 「显示/隐藏 Provider」偏好刻意**不放这里**：它由主进程窄写、经
+  // ProviderAuthSnapshot.hiddenProviderIds 回读，落在 main-owned 的 provider-prefs.json，
+  // 正是为了绕开上述白名单 clobber 问题。
+  legacyProviderSettingsCleared?: LegacyProviderCleanupMark;
+}
+
+/** Catalog 时代的模型引用：Provider 与模型 id 成对出现，不再有裸 modelId（计划 §1）。 */
+export interface DefaultModelRef {
+  providerId: string;
+  modelId: string;
+}
+
+// 旧 providerSettings 一次性清理的落盘标记（含明文 apiKey 的旧字段已被删除，不留备份）。
+export interface LegacyProviderCleanupMark {
+  at: number;
+  noticeAcknowledged?: boolean;
 }
 
 // 落地页激励问候语的每日 LLM 生成快照（按天缓存）。

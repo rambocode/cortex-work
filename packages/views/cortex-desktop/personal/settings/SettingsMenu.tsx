@@ -65,6 +65,7 @@ import { MemorySettingsSection } from "./MemorySettingsSection";
 import { ResearchSettingsSection } from "./ResearchSettingsSection";
 import { KnowledgeSettingsSection } from "./KnowledgeSettingsSection";
 import { ProviderManagerModal } from "./ProviderManagerModal";
+import { ModelRefField } from "./provider/ModelRefField";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
@@ -652,16 +653,8 @@ function TimelineSection() {
   const { t } = useTranslation("settings");
   const settings = usePersonalStore((s) => s.timelineSettings);
   const setSettings = usePersonalStore((s) => s.setTimelineSettings);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const enabledProviders = providerSettings.providers.filter((p) => p.enabled);
   const model = settings.summaryModel;
   const setModel = (m: SummaryModelConfig) => setSettings({ summaryModel: m });
-  // pi 日报模型来自配置的供应商（与新建 Pi 会话/Pi 设置一致）:选中供应商缺省回退全局默认。
-  const piProviderId =
-    model.kind === "agent" && model.agent === "pi"
-      ? model.providerId ?? providerSettings.defaultProviderId
-      : undefined;
-  const piProvider = enabledProviders.find((p) => p.id === piProviderId);
 
   return (
     <>
@@ -677,7 +670,9 @@ function TimelineSection() {
               setModel(
                 v === t("timeline.integratedAgent")
                   ? { kind: "agent", agent: "claude", model: "haiku" }
-                  : { kind: "openai", baseUrl: "http://localhost:11434", apiKey: "", model: "" },
+                  // 自定义模型档改走 Model Gateway：ref 缺省 = 未配置，由下方 ModelRefField
+                  // 渲染阻断态要求用户显式选一个，不预填任何模型（计划 §5）。
+                  : { kind: "gateway" },
               )
             }
           />
@@ -691,15 +686,9 @@ function TimelineSection() {
                 onChange={(v) => {
                   const next = v as AgentKind;
                   if (next === "pi") {
-                    // 切到 pi:默认供应商 + 其默认/首个模型,沿用 providerSettings 配置。
-                    const pid = providerSettings.defaultProviderId;
-                    const p = enabledProviders.find((x) => x.id === pid);
-                    setModel({
-                      kind: "agent",
-                      agent: "pi",
-                      providerId: pid,
-                      model: providerSettings.defaultModel ?? p?.models[0]?.id,
-                    });
+                    // 切到 pi 不预填模型：由下方 ModelRefField 显式选。旧版在这里读
+                    // providerSettings 猜「默认供应商的第一个模型」，正是 §5 禁止的静默回退。
+                    setModel({ kind: "agent", agent: "pi" });
                   } else {
                     setModel({ kind: "agent", agent: next, model: DEFAULT_MODEL[next] });
                   }
@@ -707,29 +696,19 @@ function TimelineSection() {
               />
             </SRow>
             {model.agent === "pi" ? (
-              enabledProviders.length === 0 ? (
-                <div className="pw-scard-empty">{t("timeline.piNoProvider")}</div>
-              ) : (
-                <>
-                  <SRow label={t("timeline.provider")} desc={t("timeline.providerDesc")}>
-                    <BareSelect
-                      value={piProviderId ?? ""}
-                      options={enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id }))}
-                      onChange={(v) => {
-                        const p = enabledProviders.find((x) => x.id === v);
-                        setModel({ kind: "agent", agent: "pi", providerId: v, model: p?.models[0]?.id });
-                      }}
-                    />
-                  </SRow>
-                  <SRow label={t("timeline.model")}>
-                    <BareSelect
-                      value={model.model ?? ""}
-                      options={(piProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id }))}
-                      onChange={(v) => setModel({ kind: "agent", agent: "pi", providerId: piProviderId, model: v })}
-                    />
-                  </SRow>
-                </>
-              )
+              // pi 日报模型与全局模型选择器同一份 Catalog 候选（认证可用 ∧ 未隐藏）；
+              // 悬空引用进阻断态并要求重选，不自动回退。
+              <ModelRefField
+                label={t("timeline.model")}
+                value={
+                  model.providerId && model.model
+                    ? { providerId: model.providerId, modelId: model.model }
+                    : undefined
+                }
+                onChange={(ref) =>
+                  setModel({ kind: "agent", agent: "pi", providerId: ref.providerId, model: ref.modelId })
+                }
+              />
             ) : (
               <SRow label={t("timeline.model")}>
                 <BareSelect
@@ -741,34 +720,14 @@ function TimelineSection() {
             )}
           </>
         ) : (
-          <>
-            <SRow label={t("timeline.baseUrl")} desc={t("timeline.baseUrlDesc")}>
-              <input
-                className="pw-set-input"
-                value={model.baseUrl}
-                placeholder="http://localhost:11434"
-                spellCheck={false}
-                onChange={(e) => setModel({ ...model, baseUrl: e.target.value })}
-              />
-            </SRow>
-            <SRow label={t("timeline.modelName")}>
-              <input
-                className="pw-set-input"
-                value={model.model}
-                placeholder="qwen3:14b"
-                spellCheck={false}
-                onChange={(e) => setModel({ ...model, model: e.target.value })}
-              />
-            </SRow>
-            <SRow label={t("timeline.apiKey")} desc={t("timeline.apiKeyOptional")}>
-              <input
-                className="pw-set-input"
-                type="password"
-                value={model.apiKey ?? ""}
-                onChange={(e) => setModel({ ...model, apiKey: e.target.value })}
-              />
-            </SRow>
-          </>
+          // Gateway 档：寻址统一成 Catalog 引用，渲染端不再持有 baseUrl/apiKey
+          //（旧的 kind:"openai" 是全仓第三处明文密钥落盘点，已随类型删除）。
+          <ModelRefField
+            label={t("timeline.model")}
+            hint={t("timeline.gatewayHint")}
+            value={settings.summaryModel.kind === "gateway" ? settings.summaryModel.ref : undefined}
+            onChange={(ref) => setModel({ kind: "gateway", ref })}
+          />
         )}
       </SettingCard>
     </>
@@ -863,11 +822,12 @@ function PiSection() {
   const setProviderDefaults = usePersonalStore((s) => s.setProviderDefaults);
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
-  const providers = providerSettings.providers;
-  const enabledProviders = providers.filter((p) => p.enabled);
-  // defaultProviderId 可能指向已删除/已停用的 provider → 下拉回退「（未设置）」。
-  const defaultProvider = enabledProviders.find((p) => p.id === providerSettings.defaultProviderId);
-  const defaultValue = defaultProvider ? defaultProvider.id : "";
+  // 默认模型的统一引用形态 {providerId, modelId}。二者缺一即视为「未配置」，
+  // 由 ModelRefField 渲染阻断态——不再像旧版那样悄悄回退到「第一个 provider 的第一个模型」。
+  const defaultRef =
+    providerSettings.defaultProviderId && providerSettings.defaultModel
+      ? { providerId: providerSettings.defaultProviderId, modelId: providerSettings.defaultModel }
+      : undefined;
   // 供应商管理弹窗:由「默认供应商」卡片里的按钮打开(低频管理不占页面)。
   const [provMgrOpen, setProvMgrOpen] = useState(false);
 
@@ -876,45 +836,22 @@ function PiSection() {
       <div className="pw-dlg-title">{t("pi.title")}</div>
       <div className="pw-dlg-desc">{t("pi.desc")}</div>
 
+      {/* 默认模型改为 Catalog 驱动的单一 {providerId, modelId} 引用（计划 §4.2/§5）：
+          候选只含「认证可用 ∧ 未隐藏」的 Provider，能力徽标只读；引用悬空时进入阻断态并
+          提示重选，**不自动回退到任何模型**。旧的「供应商下拉 + 模型下拉」两级选择已删除，
+          它依赖的 providerSettings.providers 是被废弃且首启即清理的旧体系。 */}
       <SettingCard title={t("pi.defaultProviderCard")}>
-        {enabledProviders.length === 0 ? (
-          <>
-            <div className="pw-scard-empty">{t("pi.noProvider")}</div>
-            <SRow label={t("providers.manageHint")} end>
-              <button className="pw-btn-sm" onClick={() => setProvMgrOpen(true)}>
-                {t("providers.manage")}
-              </button>
-            </SRow>
-          </>
-        ) : (
-          <>
-            <SRow label={t("pi.defaultProvider")} desc={t("pi.defaultProviderDesc")}>
-              <div className="pw-prov-default-row">
-                <BareSelect
-                  value={defaultValue}
-                  options={[
-                    { label: t("pi.providerUnset"), value: "" },
-                    ...enabledProviders.map((p) => ({ label: p.name || p.id, value: p.id })),
-                  ]}
-                  onChange={(v) => setProviderDefaults({ defaultProviderId: v || undefined, defaultModel: undefined })}
-                />
-                <button className="pw-btn-sm" onClick={() => setProvMgrOpen(true)}>
-                  {t("providers.manage")}
-                </button>
-              </div>
-            </SRow>
-            <SRow label={t("pi.defaultModel")}>
-              <BareSelect
-                value={providerSettings.defaultModel ?? ""}
-                options={[
-                  { label: t("pi.modelFirst"), value: "" },
-                  ...(defaultProvider?.models ?? []).map((m) => ({ label: m.label ?? m.id, value: m.id })),
-                ]}
-                onChange={(v) => setProviderDefaults({ defaultModel: v || undefined })}
-              />
-            </SRow>
-          </>
-        )}
+        <ModelRefField
+          label={t("pi.defaultModel")}
+          hint={t("pi.defaultProviderDesc")}
+          value={defaultRef}
+          onChange={(ref) => setProviderDefaults({ defaultProviderId: ref.providerId, defaultModel: ref.modelId })}
+        />
+        <SRow label={t("providers.manageHint")} end>
+          <button className="pw-btn-sm" onClick={() => setProvMgrOpen(true)}>
+            {t("providers.manage")}
+          </button>
+        </SRow>
       </SettingCard>
 
       <SettingCard title={t("pi.thinkingCard")}>

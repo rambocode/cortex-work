@@ -1,388 +1,31 @@
-// 供应商管理弹窗:由「Pi」设置分区的紧凑供应商列表/「供应商管理」按钮打开。
-// 供应商即 pi 的供应商 —— 完整管理(模板添加 + 列表/详情双栏 + 连接测试)低频,
-// 故收进弹窗;页内只留紧凑列表。增删改直接写 personal store,页内列表自动同步。
+// 供应商管理弹窗（阶段③重构）。由「Pi」设置分区的按钮打开。
+//
+// 从「用户手填 baseUrl / 模型 / 能力 checkbox」改成「Catalog 驱动 + 认证管理」：
+//   左栏  = Pi 内置目录里的 Provider，按认证状态分组（未配置 / 已登录 / 环境变量 / 系统凭据）；
+//   右栏  = 认证操作 + 只读模型能力；
+//   自定义 Provider 单开一个 tab（完整 Pi Provider JSON + Secret 引用）。
+//
+// 具体子面板见 provider/ 目录，本文件只负责外壳：tab、左栏列表、四种降级态。
+// 拆分原因：单文件 ≤1200 行的硬约束，且认证 / 只读能力 / 自定义 JSON 三块职责差异很大。
+//
+// 四种必须有明确出口的降级态（不能白屏、不能崩）：
+//   ① Catalog 加载失败（providerCatalogGet 返回 ok:false）→ 红色说明条，其余功能不可用。
+//   ② 桥不支持（Web 端 / 旧壳）→ 「桌面端专属」提示。
+//   ③ safeStorage 不可用 → 顶部黄色只读警告条 + 全部密钥输入禁用（绝不明文回写）。
+//   ④ 旧 providerSettings 被首启清理 → 一次性告知「请重新登录」。
+//
 // ESC 处理:capture 阶段监听 + stopPropagation,避免连带触发设置整页的 ESC 返回。
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { Toggle } from "@cortex-work/ui/controls/Toggle";
-import {
-  PROVIDER_PRESETS,
-  providerFromPreset,
-  useDesktopBridge,
-  usePersonalStore,
-  type DesktopBridge,
-  type EndpointFormat,
-  type ProviderModelOption,
-  type ProviderProfile,
-} from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { SecretField } from "./settingsControls";
+import { usePersonalStore } from "@cortex-work/core";
+import { ProviderDetailPanel } from "./provider/ProviderDetailPanel";
+import { CustomProviderPanel } from "./provider/CustomProviderPanel";
+import { providerUsable, useCustomProviders, useProviderViews, type ProviderView } from "./provider/useProviderData";
 
-// provider id slug 化:作为 pi provider 名,仅允许字母数字与 - _。
-function slugify(s: string): string {
-  const out = s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return out || "provider";
-}
+type Tab = "builtin" | "custom";
 
-// label 走 i18n（settings:providers.endpointFormat.*）,故 value→formatKey,渲染时翻译。
-const ENDPOINT_FORMAT_OPTIONS: { formatKey: string; value: EndpointFormat }[] = [
-  { formatKey: "providers.endpointFormat.chatCompletions", value: "chat_completions" },
-  { formatKey: "providers.endpointFormat.responses", value: "responses" },
-  { formatKey: "providers.endpointFormat.messages", value: "messages" },
-  { formatKey: "providers.endpointFormat.custom", value: "custom" },
-];
-
-// 两段式删除确认（仿 ProjectMenu:首次点击进入确认态,再次点击执行,失焦撤销）。
-function ConfirmDelete({ onConfirm, title }: { onConfirm: () => void; title?: string }) {
-  const { t } = useTranslation("settings");
-  const [confirming, setConfirming] = useState(false);
-  return (
-    <button
-      className={`pw-pi-channel-del ${confirming ? "is-confirming" : ""}`}
-      title={title}
-      onClick={() => (confirming ? onConfirm() : setConfirming(true))}
-      onBlur={() => setConfirming(false)}
-    >
-      {confirming ? t("providers.confirmDelete") : <Icon.Trash size={14} />}
-    </button>
-  );
-}
-
-// 供应商详情表单（右栏），含连接测试四态（idle / 测试中 / 成功+回填 / 失败）。
-type ProbeState =
-  | { kind: "idle" }
-  | { kind: "testing" }
-  | { kind: "ok"; models: string[] }
-  | { kind: "err"; error: string };
-
-// 单个模型的内联编辑行（添加/编辑共用）：id + 显示名 + 保存/取消。
-// 上下文输入解析："128K" / "1M" / "128000" → token 数；非法 → undefined。
-function parseContextInput(s: string): number | undefined {
-  const m = s.trim().toUpperCase().match(/^(\d+(?:\.\d+)?)\s*([KM]?)$/);
-  if (!m) return undefined;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n <= 0) return undefined;
-  const mult = m[2] === "M" ? 1_000_000 : m[2] === "K" ? 1_000 : 1;
-  return Math.round(n * mult);
-}
-// token 数 → 紧凑展示："1M" / "128K" / "512"。
-function formatContext(tokens: number): string {
-  if (tokens >= 1_000_000) return `${+(tokens / 1_000_000).toFixed(tokens % 1_000_000 ? 1 : 0)}M`;
-  if (tokens >= 1_000) return `${+(tokens / 1_000).toFixed(tokens % 1_000 ? 1 : 0)}K`;
-  return String(tokens);
-}
-
-function ModelEditRow({
-  initial,
-  onSave,
-  onCancel,
-}: {
-  initial: ProviderModelOption;
-  onSave: (m: ProviderModelOption) => void;
-  onCancel: () => void;
-}) {
-  const { t } = useTranslation("settings");
-  const [id, setId] = useState(initial.id);
-  const [label, setLabel] = useState(initial.label ?? "");
-  const [ctx, setCtx] = useState(initial.contextTokens ? formatContext(initial.contextTokens) : "");
-  const [reasoning, setReasoning] = useState(initial.reasoning ?? false);
-  const [vision, setVision] = useState(initial.vision ?? false);
-  const save = () => {
-    const trimmed = id.trim();
-    if (!trimmed) return;
-    const m: ProviderModelOption = { id: trimmed };
-    if (label.trim()) m.label = label.trim();
-    const ctxNum = parseContextInput(ctx);
-    if (ctxNum) m.contextTokens = ctxNum;
-    if (reasoning) m.reasoning = true;
-    if (vision) m.vision = true;
-    onSave(m);
-  };
-  return (
-    <div className="pw-ml-edit">
-      <div className="pw-ml-edit-row">
-        <input
-          className="pw-set-input"
-          value={id}
-          placeholder={t("providers.models.idPlaceholder")}
-          spellCheck={false}
-          autoFocus
-          onChange={(e) => setId(e.target.value)}
-          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
-        />
-        <input
-          className="pw-set-input"
-          value={label}
-          placeholder={t("providers.models.labelPlaceholder")}
-          spellCheck={false}
-          onChange={(e) => setLabel(e.target.value)}
-          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
-        />
-      </div>
-      <div className="pw-ml-edit-row">
-        <input
-          className="pw-set-input pw-ml-ctx"
-          value={ctx}
-          placeholder={t("providers.models.contextPlaceholder")}
-          spellCheck={false}
-          onChange={(e) => setCtx(e.target.value)}
-          onKeyDown={(e) => (e.key === "Enter" ? save() : undefined)}
-        />
-        <label className="pw-ml-check">
-          <input type="checkbox" checked={reasoning} onChange={(e) => setReasoning(e.target.checked)} />
-          {t("providers.models.reasoning")}
-        </label>
-        <label className="pw-ml-check">
-          <input type="checkbox" checked={vision} onChange={(e) => setVision(e.target.checked)} />
-          {t("providers.models.vision")}
-        </label>
-        <span className="pw-ml-edit-spacer" />
-        <button className="btn pw-pi-add-btn" disabled={!id.trim()} onClick={save}>
-          {t("providers.models.save")}
-        </button>
-        <button className="pw-ml-cancel" onClick={onCancel}>
-          {t("providers.models.cancel")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// kun 风格模型列表：每个模型一张卡（id + 能力徽标 + 编辑/删除）,顶部「从 API 拉取」,底部「添加模型」。
-function ProviderModels({
-  models,
-  onChange,
-  bridge,
-  baseUrl,
-  apiKey,
-  endpointFormat,
-}: {
-  models: ProviderModelOption[];
-  onChange: (models: ProviderModelOption[]) => void;
-  bridge: DesktopBridge | null;
-  baseUrl: string;
-  apiKey?: string;
-  endpointFormat: EndpointFormat;
-}) {
-  const { t } = useTranslation("settings");
-  // editIdx：正在编辑的下标;models.length 表示新增;null 表示无编辑。
-  const [editIdx, setEditIdx] = useState<number | null>(null);
-  const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
-  useEffect(() => {
-    setProbe({ kind: "idle" });
-  }, [baseUrl, apiKey, endpointFormat]);
-
-  const canProbe = !!bridge?.probeProvider && endpointFormat !== "custom" && !!baseUrl.trim();
-
-  const runProbe = async () => {
-    if (!bridge?.probeProvider || probe.kind === "testing") return;
-    setProbe({ kind: "testing" });
-    try {
-      const res = await bridge.probeProvider({ baseUrl, apiKey, endpointFormat });
-      setProbe(res.ok ? { kind: "ok", models: res.models ?? [] } : { kind: "err", error: res.error ?? t("providers.models.connectFailed") });
-    } catch (e) {
-      setProbe({ kind: "err", error: e instanceof Error ? e.message : String(e) });
-    }
-  };
-  // 拉取应用：保留已有显示名,按拉取结果重排（新 id 无显示名）。
-  const applyFetched = (ids: string[]) => {
-    const existing = new Map(models.map((m) => [m.id, m]));
-    onChange(ids.map((id) => existing.get(id) ?? { id }));
-    setProbe({ kind: "idle" });
-  };
-
-  const saveModel = (m: ProviderModelOption) => {
-    const next = [...models];
-    if (editIdx === models.length) next.push(m);
-    else if (editIdx !== null) next[editIdx] = m;
-    onChange(next);
-    setEditIdx(null);
-  };
-  const removeModel = (i: number) => {
-    onChange(models.filter((_, j) => j !== i));
-    if (editIdx === i) setEditIdx(null);
-  };
-
-  return (
-    <div className="pw-ml">
-      <div className="pw-ml-head">
-        <span className="pw-ml-title">{t("providers.models.listTitle", { count: models.length })}</span>
-        <button
-          className="pw-tl-gen"
-          disabled={!canProbe || probe.kind === "testing"}
-          onClick={() => void runProbe()}
-          title={endpointFormat === "custom" ? t("providers.models.customNoProbe") : undefined}
-        >
-          <Icon.Retry size={12} />
-          {probe.kind === "testing" ? t("providers.models.fetchProbing") : t("providers.models.fetch")}
-        </button>
-      </div>
-      <div className="pw-set-hint">{t("providers.models.hint")}</div>
-
-      {probe.kind === "ok" ? (
-        <div className="pw-ml-probe pw-ml-probe-ok">
-          {t("providers.models.probeOk", { count: probe.models.length })}
-          {probe.models.length > 0 ? (
-            <button className="pw-prov-probe-apply" onClick={() => applyFetched(probe.models)}>
-              {t("providers.models.apply")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {probe.kind === "err" ? <div className="pw-ml-probe pw-ml-probe-err">{probe.error}</div> : null}
-
-      {models.length === 0 && editIdx === null ? (
-        <div className="pw-set-hint">{t("providers.models.emptyHint")}</div>
-      ) : null}
-
-      {models.map((m, i) =>
-        editIdx === i ? (
-          <ModelEditRow key={i} initial={m} onSave={saveModel} onCancel={() => setEditIdx(null)} />
-        ) : (
-          <div key={i} className="pw-ml-card">
-            <div className="pw-ml-card-main">
-              <span className="pw-ml-id">{m.id}</span>
-              <span className="pw-ml-badges">
-                <span className="pw-ml-badge">{t("providers.models.badgeText")}</span>
-                {m.contextTokens ? <span className="pw-ml-badge">{t("providers.models.badgeContext", { value: formatContext(m.contextTokens) })}</span> : null}
-                {m.reasoning ? <span className="pw-ml-badge">{t("providers.models.badgeReasoning")}</span> : null}
-                {m.vision ? <span className="pw-ml-badge">{t("providers.models.badgeVision")}</span> : null}
-                {m.label && m.label !== m.id ? <span className="pw-ml-badge is-name">{m.label}</span> : null}
-              </span>
-            </div>
-            <div className="pw-ml-actions">
-              <button title={t("providers.models.edit")} onClick={() => setEditIdx(i)}>
-                <Icon.Edit size={14} />
-              </button>
-              <button title={t("providers.models.delete")} onClick={() => removeModel(i)}>
-                <Icon.Trash size={14} />
-              </button>
-            </div>
-          </div>
-        ),
-      )}
-
-      {editIdx === models.length ? (
-        <ModelEditRow initial={{ id: "" }} onSave={saveModel} onCancel={() => setEditIdx(null)} />
-      ) : (
-        <button className="pw-ml-add" onClick={() => setEditIdx(models.length)}>
-          <Icon.Plus size={13} />
-          {t("providers.models.addModel")}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: "text" | "password";
-}) {
-  return (
-    <label className="pw-set-field">
-      <span className="pw-set-lbl">{label}</span>
-      <input
-        className="pw-set-input"
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        spellCheck={false}
-      />
-    </label>
-  );
-}
-
-function Select({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { label: string; value: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="pw-set-field">
-      <span className="pw-set-lbl">{label}</span>
-      <select className="pw-set-input" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function ProviderDetail({
-  provider,
-  onPatch,
-  onRemove,
-}: {
-  provider: ProviderProfile;
-  onPatch: (patch: Partial<ProviderProfile>) => void;
-  onRemove: () => void;
-}) {
-  const { t } = useTranslation("settings");
-  const bridge = useDesktopBridge();
-  return (
-    <div className="pw-prov-detail">
-      <div className="pw-pi-channel-head">
-        <input
-          className="pw-set-input"
-          value={provider.name}
-          placeholder={t("providers.namePlaceholder")}
-          spellCheck={false}
-          onChange={(e) => onPatch({ name: e.target.value })}
-        />
-        <Toggle label={t("providers.enable")} value={provider.enabled} onChange={(v) => onPatch({ enabled: v })} />
-        <ConfirmDelete onConfirm={onRemove} title={t("providers.deleteProvider")} />
-      </div>
-      <Select
-        label={t("providers.protocolType")}
-        value={provider.endpointFormat}
-        options={ENDPOINT_FORMAT_OPTIONS.map((o) => ({ label: t(o.formatKey), value: o.value }))}
-        onChange={(v) => onPatch({ endpointFormat: v as EndpointFormat })}
-      />
-      <Field
-        label={t("providers.baseUrl")}
-        value={provider.baseUrl}
-        placeholder={t("providers.baseUrlPlaceholder")}
-        onChange={(v) => onPatch({ baseUrl: v })}
-      />
-      <SecretField
-        label={t("providers.apiKey")}
-        value={provider.apiKey ?? ""}
-        placeholder={t("providers.apiKeyPlaceholder")}
-        onChange={(v) => onPatch({ apiKey: v || undefined })}
-      />
-      <ProviderModels
-        models={provider.models}
-        onChange={(models) => onPatch({ models })}
-        bridge={bridge}
-        baseUrl={provider.baseUrl}
-        apiKey={provider.apiKey}
-        endpointFormat={provider.endpointFormat}
-      />
-    </div>
-  );
-}
-
-// 供应商管理弹窗:模板添加 + 列表/详情双栏(原「供应商」tab 全部能力)。
 export function ProviderManagerModal({
   initialSelectedId,
   onClose,
@@ -391,18 +34,24 @@ export function ProviderManagerModal({
   onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const addProvider = usePersonalStore((s) => s.addProvider);
-  const updateProvider = usePersonalStore((s) => s.updateProvider);
-  const removeProvider = usePersonalStore((s) => s.removeProvider);
-  const providers = providerSettings.providers;
-  const [selectedId, setSelectedId] = useState<string | undefined>(initialSelectedId ?? providers[0]?.id);
-  const [tmplKey, setTmplKey] = useState(PROVIDER_PRESETS[0]?.templateKey ?? "deepseek");
+  const { views, loading, catalogError, catalogUnsupported, snapshot } = useProviderViews();
+  const { items: customItems } = useCustomProviders();
+  const [tab, setTab] = useState<Tab>("builtin");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | undefined>(initialSelectedId);
+  const legacyCleared = usePersonalStore((s) => s.legacyProviderSettingsCleared);
+  const acknowledgeLegacy = usePersonalStore((s) => s.acknowledgeLegacyProviderNotice);
 
-  const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
+  const builtinViews = useMemo(() => views.filter((v) => !v.custom), [views]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return builtinViews;
+    return builtinViews.filter((v) => v.provider.name.toLowerCase().includes(q) || v.provider.id.toLowerCase().includes(q));
+  }, [builtinViews, query]);
 
-  // ESC 关闭弹窗但不连带关设置整页:capture 阶段 stopPropagation(设置页是 window
-  // bubble 监听);输入框内的 ESC 放行(设置页有 isTypingTarget 守卫,同样不会误关)。
+  // 选中项跟随可见列表：初始选中或选中项被搜索过滤掉时，落到第一项。
+  const selected = filtered.find((v) => v.provider.id === selectedId) ?? filtered[0];
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -417,17 +66,7 @@ export function ProviderManagerModal({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  const addFromTemplate = () => {
-    const preset = PROVIDER_PRESETS.find((x) => x.templateKey === tmplKey);
-    if (!preset) return;
-    const base = slugify(preset.templateKey === "custom" ? "custom-provider" : preset.templateKey);
-    const existing = new Set(providers.map((p) => p.id));
-    let id = base;
-    let n = 1;
-    while (existing.has(id)) id = `${base}-${++n}`;
-    addProvider(providerFromPreset(preset, id));
-    setSelectedId(id);
-  };
+  const storageAvailable = snapshot.health.available;
 
   return (
     <div className="pw-prov-modal-mask" onClick={onClose}>
@@ -440,60 +79,128 @@ export function ProviderManagerModal({
       >
         <div className="pw-prov-modal-head">
           <span className="pw-prov-modal-title">{t("providers.manage")}</span>
+          <div className="pw-prov-tabs" role="tablist">
+            <button
+              role="tab"
+              aria-selected={tab === "builtin"}
+              className={`pw-prov-tab ${tab === "builtin" ? "is-active" : ""}`}
+              onClick={() => setTab("builtin")}
+            >
+              {t("providers.tabBuiltin")}
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "custom"}
+              className={`pw-prov-tab ${tab === "custom" ? "is-active" : ""}`}
+              onClick={() => setTab("custom")}
+            >
+              {t("providers.tabCustom")}
+            </button>
+          </div>
           <button className="pw-prov-modal-close" aria-label={t("providers.manageClose")} onClick={onClose}>
             <Icon.X size={15} />
           </button>
         </div>
-        <div className="pw-prov-modal-body">
-          <div className="pw-pi-add">
-            <Select
-              label={t("providers.addFromTemplate")}
-              value={tmplKey}
-              options={PROVIDER_PRESETS.map((preset) => ({ label: t(preset.nameKey), value: preset.templateKey }))}
-              onChange={setTmplKey}
-            />
-            <button className="btn pw-pi-add-btn" onClick={addFromTemplate}>
-              {t("providers.addProvider")}
-            </button>
-          </div>
 
-          {providers.length === 0 ? (
-            <div className="pw-set-hint">{t("providers.empty")}</div>
-          ) : (
+        <div className="pw-prov-modal-body">
+          {/* safeStorage 不可用是全局性的：两个 tab 都受影响，故警告条放在最外层。 */}
+          {!storageAvailable ? (
+            <div className="pw-prov-alert is-warn" role="status">
+              {t("providers.storageUnavailable", { reason: snapshot.health.reason ?? "" })}
+            </div>
+          ) : null}
+
+          {/* 旧 providerSettings 被首启清理（计划 §5，不迁移）→ 一次性告知「请重新登录」。
+              点「知道了」后置 noticeAcknowledged，随下一次全量保存落盘，之后不再弹。
+              标记本身由主进程写入，渲染端只负责展示 + 确认（见 store 的字段注释）。 */}
+          {legacyCleared && !legacyCleared.noticeAcknowledged ? (
+            <div className="pw-prov-alert is-warn" role="status">
+              {t("providers.legacyCleared")}
+              <div className="pw-mode-block-actions">
+                <button type="button" className="pw-mode-block-btn" onClick={acknowledgeLegacy}>
+                  {t("providers.legacyClearedDismiss")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {catalogUnsupported ? <div className="pw-set-hint">{t("providers.catalogUnsupported")}</div> : null}
+          {catalogError ? (
+            <div className="pw-prov-alert is-error" role="alert">
+              {t("providers.catalogUnavailable", { error: catalogError })}
+            </div>
+          ) : null}
+
+          {tab === "custom" ? (
+            <CustomProviderPanel items={customItems} storageAvailable={storageAvailable} />
+          ) : loading ? (
+            <div className="pw-set-hint">{t("providers.catalogLoading")}</div>
+          ) : !catalogError && !catalogUnsupported && builtinViews.length === 0 ? (
+            <div className="pw-set-hint">{t("providers.catalogEmpty")}</div>
+          ) : builtinViews.length > 0 ? (
             <div className="pw-prov-split">
               <div className="pw-prov-list">
-                {providers.map((p) => (
-                  <button
-                    key={p.id}
-                    className={`pw-prov-item ${p.id === selected?.id ? "is-active" : ""}`}
-                    onClick={() => setSelectedId(p.id)}
-                  >
-                    <span className="pw-prov-item-name">{p.name || p.id}</span>
-                    <span className="pw-prov-item-meta">
-                      {providerSettings.defaultProviderId === p.id ? (
-                        <span className="pw-prov-badge is-default">{t("providers.badgeDefault")}</span>
-                      ) : null}
-                      {p.enabled ? null : <span className="pw-prov-badge">{t("providers.badgeDisabled")}</span>}
-                      <span className="pw-prov-badge">{t("providers.badgeModels", { count: p.models.length })}</span>
-                    </span>
-                  </button>
+                <label className="pw-model-picker-search">
+                  <Icon.Search size={13} />
+                  <input
+                    className="pw-set-input"
+                    value={query}
+                    placeholder={t("providers.search")}
+                    aria-label={t("providers.search")}
+                    spellCheck={false}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </label>
+                {filtered.length === 0 ? <div className="pw-set-hint">{t("providers.searchNoResult")}</div> : null}
+                {filtered.map((v) => (
+                  <ProviderListItem
+                    key={v.provider.id}
+                    view={v}
+                    active={v.provider.id === selected?.provider.id}
+                    onClick={() => setSelectedId(v.provider.id)}
+                  />
                 ))}
               </div>
               {selected ? (
-                <ProviderDetail
-                  key={selected.id}
-                  provider={selected}
-                  onPatch={(patch) => updateProvider(selected.id, patch)}
-                  onRemove={() => {
-                    removeProvider(selected.id);
-                    setSelectedId(undefined);
-                  }}
+                <ProviderDetailPanel
+                  key={selected.provider.id}
+                  view={selected}
+                  hiddenIds={snapshot.hiddenProviderIds}
+                  storageAvailable={storageAvailable}
                 />
               ) : null}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+/** 左栏一行：名称 + 认证状态徽标 + 模型数。状态徽标区分五态（含「已隐藏」这一展示维度）。 */
+function ProviderListItem({ view, active, onClick }: { view: ProviderView; active: boolean; onClick: () => void }) {
+  const { t } = useTranslation("settings");
+  const { provider, status, hidden } = view;
+  const statusKey =
+    status.source === "safe-storage"
+      ? status.type === "oauth"
+        ? "oauth"
+        : "safeStorage"
+      : status.source === "env"
+        ? "env"
+        : status.source === "ambient"
+          ? "ambient"
+          : "none";
+  return (
+    <button className={`pw-prov-item ${active ? "is-active" : ""}`} onClick={onClick}>
+      <span className="pw-prov-item-name">{provider.name}</span>
+      <span className="pw-prov-item-meta">
+        <span className={`pw-prov-status is-${statusKey}`} data-usable={providerUsable(view) ? "1" : "0"}>
+          {t(`providers.status.${statusKey}`)}
+        </span>
+        {hidden ? <span className="pw-prov-badge">{t("providers.badgeHidden")}</span> : null}
+        <span className="pw-prov-badge">{t("providers.badgeModels", { count: provider.models.length })}</span>
+      </span>
+    </button>
   );
 }

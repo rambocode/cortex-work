@@ -6,6 +6,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "build:pi": "node scripts/build-pi-binary.mjs",
+    "build:pi-catalog": "node scripts/build-pi-catalog.mjs",
     "sync:bento": "node scripts/sync-bento-runtime.mjs",
     "build:cortex-helper": "node scripts/build-cortex-helper.mjs",
     "build:whisper": "node scripts/prepare-whisper-runner.mjs --platform darwin --arch arm64",
@@ -37,6 +38,7 @@
   "dependencies": {
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
+    "@earendil-works/pi-ai": "0.82.1",
     "@earendil-works/pi-coding-agent": "0.82.1",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",

@@ -16,6 +16,7 @@ import {
   usePersonalPiEvents,
   usePersonalPiUi,
   usePersonalStore,
+  resetProviderCatalogCache,
   type PiUiRequest,
   __resetPersonalMessageRunsForTest,
   __resetPiSessionsForTest,
@@ -56,6 +57,9 @@ function makeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     onPiEvent: vi.fn(() => () => undefined),
     onPiUiRequest: vi.fn(() => () => undefined),
     piUiResponse: vi.fn(async () => undefined),
+    // 发送前 vision 阻断（计划 §2.3）要查 Provider Catalog：目录里 vision-model 支持图片、
+    // text-model 只吃文本。缺这个方法会一律判 unknown 并阻断（保守降级，见 modelCapabilities）。
+    providerCatalogGet: vi.fn(async () => ({ ok: true, catalog: TEST_CATALOG })),
     ...over,
   } as unknown as DesktopBridge;
 }
@@ -80,6 +84,27 @@ const claudeSession: SessionMeta = {
   updatedAt: 1,
 };
 const piSession: SessionMeta = { id: "s-pi", projectId: "p1", title: "Session 2", agent: "pi", createdAt: 1, updatedAt: 1 };
+// 带图发送的 pi 会话必须显式选一个**多模态**模型：能力未知同样会被阻断（不允许当成 text-only）。
+const piVisionSession: SessionMeta = { ...piSession, providerId: "test-provider", model: "vision-model" };
+const piTextSession: SessionMeta = { ...piSession, providerId: "test-provider", model: "text-model" };
+
+const TEST_CATALOG = {
+  schemaVersion: 1 as const,
+  piVersion: "0.82.1",
+  hash: "test",
+  providers: [
+    {
+      id: "test-provider",
+      name: "Test",
+      api: "openai-completions",
+      auth: ["api-key" as const],
+      models: [
+        { id: "vision-model", name: "Vision", api: "openai-completions", input: ["text" as const, "image" as const], reasoning: true, contextWindow: 200_000, maxTokens: 8_192 },
+        { id: "text-model", name: "Text", api: "openai-completions", input: ["text" as const], reasoning: false, contextWindow: 128_000, maxTokens: 4_096 },
+      ],
+    },
+  ],
+};
 
 // 构造一张待发图片(data 是任意字节;测试里 imageSave 被 mock,不嗅探)。
 function pendingImg(name: string): PendingImage {
@@ -121,8 +146,9 @@ const setOrchestration = (on: boolean) =>
 beforeEach(() => {
   __resetPersonalMessageRunsForTest();
   __resetPiSessionsForTest();
+  resetProviderCatalogCache(); // Catalog 是模块级进程内缓存,跨用例必须清,否则串台
   usePersonalStore.setState({
-    sessions: [claudeSession, piSession],
+    sessions: [claudeSession, piSession], // piVisionSession/piTextSession 与 piSession 同 id,只是模型不同
     projects: [],
     agentsAvailable: { claude: true, codex: true, pi: true },
     runningBySession: {},
@@ -897,10 +923,40 @@ describe("send 图片路由（U4）", () => {
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
     await act(async () => {
-      await result.current.send(piSession, "/proj", "看图", [], undefined, [pendingImg("x.png")]);
+      await result.current.send(piVisionSession, "/proj", "看图", [], undefined, [pendingImg("x.png")]);
     });
     expect(save).toHaveBeenCalledTimes(1);
     expect((bridge.piPrompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[3]).toEqual(["/img/x.png"]);
+  });
+
+  it("pi 文本模型 + 图片:发送前被阻断(不 imageSave、不 piPrompt),草稿完整保留并留下拦截提示", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    let consumed: boolean | undefined;
+    await act(async () => {
+      consumed = await result.current.send(piTextSession, "/proj", "看图", [], undefined, [pendingImg("x.png")]);
+    });
+    // 返回 false = composer 保留文本/图片/附件/编辑态；图片未落盘故不留孤儿文件。
+    expect(consumed).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(bridge.piPrompt).not.toHaveBeenCalled();
+    expect(qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? []).toHaveLength(0);
+    expect(usePersonalStore.getState().visionBlockHints["s-pi"]?.reason).toBe("unsupported");
+  });
+
+  it("pi 模型不在 Catalog 中(能力未知):同样阻断,但 reason 是 unknown 而非 unsupported", async () => {
+    const save = imageSaveMock();
+    const bridge = makeBridge({ imageSave: save });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const unknownSession = { ...piSession, providerId: "test-provider", model: "not-in-catalog" };
+    await act(async () => {
+      await result.current.send(unknownSession, "/proj", "看图", [], undefined, [pendingImg("x.png")]);
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect(usePersonalStore.getState().visionBlockHints["s-pi"]?.reason).toBe("unknown");
   });
 
   it("纯图无文本:允许发送(startCli 被调用)", async () => {
@@ -947,7 +1003,7 @@ describe("send 图片路由（U4）", () => {
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
     const refs = [{ path: "/img/a.png", name: "a.png", mimeType: "image/png" }];
     await act(async () => {
-      await result.current.send(piSession, "/proj", "改后", [], undefined, undefined, refs);
+      await result.current.send(piVisionSession, "/proj", "改后", [], undefined, undefined, refs);
     });
     const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
     const userMsg = msgs.find((m) => m.kind === "text" && m.who === "me");

@@ -9,7 +9,8 @@
 //   promptDelivery   stdin-stream-json(claude)/ stdin-eof(codex)/ argv(pi)
 //   mcpInjection     claude-mcp-json(写 cwd .mcp.json)/ codex-c(-c 注入)/ none  ← 管线消费
 //   sessionResume    continue+resume / resume-only / none
-//   imageDelivery    native-flag(--image)/ prompt-text(拼进文本)/ none
+//   imageDelivery    native-flag(codex --image)/ arg-at-path(pi `@<path>` 位置参数)/
+//                    prompt-text(claude:拼进文本让 Read 工具看图)/ none
 //   appendSystemPrompt native-flag(原生 flag)/ prompt-wrap(<user_request> 包裹)/ none
 //   transport        spawn(缺省,claude/pi:每轮 spawn CLI + 逐行解析)/ ws(codex 主交互会话:
 //                    长驻 `codex app-server --listen ws://` + WebSocket 持久连接)  ← 管线消费(U5)
@@ -37,7 +38,9 @@ const parseLog = createLogger("parse");
 export type PromptDelivery = "stdin-stream-json" | "stdin-eof" | "argv";
 export type McpInjection = "claude-mcp-json" | "codex-c" | "none";
 export type SessionResume = "continue+resume" | "resume-only" | "none";
-export type ImageDelivery = "native-flag" | "prompt-text" | "none";
+// arg-at-path:pi 的 `@<path>` 文件参数（cli/args.js 按 `@` 前缀解析,file-processor.js 做
+// MIME 魔数嗅探后转成 initialImages）。与 codex 的 `--image <path>` 是不同的形态,故单独一位。
+export type ImageDelivery = "native-flag" | "arg-at-path" | "prompt-text" | "none";
 export type AppendSystemPrompt = "native-flag" | "prompt-wrap" | "none";
 export type Transport = "spawn" | "ws";
 

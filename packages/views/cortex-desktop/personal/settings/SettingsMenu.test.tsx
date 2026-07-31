@@ -258,7 +258,8 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     // 供应商管理在弹窗内,页内不直接出现「从模板添加」。
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
     expect(screen.getByText("工具执行审批")).toBeTruthy();
-    expect(screen.getByText("默认供应商")).toBeTruthy();
+    // 默认模型改为 Catalog 驱动的单一引用字段；未配置时是阻断态而不是两级下拉。
+    expect(screen.getByText("默认模型")).toBeTruthy();
     expect(screen.queryByText("从模板添加")).toBeNull();
   });
 
@@ -267,8 +268,9 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
     fireEvent.click(screen.getByRole("button", { name: "供应商管理" }));
     expect(screen.getByRole("dialog", { name: "供应商管理" })).toBeTruthy();
-    // 弹窗内是完整管理:模板添加 + 添加按钮。
-    expect(screen.getByText("从模板添加")).toBeTruthy();
+    // 弹窗改为 Catalog 驱动：内建 / 自定义两个 tab，且**不再有**任何模型能力编辑入口。
+    expect(screen.getByRole("tab", { name: "内建供应商" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "自定义供应商" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "供应商管理" })).toBeNull();
   });

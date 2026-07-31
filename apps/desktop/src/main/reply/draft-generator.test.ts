@@ -1,33 +1,46 @@
-import { describe, it, expect } from "vitest";
+// 草稿生成器单测。阶段③·4.1 收编后，出站口从「自拼 URL + fetch」变成 Pi Model Gateway，
+// 替身随之下移到 pi 运行时层（见 __fixtures__/fake-pi-runtime.ts 的说明），本文件仍是零网络。
+//
+// 随之删掉的两组用例（**不是覆盖率倒退**）：
+//   · 「SSE 半行跨 chunk 拼接」「供应商无视 stream:true 回普通 JSON 的回退解析」——
+//     SSE 分帧与厂商兼容性现在由 pi 的各 api 实现负责，Cortex 侧已无 SSE 解析代码可测；
+//   · 「拼 URL / Authorization 头」—— 本模块已经拿不到 baseUrl/apiKey，这正是收编的目的。
+// 保留下来的是本模块自己的职责：温度分层、输出清洗、立场标记解析、取消、空草稿判定。
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
+
+let catalog: ReturnType<typeof fakeCatalog> | undefined;
+vi.mock("../providers/catalog", () => ({ getProviderCatalog: () => catalog }));
+vi.mock("electron", () => ({ safeStorage: { isEncryptionAvailable: () => false } }));
+
 import {
-  generateDraft,
-  generateDraftStream,
+  createFakePiRuntime,
+  fakeAssistantMessage,
+  fakeCatalog,
+} from "../providers/__fixtures__/fake-pi-runtime";
+import {
   displayableStreamText,
   EmptyDraftError,
+  generateDraft,
+  generateDraftStream,
 } from "./draft-generator";
-import type { ReplyPrompt } from "@cortex-work/core/reply/prompt-builder";
 import type { ResolvedReplyModel } from "./resolve-model";
 
 const PROMPT: ReplyPrompt = { system: "SYS", user: "USER" };
+const TARGET: ResolvedReplyModel = { providerId: "reply", modelId: "m1" };
 
-const TARGET: ResolvedReplyModel = {
-  providerId: "reply",
-  providerName: "Reply",
-  baseUrl: "https://api.test/v1",
-  apiKey: "sk-test",
-  model: "m1",
-};
+/** 一次返回固定正文的运行时替身。 */
+const runtimeReturning = (text: string) => createFakePiRuntime({ texts: [text] });
 
-// 组装一个返回指定 content 的假 fetch，并记录收到的 url / init 以断言请求构造。
-function makeFetch(content: string, opts?: { onCall?: (url: string, init: RequestInit) => void }) {
-  return (async (url: string, init: RequestInit) => {
-    opts?.onCall?.(url, init);
-    return {
-      ok: true,
-      json: async () => ({ choices: [{ message: { content } }] }),
-    } as unknown as Response;
-  }) as unknown as typeof fetch;
-}
+/** 流式：把正文按给定分片下发。 */
+const streamingRuntime = (text: string, chunk: (t: string) => string[]) =>
+  createFakePiRuntime({ texts: [text], chunk });
+
+beforeEach(() => {
+  catalog = fakeCatalog("reply", "m1");
+});
 
 describe("REPLY_TEMPERATURES 温度分层", () => {
   it("锁定源项目契约值 0.3/0.9/0.2,漂移即报红", async () => {
@@ -37,172 +50,153 @@ describe("REPLY_TEMPERATURES 温度分层", () => {
 });
 
 describe("generateDraft 请求构造", () => {
-  it("拼 chat completions URL、带 Authorization、system+user 两条消息与 temperature 透传", async () => {
-    let url = "";
-    let init: RequestInit | undefined;
-    const fetchFn = makeFetch("你好，稍后回复你。", {
-      onCall: (u, i) => {
-        url = u;
-        init = i;
-      },
-    });
-    const result = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn });
+  it("按模型引用寻址、system+user 两条消息、temperature 透传", async () => {
+    const runtime = runtimeReturning("你好，稍后回复你。");
+    const result = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
     expect(result).toEqual({ text: "你好，稍后回复你。", stance: null });
 
-    expect(url).toBe("https://api.test/v1/chat/completions");
-    const headers = init?.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer sk-test");
-    expect(headers["Content-Type"]).toBe("application/json");
-    const body = JSON.parse(init?.body as string);
-    expect(body.model).toBe("m1");
-    expect(body.temperature).toBe(0.3);
-    expect(body.stream).toBe(false);
-    expect(body.messages).toEqual([
-      { role: "system", content: "SYS" },
-      { role: "user", content: "USER" },
+    const call = runtime.calls[0]!;
+    expect(call.model.provider).toBe("reply");
+    expect(call.model.id).toBe("m1");
+    expect(call.options!.temperature).toBe(0.3);
+    // system 走 pi 的 Context.systemPrompt 独立通道，不拼进 user。
+    expect(call.context.systemPrompt).toBe("SYS");
+    expect(call.context.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "USER" }),
     ]);
+  });
+
+  it("reply 场景的 30s 超时仍然下发（比日报的 60s 短）", async () => {
+    const runtime = runtimeReturning("x");
+    await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
+    expect(runtime.calls[0]!.options!.timeoutMs).toBe(30_000);
   });
 });
 
 describe("generateDraft sad path", () => {
-  it("非 2xx → 抛错含状态码与响应体前 200 字符", async () => {
-    const fetchFn = (async () => ({
-      ok: false,
-      status: 429,
-      text: async () => "rate limited",
-    })) as unknown as typeof fetch;
+  it("供应商报错 → 抛错含状态码", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => {
+        throw new Error("模型接口 HTTP 429:rate limited");
+      },
+    });
     await expect(
-      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn }),
-    ).rejects.toThrow(/HTTP 429.*rate limited/);
+      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime }),
+    ).rejects.toThrow(/HTTP 429/);
   });
 
-  it("choices content 缺失/空 → 抛「模型未返回内容」", async () => {
-    const fetchFn = (async () => ({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: "   " } }] }),
-    })) as unknown as typeof fetch;
+  it("正文缺失/空白 → 抛「模型未返回内容」", async () => {
+    const runtime = runtimeReturning("   ");
     await expect(
-      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn }),
+      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime }),
     ).rejects.toThrow("模型未返回内容");
   });
 
   it("清洗后为空（只有空围栏）→ EmptyDraftError", async () => {
-    const fetchFn = makeFetch("```\n\n```");
+    const runtime = runtimeReturning("```\n\n```");
     await expect(
-      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn }),
+      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime }),
     ).rejects.toBeInstanceOf(EmptyDraftError);
+  });
+
+  it("模型引用悬空 → 抛错且一个字节都没出站（计划 §5，不回退）", async () => {
+    const runtime = runtimeReturning("x");
+    await expect(
+      generateDraft(
+        { prompt: PROMPT, target: { providerId: "ghost", modelId: "m1" }, temperature: 0.3 },
+        { runtime },
+      ),
+    ).rejects.toThrow(/模型引用无效/);
+    expect(runtime.calls).toHaveLength(0);
   });
 });
 
 describe("generateDraft 输出清洗（经 cleanAgentOutput）", () => {
   it("剥 markdown 围栏返回内层正文", async () => {
-    const fetchFn = makeFetch("```text\n今天下午三点见。\n```");
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.9 }, { fetchFn });
+    const runtime = runtimeReturning("```text\n今天下午三点见。\n```");
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.9 }, { runtime });
     expect(res.text).toBe("今天下午三点见。");
   });
 
   it("脱去成对包裹引号", async () => {
-    const fetchFn = makeFetch('"收到，谢谢！"');
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.9 }, { fetchFn });
+    const runtime = runtimeReturning('"收到，谢谢！"');
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.9 }, { runtime });
     expect(res.text).toBe("收到，谢谢！");
   });
 });
 
 describe("generateDraft 立场标记行解析", () => {
   it("首行立场标记 → 剥离并回填 stance，正文不含标记", async () => {
-    const fetchFn = makeFetch("[stance:agree]\n好，这块我们来承接。");
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn });
+    const runtime = runtimeReturning("[stance:agree]\n好，这块我们来承接。");
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
     expect(res).toEqual({ text: "好，这块我们来承接。", stance: "agree" });
   });
 
   it("围栏包裹的标记行也可解析（先剥围栏再剥标记）", async () => {
-    const fetchFn = makeFetch("```\n[stance:unsure]\n量级大概多少？\n```");
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn });
+    const runtime = runtimeReturning("```\n[stance:unsure]\n量级大概多少？\n```");
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
     expect(res).toEqual({ text: "量级大概多少？", stance: "unsure" });
   });
 
   it("标记后正文整体被引号包裹 → 剥标记后再清洗脱壳", async () => {
-    const fetchFn = makeFetch('[stance:reject]\n"这个暂时接不了。"');
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn });
+    const runtime = runtimeReturning('[stance:reject]\n"这个暂时接不了。"');
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
     expect(res).toEqual({ text: "这个暂时接不了。", stance: "reject" });
   });
 
   it("[stance:none] 归一为 null", async () => {
-    const fetchFn = makeFetch("[stance:none]\n哈哈好的");
-    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn });
+    const runtime = runtimeReturning("[stance:none]\n哈哈好的");
+    const res = await generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime });
     expect(res).toEqual({ text: "哈哈好的", stance: null });
   });
 
   it("剥标记后无正文 → EmptyDraftError", async () => {
-    const fetchFn = makeFetch("[stance:agree]");
+    const runtime = runtimeReturning("[stance:agree]");
     await expect(
-      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { fetchFn }),
+      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime }),
     ).rejects.toBeInstanceOf(EmptyDraftError);
   });
 });
 
 describe("generateDraft 取消信号", () => {
-  it("调用方 signal 已 abort → 请求随之中止（fetch 收到 aborted signal）", async () => {
+  it("调用方 signal 已 abort → 请求不出站并抛 AbortError", async () => {
     const controller = new AbortController();
     controller.abort();
-    let seenSignal: AbortSignal | undefined;
-    const fetchFn = (async (_url: string, init: RequestInit) => {
-      seenSignal = init.signal ?? undefined;
-      // 组合 signal 应已处于 aborted 态（AbortSignal.any 短路）。
-      if (seenSignal?.aborted) throw new DOMException("aborted", "AbortError");
-      return { ok: true, json: async () => ({ choices: [{ message: { content: "x" } }] }) } as unknown as Response;
-    }) as unknown as typeof fetch;
+    const runtime = runtimeReturning("x");
     await expect(
-      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3, signal: controller.signal }, { fetchFn }),
-    ).rejects.toThrow(/abort/i);
-    expect(seenSignal?.aborted).toBe(true);
+      generateDraft(
+        { prompt: PROMPT, target: TARGET, temperature: 0.3, signal: controller.signal },
+        { runtime },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(runtime.calls).toHaveLength(0);
+  });
+
+  it("在途请求被 pi 判为 aborted → 同样抛 AbortError", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => fakeAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" }),
+    });
+    await expect(
+      generateDraft({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, { runtime }),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 
 // ── 流式生成 ──────────────────────────────────────────────────────────────────
 
-/** 组装一个按序吐 SSE chunk 的假 fetch（chunk 粒度即网络分包粒度，可模拟半行截断）。 */
-function makeStreamFetch(
-  chunks: string[],
-  opts?: { onCall?: (url: string, init: RequestInit) => void },
-) {
-  return (async (url: string, init: RequestInit) => {
-    opts?.onCall?.(url, init);
-    let i = 0;
-    return {
-      ok: true,
-      body: {
-        getReader() {
-          return {
-            read: async () =>
-              i < chunks.length
-                ? { done: false, value: new TextEncoder().encode(chunks[i++]) }
-                : { done: true, value: undefined },
-          };
-        },
-      },
-    } as unknown as Response;
-  }) as unknown as typeof fetch;
-}
-
-/** 把增量 content 包成一行 SSE data 事件。 */
-const sse = (content: string) =>
-  `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
-
 describe("generateDraftStream 流式生成", () => {
-  it("请求体 stream:true；增量回调剥立场行的可外显文本 + 已解析立场；最终返回清洗结果", async () => {
-    let init: RequestInit | undefined;
-    const fetchFn = makeStreamFetch(
-      [sse("[stance:agree]\n"), sse("好，"), sse("这块我们来承接。"), "data: [DONE]\n\n"],
-      { onCall: (_u, i) => (init = i) },
-    );
+  it("增量回调给剥立场行的可外显文本 + 已解析立场；最终返回清洗结果", async () => {
+    const runtime = streamingRuntime("[stance:agree]\n好，这块我们来承接。", (t) => [
+      "[stance:agree]\n",
+      "好，",
+      t.slice("[stance:agree]\n好，".length),
+    ]);
     const updates: Array<[string, string | null]> = [];
     const res = await generateDraftStream(
       { prompt: PROMPT, target: TARGET, temperature: 0.3 },
       (text, stance) => updates.push([text, stance]),
-      { fetchFn },
+      { runtime },
     );
-    expect(JSON.parse(init?.body as string).stream).toBe(true);
     expect(res).toEqual({ text: "好，这块我们来承接。", stance: "agree" });
     // 增量文本不含标记行，且随流增长
     expect(updates).toEqual([
@@ -212,46 +206,21 @@ describe("generateDraftStream 流式生成", () => {
   });
 
   it("标记行首行未收齐时按住不外显（不闪现半截 [stan...）", async () => {
-    const fetchFn = makeStreamFetch([sse("[stan"), sse("ce:none]\n哈哈"), sse("好的")]);
+    const runtime = streamingRuntime("[stance:none]\n哈哈好的", () => ["[stan", "ce:none]\n哈哈", "好的"]);
     const updates: string[] = [];
     const res = await generateDraftStream(
       { prompt: PROMPT, target: TARGET, temperature: 0.3 },
       (text) => updates.push(text),
-      { fetchFn },
+      { runtime },
     );
     expect(updates).toEqual(["哈哈", "哈哈好的"]);
     expect(res).toEqual({ text: "哈哈好的", stance: null });
   });
 
-  it("SSE 事件被网络分包截断（半行跨 chunk）仍正确拼接", async () => {
-    const whole = sse("[stance:reject]\n接不了。");
-    const fetchFn = makeStreamFetch([whole.slice(0, 25), whole.slice(25), "data: [DONE]\n\n"]);
-    const res = await generateDraftStream(
-      { prompt: PROMPT, target: TARGET, temperature: 0.3 },
-      () => {},
-      { fetchFn },
-    );
-    expect(res).toEqual({ text: "接不了。", stance: "reject" });
-  });
-
-  it("供应商无视 stream:true 返回普通 JSON → 回退解析 message.content", async () => {
-    const fetchFn = makeStreamFetch([
-      JSON.stringify({ choices: [{ message: { content: "[stance:none]\n收到。" } }] }),
-    ]);
-    const res = await generateDraftStream(
-      { prompt: PROMPT, target: TARGET, temperature: 0.3 },
-      () => {},
-      { fetchFn },
-    );
-    expect(res).toEqual({ text: "收到。", stance: null });
-  });
-
   it("流为空 → 抛「模型未返回内容」", async () => {
-    const fetchFn = makeStreamFetch(["data: [DONE]\n\n"]);
+    const runtime = streamingRuntime("", () => []);
     await expect(
-      generateDraftStream({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, () => {}, {
-        fetchFn,
-      }),
+      generateDraftStream({ prompt: PROMPT, target: TARGET, temperature: 0.3 }, () => {}, { runtime }),
     ).rejects.toThrow("模型未返回内容");
   });
 });

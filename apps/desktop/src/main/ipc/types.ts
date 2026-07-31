@@ -198,6 +198,12 @@ export interface ProviderModelOption {
   vision?: boolean;
 }
 
+/**
+ * @deprecated 阶段②起废弃且**不迁移**（计划 §5）：apiKey 明文落盘、models[] 会覆盖 pi 内置
+ * 模型目录（事故根因）、enabled 把认证与显示混成一个开关。替代方案见
+ * `main/providers/contract.ts`（Catalog + 凭据金库 + hiddenProviderIds）。
+ * 本类型仅为清理逻辑保留。
+ */
 export interface ProviderProfile {
   id: string;
   name: string;
@@ -208,10 +214,23 @@ export interface ProviderProfile {
   enabled: boolean;
 }
 
+/** @deprecated 见 ProviderProfile。 */
 export interface ProviderSettings {
   providers: ProviderProfile[];
   defaultProviderId?: string;
   defaultModel?: string;
+}
+
+/** 旧 providerSettings 一次性清理的落盘标记（与 core/desktop/types.ts 镜像）。 */
+export interface LegacyProviderCleanupMark {
+  at: number;
+  noticeAcknowledged?: boolean;
+}
+
+/** Catalog 时代的模型引用（与 core/desktop/types.ts 镜像）。 */
+export interface DefaultModelRef {
+  providerId: string;
+  modelId: string;
 }
 
 // 供应商连接测试（与 core/desktop/types.ts 镜像）。
@@ -225,6 +244,38 @@ export interface ProviderProbeResult {
   ok: boolean;
   models?: string[];
   error?: string;
+}
+
+// ── pi extension 生成的输入契约（renderer → 主进程；agents/pi-providers.ts 消费） ──
+// 单发（CliStartRequest）与 RPC（PiOpenRequest）两条路径共用同一形状，避免两处漂移。
+//
+// ⚠️ 能力字段（input/reasoning/contextWindow/maxTokens/cost）**只对自定义 Provider 有意义**：
+// id 命中 pi 内置目录时 pi-providers 一律不下发 `models`，保留 pi 自带的完整模型元数据
+// （registerProvider 传了 `models` 就整体替换该 provider 的内置目录，
+// 见 pi-coding-agent/dist/core/provider-composer.js:108-131 —— 这正是本次能力事故的根因）。
+export interface PiProviderModelInput {
+  id: string;
+  name?: string;
+  // 完整 Pi Model 能力字段（阶段③ 的 JSON 编辑器直填）。自定义 Provider 必须齐全，
+  // 缺失即视为配置不完整并拒绝注册——绝不再用猜测默认值兜底。
+  input?: ("text" | "image")[];
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string>;
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+  compat?: unknown;
+  // 旧设置页字段（阶段③ 落地前的过渡直转，非猜测）：vision→input、contextTokens→contextWindow。
+  vision?: boolean;
+  contextTokens?: number;
+}
+
+export interface PiProviderInput {
+  id: string;
+  baseUrl: string;
+  apiKey?: string;
+  endpointFormat?: EndpointFormat;
+  models: PiProviderModelInput[];
 }
 
 // 通用设置（与 core/desktop/types.ts 镜像;主进程消费）。
@@ -535,8 +586,14 @@ export interface PersistedState {
   todos?: TodoMeta[];
   // 推送渠道设置（renderer 全量写入;主进程 automation 完成后推送时读取）。
   pushSettings?: PushSettings;
-  // 持久化的供应商配置（renderer 全量写入;主进程 automation runner 只读）。
+  /** @deprecated 阶段②起不再写入；主进程首启会**删除**该字段（含全部明文 apiKey），见计划 §5。 */
   providerSettings?: ProviderSettings;
+  // Catalog 时代的全局默认模型（替代废弃的 providerSettings.defaultProviderId/defaultModel）。
+  // ⚠️ 渲染端的 toPersistedState 白名单必须带上它，否则会被全量保存抹掉（详见 core 镜像注释）。
+  defaultModelRef?: DefaultModelRef;
+  // 旧 providerSettings 清理留痕：主进程删除旧字段后写入，renderer 据此弹一次升级提示。
+  // （「显示/隐藏 Provider」与 baseUrl 覆盖不在这里 —— main-owned 的 provider-prefs.json。）
+  legacyProviderSettingsCleared?: LegacyProviderCleanupMark;
   // 通用设置（renderer 全量写入;主进程读 workspaceRoot/desktopBehavior/log）。
   generalSettings?: GeneralSettings;
   rightPanelWidth?: number;
@@ -633,7 +690,9 @@ export interface CliStartRequest {
   builtinMcpServers?: string[];
   // U4/U6:codex app-server(ws)原生 skill input item（renderer 填充）。与 core 镜像。
   invokedSkill?: { name: string; path: string };
-  // 用户上传的图片（仅 claude/codex 消费;pi 走 piPrompt 独立参数）。与 core 镜像。
+  // 用户上传的图片。三端 adapter 各按自己的 imageDelivery 能力位消费:claude 拼进 prompt 文本、
+  // codex `--image <path>`、pi `@<path>` 文件参数。（pi 的 RPC 长驻路径另有原生 prompt.images,
+  // 见 pi-rpc.ts,不走本字段。）与 core 镜像。
   images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
   effort?: ReasoningEffort;
@@ -642,13 +701,8 @@ export interface CliStartRequest {
   // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval。缺省 = auto。
   approvalPolicy?: ApprovalPolicy;
   // pi 专用:renderer 传入当前会话选中供应商的完整配置,主进程据此生成 extension
-  // 并注入 key env。
-  provider?: {
-    id: string;
-    baseUrl: string;
-    apiKey?: string;
-    models: { id: string; name?: string }[];
-  };
+  // 并注入 key env。形状与 PiOpenRequest.provider 同源（PiProviderInput）。
+  provider?: PiProviderInput;
   // 主进程内部填充:生成的 extension 文件绝对路径（buildArgs 读取）。
   piExtensionPath?: string;
   // 委派（delegate）：本轮被 @ 的协作者角色。非空时 cli.ts 注入 cortex-delegate MCP server
@@ -796,16 +850,9 @@ export interface PiOpenRequest {
   skillPaths?: string[];
   // pi 扩展市场（U3）:已启用+已授信的扩展 -e 路径,core 解析后传入,buildRpcArgs 折入 -e 批次。
   extensionPaths?: string[];
-  // 自定义供应商:比 CliStartRequest.provider 多带 endpointFormat + per-model 能力标记
-  // (reasoning/vision/contextTokens),供 renderPiExtension 渲染高级配置;主进程据此生成
-  // extension 并注入 key。单发路径不需要高级配置,故 CliStartRequest.provider 不扩展。
-  provider?: {
-    id: string;
-    baseUrl: string;
-    apiKey?: string;
-    endpointFormat?: EndpointFormat;
-    models: { id: string; name?: string; reasoning?: boolean; vision?: boolean; contextTokens?: number }[];
-  };
+  // 供应商配置:与 CliStartRequest.provider 同一形状（PiProviderInput）。主进程据此生成
+  // extension 并注入 key。两条路径共用同一契约,避免「RPC 能力字段全、单发字段缺」的漂移。
+  provider?: PiProviderInput;
   // 主进程内部填充:生成的 provider extension 文件绝对路径（buildRpcArgs 读取）。
   piExtensionPath?: string;
   // 阶段3 深度定制开关（renderer 传）:启用「工具执行审批」/「自定义工具样例」/「斜杠命令样例」。

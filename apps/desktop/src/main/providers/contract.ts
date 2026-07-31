@@ -59,6 +59,12 @@ export interface ProviderAuthStatus {
   source: ProviderCredentialSource;
   expiresAt?: number;
   error?: string;
+  /**
+   * 用户对该 Provider 的自建网关/代理端点覆盖（计划 §4.2「高级 baseUrl 覆盖」）。
+   * 与 `CatalogProvider.baseUrl` 语义不同：后者是 Catalog 里的只读官方默认端点。
+   * 缺省表示未覆盖，走 pi 内置目录里的端点。
+   */
+  baseUrlOverride?: string;
 }
 
 export interface CredentialStoreHealth {
@@ -180,6 +186,8 @@ export const PROVIDER_IPC = {
   authSetApiKey: "providerAuth:setApiKey",
   authSetSecrets: "providerAuth:setSecrets",
   authSetHidden: "providerAuth:setHidden",
+  /** 自建网关/代理的 baseUrl 覆盖（传 undefined 清除覆盖，恢复内置端点）。 */
+  authSetBaseUrl: "providerAuth:setBaseUrl",
   /** 主进程 → renderer 的 OAuth 交互事件流。 */
   authEvent: "providerAuth:event",
   /** 显式连接测试（可能产生费用，调用前 UI 须提示）。 */

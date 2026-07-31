@@ -34,7 +34,7 @@ import { useResearchBackgroundStore } from "@cortex-work/core/research/backgroun
 import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
 import { useResearchCompletionRelay } from "../../research/useResearchCompletionRelay";
 import { useResearchExportTargets } from "../../research/useResearchExportTargets";
-import { resolveResearchModelDisplay } from "../../research/modelDisplay";
+import { useResearchModelDisplay } from "../../research/modelDisplay";
 import { FlashNoteEditor } from "../notes/FlashNoteEditor";
 import { PiToolConfirmDialog } from "../chat/PiToolConfirmDialog";
 import { PersonalSettingsView } from "../settings/SettingsMenu";
@@ -97,7 +97,6 @@ export function PersonalWorkspace({
   // 用选择器订阅而不是 getState()：后者在渲染期读快照是 React 反模式，且设置改动后不会
   // 触发重渲染。归一化保证旧存档缺字段时也有稳妥默认值。
   const researchEngineSettings = usePersonalStore((s) => s.generalSettings.researchEngine);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   // loop 工作流主区视图（优先级最高；bridge.workflowList 为 null 时不可能为 true）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
@@ -145,18 +144,17 @@ export function PersonalWorkspace({
       clearFinished(item.sessionId);
     }
   }, [finishedResearch, pushToast]);
-  // 解析「本次研究会用哪个模型 + 数据会去哪」。走 core 的 selectResearchModel（经
-  // resolveResearchModelDisplay），与设置页、以及主进程编排层用的是同一套三级回落规则，
-  // 所以界面显示的就是实际会用的那个，不会出现「设置里写着 A、实际跑 B」。
-  const researchModel = useMemo(
-    () => {
+  // 解析「本次研究会用哪个模型 + 数据会去哪」。走 useResearchModelDisplay —— 与设置页
+  // **以及主进程的 llm-hooks-wiring** 同一套「研究偏好 → 全局默认，两级各自成套」规则，
+  // 所以界面显示的就是实际会用的那个；两级都悬空时显示未配置，不会假装有个模型在跑。
+  const researchModel = useResearchModelDisplay(
+    useMemo(() => {
       const research = normalizeResearchEngineSettings(researchEngineSettings);
-      return resolveResearchModelDisplay(providerSettings, {
+      return {
         ...(research.modelProviderId ? { providerId: research.modelProviderId } : {}),
         ...(research.modelId ? { modelId: research.modelId } : {}),
-      });
-    },
-    [researchEngineSettings, providerSettings],
+      };
+    }, [researchEngineSettings]),
   );
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);

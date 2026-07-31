@@ -99,9 +99,13 @@ export function ModelThinkingPill({
 
   const modelOpts = isPi ? piModelOptions : models;
   const currentModelValue = isPi ? piModelValue : model || models[0]?.value || "";
-  // 当前值找不到匹配项时回退到第一个选项(用户诉求:选默认/第一个);仅在真的无任何选项时才显示
-  // 「未配置供应商」。避免「已配 provider 但 value 未对齐」误显示未配置。
-  const currentModelOpt = modelOpts.find((o) => o.value === currentModelValue) ?? modelOpts[0];
+  // pi 侧**不做任何回退**（计划 §5）：会话引用的模型在 Catalog 里查不到、或它所属 Provider
+  // 未认证 / 被隐藏时，显示「未配置供应商」阻断态并把用户引到设置页，而不是悄悄替换成
+  // 「第一个可用模型」——静默换模型会让人以为还在用原配置，实际能力、输出与账单全变了。
+  // 非 pi（claude/codex）模型集是内置常量，沿用旧的回退第一个的行为。
+  const currentModelOpt = isPi
+    ? modelOpts.find((o) => o.value === currentModelValue)
+    : (modelOpts.find((o) => o.value === currentModelValue) ?? modelOpts[0]);
   const currentModelLabel =
     currentModelOpt?.label ?? (isPi ? t("composer.noProvider") : "");
   const effectiveModelValue = currentModelOpt?.value ?? currentModelValue;

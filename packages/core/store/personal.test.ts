@@ -1693,3 +1693,94 @@ describe("会话绑定的研究引用(researchSessions)", () => {
     expect(s?.activeResearchSessionId).toBeUndefined();
   });
 });
+
+describe("写作 LLM 配置 hydrate（阶段③寻址归并）", () => {
+  it("旧档的明文 apiKey / baseUrl / model 被就地丢弃，不进 store、更不回写磁盘", () => {
+    // 归并前的旧档形状。清掉这份明文密钥落盘点正是本次归并的目的（计划 §5）——
+    // 若 hydrate 用 {...默认, ...旧档} 展开，这三个键会原样穿透并被 toPersistedState 写回。
+    const legacy = {
+      ...base,
+      writingLlmSettings: {
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-PLAINTEXT-SHOULD-BE-DROPPED",
+        model: "old-model",
+        completionEnabled: false,
+        debounceMs: 1000,
+        maxTokens: 200,
+      },
+    } as unknown as PersistedState;
+
+    usePersonalStore.getState().hydrate(legacy);
+    const llm = usePersonalStore.getState().writingLlmSettings as unknown as Record<string, unknown>;
+
+    // 旧键彻底消失（不是空串，是根本没有这个属性）。
+    expect(llm.apiKey).toBeUndefined();
+    expect(llm.baseUrl).toBeUndefined();
+    expect(llm.model).toBeUndefined();
+    // 新引用回落未配置：旧 baseUrl/apiKey 无法映射成 Catalog 引用，不迁移、要求用户重选。
+    expect(llm.providerId).toBe("");
+    expect(llm.modelId).toBe("");
+    // 写作独有的行为调优保留（归并的是「用哪个模型」，不是「怎么用」）。
+    expect(llm.completionEnabled).toBe(false);
+    expect(llm.debounceMs).toBe(1000);
+    expect(llm.maxTokens).toBe(200);
+
+    // 落盘快照里同样不含任何明文。
+    const persisted = JSON.stringify(toPersistedState(usePersonalStore.getState()));
+    expect(persisted).not.toContain("sk-PLAINTEXT-SHOULD-BE-DROPPED");
+    expect(persisted).not.toContain("api.example.com");
+  });
+
+  it("越界/缺失的调优值被夹取回合法区间", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      writingLlmSettings: { providerId: "p", modelId: "m", maxTokens: 9999 },
+    } as unknown as PersistedState);
+    const llm = usePersonalStore.getState().writingLlmSettings;
+    expect(llm.providerId).toBe("p");
+    expect(llm.modelId).toBe("m");
+    expect(llm.maxTokens).toBe(512); // WRITING_LLM_MAX_TOKENS_MAX
+    expect(llm.debounceMs).toBe(650); // 缺失 → 默认
+    expect(llm.completionEnabled).toBe(true); // 缺失 → 默认
+  });
+});
+
+describe("toPersistedState 白名单", () => {
+  // toPersistedState 是**白名单**构造：渲染端每次全量保存都用它整份覆盖磁盘，
+  // 不在白名单里的字段会被静默抹掉。主进程窄写的字段尤其危险——用户看不到任何报错，
+  // 只会发现「设了默认模型，重启就没了」。这条测试按**键是否存在**断言（不看值），
+  // 以后谁往 PersistedState 加字段忘了透传，这里会直接红。
+  const MAIN_WRITTEN_KEYS = ["defaultModelRef", "legacyProviderSettingsCleared"] as const;
+
+  it("主进程窄写的字段都在白名单里（键存在，不看值）", () => {
+    usePersonalStore.getState().hydrate(base);
+    const persisted = toPersistedState(usePersonalStore.getState());
+    for (const key of MAIN_WRITTEN_KEYS) {
+      expect(Object.prototype.hasOwnProperty.call(persisted, key)).toBe(true);
+    }
+  });
+
+  it("defaultModelRef 往返不丢：hydrate 读进来的值原样回写", () => {
+    const ref = { providerId: "openai", modelId: "gpt-5.5" };
+    usePersonalStore.getState().hydrate({ ...base, defaultModelRef: ref });
+    expect(usePersonalStore.getState().defaultModelRef).toEqual(ref);
+    expect(toPersistedState(usePersonalStore.getState()).defaultModelRef).toEqual(ref);
+  });
+
+  it("半截引用（只有一半 id）hydrate 后视为未配置——不留半截引用", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      defaultModelRef: { providerId: "openai", modelId: "" },
+    });
+    expect(usePersonalStore.getState().defaultModelRef).toBeUndefined();
+  });
+
+  it("setDefaultModelRef 写入后随全量保存落盘", () => {
+    usePersonalStore.getState().hydrate(base);
+    usePersonalStore.getState().setDefaultModelRef({ providerId: "p", modelId: "m" });
+    expect(toPersistedState(usePersonalStore.getState()).defaultModelRef).toEqual({
+      providerId: "p",
+      modelId: "m",
+    });
+  });
+});

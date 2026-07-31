@@ -45,6 +45,8 @@ const bunPlatform = targetPlatform === "win32" ? "windows" : targetPlatform;
 const bunTarget = `bun-${bunPlatform}-${targetArch}`;
 
 const outDir = join(desktopRoot, "resources/pi");
+const catalogScript = join(here, "build-pi-catalog.mjs");
+const catalogPath = join(outDir, "provider-catalog.json");
 const binName = isWindows ? "pi.exe" : "pi";
 const binPath = join(outDir, binName);
 const stampPath = join(outDir, ".pi-version");
@@ -53,6 +55,22 @@ const cacheRoot = join(desktopRoot, ".pi-build-cache");
 if (!existsSync(piPkgDir)) {
   console.error(`[build-pi-binary] 找不到 pi 包: ${piPkgDir}\n请先 pnpm install。`);
   process.exit(1);
+}
+
+/**
+ * 生成随包的 Provider 能力目录（resources/pi/provider-catalog.json）。
+ *
+ * 必须在**每一条**产出路径末尾调用（stamp 快路径 / 缓存命中 / 正常编译），
+ * 因为 Catalog 与二进制是同版本契约：只要 resources/pi 里有 pi 二进制，就必须有配套
+ * 且同版本的 Catalog，否则运行时会因版本校验失败而整体降级。
+ * 挂在 npm script 上不行——prepackage:mac-* 直接 `node scripts/build-pi-binary.mjs`，
+ * 绕开 `pnpm build:pi`，挂上去必漏。
+ *
+ * 用子进程而非 import：本脚本是同步直线流程（大量 process.exit），子进程既能保持同步，
+ * 又能让失败以非零退出向上冒泡，使整个构建失败——这是计划要求的硬约束。
+ */
+function buildCatalog() {
+  execFileSync(process.execPath, [catalogScript], { stdio: "inherit" });
 }
 
 const piVersion = JSON.parse(readFileSync(join(piPkgDir, "package.json"), "utf-8")).version;
@@ -70,8 +88,13 @@ const cacheKey = `${piVersion}-${bunTarget}-bun${bunVersion}`;
 const cacheDir = join(cacheRoot, cacheKey);
 
 // stamp 快路径:key 未变且二进制在,零成本跳过(dev 每次启动都会跑本脚本)。
+// Catalog 缺失时仍要补生成:stamp 只记二进制的 key,不保证 provider-catalog.json 存在
+//(升级到本版本之前生成的 resources/pi 就没有它),缺了会让运行时目录整体不可用。
+// 只在缺失时生成即可——stamp key 含 piVersion,pi 版本一变就走不到这条快路径,
+// 不存在「stamp 命中但 Catalog 是旧版本」的情形;人为篡改则由运行时的 hash/版本校验兜住。
 if (!force && existsSync(binPath) && existsSync(stampPath)) {
   if (readFileSync(stampPath, "utf-8").trim() === cacheKey) {
+    if (!existsSync(catalogPath)) buildCatalog();
     log(`pi@${piVersion} (${bunTarget}) 二进制已最新,跳过(--force 强制重编)。`);
     process.exit(0);
   }
@@ -84,6 +107,9 @@ if (!force && existsSync(join(cacheDir, binName))) {
   rmSync(outDir, { recursive: true, force: true });
   cpSync(cacheDir, outDir, { recursive: true });
   writeFileSync(stampPath, cacheKey);
+  // 缓存命中路径会先整目录删再拷,若缓存是本版本之前回填的就没有 Catalog;
+  // 无条件重新生成最稳(内容对同一 pi 版本是确定性的,重写不会改变字节)。
+  buildCatalog();
   log(`完成(来自缓存): ${binPath}`);
   process.exit(0);
 }
@@ -130,6 +156,9 @@ try {
 } catch (e) {
   log(`⚠️ 未拷 photon wasm(图片处理),不影响文本回路: ${e.message}`);
 }
+
+// 放在回填缓存之前:让 Catalog 一并进缓存,下次缓存命中拷回来就是同版本的那份。
+buildCatalog();
 
 writeFileSync(stampPath, cacheKey);
 

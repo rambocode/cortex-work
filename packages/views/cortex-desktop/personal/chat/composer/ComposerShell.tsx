@@ -27,6 +27,9 @@ import type {
 } from "@cortex-work/core";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
+import { VisionBlockBanner } from "../VisionBlockBanner";
+// pi 模型候选的唯一来源：Provider Catalog（认证可用 ∧ 未隐藏），与设置页选择器同一份数据。
+import { collectModelOptions, useProviderViews } from "../../settings/provider/useProviderData";
 import { useDismissableMenu } from "../../shared/useDismissableMenu";
 import { RESEARCH_SKILL_PILL } from "./useSlashCommands"; // 只取常量;反向引用是 import type,无运行时循环
 import { MentionDropdown, useMentionAutocomplete } from "./MentionAutocomplete";
@@ -159,6 +162,7 @@ export function ComposerShell({
   editing,
   slashCommands = [],
   acceptComposerInsert = false,
+  visionBlockSessionId,
   className,
   placeholder,
   onSend,
@@ -200,6 +204,8 @@ export function ComposerShell({
   slashCommands?: SlashCommand[];
   /** 是否订阅全局 composerInsert(文件预览「发送到 Chat」),仅会话页启用。 */
   acceptComposerInsert?: boolean;
+  /** 传入会话 id 即在输入框上方渲染「图片能力阻断」提示条(落地页草稿态不传)。 */
+  visionBlockSessionId?: string;
   /** 注入根 .composer-wrap 的附加类名(如落地页 pw-landing-composer)。 */
   className?: string;
   /** 覆盖非运行态占位文案;缺省用「给 {agent名} 发消息…」。 */
@@ -279,7 +285,6 @@ export function ComposerShell({
   const attachMenu = useDismissableMenu();
   const mention = useMentionAutocomplete(text, setText, taRef);
 
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
   // 会话未单独设 thinkingLevel 时,下拉回退全局默认（与 sendPiTurn 的实际生效值一致,避免「显关闭、实际用默认」）。
   const piThinkingDefault = usePersonalStore((s) => s.generalSettings.piThinkingDefault);
   // 读取 ASR 配置（U9：不再硬编码，从 store 取用户配置）。
@@ -288,13 +293,12 @@ export function ComposerShell({
   const models = AGENT_MODELS[agent];
   const thinkingOptions = agentThinkingOptions(agent);
   const resolvedThinkingValue = isPi ? (thinkingValue ?? piThinkingDefault ?? "off") : (thinkingValue ?? DEFAULT_AGENT_THINKING);
-  // pi:模型下拉来自已启用 provider,选项编码 `${providerId}::${modelId}`,展示「供应商 · 模型」。
-  // 菜单只显示模型名,不带供应商前缀(供应商对选择意义不大)。value 仍编码 providerId::modelId
-  // 供回调拆分。
+  // pi:模型下拉改由 Provider Catalog 驱动（计划 §4.2）——候选是「认证可用 ∧ 用户未隐藏」的
+  // Provider 的全部模型，能力（图片/推理/上下文）只读，来自 pi 内置目录。
+  // 选项编码沿用 `${providerId}::${modelId}`（onChangePiModel 据此拆分），不改上层契约。
+  const providerViews = useProviderViews().views;
   const piModelOptions = isPi
-    ? providerSettings.providers
-        .filter((p) => p.enabled)
-        .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: m.label ?? m.id })))
+    ? collectModelOptions(providerViews).map((o) => ({ value: `${o.providerId}::${o.modelId}`, label: o.model.name }))
     : [];
   const piModelValue = `${providerId ?? ""}::${model ?? ""}`;
 
@@ -692,6 +696,11 @@ export function ComposerShell({
 
   return (
     <div className={`composer-wrap${className ? ` ${className}` : ""}`}>
+      {/* 图片能力阻断提示条放在这里（而不是外层聊天区）：待发图片是 ComposerShell 的内部状态，
+          「移除图片」必须由持有它的组件执行，否则只能靠一层 store 中转，徒增一条隐式契约。 */}
+      {visionBlockSessionId ? (
+        <VisionBlockBanner sessionId={visionBlockSessionId} onRemoveImages={() => setImages([])} />
+      ) : null}
       <div
         className={`composer ${dragOver ? "pw-drop-target" : ""}`}
         onDragOver={(e) => {

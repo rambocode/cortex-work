@@ -1,8 +1,7 @@
 // AiNodeForm.tsx — ai-agent / parameter-extractor / question-classifier 节点配置表单。
-// providerId/model 联动逻辑对照 AutomationDialog（通过 usePersonalStore 读取 providerSettings）。
+// 模型选择复用全局 ModelRefField（Provider Catalog 驱动,能力只读,悬空引用进阻断态）。
 // reasoningEffort 三档选择；categories/fields 列表编辑。
 
-import { usePersonalStore } from "@cortex-work/core";
 import type { WorkflowNode } from "@cortex-work/core";
 import type {
   WorkflowAiAgentConfig,
@@ -14,6 +13,7 @@ import type {
 } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
 import { INPUT_CLS, FIELD_LABEL_CLS, SECTION_LABEL_CLS } from "./TriggerNodeForm";
+import { ModelRefField } from "../../settings/provider/ModelRefField";
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +57,12 @@ type Props = {
 
 // ── 共享：provider/model 联动选择器 ─────────────────────────────────────────
 
+/**
+ * workflow AI 节点的模型选择：改为 Catalog 驱动的单一 {providerId, modelId}（计划 §4.2/§5）。
+ * 旧版是「供应商下拉 + 模型下拉」两级联动，数据源是被废弃的 providerSettings.providers，
+ * 且切供应商时会自动落到「第一个模型」——工作流是自动执行的，静默换模型没人会察觉。
+ * 这里改成显式选择 + 悬空引用阻断，绝不自动回退。
+ */
 function ProviderModelPicker({
   providerId,
   model,
@@ -68,54 +74,15 @@ function ProviderModelPicker({
   onProviderChange: (pid: string) => void;
   onModelChange: (mid: string) => void;
 }) {
-  // 通过 usePersonalStore 读取全局 providerSettings（与 AutomationDialog 相同来源）
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const providers = providerSettings?.providers ?? [];
-
-  const currentProvider = providers.find((p) => p.id === providerId);
-  const models = currentProvider?.models ?? [];
-
-  function handleProviderChange(pid: string) {
-    onProviderChange(pid);
-    // 切换 provider 时重置 model 为该 provider 第一个可用 model
-    const p = providers.find((x) => x.id === pid);
-    onModelChange(p?.models?.[0]?.id ?? "");
-  }
-
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <label className={FIELD_LABEL_CLS}>供应商</label>
-        <select
-          className={INPUT_CLS}
-          value={providerId}
-          onChange={(e) => handleProviderChange(e.target.value)}
-        >
-          <option value="">选择供应商…</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className={FIELD_LABEL_CLS}>模型</label>
-        <select
-          className={INPUT_CLS}
-          value={model}
-          onChange={(e) => onModelChange(e.target.value)}
-          disabled={!currentProvider}
-        >
-          <option value="">选择模型…</option>
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label ?? m.id}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
+    <ModelRefField
+      label="模型"
+      value={providerId && model ? { providerId, modelId: model } : undefined}
+      onChange={(ref) => {
+        onProviderChange(ref.providerId);
+        onModelChange(ref.modelId);
+      }}
+    />
   );
 }
 

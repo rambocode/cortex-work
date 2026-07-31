@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "piVersion": "0.82.1",
+  "hash": "439562030781f1da13801fa0ee54fb2565c79f2538c16212d1a41029ef4635e9",
+  "providers": [
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com",
+      "auth": [
+        "api-key",
+        "oauth"
+      ],
+      "envVars": [
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY"
+      ],
+      "models": [
+        {
+          "id": "claude-sonnet-4-5",
+          "name": "Claude Sonnet 4.5 (latest)",
+          "api": "anthropic-messages",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true,
+          "contextWindow": 1000000,
+          "maxTokens": 64000,
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          },
+          "compat": {
+            "supportsStrictTools": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "api": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1",
+      "auth": [
+        "api-key"
+      ],
+      "envVars": [
+        "OPENAI_API_KEY"
+      ],
+      "models": [
+        {
+          "id": "gpt-4o",
+          "name": "GPT-4o",
+          "api": "openai-responses",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": false,
+          "contextWindow": 128000,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 2.5,
+            "output": 10,
+            "cacheRead": 1.25,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsStrictMode": true
+          }
+        },
+        {
+          "id": "o3-mini",
+          "name": "o3-mini",
+          "api": "openai-responses",
+          "input": [
+            "text"
+          ],
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": null,
+            "max": null
+          },
+          "contextWindow": 200000,
+          "maxTokens": 100000,
+          "cost": {
+            "input": 1.1,
+            "output": 4.4,
+            "cacheRead": 0.55,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsStrictMode": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "openai-codex",
+      "name": "OpenAI Codex",
+      "api": "openai-codex-responses",
+      "baseUrl": "https://chatgpt.com/backend-api",
+      "auth": [
+        "oauth"
+      ],
+      "models": [
+        {
+          "id": "gpt-5.3-codex-spark",
+          "name": "GPT-5.3 Codex Spark",
+          "api": "openai-codex-responses",
+          "input": [
+            "text"
+          ],
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "xhigh": "xhigh",
+            "minimal": "low"
+          },
+          "contextWindow": 128000,
+          "maxTokens": 128000,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsOpenAIGrammarTools": true
+          }
+        }
+      ]
+    }
+  ]
+}

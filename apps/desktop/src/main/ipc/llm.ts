@@ -19,10 +19,17 @@ import { postChatCompletion } from "./openai-chat";
 import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
 import { authHeaders } from "../capabilities/whisper/transcribe-auth";
 
+/**
+ * `llm:openaiComplete` 的入参（Timeline / 日报的一次性补全）。
+ * ⚠️ 与 `packages/core/desktop/types.ts` 的 `OpenAiCompleteRequest` 逐字镜像。
+ *
+ * 阶段③·4.1 收编：寻址从 `{baseUrl, apiKey, model}` 改成 Catalog 引用 `{providerId, modelId}`，
+ * 明文 apiKey 不再过桥。两段都是必填 —— 缺任一段就是**悬空引用**，
+ * 由 Gateway 判成 `config` 并进阻断态，而不是回退任何模型（计划 §5）。
+ */
 interface OpenAiCompleteRequest {
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
+  providerId: string;
+  modelId: string;
   prompt: string;
 }
 
@@ -66,12 +73,11 @@ function parseVoiceOptions(data: unknown): TtsVoiceOption[] {
 
 export function registerLlmHandlers(): void {
   ipcMain.handle("llm:openaiComplete", async (_e, req: OpenAiCompleteRequest) => {
-    // 请求/解析/错误契约收敛在 openai-chat.ts（与 reply 直连生成共用真源）；
+    // 请求/错误契约收敛在 openai-chat.ts（现已改架在 Pi Model Gateway 之上）；
     // 本入口保持旧行为：单 user 消息、不传 temperature、60s 超时、trim 后返回。
     const content = await postChatCompletion({
-      baseUrl: req.baseUrl,
-      apiKey: req.apiKey,
-      model: req.model,
+      providerId: req.providerId,
+      modelId: req.modelId,
       messages: [{ role: "user", content: req.prompt }],
       timeoutMs: TIMEOUT_MS,
     });

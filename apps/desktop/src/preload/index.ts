@@ -394,14 +394,16 @@ const personal = {
     opts?: { sinceTs?: number; max?: number },
   ): Promise<{ ts: number; hash: string; subject: string }[]> => ipcRenderer.invoke("fs:gitLog", root, opts),
   startCli: (req: CliStartRequest): Promise<void> => ipcRenderer.invoke("cli:start", req),
+  // provider 仅 pi 用：只过 providerId，endpoint 与密钥由主进程从 Catalog/prefs/金库解析。
   oneshotCli: (req: {
     agent?: AgentKind;
     cwd?: string;
     prompt: string;
     model?: string;
-    provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
+    providerId?: string;
   }): Promise<string> => ipcRenderer.invoke("cli:oneshot", req),
-  openaiComplete: (req: { baseUrl: string; apiKey?: string; model: string; prompt: string }): Promise<string> =>
+  // 阶段③·4.1 收编：寻址改为 Catalog 引用，明文 apiKey 不再过桥（凭据由主进程从金库取）。
+  openaiComplete: (req: { providerId: string; modelId: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),
   probeProvider: (input: {
     baseUrl: string;
@@ -432,6 +434,11 @@ const personal = {
   // 用户级「隐藏 Provider」偏好，与认证解耦：防止 shell 里的 ambient key 让选择器涌入几十个 Provider。
   providerAuthSetHidden: (providerIds: string[]): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(PROVIDER_IPC.authSetHidden, providerIds),
+  // 自建网关/代理端点覆盖。传 undefined 清除覆盖、恢复 pi 内置目录里的官方端点。
+  providerAuthSetBaseUrl: (
+    providerId: string,
+    baseUrl: string | undefined,
+  ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke(PROVIDER_IPC.authSetBaseUrl, providerId, baseUrl),
   onProviderAuthEvent: (cb: (event: ProviderAuthEvent) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, event: ProviderAuthEvent) => cb(event);
     ipcRenderer.on(PROVIDER_IPC.authEvent, listener);
@@ -450,12 +457,18 @@ const personal = {
   modelGatewayComplete: (req: GatewayCompleteRequest): Promise<GatewayCompleteResult> =>
     ipcRenderer.invoke(PROVIDER_IPC.gatewayComplete, req),
   // 流式：invoke 只负责发起，事件经 onModelGatewayEvent 按 requestId 分发。
-  modelGatewayStream: (req: GatewayCompleteRequest): Promise<{ ok: boolean; error?: string }> =>
+  // 流式：invoke 的返回值是**终态汇总**（含 text/usage），增量经 onModelGatewayEvent 推回。
+  modelGatewayStream: (req: GatewayCompleteRequest): Promise<GatewayCompleteResult> =>
     ipcRenderer.invoke(PROVIDER_IPC.gatewayStream, req),
-  modelGatewayAbort: (requestId: string): Promise<{ ok: boolean; error?: string }> =>
+  modelGatewayAbort: (requestId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(PROVIDER_IPC.gatewayAbort, requestId),
+  // 主进程按 `{requestId, event}` 单对象发送（见 ipc/model-gateway.ts），这里解包成两个回调参数。
+  // ⚠️ 两侧形状必须同改：拆成两个 send 参数会让 requestId 收到整个对象、event 收到 undefined。
   onModelGatewayEvent: (cb: (requestId: string, event: GatewayStreamEvent) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, requestId: string, event: GatewayStreamEvent) => cb(requestId, event);
+    const listener = (
+      _e: IpcRendererEvent,
+      payload: { requestId?: string; event: GatewayStreamEvent },
+    ): void => cb(payload.requestId ?? "", payload.event);
     ipcRenderer.on(PROVIDER_IPC.gatewayEvent, listener);
     return () => ipcRenderer.removeListener(PROVIDER_IPC.gatewayEvent, listener);
   },

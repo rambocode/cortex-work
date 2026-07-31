@@ -571,22 +571,42 @@ export function buildDailyReportText(projectName: string, group: DayGroup): { su
   return renderPushReport(t("timeline:defaultPushTemplate"), data);
 }
 
-// 按设置选择生成模型（集成 Agent 或 OpenAI 兼容端点）补全一段文本。
+/** 未配置日报模型时抛出。调用方据此展示阻断态并引导去设置（计划 §5：不自动回退任何模型）。 */
+export class SummaryModelNotConfiguredError extends Error {
+  readonly code = "summary-model-not-configured";
+  constructor(message: string) {
+    super(message);
+    this.name = "SummaryModelNotConfiguredError";
+  }
+}
+
+// 按设置选择生成模型（Model Gateway 或集成 Agent）补全一段文本。
 // 日报与 Tasks 归档（taskArchive.ts）共用。
+//
+// 阶段③·4.1 收编后 `kind:"gateway"` 走统一 Gateway，寻址是 Catalog 引用 `{providerId, modelId}`，
+// 凭据只在主进程金库里——渲染端再也拿不到 baseUrl/apiKey（旧 `kind:"openai"` 是全仓第三处明文
+// 密钥落盘点，已随类型一起删除，旧档由 hydrate 整条丢弃）。
+//
+// 未配置（`ref` 缺省 / 两个 id 不成套）时**抛错而不是回退**（计划 §5）：日报与归档都在后台触发，
+// 静默换个模型跑完，用户既看不到也不会知道花的是谁的钱。抛出的错由调用方转成可见的失败提示。
 export async function completeWithSummaryModel(bridge: DesktopBridge, prompt: string): Promise<string> {
   const state = usePersonalStore.getState();
   const cfg = state.timelineSettings.summaryModel;
-  if (cfg.kind === "openai")
-    return bridge.openaiComplete({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, prompt });
-  // pi:与 Pi 会话一致,模型来自配置的供应商。解析选中（或默认）启用供应商,拍平后下传;
-  // 无可用供应商时 provider=undefined → 回退「裸 pi」行为（pi 自身默认 provider）。
+  if (cfg.kind === "gateway") {
+    // 两个 id 必须成套：半截引用在 Catalog 里查不到，与「没配」是同一回事。
+    if (!cfg.ref?.providerId || !cfg.ref.modelId) {
+      throw new SummaryModelNotConfiguredError(t("timeline:summaryModelNotConfigured"));
+    }
+    return bridge.openaiComplete({ providerId: cfg.ref.providerId, modelId: cfg.ref.modelId, prompt });
+  }
+  // pi 与 claude/codex 不同：它必须挂一个供应商才知道调谁（设置页确实让用户选了，见
+  // SettingsMenu 的 pi 分支，选择写在 cfg.providerId）。这里若不读它，用户选的「pi + DeepSeek」
+  // 会被静默跑成「裸 pi」（pi 自身默认 provider）—— 与上面的 gateway 分支同一类静默换模型，
+  // 同样按 §5 抛错阻断。主进程按 providerId 从「Catalog + provider-prefs + 凭据金库」解析
+  // endpoint 与密钥（resolvePiProviderInput），渲染端不持有任何凭据。
   if (cfg.agent === "pi") {
-    const ps = state.providerSettings;
-    const p = ps.providers.find((x) => x.enabled && x.id === (cfg.providerId ?? ps.defaultProviderId));
-    const provider = p
-      ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
-      : undefined;
-    return bridge.oneshotCli({ prompt, agent: "pi", model: cfg.model, provider });
+    if (!cfg.providerId) throw new SummaryModelNotConfiguredError(t("timeline:summaryModelNotConfigured"));
+    return bridge.oneshotCli({ prompt, agent: "pi", model: cfg.model, providerId: cfg.providerId });
   }
   return bridge.oneshotCli({ prompt, agent: cfg.agent, model: cfg.model });
 }

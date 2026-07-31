@@ -24,6 +24,8 @@ import type {
   PiUiRequest,
   ProviderProfile,
   ProviderSettings,
+  LegacyProviderCleanupMark,
+  DefaultModelRef,
   ProjectMeta,
   PromptNode,
   PushSettings,
@@ -54,6 +56,8 @@ import {
   defaultMediaGenSettings,
   defaultAsrSettings,
   DEFAULT_WRITING_LLM_SETTINGS,
+  clampWritingDebounceMs,
+  clampWritingMaxTokens,
 } from "../desktop/types";
 import type { WritingLlmSettings } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
@@ -87,6 +91,19 @@ export interface ModeBlockHint {
   toolName: string;
 }
 
+// 图片能力拦截提示（瞬态,不持久化）。当前会话选中的模型不支持图片输入、或 Catalog 里查不到
+// 该模型（能力未知）时，send 会**拒绝发出本轮并保留草稿**，同时写入这条提示，由 composer 上方的
+// VisionBlockBanner 渲染出「选择支持图片的模型」与「移除图片」两个出路。
+//
+// 为什么要区分 unsupported / unknown（研究文档 §5.1 的硬要求）：把「目录不知道」当成「明确不支持」
+// 正是本次事故的形态之一——用户会以为模型真的不支持而去换模型，实际只是配置不完整。两态文案必须不同。
+export interface VisionBlockHint {
+  reason: "unsupported" | "unknown";
+  /** 被拦下的模型引用（可能缺 modelId：会话尚未选定模型）。用于提示文案里回显具体模型。 */
+  providerId?: string;
+  modelId?: string;
+}
+
 // pi RPC 会话的运行时状态（瞬态展示用,不进 toPersistedState）。
 export interface PiRuntimeStatus {
   steering?: number; // 待注入的 steer 条数
@@ -117,8 +134,21 @@ export interface PersonalState {
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
   // 待注入队列计数 / 压缩中 / 自动重试 / 思考强度。
   piRuntimeBySession: Record<string, PiRuntimeStatus | undefined>;
+  // Catalog 时代的全局默认模型引用（替代已废弃的 providerSettings.defaultProviderId/defaultModel）。
+  // 新建会话 / 会话未指定模型时用它兜底；引用在 Catalog 中查不到或未认证时**不回退**，
+  // 由消费方进「未配置模型」阻断态（计划 §5）——它绝不是一条绕过 §5 的静默回退路径。
+  defaultModelRef?: DefaultModelRef;
+  // 旧 providerSettings 一次性清理的留痕（主进程首启写入，渲染端只读镜像 + 原样透传）。
+  //
+  // ⚠️ 必须在 store 里留镜像：`toPersistedState` 是**白名单**构造，渲染端每次全量保存都用它
+  // 整份覆盖磁盘——不在白名单里的字段会被抹掉，「Provider 配置已升级」的提示随之丢失。
+  //（「显示/隐藏 Provider」偏好不在这里：它由主进程窄写进 main-owned 的 provider-prefs.json，
+  // 经 ProviderAuthSnapshot.hiddenProviderIds 回读，正是为了绕开这个 clobber 问题。）
+  legacyProviderSettingsCleared?: LegacyProviderCleanupMark;
   // 运行模式拦截提示（瞬态,不持久化;轮次检测到被拦工具时写,composer 上方读）。
   modeBlockHints: Record<string, ModeBlockHint | undefined>;
+  // 图片能力拦截提示（瞬态,不持久化;send 判定当前模型不支持/未知图片能力时写,composer 上方读）。
+  visionBlockHints: Record<string, VisionBlockHint | undefined>;
   // pi extension UI 待确认请求队列（瞬态,不持久化;阶段3 工具确认弹窗）。RPC 串行 → 通常 ≤1,
   // 跨会话才可能 >1;FIFO,弹窗只显队首。
   piUiPending: { uiSessionId: string; request: PiUiRequest }[];
@@ -313,6 +343,12 @@ export interface PersonalState {
   requestOpenProcessPanel: (sessionId: string) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
+  // 设置/清空某会话的图片能力拦截提示（hint=undefined 清空,如移除图片/换模型/新一轮发送）。
+  setVisionBlockHint: (sessionId: string, hint: VisionBlockHint | undefined) => void;
+  // 设置/清除全局默认模型引用（两个 id 必须成套；传 undefined = 清除）。
+  setDefaultModelRef: (ref: DefaultModelRef | undefined) => void;
+  // 「Provider 配置已升级」一次性提示：展示后置 true，随全量保存落盘，之后不再弹。
+  acknowledgeLegacyProviderNotice: () => void;
   // pi extension UI 待确认请求:入队 / 按会话+请求 id 出队 / 清某会话全部（会话退出/删除时）。
   pushPiUiRequest: (item: { uiSessionId: string; request: PiUiRequest }) => void;
   resolvePiUiRequest: (uiSessionId: string, id: string) => void;
@@ -478,6 +514,28 @@ function migratePiSkills(raw: Partial<PiSkillSettings> | undefined): PiSkillSett
   };
 }
 
+/**
+ * 写作 LLM 配置 hydrate：**按字段显式挑选**，不用 `{...默认, ...旧档}` 展开。
+ *
+ * 阶段③把寻址归并成 `{providerId, modelId}` 后，旧档里仍留着 `baseUrl / apiKey / model`。
+ * 展开合并会把它们当作多余属性原样带进 store，再经 `toPersistedState` 原样写回磁盘——
+ * 那份**明文 apiKey 就会永远留在 personal-workspace.json 里**，而清掉第二份明文密钥
+ * 落盘点正是这次归并的目的（计划 §5）。所以这里显式挑字段，旧键就地丢弃、不迁移
+ * （旧 baseUrl/apiKey 无法映射成 Catalog 引用，用户需重新选一次模型）。
+ */
+function hydrateWritingLlmSettings(raw: WritingLlmSettings | undefined): WritingLlmSettings {
+  return {
+    providerId: typeof raw?.providerId === "string" ? raw.providerId : DEFAULT_WRITING_LLM_SETTINGS.providerId,
+    modelId: typeof raw?.modelId === "string" ? raw.modelId : DEFAULT_WRITING_LLM_SETTINGS.modelId,
+    completionEnabled:
+      typeof raw?.completionEnabled === "boolean"
+        ? raw.completionEnabled
+        : DEFAULT_WRITING_LLM_SETTINGS.completionEnabled,
+    debounceMs: clampWritingDebounceMs(raw?.debounceMs),
+    maxTokens: clampWritingMaxTokens(raw?.maxTokens),
+  };
+}
+
 // 通用设置 hydrate：完整透传顶层字段（workspaceRoot / notesHotkey / piCustomization /
 // piThinkingDefault / piSystemPrompt 等），再以 DEFAULT_GENERAL_SETTINGS 逐层补全嵌套子对象。
 // 注意：务必整体 spread `...g` 而非逐字段重建——后者会静默丢掉任何未显式列出的字段（可选字段连
@@ -578,6 +636,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   runningBySession: {},
   piRuntimeBySession: {},
   modeBlockHints: {},
+  visionBlockHints: {},
   piUiPending: [],
   autoOpenedPreviewKeys: [],
   terminalOpen: false,
@@ -621,14 +680,20 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
       mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
-      // 写作续写/改写模型配置：旧档缺字段（如新增的 debounceMs/maxTokens）由默认补齐，展开合并。
-      writingLlmSettings: { ...DEFAULT_WRITING_LLM_SETTINGS, ...s.writingLlmSettings },
+      // 写作续写/改写模型配置：旧档缺字段（如 debounceMs/maxTokens）由默认补齐。
+      writingLlmSettings: hydrateWritingLlmSettings(s.writingLlmSettings),
       // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。
       designSettings: normalizeDesignSettings(s.designSettings),
       designDocs: s.designDocs ?? [],
       designUi: s.designUi ?? {},
       // providerSettings：新档直接用；旧档 piSettings.channels 迁移；都没有则空。
+      // （@deprecated：阶段②起主进程首启即删除，此处仅为旧档启动不报错保留。）
       providerSettings: resolveProviderSettings(s),
+      // 全局默认模型：两个 id 必须成套才算数（缺一半 = 未配置，不做半截引用）。
+      defaultModelRef:
+        s.defaultModelRef?.providerId && s.defaultModelRef.modelId ? s.defaultModelRef : undefined,
+      // 清理留痕：原样回灌，渲染端只在「用户点了知道了」时改 noticeAcknowledged。
+      legacyProviderSettingsCleared: s.legacyProviderSettingsCleared,
       // 通用设置：嵌套子对象逐层以默认值补全。
       generalSettings: resolveGeneralSettings(s),
       // 旧存档无 profile 字段 → 回退空对象;带旧 avatarId 的存档在此迁移为 emoji 头像。
@@ -1081,6 +1146,18 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setModeBlockHint: (sessionId, hint) =>
     set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),
 
+  setVisionBlockHint: (sessionId, hint) =>
+    set((s) => ({ visionBlockHints: { ...s.visionBlockHints, [sessionId]: hint } })),
+
+  setDefaultModelRef: (ref) => set({ defaultModelRef: ref }),
+
+  acknowledgeLegacyProviderNotice: () =>
+    set((s) =>
+      s.legacyProviderSettingsCleared
+        ? { legacyProviderSettingsCleared: { ...s.legacyProviderSettingsCleared, noticeAcknowledged: true } }
+        : {},
+    ),
+
   pushPiUiRequest: (item) => set((s) => ({ piUiPending: [...s.piUiPending, item] })),
   resolvePiUiRequest: (uiSessionId, id) =>
     set((s) => ({ piUiPending: s.piUiPending.filter((p) => p.uiSessionId !== uiSessionId || p.request.id !== id) })),
@@ -1281,6 +1358,10 @@ export function toPersistedState(s: PersonalState): PersistedState {
     designDocs: s.designDocs,
     designUi: s.designUi,
     providerSettings: s.providerSettings,
+    // 必须透传（白名单构造）：漏了会把用户设的默认模型 / 主进程写的升级提示静默抹掉。
+    // 新增 PersistedState 字段时请一并加到这里，`toPersistedState 白名单` 单测会兜住漏项。
+    defaultModelRef: s.defaultModelRef,
+    legacyProviderSettingsCleared: s.legacyProviderSettingsCleared,
     generalSettings: s.generalSettings,
     profile: s.profile,
     rightPanelWidth: s.rightPanelWidth,

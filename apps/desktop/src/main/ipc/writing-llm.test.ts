@@ -11,14 +11,14 @@ import {
 import { isWritingLlmConfigured } from "./writing-llm-types";
 
 describe("isWritingLlmConfigured(未配置降级判据)", () => {
-  it("baseUrl 与 model 均非空 → true", () => {
+  it("providerId 与 modelId 均非空 → true", () => {
     expect(
-      isWritingLlmConfigured({ baseUrl: "https://x/v1", apiKey: "", model: "m", completionEnabled: true, debounceMs: 650, maxTokens: 96 }),
+      isWritingLlmConfigured({ providerId: "anthropic", modelId: "m", completionEnabled: true, debounceMs: 650, maxTokens: 96 }),
     ).toBe(true);
   });
-  it("缺 baseUrl 或 model → false(渲染端隐藏续写/改写入口)", () => {
-    expect(isWritingLlmConfigured({ baseUrl: "", apiKey: "k", model: "m", completionEnabled: true, debounceMs: 650, maxTokens: 96 })).toBe(false);
-    expect(isWritingLlmConfigured({ baseUrl: "https://x", apiKey: "k", model: "  ", completionEnabled: true, debounceMs: 650, maxTokens: 96 })).toBe(
+  it("缺 providerId 或 modelId → false(渲染端隐藏续写/改写入口)", () => {
+    expect(isWritingLlmConfigured({ providerId: "", modelId: "m", completionEnabled: true, debounceMs: 650, maxTokens: 96 })).toBe(false);
+    expect(isWritingLlmConfigured({ providerId: "anthropic", modelId: "  ", completionEnabled: true, debounceMs: 650, maxTokens: 96 })).toBe(
       false,
     );
     expect(isWritingLlmConfigured(undefined)).toBe(false);

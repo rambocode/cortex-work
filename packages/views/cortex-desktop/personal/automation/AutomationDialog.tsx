@@ -23,6 +23,7 @@ import type {
   ScheduleSpec,
 } from "@cortex-work/core";
 import { ScheduleEditor } from "./ScheduleEditor";
+import { ModelRefField } from "../settings/provider/ModelRefField";
 
 const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: "低", medium: "中", high: "高" };
@@ -80,7 +81,6 @@ export function AutomationDialog({
 }) {
   const editing = !!meta;
   const projects = usePersonalStore((s) => s.projects);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
   const pushSettings = usePersonalStore((s) => s.pushSettings);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const create = useCreateAutomation();
@@ -117,21 +117,12 @@ export function AutomationDialog({
   }, [onClose]);
 
   const isPi = agent === "pi";
-  const piModelOptions = providerSettings.providers
-    .filter((p) => p.enabled)
-    .flatMap((p) => p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: `${p.name} · ${m.label ?? m.id}` })));
-  const piModelValue = `${providerId}::${piModel}`;
 
   const changeAgent = (a: AgentKind) => {
     setAgent(a);
     if (a !== "pi") setModel(DEFAULT_MODEL[a]);
   };
 
-  const changePiModel = (encoded: string) => {
-    const [pid, ...rest] = encoded.split("::");
-    setProviderId(pid ?? "");
-    setPiModel(rest.join("::"));
-  };
 
   // 完成后通知:可选渠道 = 「设置 → 通知」里已配置(启用且填好 webhook)的外部渠道 + 已启用的内部通知。
   const availableChannels: { kind: PushChannelKind; label: string }[] = [
@@ -211,13 +202,15 @@ export function AutomationDialog({
               onChange={(v) => changeAgent(v as AgentKind)}
             />
             {isPi ? (
-              <Select
+              <ModelRefField
+                // Catalog 驱动（计划 §4.2/§5）：候选是「认证可用 ∧ 未隐藏」的 Provider；
+                // 引用悬空时进阻断态，定时任务在后台跑，静默换模型的后果用户根本看不见。
                 label="模型"
-                value={piModelValue}
-                options={piModelOptions.length ? piModelOptions : [{ value: "::", label: "无可用通道" }]}
-                onChange={changePiModel}
-                disabled={!piModelOptions.length}
-                hint={piModelOptions.length ? undefined : "请先在「设置 → 供应商」配置 Pi 可用的供应商"}
+                value={providerId && piModel ? { providerId, modelId: piModel } : undefined}
+                onChange={(ref) => {
+                  setProviderId(ref.providerId);
+                  setPiModel(ref.modelId);
+                }}
               />
             ) : (
               <Select

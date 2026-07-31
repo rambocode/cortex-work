@@ -141,7 +141,14 @@
     "todoTruncated": "{{title}} 过大,已截断注入",
     "skillTruncated": "{{name}} 过大,已截断注入",
     "fileTruncated": "{{name}} 过大,已截断注入",
-    "readAttachmentFailed": "读取附件失败：{{error}}"
+    "readAttachmentFailed": "读取附件失败：{{error}}",
+    "visionBlock": {
+      "unsupported": "当前模型（{{model}}）不支持图片输入,本条消息没有发出——你的文字与图片都还在。",
+      "unknown": "无法确认当前模型（{{model}}）是否支持图片,为避免图片被悄悄丢掉,本条消息没有发出——你的文字与图片都还在。",
+      "unknownNoModel": "这个会话还没有选定模型,无法确认是否支持图片,本条消息没有发出——你的文字与图片都还在。",
+      "pickModel": "选择支持图片的模型",
+      "removeImages": "移除图片"
+    }
   },
   "agentName": {
     "claude": "Claude Code",

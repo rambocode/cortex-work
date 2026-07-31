@@ -5,7 +5,6 @@ import {
   audioSpeechUrl,
   audioTranscriptionsUrl,
   audioVoiceUrls,
-  chatCompletionsUrl,
   dingtalkSignedUrl,
   feishuSign,
 } from "./push-sign";
@@ -48,22 +47,30 @@ describe("feishuSign", () => {
   });
 });
 
-describe("chatCompletionsUrl", () => {
-  it("无版本段时补 /v1", () => {
-    expect(chatCompletionsUrl("http://localhost:11434")).toBe("http://localhost:11434/v1/chat/completions");
-    expect(chatCompletionsUrl("http://localhost:11434/")).toBe("http://localhost:11434/v1/chat/completions");
-  });
-
-  it("已带版本段时不重复", () => {
-    expect(chatCompletionsUrl("https://api.example.com/v1")).toBe("https://api.example.com/v1/chat/completions");
-    expect(chatCompletionsUrl("http://127.0.0.1:8000/v2/")).toBe("http://127.0.0.1:8000/v2/chat/completions");
-  });
-});
-
-describe("audioSpeechUrl", () => {
-  it("无版本段时补 /v1,已带版本段不重复", () => {
+// 文本补全的 chatCompletionsUrl 已随阶段③·4.1 收编删除（寻址改为 {providerId, modelId}）。
+// 音频三个端点仍在服役，且共用同一段 /vN 归一化 —— 拆分后必须逐个钉住，
+// 否则「删文本侧旧路径」很容易顺手把音频侧的归一化一起改坏。
+describe("音频端点 URL（/v1/audio/*，刻意不收编进 Gateway）", () => {
+  it("audioSpeechUrl：无版本段时补 /v1,已带版本段不重复", () => {
     expect(audioSpeechUrl("http://localhost:8880")).toBe("http://localhost:8880/v1/audio/speech");
+    expect(audioSpeechUrl("http://localhost:8880/")).toBe("http://localhost:8880/v1/audio/speech");
     expect(audioSpeechUrl("https://api.example.com/v1/")).toBe("https://api.example.com/v1/audio/speech");
+    expect(audioSpeechUrl("http://127.0.0.1:8000/v2")).toBe("http://127.0.0.1:8000/v2/audio/speech");
+  });
+
+  it("audioTranscriptionsUrl：同一套 /vN 归一化", () => {
+    expect(audioTranscriptionsUrl("http://localhost:8000")).toBe("http://localhost:8000/v1/audio/transcriptions");
+    expect(audioTranscriptionsUrl("https://api.example.com/v2/")).toBe(
+      "https://api.example.com/v2/audio/transcriptions",
+    );
+  });
+
+  it("audioVoiceUrls：三个候选端点都基于归一化后的版本段", () => {
+    expect(audioVoiceUrls("http://localhost:8880/", "kokoro")).toEqual([
+      "http://localhost:8880/v1/audio/voices?model=kokoro",
+      "http://localhost:8880/v1/models/kokoro/voices",
+      "http://localhost:8880/v1/voices?model=kokoro",
+    ]);
   });
 });
 

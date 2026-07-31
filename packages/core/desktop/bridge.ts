@@ -373,12 +373,15 @@ export interface DesktopBridge {
   // agent 缺省 claude;走各 agent 的 adapter,新接入的 agent 自动支持。
   // 不传 cwd 在中性目录运行,不加载项目上下文。
   // provider 仅 pi 用:挂载选中供应商（生成 extension + 注入 key），日报选 pi 时据此运行。
+  // provider 仅 pi 用：只传 providerId，主进程按「Catalog + provider-prefs + 凭据金库」自行解析出
+  // endpoint 与密钥（阶段③ 收编）。渲染端不再持有 baseUrl/apiKey —— 旧的拍平形状源自已废弃且
+  // 含明文 apiKey 的 providerSettings，§5 清理后它本就取不到值。
   oneshotCli(req: {
     agent?: AgentKind;
     cwd?: string;
     prompt: string;
     model?: string;
-    provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
+    providerId?: string;
   }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
@@ -399,6 +402,8 @@ export interface DesktopBridge {
   providerAuthSetApiKey?(providerId: string, apiKey: string): Promise<{ ok: boolean; error?: string }>;
   providerAuthSetSecrets?(secrets: Record<string, string>): Promise<{ ok: boolean; error?: string }>;
   providerAuthSetHidden?(providerIds: string[]): Promise<{ ok: boolean; error?: string }>;
+  // 自建网关/代理端点覆盖；传 undefined 清除覆盖、恢复 pi 内置目录里的官方端点。
+  providerAuthSetBaseUrl?(providerId: string, baseUrl: string | undefined): Promise<{ ok: boolean; error?: string }>;
   onProviderAuthEvent?(cb: (event: ProviderAuthEvent) => void): () => void;
   providerConnectionTest?(providerId: string, modelId?: string): Promise<ProviderConnectionTestResult>;
   providerCustomList?(): Promise<CustomProviderDefinition[]>;
@@ -406,8 +411,9 @@ export interface DesktopBridge {
   providerCustomDelete?(id: string): Promise<{ ok: boolean; error?: string }>;
   providerCustomValidate?(json: string): Promise<CustomProviderValidation>;
   modelGatewayComplete?(req: GatewayCompleteRequest): Promise<GatewayCompleteResult>;
-  modelGatewayStream?(req: GatewayCompleteRequest): Promise<{ ok: boolean; error?: string }>;
-  modelGatewayAbort?(requestId: string): Promise<{ ok: boolean; error?: string }>;
+  // 流式：返回值是终态汇总（含 text/usage），增量经 onModelGatewayEvent 推回。
+  modelGatewayStream?(req: GatewayCompleteRequest): Promise<GatewayCompleteResult>;
+  modelGatewayAbort?(requestId: string): Promise<{ ok: boolean }>;
   onModelGatewayEvent?(cb: (requestId: string, event: GatewayStreamEvent) => void): () => void;
   // 桌面行为：renderer 切换开机自启/启动最小化/关闭到托盘时通知主进程立即应用
   //（登录项是系统设置,须即时设置）。可选（web 端为 null）。

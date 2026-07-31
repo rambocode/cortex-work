@@ -3,9 +3,10 @@
 // 无签名变更。pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
 //   <pi 二进制> --mode json -p --no-extensions
 //             [--no-skills] [--skill p] [--tools read,grep,find,ls (plan 只读)]
-//             [--model m] [--session id] [--append-system-prompt s] <prompt>
+//             [--model m] [--session id] [--append-system-prompt s] [@image ...] <prompt>
 //   · adapter 产出 cmd=pi 二进制路径（resolvePiBinary）+ args；cli.ts 对三种 agent 统一 spawn。
 //   · -p 是非交互布尔 flag,prompt 不是它的值,而是命令行最后一个位置参数。
+//   · `@<path>` 是 pi 原生的文件参数（图片经魔数嗅探转成 initialImages）,详见 buildPiImageArgs。
 //   · --no-extensions 纯净启动；--no-skills 默认禁用 skills（useOwnSkills=true 时省略,
 //     与 claude adapter 对齐）；pi 原生支持 --append-system-prompt。
 // --mode json 输出 JSONL,每行一个事件：
@@ -22,10 +23,12 @@
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
 
+import { closeSync, openSync, readSync, statSync } from "fs";
+
 import { normalizePiTodos, TODO_TOOL_NAME } from "./pi-extensions";
 import { resolvePiBinary } from "./pi-locate";
 import { safeId } from "./pi-providers";
-import { PI_PLAN_TOOL_WHITELIST, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
+import { PI_PLAN_TOOL_WHITELIST, type CliImageRef, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
 import type { AgentDef } from "./index";
 
 function toolDetail(args: unknown): string | undefined {
@@ -146,10 +149,162 @@ const IGNORED_MESSAGE_UPDATE_SUBTYPES = new Set([
   "toolcall_end",
 ]);
 
+// ── 图片投递（`@<path>` 文件参数） ────────────────────────────────────────────
+//
+// pi CLI 原生支持 `@<path>`:cli/args.js:171-173 `else if (arg.startsWith("@")) fileArgs.push(arg.slice(1))`
+// —— 按前缀解析,与 argv 位置无关（但**不能紧跟在值型 flag 之后**,因为 --skill/--model 一类
+// 是无条件吃掉下一个 arg 的等值判断分支）。随后 cli/file-processor.js 做 MIME 魔数嗅探 +
+// 自动缩放,把图片转成 initialImages（main.js:96-107 prepareInitialMessage → runPrintMode）。
+//
+// ⚠️ 顺序不由 argv 决定:cli/initial-message.js 恒按 [stdin, @file 文本, messages[0]] 拼接,
+// 图片引用永远排在 prompt 之前。我们仍把 `@file` 放在 prompt 之前,与 pi -h 的
+// `pi [options] [@files...] [messages...]` 一致,避免读命令行时产生误解。
+//
+// 上传范围与 chat 侧一致:PNG / JPEG / GIF / WebP,单轮 ≤6 张。
+const MAX_PI_IMAGES = 6;
+const PI_IMAGE_SNIFF_BYTES = 4100; // 与 pi utils/mime.js 的 IMAGE_TYPE_SNIFF_BYTES 对齐
+
+/** buildArgs 阶段的图片校验失败。code 供上层做分支处理,message 面向用户。 */
+export class PiImageArgError extends Error {
+  readonly code: "too-many" | "not-found" | "empty" | "unreadable" | "unsupported" | "mime-mismatch";
+  readonly imagePath?: string;
+
+  constructor(code: PiImageArgError["code"], message: string, imagePath?: string) {
+    super(message);
+    this.name = "PiImageArgError";
+    this.code = code;
+    this.imagePath = imagePath;
+  }
+}
+
+function startsWithBytes(buf: Buffer, bytes: number[]): boolean {
+  return buf.length >= bytes.length && bytes.every((b, i) => buf[i] === b);
+}
+
+function startsWithAscii(buf: Buffer, offset: number, text: string): boolean {
+  if (buf.length < offset + text.length) return false;
+  for (let i = 0; i < text.length; i++) if (buf[offset + i] !== text.charCodeAt(i)) return false;
+  return true;
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function readUint32BE(buf: Buffer, offset: number): number {
+  return (
+    (buf[offset] ?? 0) * 0x1000000 +
+    ((buf[offset + 1] ?? 0) << 16) +
+    ((buf[offset + 2] ?? 0) << 8) +
+    (buf[offset + 3] ?? 0)
+  );
+}
+
+// 动图 PNG(APNG)在 pi 侧被判定为「不是受支持的图片」→ 落进 @file 的**文本**分支被当 UTF-8 读,
+// 会把二进制垃圾塞进 prompt。这里必须同样识别并拒绝,才能让失败响亮可见而不是静默污染上下文。
+function isAnimatedPng(buf: Buffer): boolean {
+  let offset = PNG_SIGNATURE.length;
+  while (offset + 8 <= buf.length) {
+    const chunkTypeOffset = offset + 4;
+    if (startsWithAscii(buf, chunkTypeOffset, "acTL")) return true;
+    if (startsWithAscii(buf, chunkTypeOffset, "IDAT")) return false;
+    const next = offset + 8 + readUint32BE(buf, offset) + 4;
+    if (next <= offset || next > buf.length) return false;
+    offset = next;
+  }
+  return false;
+}
+
+// 魔数嗅探,逐条镜像 pi 0.82.1 utils/mime.js 的判定（含 JPEG-LS 0xF7 与 APNG 的排除),
+// 只保留 Cortex 上传范围内的四种格式。返回 null = pi 不会把它当图片。
+function sniffPiImageMime(buf: Buffer): string | null {
+  if (startsWithBytes(buf, [0xff, 0xd8, 0xff])) return buf[3] === 0xf7 ? null : "image/jpeg";
+  if (startsWithBytes(buf, PNG_SIGNATURE)) {
+    const validHeader =
+      buf.length >= 16 && readUint32BE(buf, PNG_SIGNATURE.length) === 13 && startsWithAscii(buf, 12, "IHDR");
+    return validHeader && !isAnimatedPng(buf) ? "image/png" : null;
+  }
+  if (startsWithAscii(buf, 0, "GIF")) return "image/gif";
+  if (startsWithAscii(buf, 0, "RIFF") && startsWithAscii(buf, 8, "WEBP")) return "image/webp";
+  return null;
+}
+
+// 声明 MIME 的规范化:浏览器/系统可能给出 image/jpg 这类别名,与魔数结果比对前先对齐。
+function normalizeDeclaredMime(mime: string | undefined): string | undefined {
+  const m = mime?.trim().toLowerCase();
+  if (!m) return undefined;
+  return m === "image/jpg" ? "image/jpeg" : m;
+}
+
+/**
+ * 把 req.images 校验并转成 pi 的 `@<path>` 参数。任何一张图有问题都整体抛错,**绝不静默丢图**
+ * ——静默丢图正是本次事故里 pi 侧 `(image omitted…)` 让用户误以为模型看过图的同款failure mode。
+ *
+ * 这里做真实 fs 读取（buildArgs 因此不再是严格纯函数）:pi 的 file-processor.js 在文件缺失时
+ * 直接 `process.exit(1)`、在非图片文件上会当文本读进 prompt,两种都发生在子进程里、错误信息
+ * 拿不回来,只能在 spawn 之前拦。
+ */
+export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
+  if (!images?.length) return [];
+  if (images.length > MAX_PI_IMAGES) {
+    throw new PiImageArgError("too-many", `单轮最多发送 ${MAX_PI_IMAGES} 张图片，当前 ${images.length} 张`);
+  }
+  return images.map((img) => {
+    const path = img.path;
+    let size: number;
+    try {
+      size = statSync(path).size;
+    } catch {
+      throw new PiImageArgError("not-found", `图片文件不存在或不可访问：${path}`, path);
+    }
+    // pi 的 file-processor.js 对空文件是「静默跳过」,那正好是我们要避免的静默丢图,故提前拦。
+    if (size === 0) throw new PiImageArgError("empty", `图片文件为空：${path}`, path);
+
+    let head: Buffer;
+    const fd = (() => {
+      try {
+        return openSync(path, "r");
+      } catch {
+        throw new PiImageArgError("unreadable", `图片文件无法读取：${path}`, path);
+      }
+    })();
+    try {
+      const buf = Buffer.alloc(PI_IMAGE_SNIFF_BYTES);
+      const read = readSync(fd, buf, 0, PI_IMAGE_SNIFF_BYTES, 0);
+      head = buf.subarray(0, read);
+    } catch {
+      throw new PiImageArgError("unreadable", `图片文件无法读取：${path}`, path);
+    } finally {
+      closeSync(fd);
+    }
+
+    const detected = sniffPiImageMime(head);
+    if (!detected) {
+      throw new PiImageArgError("unsupported", `图片格式不受支持或文件已损坏：${path}`, path);
+    }
+    const declared = normalizeDeclaredMime(img.mimeType);
+    if (declared && declared !== detected) {
+      throw new PiImageArgError(
+        "mime-mismatch",
+        `图片类型与内容不符：${path}（声明 ${declared}，实际 ${detected}）`,
+        path,
+      );
+    }
+    return `@${path}`;
+  });
+}
+
+// 以 `@` 开头的 prompt 会被 pi 的 args.js 当成文件参数吞掉（`arg.startsWith("@")` 分支在
+// 位置参数分支之前）,file-processor.js 找不到文件就 `process.exit(1)` —— 进程无任何 JSON 输出、
+// 管线只看到空退出。Cortex 的委派 UI 恰好用 `@协作者` 开头,实测必踩（真实二进制复现:
+// `Error: File not found: .../张三 帮我看看这段代码`）。pi 没有转义语法,只能加一个前导空格
+// 把它挤出 `@` 分支;对模型而言首字符空格无语义差异。
+function escapeLeadingAt(prompt: string): string {
+  return prompt.startsWith("@") ? ` ${prompt}` : prompt;
+}
+
 export const piDef: AgentDef = {
   id: "pi",
   // 能力位:pi 是自包含二进制,prompt 走 argv 位置参数;不注入 MCP(走自身扩展);续接用 --session;
-  // 无图片处理;appendSystemPrompt 原生 flag。
+  // 图片走 `@<path>` 文件参数;appendSystemPrompt 原生 flag。
   promptDelivery: "argv",
   ignoredFrameTypes: IGNORED_FRAME_TYPES,
   // 细粒度已知忽略(盲区补点跳过,不刷屏):message_update 的生命周期/toolcall 子帧、user 回显
@@ -169,7 +324,7 @@ export const piDef: AgentDef = {
   },
   mcpInjection: "none",
   sessionResume: "resume-only",
-  imageDelivery: "none",
+  imageDelivery: "arg-at-path",
   appendSystemPrompt: "native-flag",
   buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
     const args = [
@@ -206,8 +361,11 @@ export const piDef: AgentDef = {
     if (req.model) args.push("--model", req.model);
     if (req.resumeSessionId) args.push("--session", req.resumeSessionId);
     if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
+    // 图片:`@<path>` 排在 prompt 之前（见上方 buildPiImageArgs 的注释:与 pi -h 的用法一致,
+    // 且必须避开值型 flag 的紧后位置——此处前一个 arg 已是 --append-system-prompt 的值,安全）。
+    args.push(...buildPiImageArgs(req.images));
     // prompt 是位置参数,必须在最后。
-    args.push(req.prompt);
+    args.push(escapeLeadingAt(req.prompt));
     // cmd 是 pi 二进制路径,cli.ts 直接 spawn 它（独立 CLI 进程,不弹 macOS Dock）。
     return { cmd: resolvePiBinary(), args };
   },

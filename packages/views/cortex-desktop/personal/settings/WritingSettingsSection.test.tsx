@@ -1,24 +1,58 @@
-// WritingSettingsSection 单测:Kun 对齐后的三卡结构 + 续写端点/续写开关(writingLlm 分片)+
+// WritingSettingsSection 单测:Kun 对齐后的三卡结构 + 模型引用/续写开关(writingLlm 分片)+
 // 检索开关(spaces store 分片,与助手面板同一状态源)。静态文案按默认 locale(zh-Hans)断言。
+// 阶段③收编后模型改为 Catalog 引用 {providerId, modelId}（不再有 baseUrl/apiKey 输入框）。
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, resetProviderCatalogCache, usePersonalStore } from "@cortex-work/core";
+import type { DesktopBridge } from "@cortex-work/core";
 import { DEFAULT_WRITING_LLM_SETTINGS } from "@cortex-work/core/desktop/types";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 
 import { WritingSettingsSection } from "./WritingSettingsSection";
 
-function renderUI() {
+function renderUI(bridge: DesktopBridge | null = null) {
   return render(
-    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={null}>
+    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
       <WritingSettingsSection />
     </CoreProvider>,
   );
 }
 
+// 带 Catalog + 已认证状态的桥：模型选择器的候选完全来自这两个接口。
+function catalogBridge(): DesktopBridge {
+  return {
+    providerCatalogGet: async () => ({
+      ok: true,
+      catalog: {
+        schemaVersion: 1,
+        piVersion: "0.82.1",
+        hash: "t",
+        providers: [
+          {
+            id: "wp",
+            name: "WriterProvider",
+            api: "openai-completions",
+            auth: ["api-key"],
+            models: [
+              { id: "writer-model", name: "Writer Model", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 8192 },
+            ],
+          },
+        ],
+      },
+    }),
+    providerAuthStatus: async () => ({
+      statuses: [{ providerId: "wp", configured: true, type: "api-key" as const, source: "safe-storage" as const }],
+      health: { available: true },
+      hiddenProviderIds: [],
+    }),
+    providerCustomList: async () => [],
+  } as unknown as DesktopBridge;
+}
+
 afterEach(cleanup);
 beforeEach(() => {
+  resetProviderCatalogCache(); // Catalog 是模块级进程内缓存，跨用例必须清
   usePersonalStore.setState({ writingLlmSettings: { ...DEFAULT_WRITING_LLM_SETTINGS } });
   useWritingSpacesStore.setState({ retrievalEnabled: true });
 });
@@ -49,11 +83,11 @@ describe("WritingSettingsSection", () => {
     expect(useWritingSpacesStore.getState().retrievalEnabled).toBe(false);
   });
 
-  it("接口地址输入写 writingLlm 分片", () => {
+  it("未配置模型 → 阻断态（不再有 baseUrl/apiKey 输入框，明文密钥落盘点已消失）", () => {
     renderUI();
-    const input = screen.getByPlaceholderText("https://api.example.com/v1") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "https://api.test/v1" } });
-    expect(usePersonalStore.getState().writingLlmSettings.baseUrl).toBe("https://api.test/v1");
+    expect(screen.getByText("未配置模型")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("https://api.example.com/v1")).toBeNull();
+    expect(screen.queryByText("API Key")).toBeNull();
   });
 
   it("高级调优:去抖下拉写 debounceMs;maxTokens 输入写 maxTokens", () => {
@@ -68,30 +102,12 @@ describe("WritingSettingsSection", () => {
     expect(usePersonalStore.getState().writingLlmSettings.maxTokens).toBe(200);
   });
 
-  it("从已配置供应商填充:选供应商 → 填 baseUrl/model", () => {
-    usePersonalStore.setState({
-      providerSettings: {
-        providers: [
-          {
-            id: "deepseek",
-            name: "DeepSeek",
-            baseUrl: "https://api.deepseek.com/v1",
-            apiKey: "sk-x",
-            endpointFormat: "chat_completions",
-            models: [{ id: "deepseek-chat" }],
-            enabled: true,
-          },
-        ],
-        defaultProviderId: undefined,
-        defaultModel: undefined,
-      },
-    });
-    renderUI();
-    // provider 填充下拉(默认选中「自定义端点」)。
-    const fill = screen.getByDisplayValue("自定义端点") as HTMLSelectElement;
-    fireEvent.change(fill, { target: { value: "deepseek" } });
+  it("从 Catalog 选中模型 → 写 providerId/modelId 两个字段", async () => {
+    renderUI(catalogBridge());
+    fireEvent.click(screen.getByText("未配置模型"));
+    fireEvent.click(await screen.findByText("Writer Model"));
     const llm = usePersonalStore.getState().writingLlmSettings;
-    expect(llm.baseUrl).toBe("https://api.deepseek.com/v1");
-    expect(llm.model).toBe("deepseek-chat");
+    expect(llm.providerId).toBe("wp");
+    expect(llm.modelId).toBe("writer-model");
   });
 });

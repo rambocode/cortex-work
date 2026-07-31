@@ -12054,3 +12054,76 @@ button.sb-row {
   align-items: center; justify-content: center; gap: 8px;
   color: var(--text-3); font-size: 12px; text-align: center; padding: 24px;
 }
+
+/* ── Provider Catalog 体系（阶段③重构）：管理页 / 模型选择器 / 只读能力徽标 ────────────
+   旧的「模型增删 + 能力 checkbox」样式（.pw-ml-edit / .pw-ml-check）保留给自定义 Secret 编辑器，
+   内建 Provider 侧已无任何可编辑能力控件。 */
+
+/* 图片能力阻断提示条：复用 .pw-mode-block 骨架，仅换成警示配色（这是「没发出去」的事实，
+   不是「要不要切档」的建议，必须比运行模式提示更醒目）。 */
+.pw-mode-block.is-warn {
+  background: color-mix(in srgb, #d9822b 12%, var(--bg-chip));
+  border-color: color-mix(in srgb, #d9822b 34%, transparent);
+}
+
+/* 认证状态徽标：五态各自配色，未配置为弱化灰。 */
+.pw-prov-status { font-size: 11px; padding: 1px 9px; border-radius: 999px; background: var(--bg-chip); color: var(--text-2); white-space: nowrap; }
+.pw-prov-status.is-none { color: var(--text-3); }
+.pw-prov-status.is-safeStorage, .pw-prov-status.is-oauth { background: color-mix(in srgb, #16a34a 14%, var(--bg-chip)); color: #16a34a; }
+.pw-prov-status.is-env, .pw-prov-status.is-ambient { background: color-mix(in srgb, #7c5cff 14%, var(--bg-chip)); color: #7c5cff; }
+
+/* 提示条：ok / warn / error 三档，管理页与选择器共用。 */
+.pw-prov-alert { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; padding: 9px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.55; background: var(--bg-chip); color: var(--text-2); border: 1px solid var(--border); }
+.pw-prov-alert.is-ok { background: color-mix(in srgb, #16a34a 10%, var(--bg-chip)); border-color: color-mix(in srgb, #16a34a 28%, transparent); }
+.pw-prov-alert.is-warn { background: color-mix(in srgb, #d9822b 10%, var(--bg-chip)); border-color: color-mix(in srgb, #d9822b 28%, transparent); }
+.pw-prov-alert.is-error { background: color-mix(in srgb, #dc2626 10%, var(--bg-chip)); border-color: color-mix(in srgb, #dc2626 28%, transparent); }
+.pw-prov-errors { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+
+.pw-prov-tabs { display: flex; gap: 4px; }
+.pw-prov-tab { padding: 4px 12px; border-radius: 8px; font-size: 12.5px; color: var(--text-3); background: transparent; border: none; cursor: pointer; }
+.pw-prov-tab.is-active { background: var(--bg-chip); color: var(--text-1); }
+
+.pw-prov-detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pw-prov-detail-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.pw-prov-row { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.pw-prov-advanced { margin: 12px 0; font-size: 12.5px; color: var(--text-2); }
+.pw-prov-advanced > summary { cursor: pointer; color: var(--text-3); }
+.pw-prov-json { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1.55; resize: vertical; }
+.pw-prov-custom, .pw-prov-secrets, .pw-prov-models { display: flex; flex-direction: column; gap: 8px; }
+.pw-prov-models-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pw-prov-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px 0; font-size: 13px; color: var(--text-2); }
+
+/* 只读模型卡：无操作按钮，故不留右侧动作列。 */
+.pw-ml-card.is-readonly { align-items: flex-start; }
+.pw-ml-sub { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-3); }
+.pw-cap-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.pw-cap-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 1px 9px; border-radius: 999px; background: var(--bg-chip); color: var(--text-2); white-space: nowrap; }
+.pw-cap-badge.is-image { background: color-mix(in srgb, #16a34a 14%, var(--bg-chip)); color: #16a34a; }
+.pw-cap-badge.is-api { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; }
+.pw-cap-badge.is-muted { color: var(--text-3); }
+
+/* 全局模型选择器 */
+.pw-prov-modal.is-picker, .pw-prov-modal.is-auth { width: 560px; }
+.pw-model-picker { display: flex; flex-direction: column; gap: 8px; }
+.pw-model-picker-search { display: flex; align-items: center; gap: 7px; color: var(--text-3); }
+.pw-model-picker-search > .pw-set-input { flex: 1 1 auto; min-width: 0; }
+.pw-model-picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; }
+.pw-model-picker-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; cursor: pointer; }
+.pw-model-picker-row.is-active { background: var(--bg-hover); }
+.pw-model-picker-row.is-selected { border-color: var(--accent); }
+.pw-model-picker-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pw-model-picker-name { font-size: 13px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-model-picker-meta { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 模型引用字段（各设置页复用）：悬空引用时整行示警。 */
+.pw-model-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-app); color: var(--text-1); font-size: 12.5px; cursor: pointer; }
+.pw-model-ref:hover { border-color: var(--accent); }
+.pw-model-ref.is-blocked { border-color: color-mix(in srgb, #dc2626 45%, transparent); color: #dc2626; }
+.pw-model-ref-text { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* OAuth 通用对话框 */
+.pw-auth-body { display: flex; flex-direction: column; gap: 10px; }
+.pw-auth-block { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.pw-auth-device { display: flex; align-items: center; gap: 10px; }
+.pw-auth-device > code { font-family: var(--mono, ui-monospace, monospace); font-size: 18px; letter-spacing: 2px; color: var(--text-1); }
+.pw-auth-progress { width: 100%; height: 4px; }

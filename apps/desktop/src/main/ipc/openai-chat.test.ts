@@ -1,178 +1,134 @@
-// postChatCompletion 直测：锁定 llm:openaiComplete 与 reply 直连共用真源的请求契约——
-// 尤其是「temperature 未定义则不下发该字段」的旧行为(llm:openaiComplete 依赖,间接覆盖不到)。
+// 文本补全适配层直测：锁定收编后仍然对上游成立的那几条**旧契约**——
+//   · 采样参数未传则不下发（llm:openaiComplete 依赖，间接覆盖不到）；
+//   · 成功返回原始文本，不 trim（trim 责任在调用方）；
+//   · 失败抛错，且取消态的 err.name 仍是 AbortError（研究引擎按它归类）；
+//   · 截断以 TRUNCATED_MARKER 尾标记表达，单发与流式两条路径都要保住。
+//
+// 出站替身放在 pi 运行时层（见 __fixtures__/fake-pi-runtime.ts 的说明），本文件因此零网络。
 
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+let catalog: ReturnType<typeof fakeCatalog> | undefined;
+vi.mock("../providers/catalog", () => ({ getProviderCatalog: () => catalog }));
+vi.mock("electron", () => ({ safeStorage: { isEncryptionAvailable: () => false } }));
+
 import {
-  postChatCompletion,
-  postChatCompletionStream,
-  TRUNCATED_MARKER,
-} from "./openai-chat";
+  createFakePiRuntime,
+  fakeAssistantMessage,
+  fakeCatalog,
+} from "../providers/__fixtures__/fake-pi-runtime";
+import { postChatCompletion, postChatCompletionStream, stripTruncationMarker, TRUNCATED_MARKER } from "./openai-chat";
 
-/** 构造可注入的假 fetch：记录请求并返回给定响应。 */
-function fakeFetch(response: { status?: number; body?: unknown; text?: string }) {
-  const calls: { url: string; init: RequestInit }[] = [];
-  const fetchFn = (async (url: unknown, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init ?? {} });
-    const ok = (response.status ?? 200) < 300;
-    return {
-      ok,
-      status: response.status ?? 200,
-      text: async () => response.text ?? "",
-      json: async () => response.body ?? {},
-    } as Response;
-  }) as typeof fetch;
-  return { fetchFn, calls };
-}
+const REF = { providerId: "p1", modelId: "m1" };
 
-const OK_BODY = { choices: [{ message: { content: "  hello  " } }] };
+beforeEach(() => {
+  catalog = fakeCatalog();
+});
 
 describe("postChatCompletion", () => {
-  it("temperature 未传时请求体不含 temperature 键(llm:openaiComplete 旧契约)", async () => {
-    const { fetchFn, calls } = fakeFetch({ body: OK_BODY });
-    await postChatCompletion({
-      baseUrl: "https://api.example.com/v1",
-      model: "m1",
-      messages: [{ role: "user", content: "hi" }],
-      fetchFn,
-    });
-    const body = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
-    expect("temperature" in body).toBe(false);
-    expect(body.model).toBe("m1");
-    expect(body.stream).toBe(false);
-    expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+  it("temperature / maxTokens 未传时不下发（llm:openaiComplete 旧契约）", async () => {
+    const runtime = createFakePiRuntime();
+    await postChatCompletion({ ...REF, messages: [{ role: "user", content: "hi" }], runtime });
+    const options = runtime.calls[0]!.options!;
+    expect(options).not.toHaveProperty("temperature");
+    expect(options).not.toHaveProperty("maxTokens");
   });
 
-  it("temperature 传入时原样下发(reply 温度分层依赖)", async () => {
-    const { fetchFn, calls } = fakeFetch({ body: OK_BODY });
+  it("temperature 传入时原样下发（reply 温度分层依赖）", async () => {
+    const runtime = createFakePiRuntime();
     await postChatCompletion({
-      baseUrl: "https://api.example.com/v1",
-      model: "m1",
+      ...REF,
       messages: [
         { role: "system", content: "s" },
         { role: "user", content: "u" },
       ],
       temperature: 0.3,
-      fetchFn,
+      runtime,
     });
-    const body = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
-    expect(body.temperature).toBe(0.3);
+    expect(runtime.calls[0]!.options!.temperature).toBe(0.3);
+    // system 归到 Context.systemPrompt，不再作为一条 message 出现。
+    expect(runtime.calls[0]!.context.systemPrompt).toBe("s");
+    expect(runtime.calls[0]!.context.messages.map((m) => m.role)).toEqual(["user"]);
   });
 
-  it("maxTokens:未传不含 max_tokens;传入时下发(写作续写长度约束)", async () => {
-    const { fetchFn: f1, calls: c1 } = fakeFetch({ body: OK_BODY });
-    await postChatCompletion({ baseUrl: "https://x/v1", model: "m1", messages: [], fetchFn: f1 });
-    expect("max_tokens" in (JSON.parse(String(c1[0].init.body)) as Record<string, unknown>)).toBe(false);
-
-    const { fetchFn: f2, calls: c2 } = fakeFetch({ body: OK_BODY });
-    await postChatCompletion({
-      baseUrl: "https://x/v1",
-      model: "m1",
-      messages: [],
-      maxTokens: 96,
-      fetchFn: f2,
-    });
-    expect((JSON.parse(String(c2[0].init.body)) as Record<string, unknown>).max_tokens).toBe(96);
+  it("maxTokens 传入时下发（写作续写长度约束）", async () => {
+    const runtime = createFakePiRuntime();
+    await postChatCompletion({ ...REF, messages: [], maxTokens: 96, runtime });
+    expect(runtime.calls[0]!.options!.maxTokens).toBe(96);
   });
 
-  it("返回原始 content,不 trim(trim 责任在调用方)", async () => {
-    const { fetchFn } = fakeFetch({ body: OK_BODY });
-    const out = await postChatCompletion({
-      baseUrl: "https://api.example.com/v1",
-      model: "m1",
-      messages: [{ role: "user", content: "hi" }],
-      fetchFn: fetchFn,
-    });
+  it("返回原始正文，不 trim（trim 责任在调用方）", async () => {
+    const runtime = createFakePiRuntime({ texts: ["  hello  "] });
+    const out = await postChatCompletion({ ...REF, messages: [{ role: "user", content: "hi" }], runtime });
     expect(out).toBe("  hello  ");
   });
 
-  it("非 2xx 抛错含 HTTP 状态与响应体前缀", async () => {
-    const { fetchFn } = fakeFetch({ status: 500, text: "boom" });
+  it("供应商报错时抛出带状态码的错误（研究引擎按 /HTTP (\\d{3})/ 归类）", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => {
+        throw new Error("模型接口 HTTP 500:boom");
+      },
+    });
     await expect(
-      postChatCompletion({
-        baseUrl: "https://api.example.com/v1",
-        model: "m1",
-        messages: [{ role: "user", content: "hi" }],
-        fetchFn,
-      }),
-    ).rejects.toThrow(/HTTP 500.*boom/);
+      postChatCompletion({ ...REF, messages: [{ role: "user", content: "hi" }], runtime }),
+    ).rejects.toThrow(/HTTP 500/);
   });
 
-  it("无 content / 空白 content 抛「模型未返回内容」", async () => {
-    const { fetchFn } = fakeFetch({ body: { choices: [{ message: { content: "   " } }] } });
+  it("空白正文抛「模型未返回内容」（上游按这句文案分支）", async () => {
+    const runtime = createFakePiRuntime({ texts: ["   "] });
     await expect(
-      postChatCompletion({
-        baseUrl: "https://api.example.com/v1",
-        model: "m1",
-        messages: [{ role: "user", content: "hi" }],
-        fetchFn,
-      }),
+      postChatCompletion({ ...REF, messages: [{ role: "user", content: "hi" }], runtime }),
     ).rejects.toThrow("模型未返回内容");
+  });
+
+  it("取消态抛出的错误 name 仍是 AbortError（研究引擎据此区分「取消/超时」）", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => fakeAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" }),
+    });
+    await expect(postChatCompletion({ ...REF, messages: [], runtime })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
+  it("模型引用悬空时抛错且不回退（计划 §5）", async () => {
+    const runtime = createFakePiRuntime();
+    await expect(
+      postChatCompletion({ providerId: "ghost", modelId: "m1", messages: [], runtime }),
+    ).rejects.toThrow(/模型引用无效/);
+    expect(runtime.calls).toHaveLength(0);
+  });
+
+  it("stopReason=length 时正文尾部带截断标记，可被 stripTruncationMarker 还原", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => fakeAssistantMessage("未完计划", { stopReason: "length" }),
+    });
+    const out = await postChatCompletion({ ...REF, messages: [], runtime });
+    expect(out).toBe(`未完计划${TRUNCATED_MARKER}`);
+    expect(stripTruncationMarker(out)).toEqual({ text: "未完计划", truncated: true });
   });
 });
 
 describe("postChatCompletionStream", () => {
-  it("流式报告同样下发 max_tokens，保持输出预算契约", async () => {
-    const calls: RequestInit[] = [];
-    const encoder = new TextEncoder();
-    const fetchFn = (async (_url: unknown, init?: RequestInit) => {
-      calls.push(init ?? {});
-      return {
-        ok: true,
-        status: 200,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('data: {"choices":[{"delta":{"content":"报告"}}]}\n\n'),
-            );
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
-          },
-        }),
-        text: async () => "",
-      } as Response;
-    }) as typeof fetch;
-
-    await postChatCompletionStream({
-      baseUrl: "https://api.example.com/v1",
-      model: "m1",
+  it("onDelta 给的是**累计全文**（这一层的历史契约，研究引擎自己再切增量）", async () => {
+    const runtime = createFakePiRuntime({ texts: ["报告正文"], chunk: (t) => [...t] });
+    const seen: string[] = [];
+    const out = await postChatCompletionStream({
+      ...REF,
       messages: [{ role: "user", content: "生成长报告" }],
       maxTokens: 8_000,
-      fetchFn,
+      runtime,
+      onDelta: (accumulated) => seen.push(accumulated),
     });
-
-    const body = JSON.parse(String(calls[0]!.body)) as Record<string, unknown>;
-    expect(body.max_tokens).toBe(8_000);
+    expect(out).toBe("报告正文");
+    expect(seen).toEqual(["报", "报告", "报告正", "报告正文"]);
+    expect(runtime.calls[0]!.options!.maxTokens).toBe(8_000);
   });
 
-  it("SSE 以 finish_reason=length 结束时保留截断标记", async () => {
-    const encoder = new TextEncoder();
-    const fetchFn = (async () =>
-      ({
-        ok: true,
-        status: 200,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('data: {"choices":[{"delta":{"content":"未完报告"}}]}\n\n'),
-            );
-            controller.enqueue(
-              encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'),
-            );
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
-          },
-        }),
-        text: async () => "",
-      }) as Response) as typeof fetch;
-
-    const output = await postChatCompletionStream({
-      baseUrl: "https://api.example.com/v1",
-      model: "m1",
-      messages: [],
-      maxTokens: 8_000,
-      fetchFn,
+  it("流式以 stopReason=length 结束时同样保留截断标记", async () => {
+    const runtime = createFakePiRuntime({
+      respond: () => fakeAssistantMessage("未完报告", { stopReason: "length" }),
     });
-
+    const output = await postChatCompletionStream({ ...REF, messages: [], maxTokens: 8_000, runtime });
     expect(output).toBe(`未完报告${TRUNCATED_MARKER}`);
   });
 });

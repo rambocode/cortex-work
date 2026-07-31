@@ -95,6 +95,12 @@ export interface ProviderAuthStatus {
   expiresAt?: number;
   /** 结构化错误（如 safeStorage 不可用、token 刷新失败）。不得含凭据片段。 */
   error?: string;
+  /**
+   * 用户对该 Provider 的自建网关/代理端点覆盖（计划 §4.2「高级 baseUrl 覆盖」）。
+   * 与 `CatalogProvider.baseUrl` 语义不同：后者是 Catalog 里的只读官方默认端点。
+   * 缺省表示未覆盖，走 pi 内置目录里的端点。
+   */
+  baseUrlOverride?: string;
 }
 
 /** safeStorage 整体可用性。不可用时进入只读降级：禁止新增/修改密钥，且绝不明文回写。 */

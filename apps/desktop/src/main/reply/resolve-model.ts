@@ -1,27 +1,25 @@
-// reply 生成模型解析（KTD3）：把 reply 专属选择 + 全局默认，按回退链解析成一个可直连的
-// OpenAI 兼容 chat_completions 目标（含 baseUrl/apiKey/model）。纯函数，不依赖 electron，便于单测。
+// reply 生成模型解析：把 reply 专属选择 + 全局默认，按回退链解析成一个 Catalog 模型引用
+// `{providerId, modelId}`。纯函数，不依赖 electron 也不读 Catalog，便于单测。
 //
-// 回退链（严格顺序，任一候选校验失败即落下一级）：
-//   1. settings.providerId（reply 专属选择）→ 供应商须「存在 + enabled + endpointFormat==="chat_completions"」，
-//      model 取 settings.model?.trim() 或该供应商 models[0]?.id；取不到 model 视为本候选失败。
-//   2. providerSettings.defaultProviderId（全局默认 agent 供应商）→ 同样校验，model 取 defaultModel?.trim()
-//      或 models[0]?.id。
-//   3. 两级都不成立 → 返回 null（controller 据此推「未配置生成模型」气泡错误态，引导去设置）。
+// ── 阶段③·4.1 收编后这里做的事变少了 ─────────────────────────────────────────
+// 旧实现要在这里校验「供应商存在 + enabled + endpointFormat === chat_completions + 有可用
+// model」，因为下游要拿 baseUrl/apiKey 自己拼 URL 发请求，选错了就发出一个格式不对的请求。
+// 现在下游是 Pi Model Gateway：引用是否在 Catalog 里、Provider 是否已认证，由 Gateway 在**出站
+// 之前**统一判定并返回 `errorKind: "config"`（计划 §5 的阻断态）。本文件因此只负责一件事——
+// 按优先级挑出**用户到底选了哪个模型**，不再复制一份能力/可用性判据（两处判据必然漂移）。
 //
-// 仅支持 chat_completions：reply 直连走 /v1/chat/completions（见 draft-generator），其余 endpointFormat
-// （responses/messages/custom）本期不支持，视为候选不可用（宁可回退/报错，也不发错格式请求）。
+// 回退链（严格顺序，任一候选不完整即落下一级）：
+//   1. settings.providerId + settings.model（reply 专属选择）；
+//   2. fallback（全局默认模型引用，由调用方从设置里取）；
+//   3. 均不成立 → null（controller 据此推「未配置生成模型」气泡错误态，引导去设置）。
+//
+// **不做任何"取第一个模型"式的兜底**：悄悄换一个用户没选过的模型，等于把他的聊天记录发给
+// 一个他没同意过的供应商。
 
-import type { ProviderSettings, ProviderProfile } from "../ipc/types";
+import type { ModelRef } from "../providers/contract";
 
-/// 解析后的直连目标：draft-generator 据此构造 chat completions 请求。
-export interface ResolvedReplyModel {
-  providerId: string;
-  providerName: string;
-  baseUrl: string;
-  /// 可选凭据（本地供应商可无 key，authHeaders 会兜底本地 omlx 密钥）。
-  apiKey?: string;
-  model: string;
-}
+/// 解析后的生成目标。保留 providerId 与 modelId 两段，draft-generator 直接交给 Gateway。
+export type ResolvedReplyModel = ModelRef;
 
 /// reply 设置分片中与模型解析相关的最小子集（避免耦合整个 ReplySettings 形状）。
 interface ReplyModelSelection {
@@ -29,54 +27,23 @@ interface ReplyModelSelection {
   model?: string;
 }
 
-/**
- * 校验单个候选供应商并解析出 model：供应商缺失 / 未启用 / 非 chat_completions / 无可用 model → 返回 null
- * （视为本候选失败，由调用方落下一级）。preferredModel 为该级偏好模型（专属 model 或全局 defaultModel）。
- */
-function tryResolve(
-  provider: ProviderProfile | undefined,
-  preferredModel: string | undefined,
-): ResolvedReplyModel | null {
-  if (!provider || !provider.enabled) return null;
-  if (provider.endpointFormat !== "chat_completions") return null;
-  // model 优先取显式偏好，否则回落供应商首个模型；两者都空则本候选不可用。
-  const model = preferredModel?.trim() || provider.models[0]?.id?.trim();
-  if (!model) return null;
-  return {
-    providerId: provider.id,
-    providerName: provider.name,
-    baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
-    model,
-  };
+/** 一级候选是否完整：两段都非空才算数（缺 model 时不猜"该供应商的第一个模型"）。 */
+function toRef(providerId: string | undefined, modelId: string | undefined): ResolvedReplyModel | null {
+  const p = providerId?.trim();
+  const m = modelId?.trim();
+  return p && m ? { providerId: p, modelId: m } : null;
 }
 
 /**
- * 按回退链把 reply 设置 + 全局 providerSettings 解析成可直连的生成目标；全部候选不成立返回 null。
- * settings 为 null（快照缺失）时跳过专属级，直接走默认链。
+ * 按回退链解析 reply 生成模型；全部候选不成立返回 null。
+ * settings 为 null（快照缺失）时跳过专属级，直接用 fallback。
+ *
+ * fallback 由调用方提供而不是在这里读设置：本文件是纯函数（可单测），而「全局默认模型」
+ * 存在哪、叫什么名字属于设置层的事，让它渗进来会把这个文件重新绑死到某份持久化结构上。
  */
 export function resolveReplyModel(
   settings: ReplyModelSelection | null | undefined,
-  providerSettings: ProviderSettings | null | undefined,
+  fallback: ModelRef | null | undefined,
 ): ResolvedReplyModel | null {
-  const providers = providerSettings?.providers ?? [];
-  const byId = (id: string | undefined): ProviderProfile | undefined =>
-    id ? providers.find((p) => p.id === id) : undefined;
-
-  // 1. reply 专属选择（settings.providerId）。
-  const explicitId = settings?.providerId?.trim();
-  if (explicitId) {
-    const resolved = tryResolve(byId(explicitId), settings?.model);
-    if (resolved) return resolved;
-  }
-
-  // 2. 全局默认供应商（providerSettings.defaultProviderId）。
-  const defaultId = providerSettings?.defaultProviderId?.trim();
-  if (defaultId) {
-    const resolved = tryResolve(byId(defaultId), providerSettings?.defaultModel);
-    if (resolved) return resolved;
-  }
-
-  // 3. 均缺失 / 均不可用 → null（气泡引导去设置）。
-  return null;
+  return toRef(settings?.providerId, settings?.model) ?? toRef(fallback?.providerId, fallback?.modelId);
 }

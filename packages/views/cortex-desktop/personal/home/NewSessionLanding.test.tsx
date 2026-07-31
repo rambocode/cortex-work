@@ -237,20 +237,20 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 
-  it("pi 默认 + 有 provider 但 defaultProviderId 未设:草稿回退第一个已启用 provider(不显示未配置)", () => {
+  it("pi 默认 + 引用悬空(Catalog 里没有该模型):显示「未配置供应商」,**不**回退到第一个可用模型", () => {
+    // 计划 §5：悬空引用一律进阻断态。静默回退到「第一个可用模型」会让用户以为还在用原配置，
+    // 实际能力、输出与账单全变了——这正是本次事故的同类形态。
     usePersonalStore.setState({
       agentsAvailable: {}, // 无 claude/codex → 默认 agent 回退 pi
       providerSettings: {
         defaultProviderId: undefined,
         defaultModel: undefined,
-        providers: [{ id: "prov1", name: "供应商一", enabled: true, models: [{ id: "m1", label: "M1" }] }],
+        providers: [],
       } as never,
     });
     const { container } = renderLanding(fakeBridge());
     const trigger = container.querySelector(".pw-mt-trigger")!;
-    // 回退到第一个已启用 provider 的模型 → 不应显示「未配置供应商」。
-    expect(trigger.textContent).not.toContain("未配置");
-    expect(trigger.textContent).toContain("M1");
+    expect(trigger.textContent).toContain("未配置");
   });
 
   it("不支持 ensureNoProjectDir 的环境:提示且不建会话不 send", async () => {

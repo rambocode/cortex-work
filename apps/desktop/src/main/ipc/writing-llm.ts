@@ -4,7 +4,9 @@
 //   - writing:edit     —— Cmd-K 就地改写:前后缀 + 选区原文 + 用户指令 + <<<EDIT>>> 协议 → 替换文本;
 //   - writing:llmStatus —— 探测配置态(configured/completionEnabled),渲染端据此决定挂载/隐藏入口。
 //
-// LLM 调用一律走 openai-chat.ts 的 postChatCompletion(URL 拼接/鉴权/错误契约的唯一真源,apiKey 不出 main)。
+// LLM 调用一律走 openai-chat.ts 的 postChatCompletion —— 阶段③·4.1 起它已改架在 Pi Model
+// Gateway 之上,寻址是 Catalog 引用 {providerId, modelId},本模块**不再持有任何 baseUrl/apiKey**
+// (归并决策见 writing-llm-types.ts 文件头:寻址归并、写作调优保留)。
 // prompt 构造(前后缀截断)/响应解析(去回声/去围栏/<<<EDIT>>> 提取)是纯函数,先写测试(writing-llm.test.ts)。
 // 配置读取用 getPersistedState(每次读最新,支持中途改配置即时生效);store 依赖在 handler 内动态 import。
 
@@ -220,20 +222,19 @@ export function registerWritingLlmHandlers(): void {
       const t0 = Date.now();
       try {
         const raw = await postChatCompletion({
-          baseUrl: s!.baseUrl,
-          apiKey: s!.apiKey || undefined,
-          model: s!.model,
+          providerId: s!.providerId,
+          modelId: s!.modelId,
           messages: buildWritingCompletionMessages(req),
           // 续写长度上限由设置的 maxTokens 决定（夹取兜底），对齐 Kun 短建议长度。
           maxTokens: clampWritingMaxTokens(s!.maxTokens),
           timeoutMs: COMPLETION_TIMEOUT_MS,
         });
         const completion = parseWritingCompletionResponse(raw);
-        recordWritingDebug({ kind: "complete", ts: t0, model: s!.model, ok: true, ms: Date.now() - t0, chars: completion.length });
+        recordWritingDebug({ kind: "complete", ts: t0, model: s!.modelId, ok: true, ms: Date.now() - t0, chars: completion.length });
         return { ok: true, completion };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        recordWritingDebug({ kind: "complete", ts: t0, model: s!.model, ok: false, ms: Date.now() - t0, chars: 0, error: message });
+        recordWritingDebug({ kind: "complete", ts: t0, model: s!.modelId, ok: false, ms: Date.now() - t0, chars: 0, error: message });
         return { ok: false, message };
       }
     },
@@ -248,18 +249,17 @@ export function registerWritingLlmHandlers(): void {
       const t0 = Date.now();
       try {
         const raw = await postChatCompletion({
-          baseUrl: s!.baseUrl,
-          apiKey: s!.apiKey || undefined,
-          model: s!.model,
+          providerId: s!.providerId,
+          modelId: s!.modelId,
           messages: buildWritingInlineEditMessages(req),
           timeoutMs: INLINE_EDIT_TIMEOUT_MS,
         });
         const replacement = parseWritingInlineEditReplacement(raw);
-        recordWritingDebug({ kind: "edit", ts: t0, model: s!.model, ok: true, ms: Date.now() - t0, chars: replacement.length });
+        recordWritingDebug({ kind: "edit", ts: t0, model: s!.modelId, ok: true, ms: Date.now() - t0, chars: replacement.length });
         return { ok: true, replacement };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        recordWritingDebug({ kind: "edit", ts: t0, model: s!.model, ok: false, ms: Date.now() - t0, chars: 0, error: message });
+        recordWritingDebug({ kind: "edit", ts: t0, model: s!.modelId, ok: false, ms: Date.now() - t0, chars: 0, error: message });
         return { ok: false, message };
       }
     },

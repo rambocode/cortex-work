@@ -1,13 +1,11 @@
 // P7 的装配点：把「模型网关 + Initial Planner + Gap Planner + Report Generator」拼成
 // 编排器认得的三个注入项。
 //
-// 存在的意义是把**唯一一处知道 provider 配置与研究模型偏好的代码**收敛在这里：
-// 编排器只看见三个函数，Planner 只看见网关，谁都拿不到 apiKey。装配层换实现（换供应商、
-// 换本地模型、整体关掉 LLM）都只改这一个文件。
+// 存在的意义是把**唯一一处知道用哪个模型的代码**收敛在这里：
+// 编排器只看见三个函数，Planner 只看见网关，谁都拿不到凭据（收编后凭据根本不进主进程业务层，
+// 只在 safeStorage 金库与 pi 运行时之间流动）。装配层换实现都只改这一个文件。
 //
-// 每个 Session 建一个实例：网关持有 provider 与偏好的快照，Session 中途改设置不会漂移。
-import type { ProviderSettings } from "@cortex-work/core/desktop/types";
-import type { ResearchModelPreference } from "@cortex-work/core/research/model-selection";
+// 每个 Session 建一个实例：网关持有模型引用的快照，Session 中途改设置不会漂移。
 import type {
   PlannerDecision,
   ResearchConsumer,
@@ -15,6 +13,8 @@ import type {
   ResearchPlan,
 } from "@cortex-work/core/research/types";
 import type { postChatCompletion, postChatCompletionStream } from "../../ipc/openai-chat";
+import type { ModelRef } from "../../providers/contract";
+import type { PiGatewayRuntime } from "../../providers/pi-runtime";
 import { ResearchModelGateway } from "../research-model-gateway";
 import { generateReport } from "../report-generator";
 import type { GapPlanner, InitialPlanner, ReportGenerator } from "../research-orchestrator";
@@ -28,11 +28,10 @@ export interface ResearchLlmHooks {
   generateReport: ReportGenerator;
 }
 
-/// 装配入参。complete / completeStream / fetchFn 只为测试注入而存在，生产不传。
+/// 装配入参。complete / completeStream / runtime 只为测试注入而存在，生产不传。
 export interface ResearchLlmHooksInput {
-  providerSettings: ProviderSettings;
-  /// 研究模型偏好（研究设置的 modelProviderId / modelId）；缺省 = 跟随全局默认模型。
-  preference?: ResearchModelPreference;
+  /// 本次 Session 使用的 Catalog 模型引用（已由 llm-hooks-wiring 按研究偏好 → 全局默认解析）。
+  model: ModelRef;
   consumer: ResearchConsumer;
   /// Session 的权威研究强度；报告档位不得由可覆盖预算反推。
   mode?: ResearchMode;
@@ -40,7 +39,7 @@ export interface ResearchLlmHooksInput {
   complete?: typeof postChatCompletion;
   /// 报告是唯一走流式的调用，因此它有独立的注入口（Planner 仍走 complete）。
   completeStream?: typeof postChatCompletionStream;
-  fetchFn?: typeof fetch;
+  runtime?: PiGatewayRuntime;
   now?: () => Date;
   logger?: { warn(...args: unknown[]): void; info?(...args: unknown[]): void };
 }
@@ -48,11 +47,10 @@ export interface ResearchLlmHooksInput {
 /// 按 Session 装配 LLM 能力。
 export function createResearchLlmHooks(input: ResearchLlmHooksInput): ResearchLlmHooks {
   const gateway = new ResearchModelGateway({
-    providerSettings: input.providerSettings,
-    ...(input.preference ? { preference: input.preference } : {}),
+    model: input.model,
     ...(input.complete ? { complete: input.complete } : {}),
     ...(input.completeStream ? { completeStream: input.completeStream } : {}),
-    ...(input.fetchFn ? { fetchFn: input.fetchFn } : {}),
+    ...(input.runtime ? { runtime: input.runtime } : {}),
     ...(input.logger ? { logger: input.logger } : {}),
   });
   const plannerDeps = {

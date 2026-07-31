@@ -17,7 +17,6 @@
 // summary 层级不含正文。任何一环接错（channel 形状、参数形状、注入点没接上）都会在这里炸。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RESEARCH_ENGINE_SETTINGS } from "@cortex-work/core/research/settings";
-import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import type { ResearchRequest } from "@cortex-work/core/research/types";
 import { SearchServerClient } from "./clients/search-server-client";
 import { createResearchLlmHooks } from "./planner/llm-hooks";
@@ -234,23 +233,9 @@ async function makeHarness(): Promise<Harness> {
   };
 
   // 3. 模型：真 ResearchModelGateway + 假 complete。
-  // enabled + 非空 models 是 selectResearchModel 认「可用 provider」的硬条件，
-  // 少任何一个都会被判 no_provider_configured 并静默降级成确定性摘要（那正是本测试要排除的）。
-  const providerSettings: ProviderSettings = {
-    providers: [
-      {
-        id: "cloud",
-        name: "Cloud",
-        baseUrl: "https://api.example.com/v1",
-        apiKey: "sk-test",
-        endpointFormat: "chat_completions",
-        models: [{ id: "gpt-test" }],
-        enabled: true,
-      },
-    ],
-    defaultProviderId: "cloud",
-    defaultModel: "gpt-test",
-  };
+  // 两段都非空是装配层认「有模型可用」的硬条件（llm-hooks-wiring 的两级回落），
+  // 缺任何一段都会被判 no_provider_configured 并静默降级成确定性摘要（那正是本测试要排除的）。
+  const model = { providerId: "cloud", modelId: "gpt-test" };
 
   const service = new ResearchService({
     repository,
@@ -282,7 +267,7 @@ async function makeHarness(): Promise<Harness> {
     userScope: () => "local",
     llmHooks: () =>
       createResearchLlmHooks({
-        providerSettings,
+        model,
         consumer: "deep_research",
         complete: async (params) => {
           modelSystemPrompts.push(params.messages[0]!.content);

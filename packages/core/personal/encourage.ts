@@ -20,17 +20,18 @@ export const encourageKeys = {
 };
 
 // 按「默认 agent」补全一段文本。仿 completeWithSummaryModel,但 agent 取 resolveDefaultAgent,
-// model 取该 agent 默认（pi 走配置的供应商）。
+// model 取该 agent 默认（pi 走全局默认模型引用）。
+//
+// pi 分支原本从已废弃的 providerSettings 里挑「第一个启用的供应商」兜底,§5 清理后恒为空 →
+// 每次都静默退化成「裸 pi」。这里改读 defaultModelRef;未配置时直接抛错,由调用方回落到
+// 无 LLM 的静态问候语（这是个纯装饰功能,失败不该拿一个用户没选过的模型顶上）。
 export async function completeWithDefaultAgent(bridge: DesktopBridge, prompt: string): Promise<string> {
   const state = usePersonalStore.getState();
   const agent = resolveDefaultAgent(state);
   if (agent === "pi") {
-    const ps = state.providerSettings;
-    const p = ps.providers.find((x) => x.enabled && x.id === ps.defaultProviderId) ?? ps.providers.find((x) => x.enabled);
-    const provider = p
-      ? { id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey, models: p.models.map((m) => ({ id: m.id, name: m.label })) }
-      : undefined;
-    return bridge.oneshotCli({ prompt, agent: "pi", model: ps.defaultModel ?? p?.models[0]?.id, provider });
+    const ref = state.defaultModelRef;
+    if (!ref?.providerId) throw new Error("尚未配置默认模型");
+    return bridge.oneshotCli({ prompt, agent: "pi", model: ref.modelId, providerId: ref.providerId });
   }
   return bridge.oneshotCli({ prompt, agent, model: DEFAULT_MODEL[agent] });
 }

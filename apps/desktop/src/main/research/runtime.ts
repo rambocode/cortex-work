@@ -9,7 +9,6 @@
 import { app, safeStorage } from "electron";
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import type { ProviderSettings } from "@cortex-work/core/desktop/types";
 import {
   DEFAULT_RESEARCH_ENGINE_SETTINGS,
   normalizeResearchEngineSettings,
@@ -24,6 +23,8 @@ import { getPersistedState, updatePersistedState } from "../ipc/store";
 import { userMemoryStore } from "../ipc/memory";
 import { applyApprovedResearchMemory, revokeResearchMemory } from "../memory/research-memory";
 import type { PersistedState } from "../ipc/types";
+import type { ModelRef } from "../providers/contract";
+import { getDefaultModelRef } from "../providers/default-model";
 import type { ResearchSearchServerSettings } from "../ipc/types-research";
 import { researchBlobsDir, researchDbPath, researchDir, researchTmpDir } from "../paths";
 import { ResearchBlobStore } from "./blob-store";
@@ -95,16 +96,17 @@ export function syncResearchEngineRuntime(raw: unknown): void {
   }
 }
 
-/// 供应商配置快照。仅供 llmHooks 这个同步回调使用；其余地方一律现读 getPersistedState()。
-let providerSettingsSnapshot: ProviderSettings | null = null;
+/// 全局默认模型引用的快照。仅供 llmHooks 这个同步回调使用；其余地方一律现读。
+/// 研究设置里没选模型时落到它（见 llm-hooks-wiring 的两级回落）。
+let defaultModelSnapshot: ModelRef | null = null;
 
-/// 刷新供应商快照。读失败不抛（研究引擎不该因为读设置失败而整体不可用），
+/// 刷新默认模型快照。读失败不抛（研究引擎不该因为读设置失败而整体不可用），
 /// 只是本次装配拿不到 LLM 能力，编排层降级为确定性行为。
 async function refreshProviderSnapshot(): Promise<void> {
   try {
-    providerSettingsSnapshot = (await getPersistedState()).providerSettings ?? null;
+    defaultModelSnapshot = await getDefaultModelRef();
   } catch (err) {
-    log.warn("[research] 读取供应商配置失败，LLM 能力本轮降级", redactResearchLog(err));
+    log.warn("[research] 读取默认模型失败，LLM 能力本轮降级", redactResearchLog(err));
   }
 }
 
@@ -268,12 +270,12 @@ async function assembleService(): Promise<ResearchService> {
       }),
     // P7：按 Session 装配 Planner / Report Generator。返回 null（未配供应商）时编排层沿用
     // 确定性的种子计划 + 单轮 + 证据摘要，**不让 Session 失败**。
-    // 研究模型偏好取自设置快照：与 providerSettings 同一份 personal-workspace.json，
+    // 研究模型偏好取自设置快照：与全局默认模型同一份 personal-workspace.json，
     // 两者都在落盘回调里刷新，所以同一个 Session 内选型稳定（见 refreshProviderSnapshot）。
     llmHooks: ({ summary }) =>
       buildResearchLlmHooks({
         summary,
-        providerSettings: providerSettingsSnapshot,
+        fallback: defaultModelSnapshot,
         preference: {
           ...(settingsSnapshot.modelProviderId
             ? { providerId: settingsSnapshot.modelProviderId }

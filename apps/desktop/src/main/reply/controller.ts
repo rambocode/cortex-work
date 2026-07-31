@@ -562,7 +562,7 @@ export class ReplyController {
       this.log.info("[reply] 首条生成耗时", {
         firstTokenMs,
         llmMs: Date.now() - generateStartedAt,
-        model: target.model,
+        model: `${target.providerId}/${target.modelId}`,
       });
       this.recordDebug("first", pending, prompt, debugDraftText(draft), null);
       // 首条是推荐回复，气泡恒不显示立场 chip；解析出的立场只用于编排决策：

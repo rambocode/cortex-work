@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../types";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { NoteMeta, ProviderProfile, SessionMeta, TimelineEvent } from "../desktop/types";
+import type { NoteMeta, SessionMeta, TimelineEvent } from "../desktop/types";
 import { usePersonalStore } from "../store/personal";
 import {
   buildCalendarWeeks,
@@ -9,6 +9,7 @@ import {
   buildGlobalSummaryPrompt,
   buildPushReportData,
   completeWithSummaryModel,
+  SummaryModelNotConfiguredError,
   dayKey,
   DEFAULT_PUSH_TEMPLATE,
   deriveBackfillEvents,
@@ -342,79 +343,65 @@ describe("buildGlobalSummaryPrompt", () => {
   });
 });
 
+// 阶段③ 收编后的契约：渲染端只传 providerId（endpoint 与密钥由主进程从 Catalog/prefs/金库解析），
+// 且**悬空引用一律抛错阻断**——旧的两条静默回退（回退 defaultProviderId、退化成「裸 pi」）已被
+// 刻意移除：§5 清理掉 providerSettings 后它们会变成「每次都静默换模型」，用户拿到一份不知道
+// 是谁生成的日报。下面几条用例就是这两条回退的回归护栏。
 describe("completeWithSummaryModel", () => {
-  afterEach(() => {
-    usePersonalStore.setState({ providerSettings: { providers: [] } });
-  });
-
   const fakeBridge = () =>
     ({
       oneshotCli: vi.fn().mockResolvedValue("结果"),
       openaiComplete: vi.fn().mockResolvedValue("结果"),
     }) as unknown as DesktopBridge;
 
-  const ds: ProviderProfile = {
-    id: "ds",
-    name: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    apiKey: "sk-x",
-    endpointFormat: "chat_completions",
-    enabled: true,
-    models: [
-      { id: "deepseek-chat", label: "DeepSeek Chat" },
-      { id: "deepseek-reasoner", label: "DeepSeek R1" },
-    ],
-  };
+  it("gateway:按 Catalog 引用调 openaiComplete，明文密钥不过桥", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({
+      timelineSettings: { summaryModel: { kind: "gateway", ref: { providerId: "deepseek", modelId: "deepseek-chat" } } },
+    });
+    await completeWithSummaryModel(bridge, "p");
+    expect(bridge.openaiComplete).toHaveBeenCalledWith({
+      providerId: "deepseek",
+      modelId: "deepseek-chat",
+      prompt: "p",
+    });
+  });
 
-  it("pi:按 providerId 解析启用供应商并拍平下传", async () => {
+  it("gateway:ref 缺省 → 抛阻断错误，不发任何请求", async () => {
+    const bridge = fakeBridge();
+    usePersonalStore.setState({ timelineSettings: { summaryModel: { kind: "gateway" } } });
+    await expect(completeWithSummaryModel(bridge, "p")).rejects.toThrow(SummaryModelNotConfiguredError);
+    expect(bridge.openaiComplete).not.toHaveBeenCalled();
+    expect(bridge.oneshotCli).not.toHaveBeenCalled();
+  });
+
+  it("pi:只传 providerId，不再拍平 baseUrl/apiKey", async () => {
     const bridge = fakeBridge();
     usePersonalStore.setState({
       timelineSettings: { summaryModel: { kind: "agent", agent: "pi", providerId: "ds", model: "deepseek-reasoner" } },
-      providerSettings: { providers: [ds], defaultProviderId: "ds" },
     });
     await completeWithSummaryModel(bridge, "p");
     expect(bridge.oneshotCli).toHaveBeenCalledWith({
       prompt: "p",
       agent: "pi",
       model: "deepseek-reasoner",
-      provider: {
-        id: "ds",
-        baseUrl: "https://api.deepseek.com/v1",
-        apiKey: "sk-x",
-        models: [
-          { id: "deepseek-chat", name: "DeepSeek Chat" },
-          { id: "deepseek-reasoner", name: "DeepSeek R1" },
-        ],
-      },
+      providerId: "ds",
     });
   });
 
-  it("pi:无 providerId 时回退 defaultProviderId", async () => {
+  it("pi:无 providerId → 抛阻断错误，不退化成「裸 pi」（旧静默回退的回归护栏）", async () => {
     const bridge = fakeBridge();
     usePersonalStore.setState({
       timelineSettings: { summaryModel: { kind: "agent", agent: "pi", model: "deepseek-chat" } },
-      providerSettings: { providers: [ds], defaultProviderId: "ds" },
     });
-    await completeWithSummaryModel(bridge, "p");
-    const arg = (bridge.oneshotCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(arg?.provider?.id).toBe("ds");
+    await expect(completeWithSummaryModel(bridge, "p")).rejects.toThrow(SummaryModelNotConfiguredError);
+    expect(bridge.oneshotCli).not.toHaveBeenCalled();
   });
 
-  it("pi:无可用供应商时 provider 为 undefined（裸 pi 兜底）", async () => {
-    const bridge = fakeBridge();
-    usePersonalStore.setState({
-      timelineSettings: { summaryModel: { kind: "agent", agent: "pi", providerId: "missing", model: "x" } },
-      providerSettings: { providers: [{ ...ds, enabled: false }], defaultProviderId: "ds" },
-    });
-    await completeWithSummaryModel(bridge, "p");
-    expect(bridge.oneshotCli).toHaveBeenCalledWith({ prompt: "p", agent: "pi", model: "x", provider: undefined });
-  });
-
-  it("claude:不带 provider 字段", async () => {
+  it("claude:不带 providerId 字段", async () => {
     const bridge = fakeBridge();
     usePersonalStore.setState({
       timelineSettings: { summaryModel: { kind: "agent", agent: "claude", model: "haiku" } },
-      providerSettings: { providers: [ds], defaultProviderId: "ds" },
     });
     await completeWithSummaryModel(bridge, "p");
     expect(bridge.oneshotCli).toHaveBeenCalledWith({ prompt: "p", agent: "claude", model: "haiku" });

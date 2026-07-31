@@ -12,6 +12,7 @@ import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, Cli
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
+import { resolvePiProviderInput } from "../providers/pi-provider-input";
 import { writeTodoExtension } from "../agents/pi-extensions";
 import { mcpServerToBridge, writeMcpBridgeExtension, type BridgeServer } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -1301,19 +1302,24 @@ export function registerCliHandlers(): void {
         cwd?: string;
         prompt: string;
         model?: string;
-        provider?: { id: string; baseUrl: string; apiKey?: string; models: { id: string; name?: string }[] };
+        providerId?: string;
       },
     ) => {
-      // oneshot（标题/日报）默认 claude。pi 选中了自定义供应商（日报选 Pi）时挂载之:
-      // 生成 extension + --provider + 注入 key,与会话路径一致;未传 provider 则裸 pi
+      // oneshot（标题/日报）默认 claude。pi 选中了供应商（日报选 Pi）时挂载之:
+      // 生成 extension + --provider + 注入 key,与会话路径一致;未传 providerId 则裸 pi
       // 跑（用 pi 自身默认 provider,如标题生成兜底）。claude/codex 不挂供应商。
+      //
+      // 阶段③ 收编:渲染端只给 providerId,endpoint 与密钥由主进程从
+      // 「Catalog + provider-prefs + 凭据金库」解析（resolvePiProviderInput）——
+      // 明文 apiKey 不再经 IPC 过桥。
       const agent = req.agent ?? "claude";
       // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省（不叠加 workspaceRoot,
       // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
       const cwd = req.cwd ?? homedir();
       await assertAgentAvailable(agent);
       const adapter = getAgentDef(agent);
-      const provider = agent === "pi" ? req.provider : undefined;
+      const provider =
+        agent === "pi" && req.providerId ? await resolvePiProviderInput(req.providerId) : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
       const { cmd, args, stdin } = adapter.buildArgs(
         {

@@ -5,9 +5,9 @@
 //   2. Search Server 的 PAT **永不明文回显**（store 里只有 safeStorage 密文，UI 连密文都不展示）；
 //   3. 「用哪个模型 + 数据会去哪」显示的必须是**实际生效**的那个（core 的 selectResearchModel
 //      会把失效偏好静默降级），否则用户以为在用 A、其实跑的是 B。
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
+import { CoreProvider, resetProviderCatalogCache, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
 import type { ResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ResearchSettingsSection } from "./ResearchSettingsSection";
@@ -238,87 +238,78 @@ describe("ResearchSettingsSection 搜索后端单选", () => {
   });
 });
 
-/// 造两个供应商：一个本机 loopback、一个云端，用于验证出站说明随所选模型变化。
-function setProviders(): void {
-  usePersonalStore.setState({
-    providerSettings: {
-      providers: [
-        {
-          id: "ollama",
-          name: "本机 Ollama",
-          baseUrl: "http://localhost:11434/v1",
-          endpointFormat: "chat_completions",
-          models: [{ id: "qwen3:8b" }, { id: "llama3.1" }],
-          enabled: true,
-        },
-        {
-          id: "deepseek",
-          name: "DeepSeek",
-          baseUrl: "https://api.deepseek.com/v1",
-          endpointFormat: "chat_completions",
-          models: [{ id: "deepseek-chat" }, { id: "deepseek-reasoner" }],
-          enabled: true,
-        },
-      ],
-      defaultProviderId: "deepseek",
-      defaultModel: "deepseek-chat",
-    },
-  });
+/// 造一份 Catalog：一个本机 loopback provider、一个云端 provider，
+/// 用于验证「模型选择」与「出站说明」都从 Catalog 取（而非已废弃的 providerSettings）。
+function catalogBridge(): DesktopBridge {
+  return {
+    providerCatalogGet: async () => ({
+      ok: true,
+      catalog: {
+        schemaVersion: 1,
+        piVersion: "0.82.1",
+        hash: "t",
+        providers: [
+          {
+            id: "ollama",
+            name: "本机 Ollama",
+            api: "openai-completions",
+            baseUrl: "http://localhost:11434/v1",
+            auth: [],
+            models: [
+              { id: "qwen3:8b", name: "qwen3:8b", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 32000, maxTokens: 4096 },
+            ],
+          },
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            api: "openai-completions",
+            baseUrl: "https://api.deepseek.com/v1",
+            auth: ["api-key"],
+            models: [
+              { id: "deepseek-chat", name: "deepseek-chat", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 8192 },
+            ],
+          },
+        ],
+      },
+    }),
+    providerAuthStatus: async () => ({
+      statuses: [{ providerId: "deepseek", configured: true, type: "api-key" as const, source: "safe-storage" as const }],
+      health: { available: true },
+      hiddenProviderIds: [],
+    }),
+    providerCustomList: async () => [],
+  } as unknown as DesktopBridge;
 }
 
-describe("ResearchSettingsSection 研究模型", () => {
-  beforeEach(() => setProviders());
+describe("ResearchSettingsSection 研究模型（Catalog 驱动）", () => {
+  beforeEach(() => resetProviderCatalogCache());
 
-  it("缺省跟随全局默认模型，并说明证据正文会出站", () => {
+  it("未选模型 → 提示尚未配置，而不是悄悄回退到某个默认模型", async () => {
     setResearch({ enabled: true });
-    const { container } = renderSection();
-    expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat");
+    const { container } = renderSection(catalogBridge());
+    await waitFor(() => expect(container.textContent).toContain("尚未配置可用的模型"));
+  });
+
+  it("选中云端模型 → 出站说明为「会发送给供应商」", async () => {
+    setResearch({ enabled: true, modelProviderId: "deepseek", modelId: "deepseek-chat" });
+    const { container } = renderSection(catalogBridge());
+    await waitFor(() => expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat"));
     expect(container.textContent).toContain("发送给所选的模型供应商");
   });
 
-  it("选本机模型后出站说明改为「不会离开这台设备」", () => {
-    setResearch({ enabled: true });
-    const { container } = renderSection();
-
-    fireEvent.change(screen.getByLabelText("研究模型供应商"), { target: { value: "ollama" } });
-    expect(research()?.modelProviderId).toBe("ollama");
-    expect(container.textContent).toContain("本次研究将使用：本机 Ollama / qwen3:8b");
+  it("选中本机 loopback 模型 → 出站说明改为「不会离开这台设备」", async () => {
+    setResearch({ enabled: true, modelProviderId: "ollama", modelId: "qwen3:8b" });
+    const { container } = renderSection(catalogBridge());
+    await waitFor(() => expect(container.textContent).toContain("本次研究将使用：本机 Ollama / qwen3:8b"));
     expect(container.textContent).toContain("不会离开这台设备");
   });
 
-  it("模型下拉只列生效供应商名下的模型（不串别家的）", () => {
-    setResearch({ enabled: true, modelProviderId: "ollama" });
-    renderSection();
-
-    const options = Array.from(
-      (screen.getByLabelText("研究模型") as HTMLSelectElement).options,
-    ).map((o) => o.value);
-    expect(options).toEqual(["", "qwen3:8b", "llama3.1"]);
-    expect(options).not.toContain("deepseek-chat");
-  });
-
-  it("换供应商时清掉旧的 modelId（模型 id 属于某个供应商，留着会显示一个不生效的值）", () => {
-    setResearch({ enabled: true, modelProviderId: "deepseek", modelId: "deepseek-reasoner" });
-    renderSection();
-
-    fireEvent.change(screen.getByLabelText("研究模型供应商"), { target: { value: "ollama" } });
-    // 归一化把空串折叠成 undefined，所以这里断言「没有值」而不是空串。
-    expect(research()?.modelId ?? "").toBe("");
-  });
-
-  it("偏好指向已删除的供应商时，显示的是实际会用的那个", () => {
+  it("引用悬空（Catalog 里没有这个模型）→ 阻断态，不回退到别的模型", async () => {
     setResearch({ enabled: true, modelProviderId: "已删除的供应商", modelId: "已删除的模型" });
-    const { container } = renderSection();
-    expect(container.textContent).toContain("本次研究将使用：DeepSeek / deepseek-chat");
-    expect(container.textContent).not.toContain("已删除");
-  });
-
-  it("一个供应商都没配时给出引导文案而不是空白", () => {
-    usePersonalStore.setState({ providerSettings: { providers: [] } });
-    setResearch({ enabled: true });
-    const { container } = renderSection();
+    const { container } = renderSection(catalogBridge());
+    await waitFor(() => expect(container.textContent).toContain("模型未配置"));
     expect(container.textContent).toContain("尚未配置可用的模型");
-    expect(container.textContent).toContain("请先在设置中添加并启用");
+    expect(container.textContent).not.toContain("本次研究将使用：");
   });
 });
 

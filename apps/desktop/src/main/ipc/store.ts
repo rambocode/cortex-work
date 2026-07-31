@@ -97,6 +97,71 @@ export async function updatePersistedState(
   return next;
 }
 
+/// 阶段②·§5：删除旧 `providerSettings`（含全部明文 apiKey），**不迁移、不留备份**。
+///
+/// 为什么直接删而不是迁移：旧结构的 models[] 会覆盖 pi 内置模型目录（本次能力事故根因），
+/// 迁过来只会把坏配置带进新体系；且 apiKey 明文本就该消失，任何"备份"都违背这次修复的目的。
+/// 新体系里用户重新添加 Provider（凭据进 safeStorage 金库）。
+///
+/// 幂等性：字段不存在时**完全不写盘**（避免每次启动都产生一次无谓提交），
+/// 删除后落一个 legacyProviderSettingsCleared 标记，让升级提示只弹一次。
+/// 写入刻意走既有的 commit/writeQueue 提交路径，不另起写通道——否则会与 renderer 的
+/// store:save 竞争、互相 clobber。
+export async function purgeLegacyProviderSettings(): Promise<boolean> {
+  const base = await getPersistedState();
+  if (base.providerSettings === undefined) return false;
+  const next: PersistedState = { ...base, legacyProviderSettingsCleared: { at: Date.now(), noticeAcknowledged: false } };
+  delete next.providerSettings;
+  await commit(base, next);
+  log.info("已清除旧版供应商配置（含明文密钥），用户需在新体系中重新添加");
+  return true;
+}
+
+/// 阶段③·4.1：抹掉 `writingLlmSettings` 与 `timelineSettings.summaryModel` 里残留的**明文凭据**。
+///
+/// 为什么主进程还要再抹一遍（渲染端的 hydrate 已经丢弃这些键了）：hydrate 只在**渲染端下一次
+/// 全量保存**时才把丢弃结果写回磁盘。用户如果升级后再没碰过任何设置，那份明文 apiKey 就一直
+/// 躺在 personal-workspace.json 里。首启抹除不依赖用户做任何事，是确定性的。
+///
+/// 只删凭据字段、不删整块：`writingLlmSettings` 的 debounceMs / maxTokens / completionEnabled
+/// 是无害的行为调优，用户调过的值没有理由跟着一起丢。而寻址字段（baseUrl/apiKey/model）
+/// **不迁移**——旧 baseUrl 是用户自建端点，映射不到 Catalog 引用，只能请用户重选一次模型。
+///
+/// 幂等：没有任何残留键时完全不写盘，避免每次启动都产生一次无谓提交。
+/// 同样走既有 commit/writeQueue 路径，不另起写通道（否则与 renderer 的 store:save 互相 clobber）。
+export async function purgeLegacyPlaintextCredentials(): Promise<boolean> {
+  const base = await getPersistedState();
+  // timelineSettings 只镜像在 core 侧（主进程不消费它），故这里按结构读而不是给
+  // PersistedState 加字段 —— 为了抹一次旧凭据去扩主进程契约不划算，也会与 core 镜像多一处要同步。
+  const withTimeline = base as PersistedState & {
+    timelineSettings?: { summaryModel?: Record<string, unknown> };
+  };
+  const writing = base.writingLlmSettings as (Record<string, unknown> & { providerId?: string }) | undefined;
+  const summary = withTimeline.timelineSettings?.summaryModel;
+
+  const LEGACY_KEYS = ["baseUrl", "apiKey", "model"] as const;
+  const writingDirty = writing !== undefined && LEGACY_KEYS.some((k) => k in writing);
+  // 旧的 `kind:"openai"` 分支自带 baseUrl/apiKey，是第三处明文落盘点；整条丢弃后落到未配置态。
+  const summaryDirty = summary?.kind === "openai";
+  if (!writingDirty && !summaryDirty) return false;
+
+  const next: PersistedState = { ...base };
+  if (writingDirty) {
+    const cleaned = { ...writing };
+    for (const key of LEGACY_KEYS) delete cleaned[key];
+    next.writingLlmSettings = cleaned as unknown as PersistedState["writingLlmSettings"];
+  }
+  if (summaryDirty) {
+    (next as typeof withTimeline).timelineSettings = {
+      ...withTimeline.timelineSettings,
+      summaryModel: { kind: "gateway" },
+    };
+  }
+  await commit(base, next);
+  log.info("已清除写作 / 日报设置里残留的明文凭据，相关模型需重新选择");
+  return true;
+}
+
 // onSaved：每次 renderer 全量落设置后同步调用（cached 已更新）。用于让 main 侧订阅方即时
 // 反应设置变更——当前唯一订阅方是任务提醒调度器（读 pushSettings.internal.enabled opt-in 变化，
 // off→on 建 Cron/补跑、on→off 拆全部）。回调抛错不阻断落盘（调用方自行兜底）。

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
+import { collectModelOptions, useProviderViews } from "../settings/provider/useProviderData";
 import type { ComputerUsePermissionKind, ComputerUseStatus } from "@cortex-work/core/desktop/types";
 
 import { BareSelect, SettingCard, SRow, SwitchRow } from "../settings/settingsControls";
@@ -50,7 +51,6 @@ export function ComputerUseSection() {
   const bridge = useDesktopBridge();
   const general = usePersonalStore((s) => s.generalSettings);
   const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
 
   const [status, setStatus] = useState<ComputerUseStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +60,8 @@ export function ComputerUseSection() {
   // 操作失败提示。授权/安装是「点了会有系统级动作」的按钮,一旦 IPC 失败必须让用户看见——
   // 否则表现为「点了没反应」,而那正是这个功能最难自查的一类问题。
   const [actionError, setActionError] = useState<string | null>(null);
+  // 必须在下方「非 mac / 无桥直接 return null」之前调用（hooks 规则:不能在条件返回之后调）。
+  const providerViews = useProviderViews().views;
 
   // 缺省视为启用——与主进程 inject.ts、core permissionMode 的取值口径一致（三处必须同口径,
   // 否则会出现「UI 显示关、实际注入了」这类错位）。
@@ -125,17 +127,17 @@ export function ComputerUseSection() {
   // 非 mac / 无桥（Web 端）整段隐藏——同 ReplySettingsSection 的降级约定。
   if (!detectIsMac() || !bridge?.computerUse) return null;
 
-  // 「GUI 定位模型」候选:只列**已启用 provider 里勾了「支持图片输入」的模型**。
+  // 「GUI 定位模型」候选:只列 Catalog 中 `input` 含 image 的模型（计划 §4.2）——
+  // 电脑操作必须看得见屏幕,列出纯文本模型只会让用户选中后在运行时被 pi-computer-use 抛错。
+  // 候选与全局模型选择器同一份数据（认证可用 ∧ 用户未隐藏）,能力来自 pi 内置目录、只读。
   //
-  // 两条约束叠加的结果:
-  //   · vision 必须为 true —— pi 侧模型注册表据此声明 input:["text","image"]（见 main/agents/
-  //     pi-providers.ts renderPiExtension）,pi-computer-use 会校验它,不支持图片就直接抛错;
-  //   · 只能是**当前会话 provider** 的模型 —— pi 只注册了会话选中的那一个 provider,别的
-  //     provider 的模型压根不在 pi 的 modelRegistry 里。这里无法预知用户下次开会话选哪个
-  //     provider,故列出所有启用 provider 的视觉模型,并在说明里点明这条限制。
-  const visionModels = providerSettings.providers
-    .filter((p) => p.enabled)
-    .flatMap((p) => p.models.filter((m) => m.vision).map((m) => ({ value: m.id, label: `${p.name} / ${m.label ?? m.id}` })));
+  // 仍保留「跟随会话模型」这一档,且这里存的是**裸 modelId**（不是 {providerId, modelId}）:
+  // pi 只注册会话选中的那一个 provider,别的 provider 的模型不在它的 modelRegistry 里,
+  // 故此处无法预知运行时的 provider——列出所有可用 provider 的视觉模型,限制写在说明里。
+  const visionModels = collectModelOptions(providerViews, true).map((o) => ({
+    value: o.modelId,
+    label: `${o.providerName} / ${o.model.name}`,
+  }));
 
   // 状态行文案与视觉档:reason 与 core 的 ComputerUseBlockReason 一一对应。
   const { tone, text } = describeStatus(status, t);

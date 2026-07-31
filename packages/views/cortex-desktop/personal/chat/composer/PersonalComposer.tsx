@@ -100,6 +100,7 @@ export function PersonalComposer({
       editing={editing}
       slashCommands={slashCommands}
       acceptComposerInsert
+      visionBlockSessionId={session.id}
       onSend={onSend}
       onStop={onStop}
       onSteer={onSteer}
