@@ -30,6 +30,7 @@
     "./desktop/writing-retrieval-types": "./desktop/writing-retrieval-types.ts",
     "./desktop/slides-ipc-types": "./desktop/slides-ipc-types.ts",
     "./desktop/media-gen-types": "./desktop/media-gen-types.ts",
+    "./desktop/media-provider-directory": "./desktop/media-provider-directory.ts",
     "./desktop/useModelDownloadState": "./desktop/useModelDownloadState.ts",
     "./i18n": "./i18n/index.ts",
     "./i18n/native": "./i18n/native.ts",

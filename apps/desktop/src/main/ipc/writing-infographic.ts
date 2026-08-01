@@ -17,7 +17,8 @@ import { ipcMain } from "electron";
 import type { MediaGenSettings, ProviderSettings } from "@cortex-work/core/desktop/types";
 import { resolveMediaGenSettings, type ResolvedMediaGenConfig } from "../capabilities/media-gen/resolve";
 import { openaiImagesGenerate } from "../capabilities/media-gen/protocols/openai-images";
-import { minimaxGenerateImage } from "../capabilities/media-gen/protocols/minimax";
+// minimax 协议已按模态拆分（minimax-image / minimax-audio / minimax-video），图片段在 minimax-image。
+import { minimaxGenerateImage } from "../capabilities/media-gen/protocols/minimax-image";
 import { MAX_RESPONSE_BYTES } from "../capabilities/media-gen/client";
 import type { WritingInfographicRequest, WritingInfographicResult } from "./writing-infographic-types";
 

@@ -16,9 +16,13 @@ import type { ResolvedMediaGenConfig } from "./resolve";
 
 // ── vi.hoisted：确保 mock fn 可在 vi.mock factory 内引用 ──────────────────────
 
-const { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient } = vi.hoisted(() => {
+const { mockMkdir, mockWriteFile, mockRealpath, mockReadFile, mockCreateWriteStreamClient, mockUnlinkClient } = vi.hoisted(() => {
   const mockMkdir = vi.fn().mockResolvedValue(undefined);
   const mockWriteFile = vi.fn().mockResolvedValue(undefined);
+  // realpath mock：恒等返回（模拟无 symlink 的真实文件系统）。symlink 逃逸场景
+  // 用真实 fs 在 workspace-guard.test.ts 覆盖（本文件全局 mock 了 fs，无法造真 symlink）。
+  const mockRealpath = vi.fn((p: string) => Promise.resolve(p));
+  const mockReadFile = vi.fn().mockResolvedValue(Buffer.alloc(0));
   const writeStream = {
     write: vi.fn((_chunk: unknown, cb: (err?: Error | null) => void) => { cb(null); return true; }),
     end: vi.fn((cb: (err?: Error | null) => void) => { cb(null); }),
@@ -29,7 +33,7 @@ const { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient 
   const mockUnlinkClient = vi.fn(
     (_path: string, cb: (err: NodeJS.ErrnoException | null) => void) => cb(null)
   );
-  return { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient };
+  return { mockMkdir, mockWriteFile, mockRealpath, mockReadFile, mockCreateWriteStreamClient, mockUnlinkClient };
 });
 
 // ── mock node:fs/promises ──────────────────────────────────────────────────────
@@ -37,6 +41,8 @@ const { mockMkdir, mockWriteFile, mockCreateWriteStreamClient, mockUnlinkClient 
 vi.mock("node:fs/promises", () => ({
   mkdir: mockMkdir,
   writeFile: mockWriteFile,
+  realpath: mockRealpath,
+  readFile: mockReadFile,
 }));
 
 // ── mock node:fs（createWriteStream / unlink，用于视频流式写盘） ──────────────
@@ -209,6 +215,19 @@ describe("generateImage", () => {
         { workspaceRoot: WORKSPACE },
       ),
     ).rejects.toThrow(/不支持的图片生成协议/);
+  });
+
+  it("新协议占位分支（grok/volcengine）→ 明确「未实现」错误且不发网络请求", async () => {
+    for (const protocol of ["grok-imagine-image", "volcengine-ark-image"]) {
+      await expect(
+        generateImage(
+          { prompt: "x" },
+          makeImageConfig({ protocol }),
+          { workspaceRoot: WORKSPACE },
+        ),
+      ).rejects.toThrow(/协议客户端未实现/);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   // ── 路径越界拒绝 ────────────────────────────────────────────────────────────
@@ -397,6 +416,19 @@ describe("generateVideo", () => {
       ),
     ).rejects.toThrow(/不支持的视频生成协议/);
   });
+
+  it("新协议占位分支（grok/volcengine）→ 明确「未实现」错误且不发网络请求", async () => {
+    for (const protocol of ["grok-imagine-video", "volcengine-ark-video"]) {
+      await expect(
+        generateVideo(
+          { prompt: "x" },
+          { ...makeVideoConfig(), protocol },
+          { workspaceRoot: WORKSPACE },
+        ),
+      ).rejects.toThrow(/协议客户端未实现/);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 // ── timeoutMs 触发 AbortController ────────────────────────────────────────────
@@ -445,6 +477,12 @@ describe("resolveAudioFormat", () => {
     expect(resolveAudioFormat("../../etc/passwd")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
     expect(resolveAudioFormat("exe")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
     expect(resolveAudioFormat("../secret")).toEqual({ ext: "mp3", mimeType: "audio/mpeg" });
+  });
+
+  it("pcm/pcm16 → audio/L16，pcm16 扩展名归一为 pcm（对齐 Kun audioExtension）", () => {
+    expect(resolveAudioFormat("pcm")).toEqual({ ext: "pcm", mimeType: "audio/L16" });
+    expect(resolveAudioFormat("pcm16")).toEqual({ ext: "pcm", mimeType: "audio/L16" });
+    expect(resolveAudioFormat("PCM16")).toEqual({ ext: "pcm", mimeType: "audio/L16" });
   });
 
   it("undefined 回落到 mp3", () => {
