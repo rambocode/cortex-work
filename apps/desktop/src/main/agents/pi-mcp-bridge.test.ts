@@ -107,6 +107,22 @@ describe("renderMcpBridgeExtension", () => {
     expect(src).toContain("if (closedError) return Promise.reject(closedError)");
   });
 
+  it("分级超时:控制面 20s、tools/call 30min,stdio 与 http 两传输均按 method 选取", () => {
+    const src = renderMcpBridgeExtension(servers);
+    // 两档常量:控制面(initialize/tools/list)保持 20s;tools/call 覆盖 video 25min 钳制 + 余量。
+    expect(src).toContain("const MCP_TIMEOUT_MS = 20000;");
+    expect(src).toContain("const MCP_CALL_TIMEOUT_MS = 30 * 60000;");
+    // 统一选择器:仅 tools/call 走长超时(delegate/design/slides/媒体生成分钟级调用不再被 20s 截断)。
+    expect(src).toContain('method === "tools/call" ? MCP_CALL_TIMEOUT_MS : MCP_TIMEOUT_MS');
+    // stdio request 的 pending 定时器按 method 分级。
+    expect(src).toContain("}, timeoutForMethod(method));");
+    // http 路径:httpPostRaw 由调用方传入超时,rpc 按 method 选取传参。
+    expect(src).toContain("function httpPostRaw(urlStr, headers, bodyStr, timeoutMs)");
+    expect(src).toContain("JSON.stringify(envelope), timeoutForMethod(method)");
+    // httpPostRaw 内不得再残留写死的全局超时。
+    expect(src).not.toContain("}, MCP_TIMEOUT_MS);");
+  });
+
   it("生成源码语法有效(去掉 ESM 专属行后可被 vm 编译)", () => {
     const src = renderMcpBridgeExtension(servers);
     const body = src

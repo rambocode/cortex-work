@@ -945,6 +945,8 @@ export function registerCliHandlers(): void {
       // pi 的 adapter.mcpInjection==="none"，不会经过上面的 builtinServers 块。这里按轮重新读取
       // 设置并复用同一套 research gate；slides 走 cli:start 单发，每轮都会得到 fresh 工具集。
       let researchCfg: McpServerConfig | null = null;
+      let mediaGenCfg: McpServerConfig | null = null;
+      let loopCfg: McpServerConfig | null = null;
       try {
         const persistedState = await getPersistedState();
         researchCfg = buildResearchMcpServerConfig(
@@ -953,15 +955,25 @@ export function registerCliHandlers(): void {
           isSlidesRunId(req.runId) ? "slides" : "chat",
           req.webSearch === true,
         );
+        // 媒体生成:与 claude/codex 的 builtinServers 块同款 gate(四模态全关/host 不可用 → null)。
+        // pi 走 mcpInjection==="none" 不进那个块,漏掉这里就会出现「同一开关 claude 能生图、pi 不能」。
+        mediaGenCfg = buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd);
+        // loop 工作流:无 enabled+callable 工作流 → null;loadWorkflows 失败降级不注入(不阻断 pi 启动)。
+        const piWorkflows = await loadWorkflows().catch(() => []);
+        loopCfg = buildLoopWorkflowsMcpServerConfig(piWorkflows, req.sessionId, req.cwd);
       } catch {
-        /* 配置不可读 → research 不注入，不阻断 pi 启动 */
+        /* 配置不可读 → research/media-gen/loop 均不注入，不阻断 pi 启动 */
       }
+      // TODO(知识库): knowledge server 在 pi 单发路径同样缺席(claude/codex builtinServers 有、这里没有)。
+      // 非有意省略,后续补齐时照 researchCfg 先例并入 piBridgeCfgs 即可。
       const piBridgeCfgs = [
         req.runId.startsWith("design:") || isSlidesRunId(req.runId)
           ? await ensureDesignDelegateMcpServerConfig(req.sessionId)
           : null,
         slidesSessionActive ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
         researchCfg,
+        mediaGenCfg,
+        loopCfg,
       ].filter((c): c is McpServerConfig => c !== null);
       const bridges = [piDelegateBridge, ...piBridgeCfgs.map(mcpServerToBridge)]
         .filter((b): b is BridgeServer => b !== null);

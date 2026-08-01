@@ -87,7 +87,17 @@ export function collectBridgeServers(
 // 因 ESM import 必须置顶,不能被 `const SERVERS` 前置)。极简 MCP 客户端 + 异步发现注册。
 const MCP_BRIDGE_RUNTIME = String.raw`
 // ── 极简 MCP 客户端:仅 initialize / notifications/initialized / tools/list / tools/call ──
+// 分级超时:控制面(initialize / notifications/initialized / tools/list)是本地快操作,20s 足够且
+// 能及时暴露「server 起不来」;tools/call 是业务执行面,delegate 子 agent 委派、design-delegate、
+// slides、媒体生成(视频轮询按模态钳制最长 25min)都是分钟级长任务,统一 20s 会把它们拦腰截断
+// (req.destroy / stdio 超时 reject)。30min = 覆盖 video 25min 钳制 + 5min 余量。
 const MCP_TIMEOUT_MS = 20000;
+const MCP_CALL_TIMEOUT_MS = 30 * 60000;
+
+// 按 method 选超时:仅 tools/call 用长超时,其余全走控制面 20s。
+function timeoutForMethod(method) {
+  return method === "tools/call" ? MCP_CALL_TIMEOUT_MS : MCP_TIMEOUT_MS;
+}
 
 // stdio 传输:spawn 子进程,换行分帧 JSON-RPC(MCP stdio 规范:一行一条消息,无内嵌换行)。
 function makeStdioClient(server) {
@@ -135,7 +145,7 @@ function makeStdioClient(server) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (pending.delete(id)) reject(new Error("MCP 超时: " + method));
-      }, MCP_TIMEOUT_MS);
+      }, timeoutForMethod(method));
       pending.set(id, {
         resolve: (v) => { clearTimeout(timer); resolve(v); },
         reject: (e) => { clearTimeout(timer); reject(e); },
@@ -173,7 +183,8 @@ function parseSseForId(text, id) {
 // (历史背景:此约束是 pi 跑在 Electron utilityProcess 时期定的;现在 pi 是 bun 编译的独立二进制,
 //  但没有理由为此回头换成 fetch——node:http 在两种宿主下都好使。)
 // 返回 { status, headers, body }(body 已读全;响应带 content-length)。
-function httpPostRaw(urlStr, headers, bodyStr) {
+// timeoutMs 由调用方按 method 分级传入(tools/call 长、控制面短),见文件顶部分级超时说明。
+function httpPostRaw(urlStr, headers, bodyStr, timeoutMs) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(urlStr); } catch (e) { reject(e); return; }
@@ -193,7 +204,7 @@ function httpPostRaw(urlStr, headers, bodyStr) {
         res.on("end", () => resolve({ status: res.statusCode || 0, headers: res.headers, body: data }));
       },
     );
-    const timer = setTimeout(() => { req.destroy(new Error("MCP HTTP 超时")); }, MCP_TIMEOUT_MS);
+    const timer = setTimeout(() => { req.destroy(new Error("MCP HTTP 超时")); }, timeoutMs);
     req.on("error", (e) => { clearTimeout(timer); reject(e); });
     req.on("close", () => clearTimeout(timer));
     req.write(bodyStr);
@@ -216,7 +227,7 @@ function makeHttpClient(server) {
     const envelope = { jsonrpc: "2.0", method: method };
     if (id != null) envelope.id = id;
     if (params !== undefined) envelope.params = params;
-    const res = await httpPostRaw(server.url, headers, JSON.stringify(envelope));
+    const res = await httpPostRaw(server.url, headers, JSON.stringify(envelope), timeoutForMethod(method));
     const sid = res.headers["mcp-session-id"];
     if (sid) sessionId = Array.isArray(sid) ? sid[0] : sid;
     if (isNotify) return undefined;
