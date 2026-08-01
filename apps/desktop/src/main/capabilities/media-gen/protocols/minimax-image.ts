@@ -10,7 +10,7 @@
 import type { ResolvedMediaGenConfig } from "../resolve";
 import { streamDownloadToBuffer } from "../download";
 import { MAX_RESPONSE_BYTES } from "../client";
-import { checkMinimaxBaseResp } from "./shared";
+import { checkMinimaxBaseResp, minimaxImageDimensionFields } from "./shared";
 
 // ── 参数类型 ──────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ export interface MinimaxImageArgs {
   prompt: string;
   model: string;
   aspectRatio?: string; // 如 '16:9'、'1:1'
+  /** "WxH" 尺寸（经 mapImageSize 映射）；image-01 转显式宽高，其它模型转最近比例。*/
+  size?: string;
 }
 
 // ── 响应类型 ──────────────────────────────────────────────────────────────────
@@ -39,13 +41,22 @@ export async function minimaxGenerateImage(
   signal: AbortSignal,
 ): Promise<Buffer> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}/v1/image_generation`;
+  // 维度字段（Kun 对齐）：按 t2i 文档只有 image-01 接受显式 width/height；
+  // image-01-live 等模型会以 status 2013 拒绝，改传最近似的 aspect_ratio
+  //（映射逻辑见 shared.minimaxImageDimensionFields）。无 size 时回落调用方
+  // 直传的 aspectRatio（workflow 等未经 mapImageSize 的路径保持旧行为）。
+  const dimensionFields = minimaxImageDimensionFields(args.model, args.size);
   const body: Record<string, unknown> = {
     model: args.model,
     prompt: args.prompt,
+    ...(Object.keys(dimensionFields).length > 0
+      ? dimensionFields
+      : args.aspectRatio
+        ? { aspect_ratio: args.aspectRatio }
+        : {}),
     prompt_optimizer: true,
     response_format: "base64",
     n: 1,
-    ...(args.aspectRatio ? { aspect_ratio: args.aspectRatio } : {}),
   };
 
   const res = await fetch(url, {

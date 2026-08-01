@@ -217,15 +217,145 @@ describe("generateImage", () => {
     ).rejects.toThrow(/不支持的图片生成协议/);
   });
 
-  it("新协议占位分支（grok/volcengine）→ 明确「未实现」错误且不发网络请求", async () => {
-    for (const protocol of ["grok-imagine-image", "volcengine-ark-image"]) {
+  it("grok-imagine-image 协议 dispatch → api.x.ai 载荷（aspect_ratio/resolution）", async () => {
+    const fakeB64 = Buffer.from("grok-img").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    const result = await generateImage(
+      { prompt: "a rocket", aspectRatio: "16:9", size: "2048x1152" },
+      makeImageConfig({ protocol: "grok-imagine-image", baseUrl: "https://api.x.ai", model: "grok-2-image" }),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files).toHaveLength(1);
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.x.ai/v1/images/generations");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.aspect_ratio).toBe("16:9");
+    expect(body.resolution).toBe("2k");
+  });
+
+  it("volcengine-ark-image 协议 dispatch → Seedream 载荷（默认 size 2K）", async () => {
+    const fakeB64 = Buffer.from("ark-img").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    const result = await generateImage(
+      { prompt: "a mountain" },
+      makeImageConfig({
+        protocol: "volcengine-ark-image",
+        baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+        model: "doubao-seedream-4-0",
+      }),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files).toHaveLength(1);
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://ark.cn-beijing.volces.com/api/v3/images/generations");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.size).toBe("2K");
+    expect(body.watermark).toBe(false);
+  });
+
+  // ── 尺寸兜底与 quality 透传 ─────────────────────────────────────────────────
+
+  it("size 缺省时按 defaultSize > defaultResolution 经 mapImageSize 兜底", async () => {
+    const fakeB64 = Buffer.from("x").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    await generateImage(
+      { prompt: "cat" },
+      makeImageConfig({ defaultResolution: "2K" }),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.size).toBe("2048x2048");
+  });
+
+  it("defaultResolution 缺失且无比例 → 不上送 size（旧行为兼容）", async () => {
+    const fakeB64 = Buffer.from("x").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    await generateImage({ prompt: "cat" }, makeImageConfig(), { workspaceRoot: WORKSPACE });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.size).toBeUndefined();
+  });
+
+  it("config.quality 透传到 openai-images 请求体（非 auto）", async () => {
+    const fakeB64 = Buffer.from("x").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    await generateImage(
+      { prompt: "cat" },
+      makeImageConfig({ quality: "high" }),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.quality).toBe("high");
+  });
+
+  // ── 参考图（edits）路由与门控 ────────────────────────────────────────────────
+
+  // PNG 魔数头（collectReferenceImages 按魔数校验参考图格式）
+  const PNG_BYTES = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from("payload"),
+  ]);
+
+  it("openai-images + 参考图 → 走 /images/edits FormData", async () => {
+    mockReadFile.mockResolvedValueOnce(PNG_BYTES);
+    const fakeB64 = Buffer.from("edited").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeB64 }] }),
+    });
+
+    const result = await generateImage(
+      { prompt: "edit it", referenceImagePaths: ["ref.png"] },
+      makeImageConfig(),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files).toHaveLength(1);
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/images/edits");
+    expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it("不支持编辑的协议（minimax/grok）收到参考图 → 网络调用前抛 edits_unsupported", async () => {
+    for (const config of [
+      makeMinimaxImageConfig(),
+      makeImageConfig({ protocol: "grok-imagine-image", model: "grok-2-image" }),
+    ]) {
+      mockReadFile.mockResolvedValueOnce(PNG_BYTES);
       await expect(
         generateImage(
-          { prompt: "x" },
-          makeImageConfig({ protocol }),
+          { prompt: "x", referenceImagePaths: ["ref.png"] },
+          config,
           { workspaceRoot: WORKSPACE },
         ),
-      ).rejects.toThrow(/协议客户端未实现/);
+      ).rejects.toThrow(/edits_unsupported/);
     }
     expect(mockFetch).not.toHaveBeenCalled();
   });

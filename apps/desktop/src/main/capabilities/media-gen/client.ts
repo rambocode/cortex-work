@@ -16,13 +16,15 @@ import { randomBytes } from "node:crypto";
 import type { ResolvedMediaGenConfig } from "./resolve";
 import { openaiImagesGenerate } from "./protocols/openai-images";
 import { minimaxGenerateImage } from "./protocols/minimax-image";
+import { grokImagineGenerateImage } from "./protocols/grok-imagine-image";
+import { volcengineArkGenerateImage } from "./protocols/volcengine-ark-image";
 import { minimaxGenerateMusic, minimaxGenerateTts } from "./protocols/minimax-audio";
 import { minimaxGenerateVideo } from "./protocols/minimax-video";
 import { openaiSpeechGenerate } from "./protocols/openai-speech";
 import { mimoGenerateSpeech } from "./protocols/mimo";
 import { grokImagineGenerateVideo } from "./protocols/grok-imagine-video";
 import { volcengineArkGenerateVideo } from "./protocols/volcengine-ark-video";
-import { dataUri, detectImageMime } from "./protocols/shared";
+import { dataUri, detectImageMime, mapImageSize, protocolSupportsImageEdit } from "./protocols/shared";
 
 // ── 响应体大小限制（KTD11） ────────────────────────────────────────────────────
 
@@ -325,7 +327,7 @@ function assertResponseSize(buffer: Buffer, maxBytes: number, modality: string):
 
 /**
  * 生成图片，产物落盘 {workspaceRoot}/.cortex/media/images/。
- * 支持协议：openai-images、minimax-image（grok/volcengine 波次 1 实装）。
+ * 支持协议：openai-images、minimax-image、grok-imagine-image、volcengine-ark-image。
  */
 export async function generateImage(
   args: GenerateMediaArgs,
@@ -334,13 +336,42 @@ export async function generateImage(
 ): Promise<GenerateMediaResult> {
   const startTs = Date.now();
   const { workspaceRoot } = ctx;
+  const protocol = resolvedConfig.protocol;
 
-  // 安全校验：参考图片路径（lexical + realpath 双重检查，防 symlink 把外部文件读进上传）。
-  const safeRefPaths = args.referenceImagePaths
-    ? await Promise.all(
-        args.referenceImagePaths.map((p) => assertRealWithinWorkspace(workspaceRoot, p)),
-      )
-    : undefined;
+  // 参考图收集：workspace 边界（lexical + realpath 双重检查）→ ≤10MB → 魔数校验，
+  // 返回带二进制的图片列表供协议客户端上传（FormData / dataUri）。
+  const references = await collectReferenceImages(
+    workspaceRoot,
+    args.referenceImagePaths,
+    (resolvedConfig.maxReferenceImages as number | undefined) ?? MAX_REFERENCE_IMAGES,
+  );
+
+  // edits 门控（防御纵深）：MCP 层已按运行时协议拦截，但 workflow/直调路径不经过
+  // MCP handler，这里必须在任何网络调用前再拦一次——不支持真编辑的协议（minimax
+  // 的 subject_reference 是角色保持、grok 无编辑端点）静默产出一张全新（错误）的
+  // 图比报错更糟，报错后调用方可去掉参考图重试。
+  if (references.length > 0 && !protocolSupportsImageEdit(protocol)) {
+    throw new Error(
+      "edits_unsupported：当前图片协议不支持参考图编辑（其参考图能力是角色/身份保持" +
+      "而非忠实编辑）；请去掉 referenceImagePaths 重试。",
+    );
+  }
+
+  // 尺寸决策（优先级：工具入参 > defaultSize > defaultResolution，经 mapImageSize）：
+  // MCP 层已映射并经 args.size 传入；此兜底服务 workflow 等未映射的调用方。
+  // defaultResolution 缺失（旧 resolve 路径未透传）时回落 "auto"——无比例则不上送
+  // 尺寸、交给供应商默认，保持旧行为不强加 1K。
+  const mappedSize =
+    args.size ??
+    mapImageSize(
+      args.aspectRatio,
+      undefined,
+      (resolvedConfig.defaultSize as string | undefined) || undefined,
+      (resolvedConfig.defaultResolution as "auto" | "1K" | "2K" | "3K" | "4K" | undefined) ?? "auto",
+    );
+  const size = mappedSize === "auto" ? undefined : mappedSize;
+  // 画质档（openai-images 协议消费；'auto' 在协议层不上送）。
+  const quality = resolvedConfig.quality as string | undefined;
 
   // 超时 AbortController（KTD8）
   const abortCtrl = new AbortController();
@@ -351,28 +382,54 @@ export async function generateImage(
 
   try {
     let buffer: Buffer;
-    const protocol = resolvedConfig.protocol;
 
     if (protocol === "openai-images") {
+      // 参考图非空时协议内部自动切 /images/edits（FormData）。
       buffer = await openaiImagesGenerate(
         {
           prompt: args.prompt,
           model: resolvedConfig.model,
-          size: args.size ?? (resolvedConfig.defaultSize as string | undefined),
-          referenceImagePaths: safeRefPaths,
+          size,
+          quality,
+          referenceImages: references,
         },
         resolvedConfig,
         signal,
       );
     } else if (protocol === "minimax-image") {
       buffer = await minimaxGenerateImage(
-        { prompt: args.prompt, model: resolvedConfig.model },
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          aspectRatio: args.aspectRatio,
+        },
         resolvedConfig,
         signal,
       );
-    } else if (protocol === "grok-imagine-image" || protocol === "volcengine-ark-image") {
-      // 骨架占位：协议已进枚举/目录，客户端由波次 1（WP2）实装。fail loudly 防静默误路由。
-      throw new Error(`协议客户端未实现: ${protocol}（该协议将在后续版本提供，请暂换其它协议）`);
+    } else if (protocol === "grok-imagine-image") {
+      buffer = await grokImagineGenerateImage(
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          aspectRatio: args.aspectRatio,
+        },
+        resolvedConfig,
+        signal,
+      );
+    } else if (protocol === "volcengine-ark-image") {
+      // 方舟图生图与文生图同端点（image dataUri 数组），参考图直接透传。
+      buffer = await volcengineArkGenerateImage(
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          referenceImages: references,
+        },
+        resolvedConfig,
+        signal,
+      );
     } else {
       throw new Error(`不支持的图片生成协议: ${protocol}`);
     }
