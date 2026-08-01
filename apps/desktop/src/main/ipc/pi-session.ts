@@ -31,6 +31,9 @@ import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject"
 import { resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
+import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
+import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
+import { loadWorkflows } from "../workflow/store";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -199,7 +202,8 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   extra.push(writeTodoExtension());
 
   try {
-    const gs = (await getPersistedState()).generalSettings;
+    const state = await getPersistedState();
+    const gs = state.generalSettings;
     const migratedMcp = migrateLegacyAgentBrowserMcp(gs?.mcp ?? { enabled: false, servers: [] });
     const userServers = migratedMcp.enabled ? migratedMcp.servers : [];
     const docServer = buildDocExtractMcpServerConfig(prepared.uiSessionId);
@@ -231,12 +235,27 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     // 「同一个开关，claude 能查知识库、pi 不能」这种查起来很费劲的不一致。
     // 无会话级开关,故不必计入 extensionFingerprint(改设置后重开会话即生效)。
     const knowledgeServer = buildKnowledgeMcpServerConfig(gs?.knowledgeBase);
+    // 媒体生成:pi 走 mcpInjection==="none",必须在此并入——否则「同一开关 claude 能生图、pi 不能」。
+    // 工具集在 open 时冻结:改设置后重开会话生效(同 knowledge 语义,不计 extensionFingerprint);
+    // handler 每次调用仍读最新设置做 enabled gate,中途禁用会得到可读错误而非静默成功。
+    // X-Cortex-Session 用 prepared.uiSessionId(与 doc-extract/research 同款),sessionStateMap 按
+    // 该 id 存 cwd——pi RPC 会话 cwd 固定于 open 时,语义成立。
+    const mediaGenServer = buildMediaGenMcpServerConfig(
+      state.mediaGenSettings,
+      prepared.uiSessionId,
+      prepared.cwd,
+    );
+    // loop 工作流:同上必须在此并入;loadWorkflows 失败降级不注入(不阻断 pi 启动)。
+    const workflowsForMcp = await loadWorkflows().catch(() => []);
+    const loopServer = buildLoopWorkflowsMcpServerConfig(workflowsForMcp, prepared.uiSessionId, prepared.cwd);
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
       ...(agentBrowserServer ? [agentBrowserServer] : []),
       ...(researchServer ? [researchServer] : []),
       ...(knowledgeServer ? [knowledgeServer] : []),
+      ...(mediaGenServer ? [mediaGenServer] : []),
+      ...(loopServer ? [loopServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
@@ -423,9 +442,11 @@ export function registerPiSessionHandlers(): void {
     if (entry) {
       entry.session.stop();
       sessions.delete(uiSessionId);
-      // 清理研究 MCP 的 session→Consumer 映射（下一次 pi:open 会重新 register）。
+      // 清理研究/媒体生成/loop 工作流 MCP 的 session 映射（下一次 pi:open 会重新 register）。
       // pi 是长驻会话,不清的话映射会随开合累积。
       unregisterResearchSession(uiSessionId);
+      unregisterMediaGenSession(uiSessionId);
+      unregisterLoopWorkflowsSession(uiSessionId);
     }
   });
 }
@@ -434,7 +455,10 @@ export function registerPiSessionHandlers(): void {
 export function killAllPiSessions(): void {
   for (const [uiSessionId, { session }] of sessions) {
     session.stop();
+    // 同 pi:close:长驻会话的 per-session MCP 映射一并清掉,防退出前累积悬挂。
     unregisterResearchSession(uiSessionId);
+    unregisterMediaGenSession(uiSessionId);
+    unregisterLoopWorkflowsSession(uiSessionId);
   }
   sessions.clear();
 }
