@@ -51,19 +51,33 @@ export function useOverflowSafePlacement(open: boolean) {
   // ② 翻转应用后再测：两侧都不够时把浮层推回视口。
   // 先处理右/下越界，再处理左/上——后者优先，宁可右边被裁也不能让左上角跑到视口外
   //（那一侧连滚动都够不着）。
+  //
+  // 两个易错点，都踩过：
+  // (a) 测量前必须临时摘掉 transform，否则量到的是「已钳制后」的位置，会在旧位移上再叠一层；
+  // (b) 结果必须**覆盖**而非累加。阶段①的翻转会整体改变浮层位置（下弹→上弹），
+  //     翻转前算出的位移在翻转后完全失效——曾因累加导致面板从 pill 上方一路飘到屏幕中部。
   useLayoutEffect(() => {
     if (!open) return;
     const el = ref.current;
     if (!el) return;
+    // 摘掉 transform 量「未钳制」的真实位置，量完立刻还原（同一帧内，用户看不到）。
+    const applied = el.style.transform;
+    el.style.transform = "";
     const r = el.getBoundingClientRect();
+    el.style.transform = applied;
+
+    // 零尺寸 = 还没布局（jsdom 里恒为全 0，真实环境里 display:none 亦然）。
+    // 此时 left/top 也是 0，会被下面判成「左上越界」而凭空推 8px —— 直接跳过。
+    if (r.width === 0 && r.height === 0) return;
+
     let dx = 0;
     let dy = 0;
     if (r.right > window.innerWidth - MARGIN) dx = window.innerWidth - MARGIN - r.right;
     if (r.left + dx < MARGIN) dx = MARGIN - r.left;
     if (r.bottom > window.innerHeight - MARGIN) dy = window.innerHeight - MARGIN - r.bottom;
     if (r.top + dy < MARGIN) dy = MARGIN - r.top;
-    // 已在视口内就不写 state，省一次无谓渲染。
-    if (dx !== 0 || dy !== 0) setShift((prev) => ({ shiftX: prev.shiftX + dx, shiftY: prev.shiftY + dy }));
+
+    setShift((prev) => (prev.shiftX === dx && prev.shiftY === dy ? prev : { shiftX: dx, shiftY: dy }));
   }, [open, flip.flipX, flip.flipY]);
 
   const style: CSSProperties =

@@ -175,6 +175,37 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     }
   });
 
+  // 回归:曾把钳制位移写成累加,且测量的是「已带 transform」的位置 —— 翻转（下弹→上弹）
+  // 后旧位移仍挂着,两者叠加把一级面板从 pill 上方一路顶到屏幕中部。
+  // 现在改为「摘掉 transform 量原始位置 + 覆盖而非累加」,不越界时必须是零位移。
+  it("翻转后重算位移而非叠加(回归:面板漂移到屏幕中部)", () => {
+    // 关键是让矩形**随翻转状态变化**：未翻转时底部越界（促成翻上），翻上之后完全在视口内。
+    // 旧实现在翻转前算出一个上移量、翻转后又不覆盖它，两者叠加就把面板顶到了屏幕中部。
+    const belowViewport = {
+      right: 500, left: 270, top: 700, bottom: 900, width: 230, height: 200, x: 270, y: 700,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const inView = {
+      right: 500, left: 270, top: 100, bottom: 300, width: 230, height: 200, x: 270, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        return (this.classList?.contains("pw-tb-menu--up") ? inView : belowViewport) as DOMRect;
+      });
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      const menu = container.querySelector(".pw-mt-menu") as HTMLElement;
+      // 已翻上 → 翻上后的位置本身就在视口内 → 不该再有任何补偿位移。
+      expect(menu.className).toContain("pw-tb-menu--up");
+      expect(menu.style.transform).toBe("");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("菜单默认下弹;底部空间不足(历史会话页贴底)自动翻上", () => {
     // jsdom innerHeight 默认 768;让菜单底缘超出视口 → 应翻上。
     const rect = {
