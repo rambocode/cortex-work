@@ -5,11 +5,18 @@ import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultMediaGenSettings } from "@cortex-work/core/desktop/types";
-import type { MediaGenSettings, ProviderSettings } from "@cortex-work/core/desktop/types";
+import type { MediaGenSettings } from "@cortex-work/core/desktop/types";
 
 // 模块顶层 import electron:存根 ipcMain,使 import 不炸(本测直接调导出的纯业务函数)。
 vi.mock("electron", () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
+}));
+
+// resolve.ts 静态依赖金库模块(→ electron safeStorage):存根隔断依赖链。
+// 本测走 custom+明文 apiKey 路径,resolve 不会真正读金库。
+vi.mock("../providers/credentials", () => ({
+  readSecrets: async () => ({}),
+  readStoredCredential: async () => undefined,
 }));
 
 import {
@@ -36,8 +43,6 @@ function configuredMediaGen(): MediaGenSettings {
   return settings;
 }
 
-const noProviders: ProviderSettings = { providers: [] };
-
 describe("buildWritingInfographicPrompt", () => {
   it("默认前缀 + 空行 + 选中正文", () => {
     const out = buildWritingInfographicPrompt("  hello world  ");
@@ -53,30 +58,30 @@ describe("buildWritingInfographicPrompt", () => {
 });
 
 describe("isWritingInfographicConfigured", () => {
-  it("enabled=false → false", () => {
+  it("enabled=false → false", async () => {
     const mg = configuredMediaGen();
     mg.image.enabled = false;
-    expect(isWritingInfographicConfigured(mg, noProviders)).toBe(false);
+    expect(await isWritingInfographicConfigured(mg)).toBe(false);
   });
 
-  it("完整配置 → true", () => {
-    expect(isWritingInfographicConfigured(configuredMediaGen(), noProviders)).toBe(true);
+  it("完整配置 → true", async () => {
+    expect(await isWritingInfographicConfigured(configuredMediaGen())).toBe(true);
   });
 
-  it("缺 apiKey → false(resolve 抛错被吞成未配置)", () => {
+  it("缺 apiKey → false(resolve 抛错被吞成未配置)", async () => {
     const mg = configuredMediaGen();
     mg.image.apiKey = "";
-    expect(isWritingInfographicConfigured(mg, noProviders)).toBe(false);
+    expect(await isWritingInfographicConfigured(mg)).toBe(false);
   });
 
-  it("baseUrl 非 https → false(https 强校验)", () => {
+  it("baseUrl 非 https → false(https 强校验)", async () => {
     const mg = configuredMediaGen();
     mg.image.baseUrl = "http://api.example.com";
-    expect(isWritingInfographicConfigured(mg, noProviders)).toBe(false);
+    expect(await isWritingInfographicConfigured(mg)).toBe(false);
   });
 
-  it("undefined 设置 → false", () => {
-    expect(isWritingInfographicConfigured(undefined, undefined)).toBe(false);
+  it("undefined 设置 → false", async () => {
+    expect(await isWritingInfographicConfigured(undefined)).toBe(false);
   });
 });
 
@@ -101,7 +106,7 @@ describe("runWritingInfographic", () => {
     const res = await runWritingInfographic(
       { spaceRoot: root, text: "生成信息图的选区文字" },
       {
-        loadState: async () => ({ mediaGenSettings: configuredMediaGen(), providerSettings: noProviders }),
+        loadState: async () => ({ mediaGenSettings: configuredMediaGen() }),
         assertAllowed: async () => {},
         generate: async () => png,
         now: () => new Date("2026-07-06T00:00:00.000Z"),
@@ -122,7 +127,7 @@ describe("runWritingInfographic", () => {
     const res = await runWritingInfographic(
       { spaceRoot: root, text: "选区" },
       {
-        loadState: async () => ({ mediaGenSettings: mg, providerSettings: noProviders }),
+        loadState: async () => ({ mediaGenSettings: mg }),
         assertAllowed: async () => {},
         generate,
       },
@@ -136,7 +141,7 @@ describe("runWritingInfographic", () => {
     const res = await runWritingInfographic(
       { spaceRoot: root, text: "选区" },
       {
-        loadState: async () => ({ mediaGenSettings: configuredMediaGen(), providerSettings: noProviders }),
+        loadState: async () => ({ mediaGenSettings: configuredMediaGen() }),
         assertAllowed: async () => {},
         generate: async () => {
           throw new Error("provider 500");
@@ -163,7 +168,7 @@ describe("runWritingInfographic", () => {
     const res = await runWritingInfographic(
       { spaceRoot: root, text: "选区" },
       {
-        loadState: async () => ({ mediaGenSettings: configuredMediaGen(), providerSettings: noProviders }),
+        loadState: async () => ({ mediaGenSettings: configuredMediaGen() }),
         assertAllowed: async () => {
           throw new Error("路径越界");
         },

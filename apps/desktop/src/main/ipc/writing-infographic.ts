@@ -14,7 +14,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { ipcMain } from "electron";
-import type { MediaGenSettings, ProviderSettings } from "@cortex-work/core/desktop/types";
+import type { MediaGenSettings } from "@cortex-work/core/desktop/types";
 import { resolveMediaGenSettings, type ResolvedMediaGenConfig } from "../capabilities/media-gen/resolve";
 import { openaiImagesGenerate } from "../capabilities/media-gen/protocols/openai-images";
 // minimax 协议已按模态拆分（minimax-image / minimax-audio / minimax-video），图片段在 minimax-image。
@@ -48,14 +48,14 @@ export function buildWritingInfographicPrompt(text: string): string {
 
 // media-gen 图片模态是否已配置(对齐 Kun isWriteInfographicConfigured):enabled 且 baseUrl/apiKey/model
 // 可被 resolveMediaGenSettings 解析(含 https 强校验)。任一不满足 → false,渲染端隐藏信息图入口。
-// resolve 抛错(缺字段 / 非 https / 找不到 provider)一律吞成未配置,不把配置错误当可用。
-export function isWritingInfographicConfigured(
+// resolve 抛错(缺字段 / 非 https / 密钥缺失 / 找不到供应商)一律吞成未配置,不把配置错误当可用。
+// async:resolve 需从 safeStorage 金库解密 `${secret:}` 引用（媒体密钥收编金库后签名变更）。
+export async function isWritingInfographicConfigured(
   mediaGen: MediaGenSettings | undefined,
-  providers: ProviderSettings | undefined,
-): boolean {
+): Promise<boolean> {
   if (!mediaGen?.image?.enabled) return false;
   try {
-    resolveMediaGenSettings("image", mediaGen, providers ?? { providers: [] });
+    await resolveMediaGenSettings("image", mediaGen);
     return true;
   } catch {
     return false;
@@ -100,8 +100,8 @@ export async function defaultGenerateInfographicImage(
 
 // runWritingInfographic 的注入依赖:store/fs 能力经此注入,便于单测替身(不拉 electron/store/fs)。
 export interface RunInfographicDeps {
-  // 读最新持久化设置(runtime = getPersistedState);只取 mediaGenSettings / providerSettings。
-  loadState: () => Promise<{ mediaGenSettings?: MediaGenSettings; providerSettings?: ProviderSettings }>;
+  // 读最新持久化设置(runtime = getPersistedState);只取 mediaGenSettings（密钥经金库引用由 resolve 解密）。
+  loadState: () => Promise<{ mediaGenSettings?: MediaGenSettings }>;
   // 空间根白名单校验(runtime = fs.ts assertAllowed):img 目录与最终目标越权即抛。
   assertAllowed: (path: string) => Promise<void>;
   // 图片生成(缺省 defaultGenerateInfographicImage);测试注入返回固定 Buffer / 抛错。
@@ -128,12 +128,11 @@ export async function runWritingInfographic(
   // 每次读最新设置:支持用户中途改配置立即生效(与 media-gen server 同款「每次读」策略)。
   const state = await deps.loadState();
   const mediaGen = state.mediaGenSettings;
-  const providers = state.providerSettings;
-  if (!isWritingInfographicConfigured(mediaGen, providers)) {
+  if (!(await isWritingInfographicConfigured(mediaGen))) {
     return { ok: false, message: "图片生成未配置,请在「设置 → 媒体生成」中启用并填写图片模型" };
   }
   // isWritingInfographicConfigured 已保证可解析,这里 resolve 拿运行期配置(不会抛)。
-  const config = resolveMediaGenSettings("image", mediaGen!, providers ?? { providers: [] });
+  const config = await resolveMediaGenSettings("image", mediaGen!);
 
   const prompt = buildWritingInfographicPrompt(text);
   const generate = deps.generate ?? defaultGenerateInfographicImage;
@@ -167,7 +166,7 @@ export function registerWritingInfographicHandlers(): void {
     try {
       const { getPersistedState } = await import("./store");
       const state = await getPersistedState();
-      return isWritingInfographicConfigured(state.mediaGenSettings, state.providerSettings);
+      return isWritingInfographicConfigured(state.mediaGenSettings);
     } catch {
       return false; // 探测失败一律按未配置,隐藏入口而非报错
     }
