@@ -49,10 +49,14 @@ export function MediaGenSettingsSection() {
         ))}
       </div>
 
-      {tab === "image" ? <ImageGenCard /> : null}
-      {tab === "speech" ? <SpeechGenCard /> : null}
-      {tab === "music" ? <MusicGenCard /> : null}
-      {tab === "video" ? <VideoGenCard /> : null}
+      {/* 包一层作用域类：媒体生成行改为「左栏说明自适应占满、控件固定宽贴右」（对齐 Kun，
+          见 cortex-desktop.css 的 .pw-mediagen-cards 规则；默认 .pw-srow-l 固定 38% 会把长说明压窄折行）。 */}
+      <div className="pw-mediagen-cards">
+        {tab === "image" ? <ImageGenCard /> : null}
+        {tab === "speech" ? <SpeechGenCard /> : null}
+        {tab === "music" ? <MusicGenCard /> : null}
+        {tab === "video" ? <VideoGenCard /> : null}
+      </div>
     </>
   );
 }

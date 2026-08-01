@@ -12232,3 +12232,15 @@ button.sb-row {
 .pw-mediagen-tab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 模型建议提示框(Kun imageGenModelQualityHint 的圆角浅底块)。 */
 .pw-mediagen-hint { margin: 6px 0 4px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-sunken, var(--bg-app)); color: var(--text-2); font-size: 12.5px; line-height: 1.6; }
+/* 行布局(Kun 式):左栏标题+说明自适应占满,控件列不再拉伸——默认 .pw-srow-l 固定 38%
+   会把长说明压进窄栏提前折行(设置页 40% 同理),此处按 .pw-design-card 先例反转伸缩方向。 */
+.pw-mediagen-cards .pw-srow-l { flex: 1 1 auto; }
+.pw-settings-page .pw-mediagen-cards .pw-srow-l { flex-basis: auto; }
+.pw-mediagen-cards .pw-srow-c { flex: 0 0 auto; }
+/* 控件定宽贴右:下拉/文本输入 320px 与 Kun 右栏近似;数字输入(超时/时长/轮询)用紧凑宽(Kun w-40)。 */
+.pw-mediagen-cards .pw-srow-c > .pw-set-input,
+.pw-settings-page .pw-mediagen-cards .pw-srow-c > .pw-set-input { width: 320px; max-width: 320px; }
+.pw-mediagen-cards .pw-srow-c > input[type="number"].pw-set-input { width: 160px; }
+/* 密钥控件(输入+保存/更换/清除按钮组)整体不拉伸,输入框 240px 留出按钮位。 */
+.pw-mediagen-cards .pw-secret-wrap { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.pw-mediagen-cards .pw-secret-wrap > .pw-set-input { width: 240px; }
