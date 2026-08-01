@@ -201,13 +201,12 @@ export function registerMediaGenTools(
           return makeErrorResult(`generate_image 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
-        const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.image.enabled) {
           return makeErrorResult("图片生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
-          resolvedConfig = resolveMediaGenSettings("image", mediaGenSettings, providerSettings ?? { providers: [] });
+          resolvedConfig = await resolveMediaGenSettings("image", mediaGenSettings);
         } catch (e) {
           return makeErrorResult(`generate_image 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
@@ -284,13 +283,12 @@ export function registerMediaGenTools(
           return makeErrorResult(`generate_speech 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
-        const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.speech.enabled) {
           return makeErrorResult("语音生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
-          resolvedConfig = resolveMediaGenSettings("speech", mediaGenSettings, providerSettings ?? { providers: [] });
+          resolvedConfig = await resolveMediaGenSettings("speech", mediaGenSettings);
         } catch (e) {
           return makeErrorResult(`generate_speech 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
@@ -375,13 +373,12 @@ export function registerMediaGenTools(
           return makeErrorResult(`generate_music 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
-        const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.music.enabled) {
           return makeErrorResult("音乐生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
-          resolvedConfig = resolveMediaGenSettings("music", mediaGenSettings, providerSettings ?? { providers: [] });
+          resolvedConfig = await resolveMediaGenSettings("music", mediaGenSettings);
         } catch (e) {
           return makeErrorResult(`generate_music 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
@@ -511,13 +508,12 @@ export function registerMediaGenTools(
           return makeErrorResult(`generate_video 错误：读取配置失败 —— ${String(e)}`);
         }
         const mediaGenSettings = state.mediaGenSettings;
-        const providerSettings = state.providerSettings;
         if (!mediaGenSettings?.video.enabled) {
           return makeErrorResult("视频生成工具已禁用，请在「设置 → 媒体生成」中启用。");
         }
         let resolvedConfig;
         try {
-          resolvedConfig = resolveMediaGenSettings("video", mediaGenSettings, providerSettings ?? { providers: [] });
+          resolvedConfig = await resolveMediaGenSettings("video", mediaGenSettings);
         } catch (e) {
           return makeErrorResult(`generate_video 配置错误：${e instanceof Error ? e.message : String(e)}`);
         }
