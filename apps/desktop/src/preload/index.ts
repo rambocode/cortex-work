@@ -48,6 +48,7 @@ import type {
   GitOpResult,
   NoteInput,
   NoteMeta,
+  NotificationRecord,
   ArchivedTask,
   TaskAttachment,
   TaskInput,
@@ -700,6 +701,18 @@ const personal = {
     const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
     ipcRenderer.on("notes:changed", listener);
     return () => ipcRenderer.removeListener("notes:changed", listener);
+  },
+  // 消息中心（侧栏铃铛）。main 为 owner，渲染端**只读 + 标已读/清空**——写入是主进程
+  // 埋点（recordNotification）的专属通道，故这里没有 add。
+  notificationCenterList: (): Promise<NotificationRecord[]> =>
+    ipcRenderer.invoke("notification-center:list"),
+  notificationCenterMarkRead: (ids?: string[]): Promise<void> =>
+    ipcRenderer.invoke("notification-center:mark-read", ids),
+  notificationCenterClear: (): Promise<void> => ipcRenderer.invoke("notification-center:clear"),
+  onNotificationCenterChanged: (cb: (list: NotificationRecord[]) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, list: NotificationRecord[]) => cb(list);
+    ipcRenderer.on("notification-center:changed", listener);
+    return () => ipcRenderer.removeListener("notification-center:changed", listener);
   },
   // 真任务系统（个人工作区）。main 为 owner，IPC 透传 + 变更事件订阅。
   // 形状与 DesktopBridge 的可选 tasks* 逐字对齐（手工比对，无 satisfies）。

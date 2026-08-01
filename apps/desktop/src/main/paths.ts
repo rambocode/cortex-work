@@ -110,6 +110,12 @@ export function tasksJsonPath(): string {
   return join(cortexHome(), "tasks.json");
 }
 
+// 消息中心：单文件全量（main-owned）。60 天过期 + 条数上限由 notification-center-store 裁剪，
+// 故不会无限增长。与瞬态的通知卡片窗口（notification-window.ts）无关。
+export function notificationsStorePath(): string {
+  return join(cortexHome(), "notifications.json");
+}
+
 // 桌面宠物 pet-overlay 窗口的拖拽落点：单文件全量（main-owned，重启后恢复位置）。
 export function petPositionPath(): string {
   return join(cortexHome(), "pet-position.json");

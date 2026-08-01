@@ -3,6 +3,7 @@
 import { registerFsHandlers } from "./fs";
 import { registerStoreHandlers } from "./store";
 import { registerNotesHandlers } from "./notes";
+import { registerNotificationCenterHandlers } from "./notification-center";
 import { registerTasksHandlers, tasksReminderScheduler, isTasksReminderOptInEnabled } from "./tasks";
 import { registerSkillsHandlers } from "./skills";
 import { registerPluginHandlers } from "./plugins";
@@ -68,6 +69,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     syncResearchEngineRuntime(state.generalSettings?.researchEngine);
   });
   registerNotesHandlers();
+  registerNotificationCenterHandlers(); // 消息中心（侧栏铃铛的持久化历史，main-owned）
   registerTasksHandlers(); // 真任务系统（替换 doc 聚合 Tasks）
   registerSkillsHandlers();
   registerPluginHandlers();

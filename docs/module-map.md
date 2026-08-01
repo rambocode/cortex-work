@@ -65,6 +65,7 @@
 | 自动化（定时任务） | `personal/automation/`（`AutomationView.tsx`、`Automation*.tsx`） | `personal/automation.ts` | `automation/`（scheduler/runner/store） |
 | Loop 工作流 | `personal/workflow/`（`WorkflowView.tsx`、`WorkflowCanvas.tsx`、节点表单 `node-config/`） | `personal/workflow.ts` | `workflow/`（DSL/scheduler/webhook）、`capabilities/loop-workflows/` |
 | 推送（企微/钉钉/飞书/邮件） | 设置分区 | `personal/push.ts` | `ipc/push.ts` |
+| **消息中心 / 消息提醒 / 侧栏铃铛**（持久化历史，60 天过期 + 500 条上限） | `personal/layout/NotificationBell.tsx`（铃铛 + 列表 popover）、`personal/layout/SidebarUserBar.tsx`（承载它的底部用户行） | `desktop/types.ts` 的 `NotificationRecord`（与 main 逐字镜像）、`desktop/bridge.ts` 的 `notificationCenter*` | `ipc/notification-center.ts`（IPC + 广播 + 内部写入口 `recordNotification`）、`ipc/notification-center-store.ts`（存储核心，可单测）。**埋点方**：`automation/runner.ts`（收尾，无条件记录，不受 opt-in 推送渠道约束）、`workflow/events.ts`（广播 end 时统一记）、`ipc/tasks.ts`（提醒投递）、`ipc/update.ts`（进入 available，按版本 dedupe） |
 | 桌面宠物 | `pet/`（状态机 + sprite） | `store/pet.ts` | `ipc/pet.ts`、`pet-overlay-window.ts` |
 | 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/settings/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts` |
 | Spotlight 浮动框 / 全局热键 | renderer `src/spotlight.tsx` | `personal/spotlightHandoff.ts` | `ipc/spotlight.ts`、`hotkey.ts` |
@@ -84,7 +85,7 @@
 | 归档会话 | `personal/sessions/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |
 | 在编辑器打开（VS Code 等） | — | — | `ipc/editors.ts` |
 | 应用更新 | `UpdateButton.tsx`、`UpdateDialog.tsx` | `desktop/useUpdateState.ts` | `ipc/update.ts` |
-| 通知卡片 | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
+| 通知卡片（**瞬态**弹窗，看完即弃；要找可回溯的历史见上面「消息中心」） | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
 | 设置（个人工作区整页） | `personal/settings/SettingsMenu.tsx` + 各 `*SettingsSection.tsx` | `store/personal.ts` | `ipc/store.ts`（持久化总仓） |
 | 团队工作区（issue/智能体/用量看板） | `CortexDesktopView.tsx`、`Sections.tsx`、`Sidebar.tsx`、`ChatArea.tsx` | `cortex/`、`mock/`、`api/`、`live/` | — |
 | 外观 Tweaks（主题/字号/密度） | `useTweaksPersistence.ts` | `store/ui.ts`（`DEFAULT_TWEAKS`，不在 ui 包！） | — |

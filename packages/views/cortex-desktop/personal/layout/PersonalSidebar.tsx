@@ -16,23 +16,15 @@ import {
   usePersonalStore,
 } from "@cortex-work/core";
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import { SettingsMenu } from "../settings/SettingsMenu";
 import { ProjectMenu } from "../projects/ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
+import { SidebarUserBar } from "./SidebarUserBar";
+import { relTime } from "./relTime";
 
-export function relTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return "刚刚";
-  if (min < 60) return `${min} 分钟`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day} 天`;
-  // 周/月粒度:超过 7 天的旧条目(归档会话等)不再笼统显示「N 天」。
-  if (day < 30) return `${Math.floor(day / 7)} 周`;
-  return `${Math.floor(day / 30)} 个月`;
-}
+// relTime 已抽到 ./relTime（侧栏底部的 NotificationBell 也要用，留在这里会与它循环依赖）。
+// import + export 两句都要：本文件的会话行自己也调它，光 re-export 不会引入本模块作用域。
+// 保留 export：闪记 / 任务 / 归档会话等六处既有 import 路径不必改动。
+export { relTime };
 
 // 会话行:悬停在右侧浮现「重命名」+「归档/取消归档」+「删除」图标按钮。
 // 删除就地二次确认（首点变红+✓,再点真删;鼠标移开重置）,不弹菜单/对话框。
@@ -271,11 +263,10 @@ export function PersonalSidebar({
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
   const openHome = usePersonalStore((s) => s.openHome);
+  // 自动化 / Loop / 设置的**打开动作**已移到 SidebarUserBar 的头像菜单；
+  // 这里只留「是否打开」的读取，它们参与下面 conversationModeOpen 的互斥判定。
   const automationOpen = usePersonalStore((s) => s.automationOpen);
-  const openAutomation = usePersonalStore((s) => s.openAutomation);
-  // loop 工作流视图状态（bridge.workflowList 有值时才渲染入口，web 端 bridge 为 null 自动降级）。
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
-  const openWorkflow = usePersonalStore((s) => s.openWorkflow);
   // 写作工作区(整窗覆盖层);desktop-only,bridge 为 null(web 端)自动降级隐藏。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
@@ -553,35 +544,8 @@ export function PersonalSidebar({
         </section>
       </div>
 
-      <div className="pw-sidebar-shortcuts" aria-label="快捷入口">
-        {onOpenFlashNote ? (
-          <button className="pw-sidebar-shortcut" onClick={onOpenFlashNote} aria-label="闪记">
-            <Icon.Pin size={15} />
-            <span>闪记</span>
-          </button>
-        ) : null}
-        {bridge?.automationList ? (
-          <button
-            className={`pw-sidebar-shortcut ${automationOpen ? "is-active" : ""}`}
-            onClick={openAutomation}
-            aria-label="自动化"
-          >
-            <Icon.Workflow size={15} />
-            <span>自动化</span>
-          </button>
-        ) : null}
-        {bridge?.workflowList ? (
-          <button
-            className={`pw-sidebar-shortcut ${workflowOpen ? "is-active" : ""}`}
-            onClick={openWorkflow}
-            aria-label="Loop"
-          >
-            <Icon.GitBranch size={15} />
-            <span>Loop</span>
-          </button>
-        ) : null}
-        <SettingsMenu variant="shortcut" />
-      </div>
+      {/* 底部用户行：闪记 / 自动化 / Loop / 设置 已收进头像菜单，右侧让位给消息铃铛。 */}
+      <SidebarUserBar onOpenFlashNote={onOpenFlashNote} />
     </aside>
   );
 }

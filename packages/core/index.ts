@@ -124,6 +124,8 @@ export {
   type NoteInput,
   type NoteStatus,
   type NotesFileData,
+  type NotificationRecord,
+  type NotificationSource,
   type PersistedState,
   type PersonalProfile,
   type ReadFileResult,

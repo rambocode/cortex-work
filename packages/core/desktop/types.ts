@@ -1967,6 +1967,23 @@ export interface NotesFileData {
   notes: NoteMeta[];
 }
 
+// ── 消息中心 ────────────────────────────────────────────────────────────────
+// 与 apps/desktop/src/main/ipc/types.ts 逐字镜像（两侧必须完全一致）。
+// 侧栏底部铃铛的持久化历史，60 天过期 + 500 条上限由主进程裁剪，渲染端拿到的已是裁好的。
+// 与右上角瞬态通知卡片（NotificationPayload）是两件事：那个看完即弃，这个能回头翻。
+export type NotificationSource = "task-reminder" | "automation" | "workflow" | "update";
+
+export interface NotificationRecord {
+  id: string;
+  source: NotificationSource;
+  level: "info" | "success" | "error";
+  title: string;
+  body?: string;
+  createdAt: number; // epoch ms（main 生成）
+  readAt?: number; // 缺省即未读；铃铛红点与未读计数据此算
+  refId?: string; // 跳转目标（任务 id / 自动化 id / 工作流 id），缺省则不可跳转
+}
+
 // ── 内置 skill 元数据 ────────────────────────────────────────────────────────
 // 与 apps/desktop/src/main/ipc/types.ts 逐字镜像（两侧必须完全一致）。深化注入
 // ce-ideate / 生成 plan 注入 ce-plan：只把 skill 的 frontmatter 源数据 + 文件路径

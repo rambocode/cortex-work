@@ -108,6 +108,49 @@ export interface NotificationPayload {
   duration?: number;
 }
 
+// ── 消息中心（侧栏底部铃铛的持久化历史） ──────────────────────────────────
+//
+// 与上面的 NotificationPayload 是**两件事**，别混：
+//   NotificationPayload = 瞬态弹窗卡片（notification-window.ts），看完即弃、不落盘；
+//   NotificationRecord  = 落盘历史（notifications.json），用户回头能翻。
+// 一个事件通常两者都发：弹窗负责「当下打断」，消息中心负责「事后回溯」。
+//
+// 记录是**无条件**写入的，不受自动化「完成后通知」那种 opt-in 渠道门控约束——
+// 渠道开关管的是「要不要打扰你」，消息中心管的是「有没有存档」，两个维度。
+
+export type NotificationSource = "task-reminder" | "automation" | "workflow" | "update";
+
+export interface NotificationRecord {
+  id: string;
+  source: NotificationSource;
+  level: "info" | "success" | "error";
+  title: string;
+  body?: string;
+  createdAt: number;
+  // 已读时刻;缺省即未读（铃铛红点与未读计数据此算）。
+  readAt?: number;
+  // 点击跳转目标,由渲染端按 source 解释（任务 id / 自动化 id / 工作流 id）。
+  // 缺省则该条只可标已读、不可跳转。
+  refId?: string;
+}
+
+export interface NotificationInput {
+  source: NotificationSource;
+  level?: NotificationRecord["level"];
+  title: string;
+  body?: string;
+  refId?: string;
+  // 幂等键：同 key 已有**未读**记录时不再插入。
+  // 必需场景:update.ts 的 phase="available" 会随每次检查反复广播,没有这个键
+  // 会把「有新版本」刷成几十条。已读后允许再插一条（用户已消费过上一条）。
+  dedupeKey?: string;
+}
+
+export interface NotificationsFileData {
+  version: 1;
+  items: NotificationRecord[];
+}
+
 // 系统已安装的代码编辑器（editors.ts 探测结果）。
 export interface EditorInfo {
   id: string;

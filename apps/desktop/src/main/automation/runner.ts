@@ -20,6 +20,8 @@ import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/type
 import { broadcastChanged, broadcastRunEvent } from "./events";
 import { computeNextRun } from "./schedule-cron";
 import { dispatchAutomationPush, isTerminalPushStatus, resolveNotifyChannels } from "./push-on-complete";
+import { recordNotification } from "../ipc/notification-center";
+import { NOTIFICATION_BODY_MAX } from "../ipc/notification-center-store";
 import { appendRun, loadAutomations, newRunId, patchAutomation, updateRun } from "./store";
 import { createLogger } from "../log";
 
@@ -86,6 +88,19 @@ async function finalize(meta: AutomationMeta, run: AutomationRun): Promise<void>
   broadcastRunEvent({ automationId: meta.id, run, phase: "end" });
   // 收尾埋点(info)：终态可观测,无头任务平时无声,这条是排查「跑没跑/什么结果」的锚点。
   log.info(`finalize id=${meta.id} agent=${meta.agent} status=${run.status} runId=${run.id}`);
+  // 消息中心存档(无条件):只要是终态就记一条,**不受下面 opt-in 渠道开关约束**。
+  // 两者是不同维度——渠道开关决定「要不要现在打扰你」,存档决定「事后能不能翻到」。
+  // 无头执行时主窗常常没开,这条历史往往是用户唯一的结果来源。
+  if (isTerminalPushStatus(run.status)) {
+    const ok = run.status === "ok";
+    recordNotification({
+      source: "automation",
+      level: ok ? "success" : "error",
+      title: ok ? `${meta.name} 执行完成` : `${meta.name} 执行失败`,
+      body: ((ok ? run.output : run.error) ?? "").trim().slice(0, NOTIFICATION_BODY_MAX) || undefined,
+      refId: meta.id,
+    });
+  }
   // 完成后通知(opt-in):选中了渠道且终态(ok/error/timeout/killed)才分发。
   // fire-and-forget —— dispatchAutomationPush 内部已吞错,绝不影响 run 收尾。
   if (isTerminalPushStatus(run.status) && resolveNotifyChannels(meta).length > 0) {

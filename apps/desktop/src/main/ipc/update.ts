@@ -7,6 +7,7 @@ import { app, ipcMain, BrowserWindow, powerMonitor } from "electron";
 import { autoUpdater } from "electron-updater";
 import { createLogger } from "../log";
 import { reduceUpdate, normalizeReleaseNotes, type UpdaterEvent } from "./update-state";
+import { recordNotification } from "./notification-center";
 import type { UpdateState } from "./types";
 
 // 近实时更新:启动 6s 后首查,长开会话每 5 分钟复查;激活/唤醒再补查。
@@ -27,6 +28,18 @@ export interface RegisterUpdateHandlersOptions {
 function dispatch(event: UpdaterEvent): void {
   const next = reduceUpdate(state, event);
   if (next === state) return;
+  // 消息中心存档：只在**刚进入** available 时记（比较的是转移前的 state.phase）。
+  // 定时检查会反复把状态打回 available，dedupeKey 按版本号兜底——同一版本未读期间只留一条，
+  // 用户读过之后若还没升级，下一轮再提醒也合理（见 store 的 dedupe 语义）。
+  if (next.phase === "available" && state.phase !== "available") {
+    recordNotification({
+      source: "update",
+      level: "info",
+      title: next.version ? `新版本 v${next.version} 可用` : "有新版本可用",
+      body: "在设置或标题栏的更新入口下载并安装。",
+      dedupeKey: `update-${next.version ?? "unknown"}`,
+    });
+  }
   state = next;
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("update:state", state);
