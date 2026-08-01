@@ -3,7 +3,7 @@
 //   时间线:渲染 run-manager 折叠出的轻量消息(user/assistant/tool/system);
 //   空态:待命卡置顶 + 固定三卡贴底(总结/大纲/润色,见 WritingEmptyState);
 //   引用条:编辑器选区快照 chip(创建时冻结文本+行号,可移除);
-//   composer:textarea + 发送/中断 + AgentSelect(claude/codex/pi)。
+//   composer:textarea + 发送/中断 + ModelThinkingPill(agent/模型/推理三合一)。
 //
 // 后端复用 cortex 既有 CLI 管线:发送 = composeWritingPrompt 拼装 → 先调 U5 flush 钩子(确保 agent
 // 读到最新盘面)→ sendWritingMessage(runId=writing:<spaceId>:*、sessionId=writing-<threadId>、
@@ -80,7 +80,6 @@ import {
 import { Icon } from "@cortex-work/ui/icons";
 // 顶栏图标用 lucide-react,与写作模块其余组件(WritingToolbar/WritingSidebar)对齐 Kun 的惯例一致。
 import { FolderOpen, PanelRightClose, Plus, Sparkles } from "lucide-react";
-import { AgentSelect } from "../personal/chat/AgentSelect";
 import { ModelThinkingPill } from "../personal/chat/composer/ModelThinkingPill";
 import { matchSlashCommands, type SlashCommand } from "../personal/chat/composer/ComposerShell";
 import { resolveSkillDispatch } from "../personal/skills/skillDispatch";
@@ -764,7 +763,7 @@ export function WritingAssistantPanel({
         )}
       </div>
 
-      {/* composer:引用条 + 输入框 + 工具栏(引用选区 / AgentSelect / 发送·中断)*/}
+      {/* composer:引用条 + 输入框 + 工具栏(引用选区 / agent·模型·推理 pill / 发送·中断)*/}
       <div className="pw-wa-composer">
         {/* 选区动作条:有选区即显示全部快捷指令 chip(edit 就地改写 / chat 引用+填入)。
             空态也显示——空态卡已收敛为固定三卡,explain/reformat 等选区操作靠此条可达。 */}
@@ -844,15 +843,11 @@ export function WritingAssistantPanel({
           </button>
           {/* 检索开关已移入「设置 → 写作 → 写作建议 → 参考其他文档」(单一入口,对齐 Kun);
               此处不再放快捷开关。检索仍在发送时按 retrievalEnabled 注入(见 doSend)。 */}
-          <AgentSelect
-            agent={agent}
-            derivedAgentId={derivedAgentId}
-            agentsAvailable={agentsAvailable}
-            derivedAgents={derivedAgents}
-            onSwitch={onChangeAgent}
-            menuPlacement="up"
-          />
-          {/* 模型 + 思考强度 pill(对齐 Kun「<模型> 超高」形态;cortex 无 max 档,最高「高」)。
+          {/* agent + 模型 + 思考强度合并为单个 pill,与主会话落地页 composer 同构
+              （见 personal/chat/composer/ComposerShell.tsx）。
+              原先是「独立 AgentSelect + 模型 pill」两个控件并排,在这条 ~370px 的窄栏里
+              挤到模型名被截断（实测显示成「DeepSeek V」）;合并后只占一个 pill,
+              agent 改从面板的 Agent 行下钻切换。
               切 agent 后自动按新 agent 读各自的模型集与记忆值。 */}
           <ModelThinkingPill
             isPi={isPi}
@@ -866,6 +861,11 @@ export function WritingAssistantPanel({
             resolvedThinkingValue={resolvedThinkingValue}
             onChangeThinking={onChangeThinking}
             disabled={isPi ? piModelOptions.length === 0 : agentModels.length === 0}
+            agent={agent}
+            derivedAgentId={derivedAgentId}
+            agentsAvailable={agentsAvailable}
+            derivedAgents={derivedAgents}
+            onSwitchAgent={onChangeAgent}
           />
           <div className="spacer" />
           {busy ? (

@@ -80,11 +80,24 @@ export function ModelThinkingPill({
   // 二级 flyout 默认右开;实测右缘溢出视口时翻左(见下方 layoutEffect)。
   const [flipLeft, setFlipLeft] = useState(false);
   const subRef = useRef<HTMLDivElement>(null);
+  // 一级面板默认与 pill 左缘对齐向右展开;窄容器里(写作助手栏 ~370px,pill 又贴右)
+  // 会越过视口右缘,故同样实测后改为右对齐。中栏 composer 宽,平时不会触发。
+  const [menuFlipRight, setMenuFlipRight] = useState(false);
 
   // 主菜单关闭时复位二级展开态,避免下次打开残留在上次的 flyout。
   useEffect(() => {
     if (!menu.open) setOpenSub(null);
   }, [menu.open]);
+
+  // 一级面板展开后在绘制前测量右缘;溢出即翻成右对齐(与 flyout 同款「同帧改类、无闪烁」手法)。
+  useLayoutEffect(() => {
+    if (!menu.open) {
+      setMenuFlipRight(false);
+      return;
+    }
+    const el = flip.menuRef.current;
+    setMenuFlipRight(!!el && el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [menu.open, flip.menuRef]);
 
   // flyout 每次展开后在绘制前测量:右缘越过视口(留 8px 余量)即翻左,同帧改类无可见闪烁;
   // 收起/切换行时复位为默认右开。
@@ -242,7 +255,9 @@ export function ModelThinkingPill({
       {menu.open ? (
         <div
           ref={flip.menuRef}
-          className={`pw-tb-menu pw-mt-menu${flip.flipUp ? " pw-tb-menu--up" : ""}`}
+          className={`pw-tb-menu pw-mt-menu${flip.flipUp ? " pw-tb-menu--up" : ""}${
+            menuFlipRight ? " pw-mt-menu--right" : ""
+          }`}
           role="menu"
         >
           {onSwitchAgent ? subRow("agent", "Agent", agentLabel, agentList) : null}

@@ -5045,6 +5045,9 @@ button.sb-row {
    用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
    故必须用 (0,2,0) 选择器确保左对齐/背景/层级生效。 */
 .pw-mt-pill .pw-mt-menu { left: 0; right: auto; min-width: 200px; background: var(--bg-app); z-index: 200; }
+/* 右对齐变体:窄容器(写作助手栏)里 pill 贴右,默认的 left:0 会把 200px 面板推出视口右缘。
+   与上条同特异性(0,2,0)且定义在后,冲突的 left/right 以本条为准。 */
+.pw-mt-pill .pw-mt-menu--right { left: auto; right: 0; }
 /* 菜单分区表头(推理/模型)。 */
 .pw-tb-menu-head {
   padding: 4px 9px 2px;

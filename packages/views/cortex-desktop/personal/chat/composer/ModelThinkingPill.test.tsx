@@ -129,6 +129,30 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     }
   });
 
+  // 一级面板默认与 pill 左缘对齐向右展开;写作助手栏只有 ~370px 宽且 pill 贴右，
+  // 200px 的面板会被推出窗口右缘（用户实测反馈），故同样要能翻成右对齐。
+  it("一级面板默认左对齐(视口无溢出 → 不翻右)", () => {
+    const { container } = renderPill();
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    expect(container.querySelector(".pw-mt-menu")).not.toBeNull();
+    expect(container.querySelector(".pw-mt-menu--right")).toBeNull();
+  });
+
+  it("右侧空间不足时一级面板翻成右对齐", () => {
+    const rect = {
+      right: 2000, left: 1800, top: 0, bottom: 100, width: 200, height: 100, x: 1800, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      expect(container.querySelector(".pw-mt-menu--right")).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("菜单默认下弹;底部空间不足(历史会话页贴底)自动翻上", () => {
     // jsdom innerHeight 默认 768;让菜单底缘超出视口 → 应翻上。
     const rect = {
