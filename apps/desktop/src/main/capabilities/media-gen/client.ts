@@ -18,6 +18,8 @@ import { openaiImagesGenerate } from "./protocols/openai-images";
 import { minimaxGenerateImage } from "./protocols/minimax-image";
 import { minimaxGenerateMusic, minimaxGenerateTts } from "./protocols/minimax-audio";
 import { minimaxGenerateVideo } from "./protocols/minimax-video";
+import { openaiSpeechGenerate } from "./protocols/openai-speech";
+import { mimoGenerateSpeech } from "./protocols/mimo";
 import { dataUri, detectImageMime } from "./protocols/shared";
 
 // ── 响应体大小限制（KTD11） ────────────────────────────────────────────────────
@@ -409,25 +411,43 @@ export async function generateSpeech(
     // 白名单校验：防止 Agent 提供的 format 含路径穿越字符，非白名单回落 mp3。
     const { ext, mimeType } = resolveAudioFormat(rawFormat);
 
+    // voice 消费顺序：工具入参优先，其次模态设置里的默认音色。
+    const voice = args.voice ?? (resolvedConfig.voice as string | undefined);
+
     if (protocol === "openai-speech") {
+      // style 在本协议刻意不透传（对齐 Kun）：OpenAI /v1/audio/speech 无风格字段。
       buffer = await openaiSpeechGenerate(
         {
           text: args.prompt,
           model: resolvedConfig.model,
-          voice: args.voice ?? (resolvedConfig.voice as string | undefined),
+          voice,
           speed: args.speed,
           format: ext,
         },
         resolvedConfig,
         signal,
       );
-    } else if (protocol === "minimax-t2a" || protocol === "mimo-tts") {
+    } else if (protocol === "minimax-t2a") {
       buffer = await minimaxGenerateTts(
         {
           text: args.prompt,
           model: resolvedConfig.model,
-          voice: args.voice ?? (resolvedConfig.voice as string | undefined),
+          voice,
           speed: args.speed,
+          format: ext,
+        },
+        resolvedConfig,
+        signal,
+      );
+    } else if (protocol === "mimo-tts") {
+      // 路由修复：mimo-tts 此前误走 minimax t2a_v2（载荷/响应不兼容，现网必失败），
+      // 现走独立 MiMo chat/completions 客户端；style 仅该协议消费。
+      buffer = await mimoGenerateSpeech(
+        {
+          text: args.prompt,
+          model: resolvedConfig.model,
+          voice,
+          style: args.style,
           format: ext,
         },
         resolvedConfig,
@@ -476,9 +496,13 @@ export async function generateMusic(
     if (protocol === "minimax-music") {
       buffer = await minimaxGenerateMusic(
         {
+          // prompt 可为空串（三选一约束由 server 层校验），协议层空值不进载荷。
           prompt: args.prompt,
           model: resolvedConfig.model,
           lyrics: args.lyrics,
+          instrumental: args.instrumental,
+          lyricsOptimizer: args.lyricsOptimizer,
+          referenceAudioUrl: args.referenceAudioUrl,
           format: ext,
         },
         resolvedConfig,
@@ -568,76 +592,6 @@ export async function generateVideo(
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-// ── OpenAI Speech（在线 TTS）内部实现 ─────────────────────────────────────────
-
-interface OpenAISpeechArgs {
-  text: string;
-  model: string;
-  voice?: string;
-  speed?: number;
-  format?: string;
-}
-
-/**
- * 调用 OpenAI 兼容 /v1/audio/speech 接口。
- */
-async function openaiSpeechGenerate(
-  args: OpenAISpeechArgs,
-  config: ResolvedMediaGenConfig,
-  signal: AbortSignal,
-): Promise<Buffer> {
-  const url = `${config.baseUrl.replace(/\/+$/, "")}/v1/audio/speech`;
-  const body: Record<string, unknown> = {
-    model: args.model,
-    input: args.text,
-    ...(args.voice ? { voice: args.voice } : {}),
-    ...(args.speed !== undefined ? { speed: args.speed } : {}),
-    ...(args.format ? { response_format: args.format } : {}),
-  };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => "");
-    throw new Error(`OpenAI Speech 接口 HTTP ${res.status}: ${errorBody.slice(0, 300)}`);
-  }
-
-  // 语音响应直接是二进制流（非 JSON），使用 streamDownloadToBuffer 流式读取（KTD11 / ADV-006）：
-  // 边读边计数，超过 MAX_RESPONSE_BYTES.speech（200MB）时立即中止，不等全量进堆。
-  if (!res.body) {
-    throw new Error("OpenAI Speech 响应缺少 body（ReadableStream）");
-  }
-  // 复用 streamDownloadToBuffer 的 drainStream 逻辑；此处 URL 已消耗，直接读 res.body
-  const chunks: Uint8Array[] = [];
-  const reader = res.body.getReader();
-  let bytesRead = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytesRead += value.byteLength;
-      if (bytesRead > MAX_RESPONSE_BYTES.speech) {
-        await reader.cancel();
-        throw new Error(
-          `[speech] 响应体超过大小限制（已读 ${bytesRead} > ${MAX_RESPONSE_BYTES.speech} bytes），下载已中止`,
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks);
 }
 
 // ── AbortSignal 合并（两个信号任一触发则整体 abort） ─────────────────────────
