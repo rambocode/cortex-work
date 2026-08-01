@@ -130,6 +130,85 @@ describe("minimaxGenerateVideo", () => {
     expect(queryUrl).toContain("task_id=task-abc123");
   });
 
+  it("首末帧 dataUri 进提交载荷（first_frame_image / last_frame_image）", async () => {
+    const firstFrame = "data:image/png;base64,Rk9P";
+    const lastFrame = "data:image/jpeg;base64,QkFS";
+
+    // 提交
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, task_id: "task-frames" }),
+    });
+    // 轮询 Success
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, status: "Success", file_id: "file-f" }),
+    });
+    // retrieve
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        file: { download_url: "https://cdn.minimax.chat/v.mp4" },
+      }),
+    });
+    // 下载
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: new Uint8Array([1]) })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+          releaseLock: vi.fn(),
+          cancel: vi.fn(),
+        }),
+      },
+    });
+
+    await minimaxGenerateVideo(
+      {
+        prompt: "x",
+        model: "video-01",
+        firstFrameImage: firstFrame,
+        lastFrameImage: lastFrame,
+        destPath: DEST_PATH,
+      },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    const [, genInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const genBody = JSON.parse(genInit.body as string);
+    expect(genBody.first_frame_image).toBe(firstFrame);
+    expect(genBody.last_frame_image).toBe(lastFrame);
+  });
+
+  it("未提供帧图片时载荷不含 first/last_frame_image 字段", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, task_id: "task-noframe" }),
+    });
+    // 直接 Fail 终止流程（本用例只关心提交载荷）
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, status: "Fail" }),
+    });
+
+    await expect(
+      minimaxGenerateVideo(
+        { prompt: "x", model: "video-01", destPath: DEST_PATH },
+        makeConfig(),
+        makeSignal(),
+      ),
+    ).rejects.toThrow();
+
+    const [, genInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const genBody = JSON.parse(genInit.body as string);
+    expect("first_frame_image" in genBody).toBe(false);
+    expect("last_frame_image" in genBody).toBe(false);
+  });
+
   it("任务状态为 Fail 时抛出错误", async () => {
     // 提交
     mockFetch.mockResolvedValueOnce({

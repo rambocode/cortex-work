@@ -521,17 +521,157 @@ describe("generateVideo", () => {
     ).rejects.toThrow(/不支持的视频生成协议/);
   });
 
-  it("新协议占位分支（grok/volcengine）→ 明确「未实现」错误且不发网络请求", async () => {
-    for (const protocol of ["grok-imagine-video", "volcengine-ark-video"]) {
-      await expect(
-        generateVideo(
-          { prompt: "x" },
-          { ...makeVideoConfig(), protocol },
-          { workspaceRoot: WORKSPACE },
-        ),
-      ).rejects.toThrow(/协议客户端未实现/);
-    }
+  // ── 帧图片集成：collectFrameImage → dataUri 进协议载荷 ──────────────────────
+
+  it("firstFrameImagePath 经 collectFrameImage 转 dataUri 进 minimax 提交载荷", async () => {
+    // readFile 返回带 PNG 魔数的内容（collectFrameImage 会做魔数校验）
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+    mockReadFile.mockResolvedValueOnce(pngBytes);
+
+    const videoChunk = new Uint8Array(Buffer.from("v"));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, task_id: "task-f" }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ base_resp: { status_code: 0 }, status: "Success", file_id: "file-f" }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        file: { download_url: "https://cdn.minimax.chat/v.mp4" },
+      }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: videoChunk })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+          releaseLock: vi.fn(),
+          cancel: vi.fn(),
+        }),
+      },
+    });
+
+    await generateVideo(
+      { prompt: "x", firstFrameImagePath: "frames/first.png" },
+      makeVideoConfig(),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [, genInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const genBody = JSON.parse(genInit.body as string);
+    expect(genBody.first_frame_image).toBe(`data:image/png;base64,${pngBytes.toString("base64")}`);
+  });
+
+  it("帧图片非 png/jpeg/webp（魔数校验失败）时抛错且不发请求", async () => {
+    mockReadFile.mockResolvedValueOnce(Buffer.from("not-an-image"));
+    await expect(
+      generateVideo(
+        { prompt: "x", firstFrameImagePath: "frames/fake.png" },
+        makeVideoConfig(),
+        { workspaceRoot: WORKSPACE },
+      ),
+    ).rejects.toThrow(/png\/jpeg\/webp/);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // ── 新协议 dispatch 分支 ────────────────────────────────────────────────────
+
+  function makeStreamBody(chunk: Uint8Array) {
+    return {
+      getReader: () => ({
+        read: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: chunk })
+          .mockResolvedValueOnce({ done: true, value: undefined }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn(),
+      }),
+    };
+  }
+
+  it("grok-imagine-video 协议路由到 grok 客户端（/videos/generations + aspectRatio 透传）", async () => {
+    const videoChunk = new Uint8Array(Buffer.from("grok-v"));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ request_id: "req-1" }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: "done", video: { url: "https://cdn.x.ai/v.mp4" } }),
+    });
+    mockFetch.mockResolvedValueOnce({ ok: true, body: makeStreamBody(videoChunk) });
+
+    const result = await generateVideo(
+      { prompt: "a bird", aspectRatio: "16:9" },
+      {
+        ...makeVideoConfig(),
+        protocol: "grok-imagine-video",
+        baseUrl: "https://api.x.ai/v1",
+        defaultDuration: 6,
+        defaultResolution: "720P",
+      },
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files[0].relativePath).toMatch(/^\.cortex\/media\/video\//);
+    expect(result.files[0].byteSize).toBe(videoChunk.byteLength);
+
+    const [genUrl, genInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(genUrl).toBe("https://api.x.ai/v1/videos/generations");
+    const genBody = JSON.parse(genInit.body as string);
+    // config 默认值消费：duration/resolution；工具入参消费：aspect_ratio。
+    expect(genBody).toMatchObject({ duration: 6, resolution: "720p", aspect_ratio: "16:9" });
+  });
+
+  it("grok 协议收到尾帧时防御性报错（协议层红线，schema 之外的兜底）", async () => {
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+    mockReadFile.mockResolvedValueOnce(pngBytes);
+
+    await expect(
+      generateVideo(
+        { prompt: "x", lastFrameImagePath: "frames/last.png" },
+        { ...makeVideoConfig(), protocol: "grok-imagine-video", baseUrl: "https://api.x.ai/v1" },
+        { workspaceRoot: WORKSPACE },
+      ),
+    ).rejects.toThrow(/末帧/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("volcengine-ark-video 协议路由到 ark 客户端（tasks 端点 + ratio 透传）", async () => {
+    const videoChunk = new Uint8Array(Buffer.from("ark-v"));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: "task-1" }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "succeeded",
+        content: { video_url: "https://ark-cdn.volces.com/v.mp4" },
+      }),
+    });
+    mockFetch.mockResolvedValueOnce({ ok: true, body: makeStreamBody(videoChunk) });
+
+    const result = await generateVideo(
+      { prompt: "a bird", aspectRatio: "adaptive" },
+      {
+        ...makeVideoConfig(),
+        protocol: "volcengine-ark-video",
+        baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      },
+      { workspaceRoot: WORKSPACE },
+    );
+
+    expect(result.files[0].byteSize).toBe(videoChunk.byteLength);
+
+    const [genUrl, genInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(genUrl).toBe("https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks");
+    expect(JSON.parse(genInit.body as string).ratio).toBe("adaptive");
   });
 });
 

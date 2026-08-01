@@ -1,13 +1,13 @@
 // MiniMax 视频生成协议实现（主进程，异步轮询）。
 // 自原 minimax.ts 按模态拆出（纯移动，行为不变）；公共辅助改从 shared.ts 导入。
 //
-// 规格（KTD6）：
+// 规格（KTD6，对齐 Kun MiniMaxVideoClient）：
 //   1. POST {baseUrl}/v1/video_generation → 拿 task_id
+//      （first_frame_image / last_frame_image 以 dataUri 随载荷上传，做首末帧引导）
 //   2. 轮询 GET {baseUrl}/v1/query/video_generation?task_id={task_id}
 //      直到 status==='Success'|'Fail' 或超时
 //   3. 完成后 GET {baseUrl}/v1/files/retrieve?file_id={file_id} → download_url
 //   4. 流式下载写盘
-// ⚠️ 波次 1（WP4）将补首末帧 dataUri 上传，本次拆分不改行为。
 
 import type { ResolvedMediaGenConfig } from "../resolve";
 import { streamDownloadToFile } from "../download";
@@ -24,8 +24,10 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 export interface MinimaxVideoArgs {
   prompt: string;
   model: string;
-  firstFrameImagePath?: string; // 已经安全校验的绝对路径
-  lastFrameImagePath?: string;
+  /** 首帧图片 dataUri（client 层 collectFrameImage 已做边界/大小/魔数校验后产出）。*/
+  firstFrameImage?: string;
+  /** 尾帧图片 dataUri（同上）。*/
+  lastFrameImage?: string;
   duration?: number;
   resolution?: string;
   /**
@@ -75,7 +77,9 @@ export async function minimaxGenerateVideo(
     prompt: args.prompt,
     ...(args.duration ? { duration: args.duration } : {}),
     ...(args.resolution ? { resolution: args.resolution } : {}),
-    // first_frame_image 与 last_frame_image 为可选参数（图片路径→需 base64 上传，波次 1 实装）
+    // 首末帧引导：dataUri 直接进 JSON 载荷（对齐 Kun MiniMaxVideoClient 的 first/last_frame_image）。
+    ...(args.firstFrameImage ? { first_frame_image: args.firstFrameImage } : {}),
+    ...(args.lastFrameImage ? { last_frame_image: args.lastFrameImage } : {}),
   };
 
   const genRes = await fetch(`${baseUrl}/v1/video_generation`, {

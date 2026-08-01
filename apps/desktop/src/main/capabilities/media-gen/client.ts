@@ -20,6 +20,8 @@ import { minimaxGenerateMusic, minimaxGenerateTts } from "./protocols/minimax-au
 import { minimaxGenerateVideo } from "./protocols/minimax-video";
 import { openaiSpeechGenerate } from "./protocols/openai-speech";
 import { mimoGenerateSpeech } from "./protocols/mimo";
+import { grokImagineGenerateVideo } from "./protocols/grok-imagine-video";
+import { volcengineArkGenerateVideo } from "./protocols/volcengine-ark-video";
 import { dataUri, detectImageMime } from "./protocols/shared";
 
 // ── 响应体大小限制（KTD11） ────────────────────────────────────────────────────
@@ -525,7 +527,9 @@ export async function generateMusic(
 
 /**
  * 生成视频，产物落盘 {workspaceRoot}/.cortex/media/video/。
- * 支持协议：minimax-video（grok/volcengine 波次 1 实装）。
+ * 支持协议：minimax-video、grok-imagine-video、volcengine-ark-video。
+ * 三协议共用一套准备管线：帧图片经 collectFrameImage 产出 dataUri → 提前生成落盘路径 →
+ * 协议客户端异步轮询 + 流式写盘（返回字节数，不经过大 Buffer，KTD11 / ADV-006）。
  */
 export async function generateVideo(
   args: GenerateMediaArgs,
@@ -534,14 +538,22 @@ export async function generateVideo(
 ): Promise<GenerateMediaResult> {
   const startTs = Date.now();
   const { workspaceRoot } = ctx;
+  const protocol = resolvedConfig.protocol;
 
-  // 安全校验：帧图片路径（lexical + realpath 双重检查，防 symlink 把外部文件读进上传）。
-  const safeFirstFrame = args.firstFrameImagePath
-    ? await assertRealWithinWorkspace(workspaceRoot, args.firstFrameImagePath)
-    : undefined;
-  const safeLastFrame = args.lastFrameImagePath
-    ? await assertRealWithinWorkspace(workspaceRoot, args.lastFrameImagePath)
-    : undefined;
+  if (
+    protocol !== "minimax-video" &&
+    protocol !== "grok-imagine-video" &&
+    protocol !== "volcengine-ark-video"
+  ) {
+    throw new Error(`不支持的视频生成协议: ${protocol}`);
+  }
+
+  // 帧图片收集（≤10MB + png/jpeg/webp 魔数 + workspace 边界含 symlink 复核 → dataUri）。
+  // 任一校验失败在发起网络请求前就抛错（fail loudly）。
+  // 注：grok 无末帧概念——schema 层已不生成 last_frame_image_path 字段，这里不提前拦截，
+  // 由协议层防御性报错（保持「协议约束归协议层」的单一判定点）。
+  const firstFrame = await collectFrameImage(workspaceRoot, args.firstFrameImagePath, "首帧图片");
+  const lastFrame = await collectFrameImage(workspaceRoot, args.lastFrameImagePath, "尾帧图片");
 
   const abortCtrl = new AbortController();
   const timeoutId = setTimeout(() => abortCtrl.abort(), resolvedConfig.timeoutMs);
@@ -550,45 +562,52 @@ export async function generateVideo(
     : abortCtrl.signal;
 
   try {
-    const protocol = resolvedConfig.protocol;
+    // 视频最大 500MB，提前生成落盘路径，协议函数直接流式写盘，不经过 Buffer（KTD11 / ADV-006）。
+    const dir = mediaDir(workspaceRoot, "video");
+    await mkdir(dir, { recursive: true });
+    // mkdir 后二次复核（同 saveToWorkspace）：防已存在的 media 目录 symlink 把视频写出 workspace。
+    const realDir = await assertRealWithinWorkspace(workspaceRoot, dir);
+    const fileName = generateFileName("mp4");
+    const absolutePath = join(realDir, fileName);
+    const relativePath = `.cortex/media/video/${fileName}`;
 
+    // 三协议共用参数：duration/resolution 取 resolvedConfig 的 default*（server 层已用
+    // 工具入参覆盖过），pollIntervalMs/timeoutMs 由协议客户端从 config 消费。
+    const commonArgs = {
+      prompt: args.prompt,
+      model: resolvedConfig.model,
+      firstFrameImage: firstFrame?.dataUri,
+      lastFrameImage: lastFrame?.dataUri,
+      duration: resolvedConfig.defaultDuration as number | undefined,
+      resolution: resolvedConfig.defaultResolution as string | undefined,
+      destPath: absolutePath,
+    };
+
+    let byteSize: number;
     if (protocol === "minimax-video") {
-      // 视频最大 500MB，提前生成落盘路径，协议函数直接流式写盘，不经过 Buffer（KTD11 / ADV-006）。
-      const dir = mediaDir(workspaceRoot, "video");
-      await mkdir(dir, { recursive: true });
-      // mkdir 后二次复核（同 saveToWorkspace）：防已存在的 media 目录 symlink 把视频写出 workspace。
-      const realDir = await assertRealWithinWorkspace(workspaceRoot, dir);
-      const fileName = generateFileName("mp4");
-      const absolutePath = join(realDir, fileName);
-      const relativePath = `.cortex/media/video/${fileName}`;
-
-      const byteSize = await minimaxGenerateVideo(
-        {
-          prompt: args.prompt,
-          model: resolvedConfig.model,
-          firstFrameImagePath: safeFirstFrame,
-          lastFrameImagePath: safeLastFrame,
-          duration: resolvedConfig.defaultDuration as number | undefined,
-          resolution: resolvedConfig.defaultResolution as string | undefined,
-          destPath: absolutePath,
-        },
+      // minimax 接口无 aspect_ratio 参数，不透传。
+      byteSize = await minimaxGenerateVideo(commonArgs, resolvedConfig, signal);
+    } else if (protocol === "grok-imagine-video") {
+      byteSize = await grokImagineGenerateVideo(
+        { ...commonArgs, aspectRatio: args.aspectRatio },
         resolvedConfig,
         signal,
       );
-
-      const file: GeneratedFile = {
-        relativePath,
-        absolutePath,
-        mimeType: "video/mp4",
-        byteSize,
-      };
-      return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
-    } else if (protocol === "grok-imagine-video" || protocol === "volcengine-ark-video") {
-      // 骨架占位：协议已进枚举/目录，客户端由波次 1（WP4）实装。fail loudly 防静默误路由。
-      throw new Error(`协议客户端未实现: ${protocol}（该协议将在后续版本提供，请暂换其它协议）`);
     } else {
-      throw new Error(`不支持的视频生成协议: ${protocol}`);
+      byteSize = await volcengineArkGenerateVideo(
+        { ...commonArgs, aspectRatio: args.aspectRatio },
+        resolvedConfig,
+        signal,
+      );
     }
+
+    const file: GeneratedFile = {
+      relativePath,
+      absolutePath,
+      mimeType: "video/mp4",
+      byteSize,
+    };
+    return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
   } finally {
     clearTimeout(timeoutId);
   }
