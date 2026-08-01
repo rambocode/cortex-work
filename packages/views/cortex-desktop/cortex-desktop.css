@@ -12218,3 +12218,17 @@ button.sb-row {
 .pw-pip-defmodel-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .pw-pip-defsel { flex: 1 1 160px; min-width: 0; }
 .pw-pip-defsel.is-model { flex: 1.5 1 220px; }
+
+/* ── 媒体生成设置(对齐 Kun 样式):四等宽 tab 分页 + 提示框 + 自动生效角标 ── */
+/* 头行:标题在左、「修改会自动生效」角标在右(角标由 SettingsMenu 的分区壳渲染)。 */
+.pw-mediagen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pw-mediagen-autofx { flex: none; font-size: 12px; color: var(--text-3); padding: 4px 12px; border-radius: 999px; background: var(--bg-sunken, var(--bg-app)); white-space: nowrap; }
+/* tab 条:四等宽栅格(Kun 的 SettingsTabs 主变体),激活项白底描边浮起。 */
+.pw-mediagen-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: var(--bg-sunken, var(--bg-app)); margin: 10px 0 12px; }
+.pw-mediagen-tab { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 8px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer; min-width: 0; }
+.pw-mediagen-tab:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-mediagen-tab.is-active { background: var(--bg-app); border-color: var(--border); color: var(--text-1); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
+.pw-mediagen-tab > svg { flex: none; }
+.pw-mediagen-tab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 模型建议提示框(Kun imageGenModelQualityHint 的圆角浅底块)。 */
+.pw-mediagen-hint { margin: 6px 0 4px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-sunken, var(--bg-app)); color: var(--text-2); font-size: 12.5px; line-height: 1.6; }

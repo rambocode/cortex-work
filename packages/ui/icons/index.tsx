@@ -402,6 +402,21 @@ export const Icon = {
       <path d="M12 18v3" />
     </IconBase>
   ),
+  // 音符;媒体生成设置「音乐生成」tab 用。
+  Music: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </IconBase>
+  ),
+  // 摄像机;媒体生成设置「视频生成」tab 用。
+  Video: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M22 8l-6 4 6 4V8z" />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+    </IconBase>
+  ),
   Send: (p: IconProps) => (
     <IconBase {...p} sw={p?.sw ?? 2}>
       <path d="M5 12h14" />

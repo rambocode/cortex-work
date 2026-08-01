@@ -21,6 +21,7 @@ export function MediaSecretKeyField({
   secretName,
   value,
   onChange,
+  desc,
 }: {
   /** 金库命名 Secret 名（custom 态用 mediaCustomSecretName(modality)，standalone 用目录 entry.secretName）。*/
   secretName: string;
@@ -28,6 +29,8 @@ export function MediaSecretKeyField({
   value: string;
   /** 写回 settings.apiKey——只会收到空串或 ${secret:NAME} 引用，绝不明文。*/
   onChange: (v: string) => void;
+  /** 行说明（Kun 每模态的 apiKeyDesc 文案）。*/
+  desc?: string;
 }) {
   const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
@@ -42,7 +45,7 @@ export function MediaSecretKeyField({
   // 桥缺失：媒体密钥金库仅桌面端可用，Web/旧壳渲染降级文案不白屏。
   if (!bridge?.providerAuthSetSecrets) {
     return (
-      <SRow label={t("mediaGen.apiKeyLabel")} end>
+      <SRow label={t("mediaGen.apiKeyLabel")} desc={desc} end>
         <span className="pw-set-hint">{t("mediaGen.apiKeyUnsupported")}</span>
       </SRow>
     );
@@ -82,7 +85,7 @@ export function MediaSecretKeyField({
 
   if (vaultDown) {
     return (
-      <SRow label={t("mediaGen.apiKeyLabel")} end>
+      <SRow label={t("mediaGen.apiKeyLabel")} desc={desc} end>
         <span className="pw-set-hint" role="status">
           {t("mediaGen.apiKeyVaultUnavailable", { reason: snapshot.health.reason ?? "" })}
         </span>
@@ -92,7 +95,7 @@ export function MediaSecretKeyField({
 
   if (saved && !editing) {
     return (
-      <SRow label={t("mediaGen.apiKeyLabel")} end>
+      <SRow label={t("mediaGen.apiKeyLabel")} desc={desc} end>
         <span className="pw-secret-wrap">
           <span className="pw-set-hint">{t("mediaGen.apiKeySavedBadge")}</span>
           <button type="button" className="pw-mode-block-btn" onClick={() => setEditing(true)}>
@@ -107,7 +110,7 @@ export function MediaSecretKeyField({
   }
 
   return (
-    <SRow label={t("mediaGen.apiKeyLabel")} end>
+    <SRow label={t("mediaGen.apiKeyLabel")} desc={desc} end>
       <span className="pw-secret-wrap">
         <input
           className="pw-set-input"

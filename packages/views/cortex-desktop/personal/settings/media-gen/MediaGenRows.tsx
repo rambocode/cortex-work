@@ -53,16 +53,28 @@ export function ProviderRow({
   providerId,
   model,
   update,
+  label,
+  desc,
+  customLabel,
 }: {
   modality: MediaModality;
   providerId: string;
   model: string;
   /** protocol 由 capability 同步而来，模态卡侧收窄为各自的协议枚举（值必合法）。*/
   update: (patch: { providerId: string; protocol?: string; model?: string }) => void;
+  /** 行标题/说明按模态覆盖（Kun 每个模态有独立文案，如「图片供应商」）。*/
+  label?: string;
+  desc?: string;
+  /** 「自定义」选项的模态化标签（Kun：自定义图片 API / 自定义语音生成 API …）。*/
+  customLabel?: string;
 }) {
   const { t } = useTranslation("settings");
   const { options, resolve, authFor, authUnsupported } = useMediaGenProviders(modality);
   const openSettings = usePersonalStore((s) => s.openSettings);
+  // 自定义项标签按模态改写；目录条目名保持原样。
+  const displayOptions = customLabel
+    ? options.map((o) => (o.value === CUSTOM_PROVIDER_ID ? { ...o, label: customLabel } : o))
+    : options;
 
   const resolved = resolve(providerId);
   const usingDirectory = !!resolved?.capability;
@@ -85,10 +97,10 @@ export function ProviderRow({
 
   return (
     <>
-      <SRow label={t("mediaGen.providerLabel")} desc={t("mediaGen.providerDesc")} end>
+      <SRow label={label ?? t("mediaGen.providerLabel")} desc={desc ?? t("mediaGen.providerDesc")} end>
         <BareSelect
           value={usingDirectory && resolved ? resolved.entry.id : CUSTOM_PROVIDER_ID}
-          options={options}
+          options={displayOptions}
           onChange={handleChange}
         />
       </SRow>
@@ -134,14 +146,18 @@ export function ProtocolRow({
   protocols,
   value,
   onChange,
+  label,
+  desc,
 }: {
   protocols: readonly string[];
   value: string;
   onChange: (v: string) => void;
+  label?: string;
+  desc?: string;
 }) {
   const { t } = useTranslation("settings");
   return (
-    <SRow label={t("mediaGen.protocolLabel")} end>
+    <SRow label={label ?? t("mediaGen.protocolLabel")} desc={desc} end>
       <BareSelect
         value={value}
         options={protocols.map((p) => ({ label: protocolLabel(t, p), value: p }))}
@@ -152,14 +168,25 @@ export function ProtocolRow({
 }
 
 /** API 地址输入行（仅 custom 态渲染）。*/
-export function BaseUrlRow({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function BaseUrlRow({
+  value,
+  onChange,
+  desc,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  desc?: string;
+  placeholder?: string;
+}) {
   const { t } = useTranslation("settings");
   return (
-    <SRow label={t("mediaGen.baseUrlLabel")} end>
+    <SRow label={t("mediaGen.baseUrlLabel")} desc={desc} end>
       <input
         className="pw-set-input"
         type="url"
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
       />
     </SRow>
@@ -176,16 +203,20 @@ export function ModelRow({
   model,
   placeholder,
   onChange,
+  label,
+  desc,
 }: {
   usingDirectory: boolean;
   models: readonly string[];
   model: string;
   placeholder: string;
   onChange: (v: string) => void;
+  label?: string;
+  desc?: string;
 }) {
   const { t } = useTranslation("settings");
   return (
-    <SRow label={t("mediaGen.modelLabel")} end>
+    <SRow label={label ?? t("mediaGen.modelLabel")} desc={desc} end>
       {usingDirectory ? (
         <BareSelect
           value={models.includes(model) ? model : (models[0] ?? "")}
@@ -210,13 +241,15 @@ export function FormatRow({
   label,
   value,
   onChange,
+  desc,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  desc?: string;
 }) {
   return (
-    <SRow label={label} end>
+    <SRow label={label} desc={desc} end>
       <BareSelect
         value={value}
         options={AUDIO_FORMATS.map((f) => ({ label: f, value: f }))}
@@ -235,15 +268,17 @@ export function TimeoutRow({
   min,
   max,
   onChange,
+  desc,
 }: {
   value: number;
   min: number;
   max: number;
   onChange: (v: number) => void;
+  desc?: string;
 }) {
   const { t } = useTranslation("settings");
   return (
-    <SRow label={t("mediaGen.timeoutLabel")} end>
+    <SRow label={t("mediaGen.timeoutLabel")} desc={desc} end>
       <input
         className="pw-set-input"
         type="number"

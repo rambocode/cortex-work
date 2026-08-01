@@ -67,6 +67,11 @@ function selectWithOption(optionText: string): HTMLSelectElement {
   return found;
 }
 
+/** 切到指定模态 tab（壳改为 Kun 式四 tab 分页后，非激活模态卡不渲染）。*/
+function switchTab(label: string) {
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+}
+
 // ── 测试套件 ────────────────────────────────────────────────────────────────
 
 describe("MediaGenSettingsSection（拆分后）", () => {
@@ -88,8 +93,8 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("图片模态关闭时隐藏详细字段", () => {
     setImageState({ enabled: false });
     renderUI(<MediaGenSettingsSection />);
-    expect(screen.queryByText("供应商")).toBeNull();
-    expect(screen.queryByPlaceholderText("如 dall-e-3")).toBeNull();
+    expect(screen.queryByText("图片供应商")).toBeNull();
+    expect(screen.queryByPlaceholderText("gpt-image-1")).toBeNull();
   });
 
   it("点击图片启用开关写入 store", () => {
@@ -99,9 +104,15 @@ describe("MediaGenSettingsSection（拆分后）", () => {
     expect(usePersonalStore.getState().mediaGenSettings.image.enabled).toBe(true);
   });
 
-  it("始终渲染总览说明卡", () => {
+  it("渲染四个模态 tab,默认激活图片生成", () => {
     renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("总览")).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab").map((el) => el.textContent);
+    expect(tabs).toEqual(["图片生成", "语音生成", "音乐生成", "视频生成"]);
+    expect(screen.getByRole("tab", { name: "图片生成" })).toHaveAttribute("aria-selected", "true");
+    // 非激活模态卡不渲染
+    expect(screen.queryByLabelText("启用视频生成")).toBeNull();
+    switchTab("视频生成");
+    expect(screen.getByLabelText("启用视频生成")).toBeInTheDocument();
   });
 
   // ── 供应商下拉 = 媒体供应商目录 ──────────────────────────────────────────
@@ -109,7 +120,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("图片供应商下拉列出目录条目 + 自定义", () => {
     setImageState({ enabled: true });
     renderUI(<MediaGenSettingsSection />);
-    const providerSelect = selectWithOption("自定义");
+    const providerSelect = selectWithOption("自定义图片 API");
     const labels = Array.from(providerSelect.querySelectorAll("option")).map((o) => o.textContent);
     // 目录 image 能力：minimax / minimax-cn / xai / volcengine（xiaomi 无 image 能力不出现）
     expect(labels).toEqual([
@@ -117,14 +128,14 @@ describe("MediaGenSettingsSection（拆分后）", () => {
       "MiniMax（中国）",
       "xAI（Grok Imagine）",
       "火山方舟（Volcengine Ark）",
-      "自定义",
+      "自定义图片 API",
     ]);
   });
 
   it("选目录供应商写 providerId 并同步 protocol/model,隐藏协议/baseUrl/apiKey 三行", () => {
     setImageState({ enabled: true, providerId: "", model: "my-custom-model" });
     renderUI(<MediaGenSettingsSection />);
-    const providerSelect = selectWithOption("自定义");
+    const providerSelect = selectWithOption("自定义图片 API");
     fireEvent.change(providerSelect, { target: { value: "minimax" } });
 
     const image = usePersonalStore.getState().mediaGenSettings.image;
@@ -137,7 +148,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("目录态隐藏协议/API 地址/API 密钥三行,模型变下拉", () => {
     setImageState({ enabled: true, providerId: "minimax", protocol: "minimax-image", model: "image-01" });
     renderUI(<MediaGenSettingsSection />);
-    expect(screen.queryByText("协议")).toBeNull();
+    expect(screen.queryByText("图片协议")).toBeNull();
     expect(screen.queryByText("API 地址")).toBeNull();
     expect(screen.queryByText("API 密钥")).toBeNull();
     // 模型下拉包含目录模型
@@ -153,7 +164,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
       baseUrl: "https://my-endpoint.com",
     });
     renderUI(<MediaGenSettingsSection />);
-    const providerSelect = selectWithOption("自定义");
+    const providerSelect = selectWithOption("自定义图片 API");
     fireEvent.change(providerSelect, { target: { value: "minimax" } });
     let image = usePersonalStore.getState().mediaGenSettings.image;
     expect(image.apiKey).toBe("${secret:media.image.custom}");
@@ -202,7 +213,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
     renderUI(<MediaGenSettingsSection />);
     // 内联 MediaSecretKeyField（API 密钥行存在）,但协议/API 地址仍隐藏
     expect(screen.getByText("API 密钥")).toBeInTheDocument();
-    expect(screen.queryByText("协议")).toBeNull();
+    expect(screen.queryByText("图片协议")).toBeNull();
     expect(screen.queryByText("API 地址")).toBeNull();
   });
 
@@ -244,6 +255,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("视频 minimax 协议:分辨率 768P/1080P,时长为 number 输入", () => {
     setVideoState({ enabled: true, providerId: "minimax", protocol: "minimax-video", model: "MiniMax-Hailuo-2.3" });
     renderUI(<MediaGenSettingsSection />);
+    switchTab("视频生成");
     const resolutionSelect = selectWithOption("768P");
     const values = Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"));
     expect(values).toEqual(["768P", "1080P"]);
@@ -256,6 +268,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
     // 当前 1080P/8s 都不在 grok 档位 → 显示 720P（回落默认）与 6s
     setVideoState({ enabled: true, providerId: "xai", protocol: "grok-imagine-video", model: "grok-imagine-video", defaultResolution: "1080P", defaultDuration: 8 });
     renderUI(<MediaGenSettingsSection />);
+    switchTab("视频生成");
     const resolutionSelect = selectWithOption("480P");
     expect(Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"))).toEqual(["480P", "720P"]);
     expect(resolutionSelect.value).toBe("720P");
@@ -269,6 +282,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("视频 volcengine 协议:分辨率含 4K,时长 number 4-15", () => {
     setVideoState({ enabled: true, providerId: "volcengine", protocol: "volcengine-ark-video", model: "doubao-seedance-2-0-260128" });
     renderUI(<MediaGenSettingsSection />);
+    switchTab("视频生成");
     const resolutionSelect = selectWithOption("4K");
     expect(Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"))).toEqual(["480P", "720P", "1080P", "4K"]);
     const durationInput = document.querySelector('input[type="number"][min="4"][max="15"]');
@@ -280,7 +294,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("自定义态显示协议下拉（i18n 查表标签）与 baseUrl/密钥行", () => {
     setImageState({ enabled: true, providerId: "" });
     renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("协议")).toBeInTheDocument();
+    expect(screen.getByText("图片协议")).toBeInTheDocument();
     expect(screen.getByText("API 地址")).toBeInTheDocument();
     expect(screen.getByText("API 密钥")).toBeInTheDocument();
     // 协议标签查 i18n 表（含新协议）
@@ -301,7 +315,7 @@ describe("MediaGenSettingsSection（拆分后）", () => {
   it("编辑图片模型输入写入 store（自定义态）", () => {
     setImageState({ enabled: true, providerId: "" });
     renderUI(<MediaGenSettingsSection />);
-    const modelInput = screen.getByPlaceholderText("如 dall-e-3");
+    const modelInput = screen.getByPlaceholderText("gpt-image-1");
     fireEvent.change(modelInput, { target: { value: "dall-e-3" } });
     expect(usePersonalStore.getState().mediaGenSettings.image.model).toBe("dall-e-3");
   });

@@ -410,7 +410,7 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     fireEvent.click(item);
     // 外壳 MediaGenSection 渲染的 pw-dlg-desc 描述文案(唯一出现,Section 组件返回 null)。
     expect(container.querySelector(".pw-dlg-desc")?.textContent).toBe(
-      "配置图像、视频、音频生成能力,供 agent 在会话中调用。",
+      "把图片、语音、音乐和视频生成配置成 Agent 可调用工具。启用后会按配置注册 generate_image、generate_speech、generate_music 和 generate_video。",
     );
     expect(item.className).toContain("is-active");
     expect(item.getAttribute("aria-current")).toBe("page");

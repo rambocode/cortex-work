@@ -43,6 +43,9 @@ export function MusicGenCard() {
             modality="music"
             providerId={music.providerId}
             model={music.model}
+            label={t("mediaGen.music.providerLabel")}
+            desc={t("mediaGen.music.providerDesc")}
+            customLabel={t("mediaGen.music.providerCustom")}
             update={(patch) => update(patch as Partial<MusicGenSettings>)}
           />
 
@@ -51,12 +54,20 @@ export function MusicGenCard() {
               <ProtocolRow
                 protocols={MUSIC_PROTOCOLS}
                 value={music.protocol}
+                label={t("mediaGen.music.protocolLabel")}
+                desc={t("mediaGen.music.protocolDesc")}
                 onChange={(v) => update({ protocol: v as MusicGenProtocol })}
               />
-              <BaseUrlRow value={music.baseUrl} onChange={(v) => update({ baseUrl: v })} />
+              <BaseUrlRow
+                value={music.baseUrl}
+                desc={t("mediaGen.music.baseUrlDesc")}
+                placeholder={t("mediaGen.music.baseUrlPlaceholder")}
+                onChange={(v) => update({ baseUrl: v })}
+              />
               <MediaSecretKeyField
                 secretName={mediaCustomSecretName("music")}
                 value={music.apiKey}
+                desc={t("mediaGen.music.apiKeyDesc")}
                 onChange={(v) => update({ apiKey: v })}
               />
             </>
@@ -75,11 +86,14 @@ export function MusicGenCard() {
             usingDirectory={usingDirectory}
             models={resolved?.capability?.models ?? []}
             model={music.model}
+            label={t("mediaGen.music.modelLabel")}
+            desc={t("mediaGen.music.modelDesc")}
             placeholder={t("mediaGen.music.modelPlaceholder")}
             onChange={(v) => update({ model: v })}
           />
           <FormatRow
             label={t("mediaGen.music.formatLabel")}
+            desc={t("mediaGen.music.formatDesc")}
             value={music.format}
             onChange={(v) => update({ format: v })}
           />
@@ -87,6 +101,7 @@ export function MusicGenCard() {
             value={music.timeoutMs}
             min={MIN_TIMEOUT_MS}
             max={MAX_TIMEOUT_MS_BY_MODALITY.music}
+            desc={t("mediaGen.music.timeoutDesc")}
             onChange={(v) => update({ timeoutMs: v })}
           />
         </>

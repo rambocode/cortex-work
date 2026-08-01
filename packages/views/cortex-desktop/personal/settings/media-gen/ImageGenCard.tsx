@@ -90,6 +90,9 @@ export function ImageGenCard() {
             modality="image"
             providerId={image.providerId}
             model={image.model}
+            label={t("mediaGen.image.providerLabel")}
+            desc={t("mediaGen.image.providerDesc")}
+            customLabel={t("mediaGen.image.providerCustom")}
             // ProviderRow 只会回传目录 capability 的协议值，此处收窄为图片协议枚举是安全的。
             update={(patch) => update(patch as Partial<ImageGenSettings>)}
           />
@@ -100,12 +103,20 @@ export function ImageGenCard() {
               <ProtocolRow
                 protocols={IMAGE_PROTOCOLS}
                 value={image.protocol}
+                label={t("mediaGen.image.protocolLabel")}
+                desc={t("mediaGen.image.protocolDesc")}
                 onChange={(v) => update({ protocol: v as ImageGenProtocol })}
               />
-              <BaseUrlRow value={image.baseUrl} onChange={(v) => update({ baseUrl: v })} />
+              <BaseUrlRow
+                value={image.baseUrl}
+                desc={t("mediaGen.image.baseUrlDesc")}
+                placeholder={t("mediaGen.image.baseUrlPlaceholder")}
+                onChange={(v) => update({ baseUrl: v })}
+              />
               <MediaSecretKeyField
                 secretName={mediaCustomSecretName("image")}
                 value={image.apiKey}
+                desc={t("mediaGen.image.apiKeyDesc")}
                 onChange={(v) => update({ apiKey: v })}
               />
             </>
@@ -124,12 +135,17 @@ export function ImageGenCard() {
             usingDirectory={usingDirectory}
             models={resolved?.capability?.models ?? []}
             model={image.model}
+            label={t("mediaGen.image.modelLabel")}
+            desc={t("mediaGen.image.modelDesc")}
             placeholder={t("mediaGen.image.modelPlaceholder")}
             onChange={(v) => update({ model: v })}
           />
 
+          {/* 模型选择建议（Kun imageGenModelQualityHint 的提示框） */}
+          <div className="pw-mediagen-hint">{t("mediaGen.image.modelQualityHint")}</div>
+
           {/* 画质档位：与分辨率相互独立，"auto" 由供应商决定 */}
-          <SRow label={t("mediaGen.image.qualityLabel")} end>
+          <SRow label={t("mediaGen.image.qualityLabel")} desc={t("mediaGen.image.qualityDesc")} end>
             <BareSelect
               value={image.quality}
               options={IMAGE_QUALITIES.map((q) => ({ label: qualityLabel(q), value: q }))}
@@ -138,7 +154,7 @@ export function ImageGenCard() {
           </SRow>
 
           {/* 默认分辨率：档位随协议切换，当前值不在新档位时显示档位首项 */}
-          <SRow label={t("mediaGen.image.resolutionLabel")} end>
+          <SRow label={t("mediaGen.image.resolutionLabel")} desc={t("mediaGen.image.resolutionDesc")} end>
             <BareSelect
               value={effectiveResolution}
               options={resolutionOptions.map((r) => ({
@@ -150,7 +166,7 @@ export function ImageGenCard() {
           </SRow>
 
           {/* 默认尺寸（优先级高于 defaultResolution，MCP 层执行）；非法输入红框不写入 */}
-          <SRow label={t("mediaGen.image.defaultSizeLabel")} end>
+          <SRow label={t("mediaGen.image.defaultSizeLabel")} desc={t("mediaGen.image.defaultSizeDesc")} end>
             <input
               className="pw-set-input"
               type="text"
@@ -171,6 +187,7 @@ export function ImageGenCard() {
             value={image.timeoutMs}
             min={MIN_TIMEOUT_MS}
             max={MAX_TIMEOUT_MS_BY_MODALITY.image}
+            desc={t("mediaGen.image.timeoutDesc")}
             onChange={(v) => update({ timeoutMs: v })}
           />
         </>

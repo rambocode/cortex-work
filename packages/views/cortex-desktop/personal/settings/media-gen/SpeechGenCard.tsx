@@ -43,6 +43,9 @@ export function SpeechGenCard() {
             modality="speech"
             providerId={speech.providerId}
             model={speech.model}
+            label={t("mediaGen.speech.providerLabel")}
+            desc={t("mediaGen.speech.providerDesc")}
+            customLabel={t("mediaGen.speech.providerCustom")}
             update={(patch) => update(patch as Partial<SpeechGenSettings>)}
           />
 
@@ -51,12 +54,20 @@ export function SpeechGenCard() {
               <ProtocolRow
                 protocols={SPEECH_PROTOCOLS}
                 value={speech.protocol}
+                label={t("mediaGen.speech.protocolLabel")}
+                desc={t("mediaGen.speech.protocolDesc")}
                 onChange={(v) => update({ protocol: v as SpeechGenProtocol })}
               />
-              <BaseUrlRow value={speech.baseUrl} onChange={(v) => update({ baseUrl: v })} />
+              <BaseUrlRow
+                value={speech.baseUrl}
+                desc={t("mediaGen.speech.baseUrlDesc")}
+                placeholder={t("mediaGen.speech.baseUrlPlaceholder")}
+                onChange={(v) => update({ baseUrl: v })}
+              />
               <MediaSecretKeyField
                 secretName={mediaCustomSecretName("speech")}
                 value={speech.apiKey}
+                desc={t("mediaGen.speech.apiKeyDesc")}
                 onChange={(v) => update({ apiKey: v })}
               />
             </>
@@ -75,11 +86,13 @@ export function SpeechGenCard() {
             usingDirectory={usingDirectory}
             models={resolved?.capability?.models ?? []}
             model={speech.model}
+            label={t("mediaGen.speech.modelLabel")}
+            desc={t("mediaGen.speech.modelDesc")}
             placeholder={t("mediaGen.speech.modelPlaceholder")}
             onChange={(v) => update({ model: v })}
           />
 
-          <SRow label={t("mediaGen.speech.voiceLabel")} end>
+          <SRow label={t("mediaGen.speech.voiceLabel")} desc={t("mediaGen.speech.voiceDesc")} end>
             <input
               className="pw-set-input"
               type="text"
@@ -90,6 +103,7 @@ export function SpeechGenCard() {
           </SRow>
           <FormatRow
             label={t("mediaGen.speech.formatLabel")}
+            desc={t("mediaGen.speech.formatDesc")}
             value={speech.format}
             onChange={(v) => update({ format: v })}
           />
@@ -97,6 +111,7 @@ export function SpeechGenCard() {
             value={speech.timeoutMs}
             min={MIN_TIMEOUT_MS}
             max={MAX_TIMEOUT_MS_BY_MODALITY.speech}
+            desc={t("mediaGen.speech.timeoutDesc")}
             onChange={(v) => update({ timeoutMs: v })}
           />
         </>

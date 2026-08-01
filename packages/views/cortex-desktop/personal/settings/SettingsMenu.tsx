@@ -1317,12 +1317,15 @@ function BrowserSection() {
   );
 }
 
-// 媒体生成分区薄壳 — 真实表单由 U3 填充,此处只保证 switch case 不白屏。
+// 媒体生成分区薄壳：标题行左标题右「修改会自动生效」角标（对齐 Kun 头部），正文四 tab 分页。
 function MediaGenSection() {
   const { t } = useTranslation("settings");
   return (
     <>
-      <div className="pw-dlg-title">{t("mediaGen.title")}</div>
+      <div className="pw-mediagen-head">
+        <div className="pw-dlg-title">{t("mediaGen.title")}</div>
+        <span className="pw-mediagen-autofx">{t("mediaGen.autoEffectBadge")}</span>
+      </div>
       <div className="pw-dlg-desc">{t("mediaGen.desc")}</div>
       <MediaGenSettingsSection />
     </>

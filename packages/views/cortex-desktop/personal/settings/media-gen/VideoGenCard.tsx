@@ -82,6 +82,9 @@ export function VideoGenCard() {
             modality="video"
             providerId={video.providerId}
             model={video.model}
+            label={t("mediaGen.video.providerLabel")}
+            desc={t("mediaGen.video.providerDesc")}
+            customLabel={t("mediaGen.video.providerCustom")}
             update={(patch) => update(patch as Partial<VideoGenSettings>)}
           />
 
@@ -90,12 +93,20 @@ export function VideoGenCard() {
               <ProtocolRow
                 protocols={VIDEO_PROTOCOLS}
                 value={video.protocol}
+                label={t("mediaGen.video.protocolLabel")}
+                desc={t("mediaGen.video.protocolDesc")}
                 onChange={(v) => update({ protocol: v as VideoGenProtocol })}
               />
-              <BaseUrlRow value={video.baseUrl} onChange={(v) => update({ baseUrl: v })} />
+              <BaseUrlRow
+                value={video.baseUrl}
+                desc={t("mediaGen.video.baseUrlDesc")}
+                placeholder={t("mediaGen.video.baseUrlPlaceholder")}
+                onChange={(v) => update({ baseUrl: v })}
+              />
               <MediaSecretKeyField
                 secretName={mediaCustomSecretName("video")}
                 value={video.apiKey}
+                desc={t("mediaGen.video.apiKeyDesc")}
                 onChange={(v) => update({ apiKey: v })}
               />
             </>
@@ -114,12 +125,14 @@ export function VideoGenCard() {
             usingDirectory={usingDirectory}
             models={resolved?.capability?.models ?? []}
             model={video.model}
+            label={t("mediaGen.video.modelLabel")}
+            desc={t("mediaGen.video.modelDesc")}
             placeholder={t("mediaGen.video.modelPlaceholder")}
             onChange={(v) => update({ model: v })}
           />
 
           {/* 默认时长：grok 是固定两档 select，其余协议 number 输入（上下限随协议） */}
-          <SRow label={t("mediaGen.video.durationLabel")} end>
+          <SRow label={t("mediaGen.video.durationLabel")} desc={t("mediaGen.video.durationDesc")} end>
             {isGrok ? (
               <BareSelect
                 value={String(effectiveDuration)}
@@ -143,7 +156,7 @@ export function VideoGenCard() {
           </SRow>
 
           {/* 默认分辨率：档位随协议，当前值不在新档位时显示该协议默认 */}
-          <SRow label={t("mediaGen.video.resolutionLabel")} end>
+          <SRow label={t("mediaGen.video.resolutionLabel")} desc={t("mediaGen.video.resolutionDesc")} end>
             <BareSelect
               value={effectiveResolution}
               options={resolutionOptions.map((r) => ({ label: r, value: r }))}
@@ -155,9 +168,10 @@ export function VideoGenCard() {
             value={video.timeoutMs}
             min={MIN_TIMEOUT_MS}
             max={MAX_TIMEOUT_MS_BY_MODALITY.video}
+            desc={t("mediaGen.video.timeoutDesc")}
             onChange={(v) => update({ timeoutMs: v })}
           />
-          <SRow label={t("mediaGen.video.pollIntervalLabel")} end>
+          <SRow label={t("mediaGen.video.pollIntervalLabel")} desc={t("mediaGen.video.pollIntervalDesc")} end>
             <input
               className="pw-set-input"
               type="number"
