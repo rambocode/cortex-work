@@ -240,6 +240,21 @@ describe("WritingAssistantPanel", () => {
     expect(startCalls[0]!.prompt).toContain("行级红绿 Diff");
   });
 
+  // agent 选择已从独立的 AgentSelect 合并进 ModelThinkingPill（与主会话落地页同构）：
+  // 这条窄栏放不下两个并排控件，模型名会被截断。
+  it("agent 合并进模型 pill:不再有独立 AgentSelect,面板内有 Agent 下钻行", () => {
+    const { bridge } = fakeBridge();
+    useWritingSpacesStore.setState({ assistantAgent: "claude" });
+    const { container } = renderPanel(bridge);
+
+    // 独立 AgentSelect 的容器不该再出现。
+    expect(container.querySelector(".pw-sh-agent")).toBeNull();
+
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    const rows = Array.from(container.querySelectorAll(".pw-mt-row")).map((n) => n.textContent ?? "");
+    expect(rows.some((t) => t.startsWith("Agent"))).toBe(true);
+  });
+
   it("pill 选择的模型与思考强度随发送透传(claude → model + effort)", async () => {
     const { bridge, startCalls } = fakeBridge();
     // 模拟用户已在 pill 选择:claude 用 Opus 5 (1M) + 思考「高」(assistantAgent 记忆使面板初始

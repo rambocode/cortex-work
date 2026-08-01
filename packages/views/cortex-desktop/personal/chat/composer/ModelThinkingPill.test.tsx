@@ -129,6 +129,83 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     }
   });
 
+  // 一级面板默认与 pill 左缘对齐向右展开;写作助手栏只有 ~370px 宽且 pill 贴右，
+  // 200px 的面板会被推出窗口右缘（用户实测反馈），故同样要能翻成右对齐。
+  it("一级面板默认左对齐(视口无溢出 → 不翻右)", () => {
+    const { container } = renderPill();
+    fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+    expect(container.querySelector(".pw-mt-menu")).not.toBeNull();
+    expect(container.querySelector(".pw-mt-menu--right")).toBeNull();
+  });
+
+  it("右侧空间不足时一级面板翻成右对齐", () => {
+    const rect = {
+      right: 2000, left: 1800, top: 0, bottom: 100, width: 200, height: 100, x: 1800, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      expect(container.querySelector(".pw-mt-menu--right")).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // 翻转的前提是「另一侧空间够」。窄栏里两侧都不够时（写作助手栏 ~370px + 长模型名把
+  // flyout 撑到 230px+），翻完照样漏出窗口——这是用户反复反馈「模型选择右侧显示不全」的根因。
+  // useOverflowSafePlacement 在翻转后再测一次，仍越界就用 translate 把浮层钳回视口内。
+  it("两侧都放不下时把 flyout 钳回视口内(translate 兜底)", () => {
+    // 恒定返回越界矩形:翻转后再测仍越界 → 触发钳制。
+    const rect = {
+      right: 1200, left: 970, top: 0, bottom: 100, width: 230, height: 100, x: 970, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      fireEvent.mouseEnter(row(container, "模型"));
+      const sub = container.querySelector(".pw-mt-sub") as HTMLElement;
+      // jsdom innerWidth 1024:right=1200 越界 176px,需要左移到 1024-8 → translateX 为负。
+      expect(sub.style.transform).toMatch(/translate\(-\d+(\.\d+)?px/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // 回归:曾把钳制位移写成累加,且测量的是「已带 transform」的位置 —— 翻转（下弹→上弹）
+  // 后旧位移仍挂着,两者叠加把一级面板从 pill 上方一路顶到屏幕中部。
+  // 现在改为「摘掉 transform 量原始位置 + 覆盖而非累加」,不越界时必须是零位移。
+  it("翻转后重算位移而非叠加(回归:面板漂移到屏幕中部)", () => {
+    // 关键是让矩形**随翻转状态变化**：未翻转时底部越界（促成翻上），翻上之后完全在视口内。
+    // 旧实现在翻转前算出一个上移量、翻转后又不覆盖它，两者叠加就把面板顶到了屏幕中部。
+    const belowViewport = {
+      right: 500, left: 270, top: 700, bottom: 900, width: 230, height: 200, x: 270, y: 700,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const inView = {
+      right: 500, left: 270, top: 100, bottom: 300, width: 230, height: 200, x: 270, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        return (this.classList?.contains("pw-tb-menu--up") ? inView : belowViewport) as DOMRect;
+      });
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      const menu = container.querySelector(".pw-mt-menu") as HTMLElement;
+      // 已翻上 → 翻上后的位置本身就在视口内 → 不该再有任何补偿位移。
+      expect(menu.className).toContain("pw-tb-menu--up");
+      expect(menu.style.transform).toBe("");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("菜单默认下弹;底部空间不足(历史会话页贴底)自动翻上", () => {
     // jsdom innerHeight 默认 768;让菜单底缘超出视口 → 应翻上。
     const rect = {
@@ -176,7 +253,7 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     // agent 二级:内置三项 + 新派生。
     expect(subItem(container, "Claude Code")).toBeTruthy();
     expect(subItem(container, "Codex")).toBeTruthy();
-    expect(subItem(container, "Pi")).toBeTruthy();
+    expect(subItem(container, "Cortex")).toBeTruthy();
     fireEvent.click(subItem(container, "我的CX"));
     expect(onSwitchAgent).toHaveBeenCalledWith("codex", { id: "my-cx", base: "codex", label: "我的CX" });
   });

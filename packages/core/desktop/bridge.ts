@@ -53,6 +53,7 @@ import type {
   NoteInput,
   NoteMeta,
   NoteStatus,
+  NotificationRecord,
   ArchivedTask,
   TaskAttachment,
   TaskInput,
@@ -561,6 +562,13 @@ export interface DesktopBridge {
   notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
   notesDelete?(id: string): Promise<void>;
   onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
+  // 消息中心（侧栏底部铃铛）：可选能力，web/旧壳无 → 铃铛整体隐藏。
+  // main 为 owner；渲染端只读 + 标已读/清空，**写入没有对应桥方法**（见 ipc/notification-center.ts
+  // 的 recordNotification 注释：消息是主进程事实的存档，渲染端不能伪造）。
+  notificationCenterList?(): Promise<NotificationRecord[]>;
+  notificationCenterMarkRead?(ids?: string[]): Promise<void>;
+  notificationCenterClear?(): Promise<void>;
+  onNotificationCenterChanged?(cb: (list: NotificationRecord[]) => void): () => void;
   // 真任务系统（个人工作区，替换 doc 聚合 Tasks）：可选能力，web/旧壳无 → UI 降级隐藏。
   // main 为 owner，与 apps/desktop/src/preload/index.ts 的 tasks* 逐字对齐（手工比对，无 satisfies）。
   tasksList?(projectId?: string): Promise<TaskMeta[]>;

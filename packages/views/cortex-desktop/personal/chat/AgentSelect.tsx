@@ -4,11 +4,13 @@
 // 从 PersonalTopBar 的私有 PersonalAgentSelect 抽出,入参由「session 对象」改为裸值
 // （agent + derivedAgentId），使其不依赖会话即可复用：会话头传 session.agent/session.derivedAgentId，
 // 新会话落地页传 draft.agent/draft.derivedAgentId。候选/门控/显示逻辑单一来源,避免两处漂移。
+//
+// 菜单项本身（含副标题文案）已抽到 AgentMenuItems，与 composer 的 ModelThinkingPill 共用。
 
-import { AGENT_MODELS } from "@cortex-work/core";
 import type { AgentKind, DerivedAgentMeta } from "@cortex-work/core";
 import { Icon } from "@cortex-work/ui/icons";
-import { AGENT_LABEL, agentDisplayAvatar, agentDisplayLabel } from "./agentMeta";
+import { agentDisplayAvatar, agentDisplayLabel } from "./agentMeta";
+import { AgentMenuItems } from "./AgentMenuItems";
 import { useDismissableMenu } from "../shared/useDismissableMenu";
 
 export function AgentSelect({
@@ -37,9 +39,6 @@ export function AgentSelect({
   // 当前选中键:派生优先(显示派生名/头像),否则内置 base。
   const displayKey = derivedAgentId ?? agent;
   const avatar = agentDisplayAvatar(displayKey, derivedAgents);
-  // 派生候选:仅「新 id」(覆盖内置同名 id 的派生不新增条目,仍走内置项,R1)。
-  const builtIn: readonly string[] = ["claude", "codex", "pi"];
-  const derivedNew = (derivedAgents ?? []).filter((d) => !builtIn.includes(d.id));
 
   return (
     <div className="pw-sh-agent">
@@ -72,45 +71,14 @@ export function AgentSelect({
             }`}
             role="menu"
           >
-            {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
-              // pi 是内置兜底,永不禁用;其余 agent 未探测到安装时禁用并标注。
-              const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
-              return (
-                <button
-                  key={a}
-                  className="pw-tb-menu-item"
-                  role="menuitem"
-                  disabled={unavailable}
-                  onClick={() => {
-                    if (unavailable) return;
-                    onSwitch(a);
-                    menu.setOpen(false);
-                  }}
-                >
-                  <span>
-                    {AGENT_LABEL[a]}
-                    {unavailable ? "（未安装）" : ""}
-                  </span>
-                  {/* 选中态:内置项当且仅当无派生标记且 base 匹配(避免派生时把内置也打勾)。 */}
-                  {a === agent && !derivedAgentId ? <Icon.Check size={13} /> : null}
-                </button>
-              );
-            })}
-            {/* 用户 JSON 派生的新 agent(U7)。派生跳过 PATH 门控(后端放行),不置灰。 */}
-            {derivedNew.map((d) => (
-              <button
-                key={d.id}
-                className="pw-tb-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  onSwitch(d.base, d);
-                  menu.setOpen(false);
-                }}
-              >
-                <span>{d.label ?? d.id}</span>
-                {d.id === derivedAgentId ? <Icon.Check size={13} /> : null}
-              </button>
-            ))}
+            <AgentMenuItems
+              agent={agent}
+              derivedAgentId={derivedAgentId}
+              agentsAvailable={agentsAvailable}
+              derivedAgents={derivedAgents}
+              onSwitch={onSwitch}
+              onClose={() => menu.setOpen(false)}
+            />
           </div>
         ) : null}
       </div>

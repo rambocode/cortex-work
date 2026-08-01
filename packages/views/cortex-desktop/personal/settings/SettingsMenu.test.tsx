@@ -238,23 +238,23 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
   });
   afterEach(() => cleanup());
 
-  it("切到「Pi」分区:右栏渲染 PiSection,菜单态同步", () => {
+  it("切到「模型」分区:右栏渲染 ModelsSection,菜单态同步", () => {
     renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    expect(screen.getByText(/Pi 是内置 Agent/)).toBeTruthy();
-    const active = screen.getByRole("button", { name: "Pi" });
+    fireEvent.click(screen.getByRole("button", { name: "模型" }));
+    expect(screen.getByText(/接入模型供应商并设置默认模型/)).toBeTruthy();
+    const active = screen.getByRole("button", { name: "模型" });
     expect(active.className).toContain("is-active");
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
-  it("Pi 分区只剩默认模型 + 供应商平铺:行为设置卡片已按原型移除", () => {
+  it("模型分区只剩默认模型 + 供应商平铺:行为设置卡片已按原型移除", () => {
     renderUI(<PersonalSettingsView />);
     // 「通用」不含 pi 工具审批开关(历史迁移的回归断言)。
     fireEvent.click(screen.getByRole("button", { name: "通用" }));
     expect(screen.queryByText("工具执行审批")).toBeNull();
-    // 左栏不再有独立「供应商」导航项（并入「Pi」）。
+    // 左栏不再有独立「供应商」导航项（并入「模型」）。
     expect(screen.queryByRole("button", { name: "供应商" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(screen.getByRole("button", { name: "模型" }));
     expect(screen.getByText("默认模型")).toBeTruthy();
     // 全局默认模型读的是 PersistedState.defaultModelRef（主进程 default-model.ts 同源），
     // 未配置时必须停在「未设置」——绝不能悄悄显示某个「第一个可用模型」（计划 §5）。
@@ -266,9 +266,9 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(screen.queryByText("从模板添加")).toBeNull();
   });
 
-  it("供应商管理平铺进 Pi 页:无桥环境给「桌面端专属」降级,不再有弹窗入口", () => {
+  it("供应商管理平铺进「模型」页:无桥环境给「桌面端专属」降级,不再有弹窗入口", () => {
     renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(screen.getByRole("button", { name: "模型" }));
     // 平铺区总览行直接在页内(标题「供应商」),旧「供应商管理」按钮与弹窗已删除。
     expect(screen.getByText("供应商")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "供应商管理" })).toBeNull();
@@ -296,7 +296,7 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
       },
     }));
     renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(screen.getByRole("button", { name: "模型" }));
     expect(screen.queryByText(/DeepSeek/)).toBeNull();
   });
 

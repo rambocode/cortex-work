@@ -3,10 +3,8 @@
 // 数据源:usePersonalStore.modeBlockHints[sessionId]（瞬态,由 messages.ts 轮结束时写入,仅 plan 会触发）。
 
 import type { SessionMeta } from "@cortex-work/core";
-import { usePersonalActions, usePersonalStore } from "@cortex-work/core";
+import { AGENT_LABEL, usePersonalActions, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-
-const AGENT_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 export function ModeBlockBanner({ session, projectPath }: { session: SessionMeta; projectPath: string }) {
   const { t } = useTranslation("chat");

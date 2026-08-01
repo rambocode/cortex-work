@@ -173,7 +173,7 @@ export function WritingWorkspace(): ReactElement {
     <div className="pw-writing-root">
       <div className="pw-writing-body">
         <div className={`pw-writing-left${leftCollapsed ? " is-collapsed" : ""}`}>
-          {/* 左栏顶部贴顶拖拽条(避让 macOS 红绿灯)+ 返回按钮。取代原横跨三栏的顶栏。 */}
+          {/* 左栏顶部贴顶拖拽条(避让 macOS 红绿灯)+ 返回按钮 + 折叠按钮。取代原横跨三栏的顶栏。 */}
           <div className="pw-writing-left-titlebar ds-drag">
             <button
               type="button"
@@ -184,6 +184,19 @@ export function WritingWorkspace(): ReactElement {
             >
               <Icon.Back size={15} />
               <span>返回</span>
+            </button>
+            {/* 折叠按钮紧跟返回,与被折叠的对象同在左栏。
+                注意只有**展开态**能放这儿:.pw-writing-left.is-collapsed 是 display:none,
+                折叠后整条 titlebar 一起消失 —— 展开入口由中栏顶栏那个按钮承担
+                (WritingToolbar 里那个只在 leftCollapsed 时渲染,两者互补不重复)。 */}
+            <button
+              type="button"
+              className="pw-writing-left-toggle ds-no-drag"
+              title="折叠侧栏"
+              aria-label="折叠侧栏"
+              onClick={() => setLeftCollapsed(true)}
+            >
+              <Icon.Sidebar size={15} />
             </button>
           </div>
           <WritingSidebar

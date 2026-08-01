@@ -7,6 +7,7 @@
 import { BrowserWindow, ipcMain, powerSaveBlocker } from "electron";
 import { Cron } from "croner";
 import { pushNotification } from "../notification-window";
+import { recordNotification } from "./notification-center";
 import { tasksJsonPath, taskDocsRoot, taskDocsDir } from "../paths";
 import { TasksStore } from "./tasks-store";
 import { saveTaskDoc, deleteTaskDoc } from "./task-doc";
@@ -64,6 +65,15 @@ function showTasksNotification(task: TaskMeta): void {
     text: task.title || "任务提醒",
     description: task.title || undefined,
     duration: -1,
+  });
+  // 同步存档进消息中心：卡片是「当下打断」，这条是「事后回溯」——用户不在电脑前时
+  // 卡片可能已被手动关掉，历史里仍留得住。同样只带标题，不塞 notes 正文。
+  recordNotification({
+    source: "task-reminder",
+    level: "info",
+    title: "任务提醒",
+    body: task.title || undefined,
+    refId: task.id,
   });
 }
 

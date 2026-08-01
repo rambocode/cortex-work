@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   buildCalendarWeeks,
+  AGENT_LABEL_SHORT,
   buildDailyReportText,
   dayKey,
   groupEventsByDay,
@@ -24,10 +25,9 @@ type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 // 周几表头（日历用）。中文星期单字属展示数据,直接渲染;dayLabel 的 weekday 插值同理。
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
-// run 事件的 agent 标签;未知值兜底 Claude。
-const TL_AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
+// run 事件的 agent 标签;未知值兜底 Claude。卡片窄,用 core 的短名档(Claude / Codex / Cortex)。
 function tlAgentLabel(agent: AgentKind | undefined, t: TFunction): string {
-  return (agent && TL_AGENT_LABEL[agent]) || t("agentDefault");
+  return (agent && AGENT_LABEL_SHORT[agent]) || t("agentDefault");
 }
 
 function fmtDayLabel(day: string, t: TFunction): string {

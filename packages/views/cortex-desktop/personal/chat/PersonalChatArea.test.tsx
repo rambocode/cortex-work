@@ -52,9 +52,9 @@ function renderMessageStream(messages: Message[]) {
       <MessageStream
         contact={{
           id: "pi",
-          name: "Pi",
+          name: "Cortex",
           group: "shared",
-          avatar: { initials: "PI", bg: "#4338ca" },
+          avatar: { initials: "C", bg: "#4338ca" },
           agentStatus: "online",
           statusText: "",
           last: "",

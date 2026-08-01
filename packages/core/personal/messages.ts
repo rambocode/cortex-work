@@ -24,7 +24,7 @@ import type {
   SessionMeta,
   ThinkingLevel,
 } from "../desktop/types";
-import { DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
+import { AGENT_LABEL, DEFAULT_PI_EXTENSIONS, PI_PLAN_TOOL_WHITELIST } from "../desktop/types";
 import { mapThinkingForAgent, type AgentThinkingValue } from "../desktop/agent-thinking";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { ModelRef } from "../desktop/provider-catalog";
@@ -335,8 +335,6 @@ export const RESULT_EXIT_GRACE_MS = 1_000;
 // 中栏只补这一条结果文本。CLI 与 pi 两条分支各自判定后共用此文案。
 export const PURE_TOOL_TURN_PLACEHOLDER = "✓ 已完成本轮操作。";
 
-const AGENT_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
-
 // 解析本次 spawn 实际使用的 agent id(U7)。会话带 derivedAgentId 且该 id 仍在派生列表 → 用派生 id
 //(后端 getAgentDef 按 id 解析);否则(无派生 / 派生 id 已失效,如用户删了 agents.local.json 条目)→
 // 回退会话 base agent(session.agent),避免后端「未知 agent」报错(RISK-3)。
@@ -388,7 +386,7 @@ function maybeEmitModeBlockHint(run: RunState, turnFailed: boolean): void {
 }
 
 function externalAgentUnavailableMessage(agent: Exclude<AgentKind, "pi">): string {
-  return t("chat:core.externalUnavailable", { name: AGENT_NAME[agent] });
+  return t("chat:core.externalUnavailable", { name: AGENT_LABEL[agent] });
 }
 
 // 启动阶段等待超此阈值仍无任何响应 → 在 typing 文案追加可操作提示(避免用户对着干等的
@@ -400,8 +398,8 @@ export const RUN_START_HINT_MS = 30_000;
 export function typingText(agent: AgentKind, phase: "starting" | "thinking", waitedMs: number): string {
   const base =
     phase === "starting"
-      ? t("chat:core.typing.starting", { name: AGENT_NAME[agent] })
-      : t("chat:core.typing.thinking", { name: AGENT_NAME[agent] });
+      ? t("chat:core.typing.starting", { name: AGENT_LABEL[agent] })
+      : t("chat:core.typing.thinking", { name: AGENT_LABEL[agent] });
   const secs = Math.floor(waitedMs / 1000);
   const text = secs >= 5 ? `${base}${t("chat:core.typing.waited", { secs })}` : base;
   if (phase === "starting" && waitedMs >= RUN_START_HINT_MS) {
@@ -420,14 +418,14 @@ export function cleanToolName(name: string): string {
 
 function typingToolText(agent: AgentKind, tool: string, detail?: string): string {
   tool = cleanToolName(tool);
-  const name = AGENT_NAME[agent];
+  const name = AGENT_LABEL[agent];
   return detail
     ? t("chat:core.typing.workingDetail", { name, tool, detail })
     : t("chat:core.typing.working", { name, tool });
 }
 
 function typingToolDoneText(agent: AgentKind, tool: string): string {
-  return t("chat:core.typing.toolDone", { name: AGENT_NAME[agent], tool: cleanToolName(tool) });
+  return t("chat:core.typing.toolDone", { name: AGENT_LABEL[agent], tool: cleanToolName(tool) });
 }
 
 function stopWatchdog(run: RunState): void {
@@ -3294,7 +3292,7 @@ export function usePersonalActions(): PersonalActions {
             time: realHHMM(),
             text:
               cur.phase === "starting"
-                ? t("chat:core.startTimeout", { secs: Math.round(limit / 1000), name: AGENT_NAME[cur.agent] })
+                ? t("chat:core.startTimeout", { secs: Math.round(limit / 1000), name: AGENT_LABEL[cur.agent] })
                 : t("chat:core.stallTimeout", { secs: Math.round(limit / 1000) }),
             uid: uid("err"),
           });

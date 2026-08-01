@@ -85,12 +85,12 @@ describe("PluginManager 三层 IA", () => {
     expect(screen.queryByRole("tab", { name: /应用/ })).toBeNull();
   });
 
-  it("管理页 MCP sub-tab：MCP 工具 + pi 原生扩展并列（pi 扩展并入 MCP 同级）", async () => {
+  it("管理页 MCP sub-tab：MCP 工具 + Cortex 原生扩展并列（pi 扩展并入 MCP 同级）", async () => {
     renderWith(fakeBridge({ plugins: [plug("a", "Alpha")] }));
     await screen.findByText("Alpha");
     fireEvent.click(screen.getByRole("button", { name: "管理" }));
     fireEvent.click(await screen.findByRole("tab", { name: /MCP/ }));
-    expect(await screen.findByText(/pi 原生扩展/)).toBeTruthy();
+    expect(await screen.findByText(/Cortex 原生扩展/)).toBeTruthy();
   });
 
   it("管理页 MCP sub-tab 不再含内置浏览器控制开关（已迁至「应用→浏览器」分区）", async () => {
@@ -98,7 +98,7 @@ describe("PluginManager 三层 IA", () => {
     await screen.findByText("Alpha");
     fireEvent.click(screen.getByRole("button", { name: "管理" }));
     fireEvent.click(await screen.findByRole("tab", { name: /MCP/ }));
-    await screen.findByText(/pi 原生扩展/);
+    await screen.findByText(/Cortex 原生扩展/);
     expect(screen.queryByLabelText("允许 agent 控制内置浏览器")).toBeNull();
   });
 

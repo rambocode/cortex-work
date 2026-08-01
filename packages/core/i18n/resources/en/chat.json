@@ -153,10 +153,15 @@
   "agentName": {
     "claude": "Claude Code",
     "codex": "Codex",
-    "pi": "Pi"
+    "pi": "Cortex"
+  },
+  "agentPicker": {
+    "builtinBadge": "Built-in",
+    "cliMissing": "Not installed",
+    "derivedSub": "Based on {{base}}"
   },
   "core": {
-    "externalUnavailable": "⚠️ {{name}} is not installed or unavailable. Please install it and restart Cortex Desktop, or switch to Pi and retry.",
+    "externalUnavailable": "⚠️ {{name}} is not installed or unavailable. Please install it and restart Cortex Desktop, or switch to Cortex and retry.",
     "typing": {
       "starting": "Starting {{name}}…",
       "thinking": "{{name}} is thinking…",

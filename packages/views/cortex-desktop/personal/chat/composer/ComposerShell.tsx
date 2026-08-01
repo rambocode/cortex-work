@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  AGENT_LABEL,
   AGENT_MODELS,
   DEFAULT_AGENT_THINKING,
   agentThinkingOptions,
@@ -55,8 +56,6 @@ import {
   pendingDocFromPath,
 } from "./docIntake";
 
-// 输入框占位文案中的 agent 展示名。
-const AGENT_PLACEHOLDER_NAME: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 let attachSeq = 0;
 
@@ -935,7 +934,7 @@ export function ComposerShell({
                 ? t("composer.steerPlaceholder")
                 : running
                 ? t("composer.runningPlaceholder")
-                : placeholder ?? t("composer.defaultPlaceholder", { name: AGENT_PLACEHOLDER_NAME[agent] })
+                : placeholder ?? t("composer.defaultPlaceholder", { name: AGENT_LABEL[agent] })
             }
             rows={1}
           />

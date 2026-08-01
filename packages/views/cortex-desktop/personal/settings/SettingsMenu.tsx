@@ -10,6 +10,7 @@ import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
 import { formatAccelerator } from "@cortex-work/ui/controls/hotkeyAccelerator";
 import {
+  AGENT_LABEL,
   AGENT_MODELS,
   AVATAR_BG_COLORS,
   AVATAR_EMOJIS,
@@ -103,7 +104,8 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   memory: { tabKey: "tabs.memory", icon: <Icon.Sparkle size={14} /> },
   archivedSessions: { tabKey: "tabs.archivedSessions", icon: <Icon.Archive size={14} /> },
   agent: { tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
-  // Pi 分区聚合供应商管理（供应商即 pi 的供应商,原独立「供应商」tab 已并入）
+  // 「模型」分区：接入供应商 + 设默认模型（原独立「供应商」tab 已并入）。
+  // 枚举值仍是 "pi"——它是技术标识符,且 openSettings("pi") 有多处调用点;只有显示名改为「模型」。
   pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
   plugins: { tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
   browser: { tabKey: "tabs.browser", icon: <Icon.Globe size={14} /> },
@@ -642,7 +644,6 @@ function GeneralSection() {
 
 // 集成 Agent 列表（与会话创建可选的 agent 一致,来自 AGENT_MODELS 注册表;
 // 新增 agent 接入后此处自动出现）。
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 const INTEGRATED_AGENTS = Object.keys(AGENT_MODELS) as AgentKind[];
 
 
@@ -810,11 +811,13 @@ function AgentTraceWindowCard({ bridge }: { bridge: DesktopBridge }) {
 }
 /* eslint-enable i18next/no-literal-string */
 
-// 「Pi」设置分区(对齐高保真原型「Pi Providers 设置 v1」):默认模型级联下拉 + 供应商管理
-// **内联平铺**(订阅登录 / API Key / 云平台 / 自定义四区,见 PiProvidersSection)——旧的
-// ProviderManagerModal 弹窗已删除。本页只做供应商接入与默认模型;思考强度 / System Prompt /
+// 「模型」设置分区(原「Pi」分区,对齐高保真原型「Pi Providers 设置 v1"):默认模型级联下拉 +
+// 供应商管理**内联平铺**(订阅登录 / API Key / 云平台 / 自定义四区,见 PiProvidersSection)——
+// 旧的 ProviderManagerModal 弹窗已删除。本页只做供应商接入与默认模型;思考强度 / System Prompt /
 // 工具审批等行为设置卡片已按原型移除(piThinkingDefault 等 store 字段仍在,由会话内控件消费)。
-function PiSection() {
+//
+// 这里配的供应商供内置 agent「Cortex」(技术标识符 pi)使用;tab 枚举值仍为 "pi",只有显示名改了。
+function ModelsSection() {
   const { t } = useTranslation("settings");
 
   return (
@@ -1440,7 +1443,7 @@ export function PersonalSettingsView() {
           ) : tab === "agent" ? (
             <AgentSection />
           ) : tab === "pi" ? (
-            <PiSection />
+            <ModelsSection />
           ) : tab === "pet" ? (
             <PetSection />
           ) : tab === "timeline" ? (

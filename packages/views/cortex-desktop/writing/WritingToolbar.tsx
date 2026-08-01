@@ -1,6 +1,6 @@
 // 写作工作区中栏顶部工具栏(视觉与交互对齐 Kun WriteWorkspaceToolbar):
-//   自左向右:折叠左栏 | 蓝色文件图标 + 文件名(粗体)/下方相对路径 + 字数 badge |
-//     视图模式 pill(图标 + 档名 + 下拉,列 source/live/preview 三档)| 字号步进器(− px +)|
+//   自左向右:折叠左栏 | 文件名(粗体)/下方相对路径(与文件名相同则省)+ 字数 badge |
+//     视图模式 pill(仅图标 + 下拉,档名在菜单项里;列 rich/live/preview/source 四档)| 字号步进器(− px +)|
 //     sparkles(切右侧助手栏)| 保存按钮 | 保存状态字 | 导出下拉(复制 Markdown / 导出 .md 副本)。
 // 纯展示壳:文件名/字数/保存状态/模式/字号等由 WritingEditorPane 计算后注入;折叠与助手切换由
 //   WritingWorkspace 注入(standalone 编辑器场景不传 → 对应按钮不渲染)。图标全用 lucide-react,与 Kun 对齐。
@@ -12,7 +12,6 @@ import {
   Eye,
   FileCode2,
   FilePenLine,
-  FileText,
   Minus,
   PanelLeft,
   Plus,
@@ -106,32 +105,32 @@ export function WritingToolbar({
     // 左栏折叠时,中栏工具栏移到窗口最左 → 加红绿灯安全内缩(is-inset)。
     <header className={`pw-wt${leftCollapsed && onToggleLeft ? " is-inset" : ""}`}>
       <div className="pw-wt-left">
-        {onToggleLeft ? (
+        {/* 只在折叠态渲染:展开态的折叠按钮已移到左栏顶部(返回按钮右边,与被折叠的对象同侧)。
+            左栏折叠后整条 display:none,这里就是唯一能把它展开的入口。 */}
+        {onToggleLeft && leftCollapsed ? (
           <button
             type="button"
             className="pw-wt-icon-btn"
             onClick={onToggleLeft}
-            title={leftCollapsed ? "展开侧栏" : "折叠侧栏"}
-            aria-label={leftCollapsed ? "展开侧栏" : "折叠侧栏"}
+            title="展开侧栏"
+            aria-label="展开侧栏"
           >
             <PanelLeft size={16} strokeWidth={1.75} />
           </button>
         ) : null}
-        <span className="pw-wt-file-icon">
-          {hasTextFile ? (
-            <FilePenLine size={16} strokeWidth={1.9} />
-          ) : (
-            <FileText size={16} strokeWidth={1.9} />
-          )}
-        </span>
+        {/* 文件名前不再放图标:标题本身已足够表意,图标只是重复占宽。 */}
         <div className="pw-wt-file-meta">
           <div className="pw-wt-file-name" title={fileName}>
             {fileName}
           </div>
           <div className="pw-wt-file-sub">
-            <span className="pw-wt-file-path" title={fileLabel}>
-              {fileLabel}
-            </span>
+            {/* fileLabel 是相对空间根的路径。文件就在根目录时它恰好等于文件名,那行小字
+                就成了标题的重复(用户实测反馈),此时省略;在子目录里仍显示以保留定位信息。 */}
+            {fileLabel !== fileName ? (
+              <span className="pw-wt-file-path" title={fileLabel}>
+                {fileLabel}
+              </span>
+            ) : null}
             {charCount != null ? (
               <span className="pw-wt-count">{`字数 ${charCount}`}</span>
             ) : null}
@@ -146,12 +145,15 @@ export function WritingToolbar({
           className="pw-wt-mode-pill"
           disabled={modeDisabled}
           onClick={() => modeMenu.setOpen((v) => !v)}
-          title="视图模式"
+          title={`视图模式：${current.label}`}
+          aria-label={`视图模式：${current.label}`}
           aria-haspopup="menu"
           aria-expanded={modeMenu.open}
         >
+          {/* 触发器只显示当前档的图标 + chevron:档名在展开的菜单项里给（icon + 文字），
+              收起后省下的横向空间留给右侧的字号/导出等控件。title/aria 仍带档名，
+              不靠图标形状传达语义。 */}
           {current.icon}
-          <span className="pw-wt-mode-label">{current.label}</span>
           <ChevronDown size={14} strokeWidth={1.9} className={modeMenu.open ? "is-open" : ""} />
         </button>
         {modeMenu.open ? (

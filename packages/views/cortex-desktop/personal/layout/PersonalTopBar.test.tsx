@@ -72,8 +72,8 @@ describe("PersonalCenterHeader 会话头（PersonalSessionHeader）", () => {
   it("会话视图顶栏显示会话标题与 agent 标签", () => {
     renderHeader();
     expect(screen.getByText("会话标题X")).toBeInTheDocument();
-    // agent 标签 + Agent 选择器都用 Pi 文案 → 至少出现一次。
-    expect(screen.getAllByText("Pi").length).toBeGreaterThan(0);
+    // agent 标签 + Agent 选择器都用 Cortex 文案 → 至少出现一次。
+    expect(screen.getAllByText("Cortex").length).toBeGreaterThan(0);
   });
 
   it("项目路径默认收起,点路径按钮后展示项目名与路径", () => {
@@ -155,7 +155,7 @@ describe("PersonalCenterHeader 会话头（PersonalSessionHeader）", () => {
 
   it("Agent 选择器点击展开下拉,列出可切换 agent", () => {
     renderHeader();
-    fireEvent.click(screen.getByRole("button", { name: /Pi/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Cortex/ }));
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
   });

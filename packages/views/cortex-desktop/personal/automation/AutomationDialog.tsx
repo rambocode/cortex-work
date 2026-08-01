@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { SegmentedRadio } from "@cortex-work/ui/controls/SegmentedRadio";
 import {
+  AGENT_LABEL,
   AGENT_MODELS,
   DEFAULT_MODEL,
   useCreateAutomation,
@@ -25,7 +26,6 @@ import type {
 import { ScheduleEditor } from "./ScheduleEditor";
 import { ModelRefField } from "../settings/provider/ModelRefField";
 
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: "低", medium: "中", high: "高" };
 const EFFORT_ORDER: ReasoningEffort[] = ["low", "medium", "high"];
 const effortToLabel = (e: ReasoningEffort) => EFFORT_LABEL[e];

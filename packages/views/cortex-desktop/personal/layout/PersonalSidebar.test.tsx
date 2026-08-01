@@ -1,7 +1,7 @@
 // 个人工作区侧栏项目上下文布局测试：
 // - 顶部模式切换承载会话 / 写作 / 设计；
 // - 当前项目卡片承载新建会话 / 项目管理；
-// - 底部固定快捷入口承载闪记 / 自动化 / Loop / 设置。
+// - 底部固定用户行承载头像菜单（闪记 / 自动化 / Loop / 显示宠物 / 设置）与消息铃铛。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
@@ -175,15 +175,31 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(modes?.textContent).not.toContain("设计");
   });
 
-  it("把闪记 / 自动化 / Loop / 设置固定在滚动区外", () => {
+  // 四个入口已从底部平铺改为收进头像菜单，但「不随会话列表滚走」这条原意图不变：
+  // 承载它们的用户行仍须固定在滚动区外。
+  it("把用户行固定在滚动区外，四个入口收进头像菜单", () => {
     const { container } = renderSidebar(bridgeWith(), { onOpenFlashNote: vi.fn() });
-    const shortcuts = container.querySelector(".pw-sidebar-shortcuts");
-    expect(shortcuts).toBeTruthy();
-    expect(shortcuts?.textContent).toContain("闪记");
-    expect(shortcuts?.textContent).toContain("自动化");
-    expect(shortcuts?.textContent).toContain("Loop");
-    expect(shortcuts?.textContent).toContain("设置");
-    expect(container.querySelector(".pw-sidebar-scroll")?.contains(shortcuts)).toBe(false);
+    const userbar = container.querySelector(".pw-sb-userbar");
+    expect(userbar).toBeTruthy();
+    expect(container.querySelector(".pw-sidebar-scroll")?.contains(userbar)).toBe(false);
+
+    // 收起态不该有这些项（否则等于没收进去）。
+    expect(userbar?.textContent).not.toContain("自动化");
+
+    fireEvent.click(container.querySelector(".pw-sb-user")!);
+    const menu = container.querySelector(".pw-sb-user-menu");
+    expect(menu?.textContent).toContain("闪记");
+    expect(menu?.textContent).toContain("自动化");
+    expect(menu?.textContent).toContain("Loop");
+    expect(menu?.textContent).toContain("设置");
+    expect(menu?.textContent).toContain("显示宠物");
+  });
+
+  // 铃铛是 desktop-only 能力：桥缺 notificationCenterList（web / 旧壳）时整体隐藏，
+  // 而不是渲染一个点了没反应的按钮。
+  it("无消息中心桥能力时不渲染铃铛", () => {
+    const { container } = renderSidebar(bridgeWith());
+    expect(container.querySelector(".pw-sb-bell")).toBeNull();
   });
 
   it("从活动会话派生当前项目且不在切换列表重复显示", () => {

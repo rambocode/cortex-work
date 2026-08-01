@@ -79,8 +79,8 @@ describe("applyMention", () => {
   });
 
   it("文本开头的 @ 也能处理", () => {
-    const { newText, newCursor } = applyMention("@pi", 0, 3, { id: "pi", label: "Pi" });
-    expect(newText).toBe("@pi ");
-    expect(newCursor).toBe(4);
+    const { newText, newCursor } = applyMention("@cor", 0, 4, { id: "cortex", label: "Cortex" });
+    expect(newText).toBe("@cortex ");
+    expect(newCursor).toBe(8);
   });
 });

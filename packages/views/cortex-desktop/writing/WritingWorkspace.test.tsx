@@ -294,13 +294,62 @@ describe("WritingWorkspace 中栏工具栏", () => {
     expect(screen.getByLabelText("展开侧栏")).toBeTruthy();
   });
 
+  // 折叠按钮归属:展开态在左栏(紧跟返回),折叠态才由中栏顶栏接管——
+  // 因为 .pw-writing-left.is-collapsed 是 display:none,按钮不能只放左栏,否则展不开。
+  it("折叠按钮在左栏返回按钮右边;折叠后展开入口移到中栏顶栏", async () => {
+    const { container } = renderWs(makeBridge());
+    await screen.findByLabelText("删除 a1.md");
+
+    // 展开态:折叠按钮在左栏 titlebar 内,且排在返回按钮之后。
+    const bar = container.querySelector(".pw-writing-left-titlebar")!;
+    const btns = Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"));
+    expect(btns).toEqual(["返回", "折叠侧栏"]);
+    // 展开态中栏顶栏不再重复放这个按钮。
+    expect(container.querySelector(".pw-wt-left .pw-wt-icon-btn")).toBeNull();
+
+    // 折叠后左栏整条隐藏 → 展开入口须出现在中栏顶栏。
+    fireEvent.click(screen.getByLabelText("折叠侧栏"));
+    expect(container.querySelector(".pw-wt-left .pw-wt-icon-btn")).not.toBeNull();
+    expect(screen.getByLabelText("展开侧栏")).toBeTruthy();
+  });
+
   it("视图模式下拉切换 → 持久化到 store", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());
     await screen.findByTestId("cm");
-    fireEvent.click(screen.getByTitle("视图模式"));
+    fireEvent.click(screen.getByTitle(/^视图模式：/));
     fireEvent.click(screen.getByRole("menuitem", { name: "源码" }));
     expect(useWritingSpacesStore.getState().previewMode).toBe("source");
+  });
+
+  // 顶栏三条精简（用户实测反馈）：标题不重复、文件名前无图标、模式触发器只留图标。
+  it("顶栏:文件名只出现一次(路径与文件名相同时省略),文件名前无图标", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    const { container } = renderWs(makeBridge());
+    await screen.findByTestId("cm");
+
+    // a1.md 就在空间根下 → 相对路径等于文件名,那行小字应省略,整个顶栏只出现一次。
+    const head = container.querySelector(".pw-wt-left")!;
+    expect(head.textContent?.match(/a1\.md/g) ?? []).toHaveLength(1);
+    expect(container.querySelector(".pw-wt-file-path")).toBeNull();
+    expect(container.querySelector(".pw-wt-file-icon")).toBeNull();
+  });
+
+  it("顶栏:模式触发器只显示图标,档名在展开的菜单项里", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    const { container } = renderWs(makeBridge());
+    await screen.findByTestId("cm");
+
+    // 不绑定具体档（默认档随实现变,rich 档还渲染 tiptap 而非 CodeMirror）：
+    // 从 title 里取出当前档名，再断言 pill 正文里没有它。
+    const pill = container.querySelector(".pw-wt-mode-pill")!;
+    const label = pill.getAttribute("title")!.replace("视图模式：", "");
+    expect(label).toBeTruthy(); // title 仍带档名,不靠图标形状传达语义
+    expect(pill.textContent).not.toContain(label);
+
+    // 展开后菜单项是 icon + 文字。
+    fireEvent.click(pill);
+    expect(screen.getByRole("menuitem", { name: new RegExp(label) })).toBeTruthy();
   });
 
   it("字号步进:增大/减小改 store,边界禁用", async () => {

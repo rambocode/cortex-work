@@ -1,17 +1,20 @@
 // 个人工作区 agent 元数据与共享小工具：供会话头（PersonalTopBar）与会话区（PersonalChatArea）复用，
 // 避免 AGENT_LABEL / AGENT_AVATAR / agentContact / switchAgent 在两处重复。
 
-import { DEFAULT_MODEL, mapThinkingAcrossAgents, usePersonalStore } from "@cortex-work/core";
+import { AGENT_LABEL, DEFAULT_MODEL, mapThinkingAcrossAgents, usePersonalStore } from "@cortex-work/core";
 import type { AgentKind, DerivedAgentMeta, ProviderSettings, SessionMeta } from "@cortex-work/core";
 import type { Contact } from "@cortex-work/core/types";
 
-export const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+// 显示名真源在 core（packages/core/desktop/types.ts）——core 侧的 typing 指示器等也要用同一份，
+// 而 core 不能反向依赖 views。这里只做透传，方便 views 内既有的 import 路径不变。
+export { AGENT_LABEL };
 
-// 各 agent 头像视觉（claude/codex 沿用原值,pi 用缩写 PI + 靛蓝底,对应设计稿 PI 头像）。
+// 各 agent 头像视觉（claude/codex 沿用原值）。pi 对用户呈现为 "Cortex"，故用首字母 "C" + 靛蓝底；
+// 不用 "CX"——那是 Codex 的缩写，两者并列时会撞车。
 export const AGENT_AVATAR: Record<AgentKind, { initials: string; bg: string }> = {
   claude: { initials: "CC", bg: "#c96442" },
   codex: { initials: "CX", bg: "#1a1916" },
-  pi: { initials: "PI", bg: "#4338ca" },
+  pi: { initials: "C", bg: "#4338ca" },
 };
 
 const BUILT_IN: readonly string[] = ["claude", "codex", "pi"];

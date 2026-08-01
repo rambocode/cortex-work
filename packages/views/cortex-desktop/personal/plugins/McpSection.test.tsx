@@ -28,7 +28,7 @@ describe("McpCard", () => {
   it("单独显示默认开启的内置 Agent Browser", () => {
     renderUI(<McpCard onEdit={vi.fn()} />);
     expect(screen.getByText("Agent Browser（内置）")).toBeTruthy();
-    expect(screen.getAllByText(/Claude、Codex 与 Pi/)).toHaveLength(2);
+    expect(screen.getAllByText(/Claude Code、Codex 与 Cortex/)).toHaveLength(2);
     expect((screen.getByLabelText("启用内置 Agent Browser") as HTMLInputElement).checked).toBe(true);
   });
 

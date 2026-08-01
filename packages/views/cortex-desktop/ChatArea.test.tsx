@@ -14,9 +14,9 @@ const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown
 
 const teamContact: Contact = {
   id: "pi",
-  name: "Pi",
+  name: "Cortex",
   group: "shared",
-  avatar: { initials: "PI", bg: "#4338ca" },
+  avatar: { initials: "C", bg: "#4338ca" },
   agentStatus: "online",
   statusText: "",
   last: "",

@@ -198,8 +198,10 @@ input, textarea { font: inherit; color: inherit; }
    取消贯穿全宽的 .titlebar 后,左/中/右三栏各自在顶端有一条 44px 的列头,
    与原标题栏同高、同样承担窗口拖拽区(交互子元素 no-drag)。 */
 .pw-col-head {
-  /* 38px：与 macOS 红绿灯（trafficLightPosition y:13、约 12px 直径 → 垂直中心约 19px）对齐——
-     居中的控制图标中心落在 19px。 */
+  /* 38px：三栏列头统一高度，居中的内容中心落在 19px。
+     注意红绿灯中心实测在 20px（trafficLightPosition y:13 + Big Sur 起的 14px 直径 / 2），
+     比这里差 1px —— 只有紧邻红绿灯的左栏头需要补这 1px，见下方 .pw-sidebar-head 的微调；
+     列头高度本身不动，否则三栏顶部会互相错开。 */
   height: 38px;
   flex-shrink: 0;
   display: flex;
@@ -218,6 +220,14 @@ input, textarea { font: inherit; color: inherit; }
 .pw-col-head-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
 /* 左栏头:为 macOS 红绿灯预留左侧空间(原由 .titlebar 承担)。 */
 .app-frame[data-native-titlebar="mac"] .pw-sidebar-head { padding-left: 84px; }
+/* 折叠/搜索按钮与红绿灯的水平中线对齐：列头 38px 居中给到 19px，红绿灯中心在 20px
+   （y:13 + 14px 直径的一半，Big Sur 起是 14px 而非旧版的 12px），故此处补 1px。
+   用 relative/top 而非 margin —— 不改变布局流，也不会把 38px 的控制组撑出列头。
+   仅展开态；折叠后控制组移到中栏顶栏，由下面 .pw-sh 那条规则单独定位。 */
+.app-frame[data-native-titlebar="mac"] .pw-sidebar-head .pw-sb-ctrls {
+  position: relative;
+  top: 1px;
+}
 /* 左栏折叠后,侧栏隐藏 → 折叠/搜索控制移到中栏顶栏,这里为红绿灯预留同样的左侧空间。 */
 .app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-center-head,
 .app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-col-head.pw-sh { padding-left: 84px; }
@@ -234,6 +244,12 @@ input, textarea { font: inherit; color: inherit; }
    .pw-sh 有 14px 上内边距,align-self:flex-start 只能贴到内容盒顶(=14px),故用等量负上边距
    抵消,把控制组拉回窗口 y=0 → 图标中心回到 ≈19px,与红绿灯及 .pw-center-head 折叠态一致。 */
 .pw-sh .pw-sb-ctrls { align-self: flex-start; margin-top: -14px; }
+/* 折叠态同样补那 1px（与展开态 .pw-sidebar-head 同一根因：红绿灯中心在 20px 而非 19px）。
+   放在负 margin 之外用 top 微调，免得把上面那条「-14px 抵消 14px 内边距」的算式搅浑。 */
+.app-frame[data-native-titlebar="mac"][data-left-collapsed="on"] .pw-col-head.pw-sh .pw-sb-ctrls {
+  position: relative;
+  top: 1px;
+}
 
 /* ---------- 会话视图中栏顶栏:会话标题块 + Agent 选择器（标题上移自旧 chat-head,见设计稿） ----------
    覆盖 .pw-col-head 的固定 44px 高度/内边距:高度随内容(含项目路径行)自适应。 */
@@ -3740,6 +3756,176 @@ button.sb-row {
   font-size: 11.5px;
 }
 
+/* 侧栏底部用户行：左「头像 + 昵称」占满剩余宽度，右消息铃铛定宽。
+   取代了原先平铺四按钮的 .pw-sidebar-shortcuts（那些入口已收进头像菜单）。
+   毛玻璃与上边框沿用原快捷入口区，视觉上底部这一条没有变化。 */
+.pw-sb-userbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-sidebar) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+/* 菜单锚点必须能收缩：昵称过长时挤走铃铛，min-width:0 是 flex 子项截断的前提。 */
+.pw-sb-user-wrap { flex: 1; min-width: 0; }
+.pw-sb-user {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-1);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.pw-sb-user:hover,
+.pw-sb-user.is-open { background: var(--bg-hover); }
+.pw-sb-user-avatar {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+.pw-sb-user-avatar.is-initial { font-weight: 600; }
+.pw-sb-user-name {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 头像菜单向上弹（底部行没有下方空间）。宽度略宽于顶栏菜单，容得下「显示宠物 + 开关」。 */
+.pw-sb-user-menu { min-width: 176px; }
+/* ── 消息铃铛与列表 popover ─────────────────────────────────────────── */
+.pw-sb-bell-wrap { flex: 0 0 auto; }
+.pw-sb-bell {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+.pw-sb-bell:hover,
+.pw-sb-bell.is-open { color: var(--text-1); background: var(--bg-hover); }
+/* 未读红点叠在铃铛右上角。数字最多 99+，故用 min-width + 横向 padding 而非固定圆。 */
+.pw-sb-bell-dot {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger, #e5484d);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* 列表 popover：贴侧栏底部向上弹，**向右展开**盖到主区上。
+   不能向左（right:0）——侧栏只有 270px 宽且紧贴窗口左缘，288px 的面板会有一截被窗口
+   边缘直接切掉（实测左侧约 30px 不可见）。侧栏自带 position+z-index 层叠层级，
+   向右溢出能正常盖在中栏之上。 */
+.pw-sb-msgs {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 288px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-menu, var(--bg-sidebar));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  z-index: 40;
+  overflow: hidden;
+}
+.pw-sb-msgs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 11px 7px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-sb-msgs-title { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.pw-sb-msgs-clear {
+  font-size: 11.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.pw-sb-msgs-clear:hover { color: var(--text-1); }
+/* 限高内部滚动：60 天上限 500 条，不限高会顶穿屏幕。 */
+.pw-sb-msgs-list { max-height: 320px; overflow-y: auto; padding: 4px; }
+.pw-sb-msgs-empty,
+.pw-sb-msgs-foot {
+  padding: 14px 11px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.pw-sb-msgs-foot {
+  padding: 6px 11px 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 10.5px;
+}
+.pw-sb-msg {
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px 9px;
+  border-radius: 7px;
+}
+.pw-sb-msg:hover { background: var(--bg-hover); }
+.pw-sb-msg-icon { flex: 0 0 auto; margin-top: 1px; color: var(--text-3); }
+/* 失败态用警示色标图标，扫一眼就能从一列成功里挑出出问题的那条。 */
+.pw-sb-msg.is-error .pw-sb-msg-icon { color: var(--danger, #e5484d); }
+.pw-sb-msg.is-success .pw-sb-msg-icon { color: var(--ok, #30a46c); }
+.pw-sb-msg-main { min-width: 0; flex: 1; }
+.pw-sb-msg-title {
+  font-size: 12px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 正文最多两行：主进程已按 300 字截断，这里再做视觉行数收敛。 */
+.pw-sb-msg-body {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pw-sb-msg-time { margin-top: 3px; font-size: 10.5px; color: var(--text-3); }
+
 .pw-sidebar-shortcuts {
   flex: none;
   display: grid;
@@ -4847,6 +5033,10 @@ button.sb-row {
   right: auto;
   bottom: auto;
   min-width: 180px;
+  /* 宽度上限:长模型名（"GPT-5.3 Codex Spark"）会把 min-width 撑到 230px+，
+     在窄栏里直接顶出窗口。有了上限，下面 .pw-mt-models 的省略号截断才真正生效
+     —— 没有 max-width 时容器跟着内容长，截断永远不触发。 */
+  max-width: min(260px, 46vw);
   background: var(--bg-app);
   z-index: 210;
 }
@@ -4855,10 +5045,19 @@ button.sb-row {
   left: auto;
   right: calc(100% + 4px);
 }
+/* 翻上变体:flyout 默认与所属行顶部对齐向下铺,「推理」5 档在贴底的写作助手栏里会被
+   窗口下边缘裁掉;溢出时改为与行底部对齐向上铺。与水平翻转是两个独立维度,可同时生效。 */
+.pw-mt-pill .pw-mt-sub--up {
+  top: auto;
+  bottom: -5px;
+}
 /* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。
    用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
    故必须用 (0,2,0) 选择器确保左对齐/背景/层级生效。 */
 .pw-mt-pill .pw-mt-menu { left: 0; right: auto; min-width: 200px; background: var(--bg-app); z-index: 200; }
+/* 右对齐变体:窄容器(写作助手栏)里 pill 贴右,默认的 left:0 会把 200px 面板推出视口右缘。
+   与上条同特异性(0,2,0)且定义在后,冲突的 left/right 以本条为准。 */
+.pw-mt-pill .pw-mt-menu--right { left: auto; right: 0; }
 /* 菜单分区表头(推理/模型)。 */
 .pw-tb-menu-head {
   padding: 4px 9px 2px;
@@ -6058,6 +6257,28 @@ button.sb-row {
 .pw-tb-menu-item:disabled:hover { background: transparent; }
 .pw-tb-menu-item span { flex: 1; text-align: left; }
 .pw-tb-menu-item svg:last-child:not(:first-child) { color: var(--accent); }
+/* agent 选择菜单项：单行「名字 + 徽标/注记」。
+   曾经每项顶一行灰色说明（「需本机安装 CLI」「内置 · 用「设置 → 模型」配置的供应商」），
+   把菜单撑得很高而信息只在初次看时有用；现只保留必要的两类附注。 */
+.pw-agent-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+/* Cortex 的「内置」：强调色小字，说明它随应用打包、不需要装任何东西。 */
+.pw-agent-badge {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent, #7c5cff);
+}
+/* 异常/补充注记（未安装、派生 agent 的底座）：弱化灰字，不抢主名。 */
+.pw-agent-note {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
 .pw-tb-menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
 /* 「+」菜单里 Skills 行的当前状态徽标:靠右、不抢占 flex,开启态用强调色高亮。 */
 .pw-tb-menu-state {
@@ -11390,9 +11611,19 @@ button.sb-row {
 /* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
 .pw-writing-left-titlebar {
   display: flex; align-items: center; justify-content: flex-end;
+  gap: 2px;
   height: 40px; flex-shrink: 0;
   padding: 0 8px 0 78px;
 }
+/* 左栏折叠按钮(紧跟返回)。方形图标按钮,配色跟随返回按钮的冷蓝 --w-* token。
+   折叠态没有这个按钮——左栏整条隐藏,展开入口在中栏顶栏。 */
+.pw-writing-left-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px;
+  color: var(--w-muted); cursor: pointer;
+  border: none; background: transparent;
+}
+.pw-writing-left-toggle:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-writing-back {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 10px; border-radius: 7px;
@@ -11697,12 +11928,6 @@ button.sb-row {
 .pw-wt-icon-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-wt-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
 .pw-wt-icon-btn.is-on { background: var(--w-accent-soft); color: var(--w-accent); }
-/* 文件图标:Kun h-8 w-8 rounded-lg bg-accent/10 text-accent */
-.pw-wt-file-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
-  background: var(--w-accent-soft); color: var(--w-accent);
-}
 .pw-wt-file-meta { min-width: 0; flex: 1; line-height: 1; }
 .pw-wt-file-name {
   font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
@@ -11730,7 +11955,6 @@ button.sb-row {
 }
 .pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
-.pw-wt-mode-label { font-weight: 500; }
 .pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
 
 /* 通用下拉菜单(模式 / 导出) */

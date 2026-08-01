@@ -10,10 +10,11 @@ import { usePersonalStore } from "@cortex-work/core/store/personal";
 import { useCoreContext } from "@cortex-work/core/provider";
 import type { RoleConfig } from "@cortex-work/core/desktop/types";
 
+// value 是 AgentKind 技术标识符（"pi" 不变）；label 是用户可见名（pi → Cortex）。
 const AGENT_OPTIONS = [
   { value: "claude", label: "Claude" },
   { value: "codex", label: "Codex" },
-  { value: "pi", label: "Pi" },
+  { value: "pi", label: "Cortex" },
 ] as const;
 
 const ROLE_COLORS = [
@@ -265,8 +266,8 @@ export function RolesSection() {
         </div>
         <div className="pw-srow">
           <div className="pw-srow-l">
-            <span className="pw-srow-lbl">@pi</span>
-            <span className="pw-srow-desc">Pi</span>
+            <span className="pw-srow-lbl">@cortex</span>
+            <span className="pw-srow-desc">Cortex</span>
           </div>
           <div className="pw-srow-c pw-srow-c-end">
             <span className="pw-role-builtin-badge">built-in</span>

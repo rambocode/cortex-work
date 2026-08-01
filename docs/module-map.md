@@ -27,6 +27,13 @@
 
 ## 一级功能名词表
 
+> **命名约定（找不到「Pi」时看这里）**：`pi` 是**技术标识符**，继续用于 `AgentKind`、资源目录
+> （`resources/pi/`）、IPC 契约、日志与本表的文件路径；**面向用户一律显示为 “Cortex”**（内置、
+> 恒可用的 agent，模型来自用户自配供应商）。设置左栏原「Pi」分区显示名为**「模型」**——tab 的
+> 枚举值仍是 `"pi"`（`openSettings("pi")` 多处调用）。内置角色 mention 为 `@cortex`（旧 `@pi` 已
+> 硬切下线，不做兼容）。显示名的**唯一真源**是 `core/desktop/types.ts` 的 `AGENT_LABEL` /
+> `AGENT_LABEL_SHORT`，不要在别处重新声明。
+
 | 名词（含别名） | views | core | main |
 |---|---|---|---|
 | 会话 / 跑 Agent / CLI 流式管线 | `personal/chat/PersonalChatArea.tsx`、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
@@ -35,14 +42,14 @@
 | 角色库 | `personal/settings/RolesSettingsSection.tsx` | — | `ipc/roles.ts` |
 | Agent 适配（claude/codex/pi/自定义） | `personal/chat/AgentSelect.tsx` | — | `agents/`（`index.ts` 注册表、`agent-profiles.ts` 自定义） |
 | pi / codex 长驻会话 | — | — | `ipc/pi-session.ts`、`ipc/codex-ws-channel.ts` |
-| 供应商管理（Catalog 驱动：认证 / 只读能力 / 自定义 Provider；**平铺在设置→Pi**,无弹窗）| `personal/settings/provider/PiProvidersSection.tsx`（四区平铺壳:订阅登录/API Key + `HiddenToggle`/`ModelsDisclosure`）、`PiProviderCloudRows.tsx`（云平台折叠行）、`PiCustomProviderSection.tsx`（自定义列表 + 内联编辑）、`CustomProviderForm.tsx`（预制表单新增:预设 chips + 显式能力声明,Key 走 Secret 引用）、`DefaultModelSelects.tsx`（默认模型级联下拉）、`ProviderTestControl.tsx`（带费用确认的紧凑连接测试）、`BaseUrlOverride.tsx`、`useProviderData`（数据层）、`ProviderModelList`（只读能力）、`CustomProviderPanel`（JSON/Secret 编辑器）+ `customProviderRules`、`ProviderAuthDialog`（通用 OAuth 交互）| `desktop/provider-catalog.ts`（契约）、`personal/modelCapabilities.ts`（Catalog 缓存 + 能力三态查询）| `providers/catalog.ts`、`ipc/provider-auth.ts` |
+| 供应商管理（Catalog 驱动：认证 / 只读能力 / 自定义 Provider；**平铺在设置→模型**,无弹窗）| `personal/settings/provider/PiProvidersSection.tsx`（四区平铺壳:订阅登录/API Key + `HiddenToggle`/`ModelsDisclosure`）、`PiProviderCloudRows.tsx`（云平台折叠行）、`PiCustomProviderSection.tsx`（自定义列表 + 内联编辑）、`CustomProviderForm.tsx`（预制表单新增:预设 chips + 显式能力声明,Key 走 Secret 引用）、`DefaultModelSelects.tsx`（默认模型级联下拉）、`ProviderTestControl.tsx`（带费用确认的紧凑连接测试）、`BaseUrlOverride.tsx`、`useProviderData`（数据层）、`ProviderModelList`（只读能力）、`CustomProviderPanel`（JSON/Secret 编辑器）+ `customProviderRules`、`ProviderAuthDialog`（通用 OAuth 交互）| `desktop/provider-catalog.ts`（契约）、`personal/modelCapabilities.ts`（Catalog 缓存 + 能力三态查询）| `providers/catalog.ts`、`ipc/provider-auth.ts` |
 | 全局模型选择器（Chat / Research / Reply / Automation / workflow AI 节点 / Computer Use 复用）| `personal/settings/provider/ModelPicker.tsx`、`ModelPickerDialog.tsx`、`ModelRefField.tsx`（悬空引用阻断态）| `personal/modelCapabilities.ts` | `providers/catalog.ts` |
 | 发送前 vision 阻断（文本模型/能力未知 + 图片 → 拒发并保留草稿）| `personal/chat/VisionBlockBanner.tsx`（挂在 `composer/ComposerShell.tsx` 输入框上方）| `personal/messages.ts` 的 `usePersonalActions().send`、`personal/modelCapabilities.ts`、`store/personal.ts` 的 `visionBlockHints` | `agents/pi.ts`（`@file` 图片参数,最终权威）|
-| Provider 凭据 / OAuth 登录 / 自定义 Provider 与 Secret（**明文永不过桥**） | 设置→Pi 的供应商平铺区（见上行「供应商管理」） | `desktop/provider-catalog.ts`（契约镜像）、`desktop/types.ts` 的 `hiddenProviderIds` | `ipc/provider-auth.ts`（IPC 边界）、`providers/credentials.ts`（safeStorage 金库 + pi `CredentialStore` 串行写）、`providers/pi-native-auth.ts`（金库 ↔ pi 二进制 `~/.pi/agent/auth.json` 的 OAuth 双向同步:登录推送/注销清除/spawn 前按 expires 对齐,api_key 永不写入）、`providers/oauth.ts`（登录交互状态机）、`providers/custom-providers.ts`（Pi Provider JSON 校验与落盘）、`providers/secrets.ts`（`${secret:}` 引用 + 禁泄文本清洗）、`providers/pi-runtime.ts`（pi-ai 懒加载注入）、`providers/prefs.ts`（main-owned 的显示/隐藏 + baseUrl 覆盖，**同步读**供 `agents/pi-providers.ts` 在 spawn 前取用） |
+| Provider 凭据 / OAuth 登录 / 自定义 Provider 与 Secret（**明文永不过桥**） | 设置→模型 的供应商平铺区（见上行「供应商管理」） | `desktop/provider-catalog.ts`（契约镜像）、`desktop/types.ts` 的 `hiddenProviderIds` | `ipc/provider-auth.ts`（IPC 边界）、`providers/credentials.ts`（safeStorage 金库 + pi `CredentialStore` 串行写）、`providers/pi-native-auth.ts`（金库 ↔ pi 二进制 `~/.pi/agent/auth.json` 的 OAuth 双向同步:登录推送/注销清除/spawn 前按 expires 对齐,api_key 永不写入）、`providers/oauth.ts`（登录交互状态机）、`providers/custom-providers.ts`（Pi Provider JSON 校验与落盘）、`providers/secrets.ts`（`${secret:}` 引用 + 禁泄文本清洗）、`providers/pi-runtime.ts`（pi-ai 懒加载注入）、`providers/prefs.ts`（main-owned 的显示/隐藏 + baseUrl 覆盖，**同步读**供 `agents/pi-providers.ts` 在 spawn 前取用） |
 | **文本补全（全仓唯一出口，Pi Model Gateway）**：Reply 草稿 / Research / 做梦蒸馏 / Timeline 日报 / Writing 续写与 Cmd-K | — （业务模块经主进程调用，渲染端如需直调走 `modelGateway:*`） | `desktop/provider-catalog.ts` 的 `GatewayCompleteRequest` / `GatewayStreamEvent` | `providers/gateway.ts`（寻址 + 取消 + 错误分类）、`ipc/model-gateway.ts`（IPC 过桥）、`ipc/openai-chat.ts`（「返回文本 / 失败抛错」的适配层）、`providers/default-model.ts`（全局默认模型引用）。**排除项**：TTS/ASR 的 `/v1/audio/*`（`ipc/push-sign.ts` 音频函数 + `capabilities/whisper/**`）、media-gen、knowledge —— 静态检查见 `providers/no-direct-endpoint.test.ts` |
 | MCP 配置 / 注入 | `personal/plugins/McpSection.tsx`、`plugins/McpServerForm.tsx` | — | `ipc/mcp-config.ts`、`capabilities/mcp-host/` |
 | 公司知识库 / 知识库检索 / 引用预览（远端 MCP，server 在 `../../knowledge-base-system` 的 `/api/mcp`） | `personal/settings/KnowledgeSettingsSection.tsx`（设置）、`personal/knowledge/KnowledgeDocRef.tsx`（正文里 `kb://` 引用 chip）、`personal/knowledge/KnowledgeDocPanel.tsx`（右栏正文预览） | `store/personal.ts` 的 `openKnowledgeDoc` / `knowledgeDocRequest`（rightView `knowledge`） | `capabilities/knowledge/inject.ts`（三门控注入）、`capabilities/knowledge/client.ts`（主进程自用的极简 MCP 客户端）、`ipc/knowledge.ts`（令牌加密落盘 + 连通性自检 + 取文） |
-| 电脑操作 / Computer Use / GUI 自动化（pi 点鼠标按键盘操作本机 app，由第三方 package `pi-computer-use` 供能，**默认启用**、**独属 pi**） | `personal/plugins/ComputerUseSection.tsx`（总开关 / 环境状态行 / GUI 定位模型 / `/learn` 告知）——挂在**管理页 → MCP 标签**，与 `ExtensionPanel` 并列（`plugins/PluginManagePage.tsx`），**不在**设置→Pi：同一开关只挂一处 | `personal/permissionMode.ts`（**安全红线**：`gui_*` 写工具强制进审批集，auto 档也强制开审批）、`desktop/types.ts` 的 `COMPUTER_USE_*` 常量与 `ComputerUseSettings` | `capabilities/computer-use/inject.ts`（五门控唯一决策点）、`install.ts`（首启后台 `pi install` 到 `~/.pi` + userData marker 幂等）、`env.ts`（swiftc 探测 + 复用 `reply/permissions.ts` 查两项 TCC）、`ipc/computer-use.ts`（状态自检 / 重试安装 / 重新申请授权 / 在 Finder 中显示）、`reply/permission-reprompt.ts`（`tccutil reset` + 重新弹提示，破解「授权提示只弹一次、之后应用再也不进列表」的死角；辅助功能与屏幕录制专用） |
+| 电脑操作 / Computer Use / GUI 自动化（pi 点鼠标按键盘操作本机 app，由第三方 package `pi-computer-use` 供能，**默认启用**、**独属 pi**） | `personal/plugins/ComputerUseSection.tsx`（总开关 / 环境状态行 / GUI 定位模型 / `/learn` 告知）——挂在**管理页 → MCP 标签**，与 `ExtensionPanel` 并列（`plugins/PluginManagePage.tsx`），**不在**设置→模型：同一开关只挂一处 | `personal/permissionMode.ts`（**安全红线**：`gui_*` 写工具强制进审批集，auto 档也强制开审批）、`desktop/types.ts` 的 `COMPUTER_USE_*` 常量与 `ComputerUseSettings` | `capabilities/computer-use/inject.ts`（五门控唯一决策点）、`install.ts`（首启后台 `pi install` 到 `~/.pi` + userData marker 幂等）、`env.ts`（swiftc 探测 + 复用 `reply/permissions.ts` 查两项 TCC）、`ipc/computer-use.ts`（状态自检 / 重试安装 / 重新申请授权 / 在 Finder 中显示）、`reply/permission-reprompt.ts`（`tccutil reset` + 重新弹提示，破解「授权提示只弹一次、之后应用再也不进列表」的死角；辅助功能与屏幕录制专用） |
 | 执行权限（单轴:计划/询问/自动） | `personal/chat/composer/CustomizePill.tsx` | `personal/permissionMode.ts` | — |
 | 子 Agent 编排 / 委派（全局开关在 设置→Agent） | `personal/chat/PersonalProcessPanel.tsx`、`personal/settings/SettingsMenu.tsx` | `store/personal.ts`（GeneralSettings.subagentOrchestration,缺省开） | `ipc/orchestrate.ts`、`capabilities/delegate/` |
 | Agent 追踪窗口 | `personal/chat/AgentTracePanel.tsx` | — | `ipc/agent-trace.ts`、`agent-trace-window.ts` |
@@ -58,6 +65,7 @@
 | 自动化（定时任务） | `personal/automation/`（`AutomationView.tsx`、`Automation*.tsx`） | `personal/automation.ts` | `automation/`（scheduler/runner/store） |
 | Loop 工作流 | `personal/workflow/`（`WorkflowView.tsx`、`WorkflowCanvas.tsx`、节点表单 `node-config/`） | `personal/workflow.ts` | `workflow/`（DSL/scheduler/webhook）、`capabilities/loop-workflows/` |
 | 推送（企微/钉钉/飞书/邮件） | 设置分区 | `personal/push.ts` | `ipc/push.ts` |
+| **消息中心 / 消息提醒 / 侧栏铃铛**（持久化历史，60 天过期 + 500 条上限） | `personal/layout/NotificationBell.tsx`（铃铛 + 列表 popover）、`personal/layout/SidebarUserBar.tsx`（承载它的底部用户行） | `desktop/types.ts` 的 `NotificationRecord`（与 main 逐字镜像）、`desktop/bridge.ts` 的 `notificationCenter*` | `ipc/notification-center.ts`（IPC + 广播 + 内部写入口 `recordNotification`）、`ipc/notification-center-store.ts`（存储核心，可单测）。**埋点方**：`automation/runner.ts`（收尾，无条件记录，不受 opt-in 推送渠道约束）、`workflow/events.ts`（广播 end 时统一记）、`ipc/tasks.ts`（提醒投递）、`ipc/update.ts`（进入 available，按版本 dedupe） |
 | 桌面宠物 | `pet/`（状态机 + sprite） | `store/pet.ts` | `ipc/pet.ts`、`pet-overlay-window.ts` |
 | 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/settings/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts` |
 | Spotlight 浮动框 / 全局热键 | renderer `src/spotlight.tsx` | `personal/spotlightHandoff.ts` | `ipc/spotlight.ts`、`hotkey.ts` |
@@ -77,7 +85,7 @@
 | 归档会话 | `personal/sessions/ArchivedSessionsSection.tsx` | `store/archivedSessions.ts` | — |
 | 在编辑器打开（VS Code 等） | — | — | `ipc/editors.ts` |
 | 应用更新 | `UpdateButton.tsx`、`UpdateDialog.tsx` | `desktop/useUpdateState.ts` | `ipc/update.ts` |
-| 通知卡片 | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
+| 通知卡片（**瞬态**弹窗，看完即弃；要找可回溯的历史见上面「消息中心」） | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
 | 设置（个人工作区整页） | `personal/settings/SettingsMenu.tsx` + 各 `*SettingsSection.tsx` | `store/personal.ts` | `ipc/store.ts`（持久化总仓） |
 | 团队工作区（issue/智能体/用量看板） | `CortexDesktopView.tsx`、`Sections.tsx`、`Sidebar.tsx`、`ChatArea.tsx` | `cortex/`、`mock/`、`api/`、`live/` | — |
 | 外观 Tweaks（主题/字号/密度） | `useTweaksPersistence.ts` | `store/ui.ts`（`DEFAULT_TWEAKS`，不在 ui 包！） | — |

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
 import {
+  AGENT_LABEL_SHORT,
   AGENT_MODELS,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_SETTINGS,
@@ -26,8 +27,6 @@ function makeId(): string {
   nextId += 1;
   return `spot-${Date.now().toString(36)}-${nextId}`;
 }
-
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
 
 export function SpotlightBar(): React.ReactElement {
   const { t } = useTranslation("spotlight");
@@ -186,7 +185,7 @@ export function SpotlightBar(): React.ReactElement {
             >
               {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => (
                 <option key={a} value={a} disabled={a !== "pi" && avail[a] === false}>
-                  {AGENT_LABEL[a]}
+                  {AGENT_LABEL_SHORT[a]}
                   {a !== "pi" && avail[a] === false ? t("notInstalled") : ""}
                 </option>
               ))}
