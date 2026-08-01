@@ -296,6 +296,80 @@ describe("generateSpeech", () => {
     expect(result.files[0].mimeType).toBe("audio/mpeg");
   });
 
+  it("minimax-t2a 协议路由到 MiniMax t2a_v2（hex 响应）", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        data: { audio: Buffer.from("t2a-audio").toString("hex") },
+      }),
+    });
+
+    const result = await generateSpeech(
+      { prompt: "你好", voice: "Wise_Woman" },
+      { ...makeSpeechConfig(), protocol: "minimax-t2a", baseUrl: "https://api.minimax.chat", model: "speech-01" },
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/t2a_v2");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // config+入参消费：voice 进 voice_setting、format 进 audio_setting
+    expect((body.voice_setting as Record<string, unknown>).voice_id).toBe("Wise_Woman");
+    expect((body.audio_setting as Record<string, unknown>).format).toBe("mp3");
+    expect(result.files[0].relativePath).toMatch(/^\.cortex\/media\/speech\//);
+  });
+
+  it("mimo-tts 协议路由到 MiMo chat/completions（不再误走 minimax t2a）", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { audio: { data: Buffer.from("mimo-audio").toString("base64") } } }],
+      }),
+    });
+
+    const result = await generateSpeech(
+      { prompt: "读一下", style: "轻快语气" },
+      { ...makeSpeechConfig(), protocol: "mimo-tts", baseUrl: "https://api.mimo.example", model: "mimo-audio" },
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    // 路由修复断言：走 chat/completions 而非 t2a_v2
+    expect(url).toContain("/v1/chat/completions");
+    expect(url).not.toContain("t2a");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // style 以 user 消息形式在前，text 为 assistant 消息
+    expect(body.messages).toEqual([
+      { role: "user", content: "轻快语气" },
+      { role: "assistant", content: "读一下" },
+    ]);
+    expect(result.files[0].relativePath).toMatch(/^\.cortex\/media\/speech\//);
+  });
+
+  it("config.voice 作为默认音色被消费（入参 voice 缺省时）", async () => {
+    const mockBody = {
+      getReader: () => ({
+        read: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: new Uint8Array(Buffer.from("a")) })
+          .mockResolvedValueOnce({ done: true, value: undefined }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn(),
+      }),
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, body: mockBody });
+
+    await generateSpeech(
+      { prompt: "Hello" }, // 无 args.voice → 用 config.voice ("alloy")
+      makeSpeechConfig(),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.voice).toBe("alloy");
+  });
+
   it("不支持的协议抛出错误", async () => {
     await expect(
       generateSpeech(
@@ -310,8 +384,9 @@ describe("generateSpeech", () => {
 // ── generateMusic ─────────────────────────────────────────────────────────────
 
 describe("generateMusic", () => {
-  it("成功生成音乐，产物落盘 .cortex/media/music/", async () => {
-    const fakeAudio = Buffer.from("music-content").toString("base64");
+  it("成功生成音乐（hex 响应），产物落盘 .cortex/media/music/", async () => {
+    // 对齐 Kun 后 output_format:'hex'，data.audio 为 hex 字符串
+    const fakeAudio = Buffer.from("music-content").toString("hex");
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -327,6 +402,35 @@ describe("generateMusic", () => {
     );
 
     expect(result.files[0].relativePath).toMatch(/^\.cortex\/media\/music\//);
+  });
+
+  it("音乐新字段透传：instrumental/lyricsOptimizer/referenceAudioUrl 进载荷", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        data: { audio: Buffer.from("x").toString("hex") },
+      }),
+    });
+
+    await generateMusic(
+      {
+        prompt: "epic score",
+        instrumental: true,
+        lyricsOptimizer: false,
+        referenceAudioUrl: "https://example.com/ref.mp3",
+      },
+      makeMusicConfig(),
+      { workspaceRoot: WORKSPACE },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.output_format).toBe("hex");
+    expect(body.is_instrumental).toBe(true);
+    expect(body.lyrics_optimizer).toBe(false);
+    expect(body.audio_url).toBe("https://example.com/ref.mp3");
+    expect(body.audio_setting).toEqual({ format: "mp3", sample_rate: 44_100, bitrate: 256_000 });
   });
 
   it("不支持的协议抛出错误", async () => {
