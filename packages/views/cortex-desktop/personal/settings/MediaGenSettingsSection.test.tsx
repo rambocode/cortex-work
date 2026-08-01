@@ -1,24 +1,44 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+// 媒体生成设置分区测试（拆分为 media-gen/ 子目录后的壳 + 四卡集成回归）。
+//
+// 数据源已从旧 providerSettings.providers 切换到 core 的 MEDIA_PROVIDER_DIRECTORY，
+// 认证态经 useProviderAuth 取主进程快照——测试用假 desktopBridge 注入
+// providerAuthStatus / providerAuthSetSecrets（与 ProviderManager.test.tsx 同款做法）。
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoreProvider, usePersonalStore } from "@cortex-work/core";
-import type { ProviderProfile } from "@cortex-work/core";
-import type { ImageGenSettings } from "@cortex-work/core/desktop/types";
+import type { DesktopBridge } from "@cortex-work/core";
+import type {
+  ImageGenSettings,
+  VideoGenSettings,
+} from "@cortex-work/core/desktop/types";
+import type { ProviderAuthStatus } from "@cortex-work/core/desktop/provider-catalog";
 
 import { MediaGenSettingsSection } from "./MediaGenSettingsSection";
 
-// ── 辅助函数 ────────────────────────────────────────────────────────────────
+// ── 辅助 ────────────────────────────────────────────────────────────────────
 
-function renderUI(ui: ReactElement) {
+function makeBridge(o: { statuses?: ProviderAuthStatus[]; storageAvailable?: boolean } = {}): DesktopBridge {
+  return {
+    providerAuthStatus: vi.fn(async () => ({
+      statuses: o.statuses ?? [],
+      health: o.storageAvailable === false ? { available: false, reason: "safeStorage 缺失" } : { available: true },
+      hiddenProviderIds: [],
+    })),
+    providerAuthSetSecrets: vi.fn(async () => ({ ok: true })),
+  } as unknown as DesktopBridge;
+}
+
+function renderUI(ui: ReactElement, bridge: DesktopBridge | null = makeBridge()) {
   return render(
-    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={null}>
+    <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
       {ui}
     </CoreProvider>,
   );
 }
 
-/** 设置 image 子区状态 */
 function setImageState(patch: Partial<ImageGenSettings>) {
   usePersonalStore.setState((s) => ({
     mediaGenSettings: {
@@ -28,64 +48,48 @@ function setImageState(patch: Partial<ImageGenSettings>) {
   }));
 }
 
-/** 设置 speech 子区 enabled */
-function setSpeechEnabled(enabled: boolean) {
+function setVideoState(patch: Partial<VideoGenSettings>) {
   usePersonalStore.setState((s) => ({
     mediaGenSettings: {
       ...s.mediaGenSettings,
-      speech: { ...s.mediaGenSettings.speech, enabled },
+      video: { ...s.mediaGenSettings.video, ...patch },
     },
   }));
 }
 
-/** 注入已配置供应商 */
-function setProviders(providers: ProviderProfile[]) {
-  usePersonalStore.setState((s) => ({
-    providerSettings: { ...s.providerSettings, providers },
-  }));
+/** 找到「包含指定 option 文本」的 select（页面上 combobox 很多，按内容定位）。*/
+function selectWithOption(optionText: string): HTMLSelectElement {
+  const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+  const found = selects.find((sel) =>
+    Array.from(sel.querySelectorAll("option")).some((opt) => opt.textContent === optionText),
+  );
+  if (!found) throw new Error(`select containing option "${optionText}" not found`);
+  return found;
 }
-
-const fakeProvider: ProviderProfile = {
-  id: "test-provider",
-  name: "TestProvider",
-  baseUrl: "https://api.example.com",
-  apiKey: "sk-test",
-  endpointFormat: "chat_completions",
-  models: [],
-  enabled: true,
-};
 
 // ── 测试套件 ────────────────────────────────────────────────────────────────
 
-describe("MediaGenSettingsSection（U3）", () => {
+describe("MediaGenSettingsSection（拆分后）", () => {
   beforeEach(() => {
-    // 每次测试前重置为默认值（all disabled, custom provider）
     usePersonalStore.setState((s) => ({
       mediaGenSettings: {
-        image: { ...s.mediaGenSettings.image, enabled: false, providerId: "", apiKey: "", baseUrl: "" },
+        image: { ...s.mediaGenSettings.image, enabled: false, providerId: "", apiKey: "", baseUrl: "", model: "", protocol: "openai-images", defaultResolution: "1K", defaultSize: "" },
         speech: { ...s.mediaGenSettings.speech, enabled: false, providerId: "", apiKey: "", baseUrl: "" },
         music: { ...s.mediaGenSettings.music, enabled: false, providerId: "", apiKey: "", baseUrl: "" },
-        video: { ...s.mediaGenSettings.video, enabled: false, providerId: "", apiKey: "", baseUrl: "" },
+        video: { ...s.mediaGenSettings.video, enabled: false, providerId: "", apiKey: "", baseUrl: "", protocol: "minimax-video", defaultResolution: "1080P", defaultDuration: 6 },
       },
-      providerSettings: { providers: [] },
+      settingsTab: undefined,
     }));
   });
+  afterEach(cleanup);
 
-  // ── 开关隐藏/显示详细字段 ────────────────────────────────────────────────
+  // ── 开关显隐 ─────────────────────────────────────────────────────────────
 
   it("图片模态关闭时隐藏详细字段", () => {
     setImageState({ enabled: false });
     renderUI(<MediaGenSettingsSection />);
-    // 供应商行不可见
     expect(screen.queryByText("供应商")).toBeNull();
-    // 模型 placeholder 不可见
     expect(screen.queryByPlaceholderText("如 dall-e-3")).toBeNull();
-  });
-
-  it("图片模态开启时显示详细字段", () => {
-    setImageState({ enabled: true });
-    renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("供应商")).toBeInTheDocument();
   });
 
   it("点击图片启用开关写入 store", () => {
@@ -95,96 +99,195 @@ describe("MediaGenSettingsSection（U3）", () => {
     expect(usePersonalStore.getState().mediaGenSettings.image.enabled).toBe(true);
   });
 
-  it("关闭语音模态时隐藏语音详细字段", () => {
-    setSpeechEnabled(false);
+  it("始终渲染总览说明卡", () => {
     renderUI(<MediaGenSettingsSection />);
-    expect(screen.queryByText("语音角色")).toBeNull();
+    expect(screen.getByText("总览")).toBeInTheDocument();
   });
 
-  it("开启语音模态时显示语音角色字段", () => {
-    setSpeechEnabled(true);
-    renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("语音角色")).toBeInTheDocument();
-  });
+  // ── 供应商下拉 = 媒体供应商目录 ──────────────────────────────────────────
 
-  // ── 供应商选择联动 ────────────────────────────────────────────────────────
-
-  it("无已配置供应商时下拉只有「自定义」", () => {
-    setProviders([]);
+  it("图片供应商下拉列出目录条目 + 自定义", () => {
     setImageState({ enabled: true });
     renderUI(<MediaGenSettingsSection />);
-    // 图片区的第一个 select 是供应商下拉
-    const selects = screen.getAllByRole("combobox");
-    const providerSelect = selects[0] as HTMLSelectElement;
-    const options = Array.from(providerSelect.querySelectorAll("option"));
-    expect(options).toHaveLength(1);
-    expect(options[0]?.textContent).toBe("自定义");
+    const providerSelect = selectWithOption("自定义");
+    const labels = Array.from(providerSelect.querySelectorAll("option")).map((o) => o.textContent);
+    // 目录 image 能力：minimax / minimax-cn / xai / volcengine（xiaomi 无 image 能力不出现）
+    expect(labels).toEqual([
+      "MiniMax",
+      "MiniMax（中国）",
+      "xAI（Grok Imagine）",
+      "火山方舟（Volcengine Ark）",
+      "自定义",
+    ]);
   });
 
-  it("有已配置供应商时下拉包含供应商 + 自定义", () => {
-    setProviders([fakeProvider]);
-    setImageState({ enabled: true });
+  it("选目录供应商写 providerId 并同步 protocol/model,隐藏协议/baseUrl/apiKey 三行", () => {
+    setImageState({ enabled: true, providerId: "", model: "my-custom-model" });
     renderUI(<MediaGenSettingsSection />);
-    const selects = screen.getAllByRole("combobox");
-    const providerSelect = selects[0] as HTMLSelectElement;
-    const options = Array.from(providerSelect.querySelectorAll("option"));
-    expect(options).toHaveLength(2);
-    expect(options[0]?.textContent).toBe("TestProvider");
-    expect(options[1]?.textContent).toBe("自定义");
+    const providerSelect = selectWithOption("自定义");
+    fireEvent.change(providerSelect, { target: { value: "minimax" } });
+
+    const image = usePersonalStore.getState().mediaGenSettings.image;
+    expect(image.providerId).toBe("minimax");
+    expect(image.protocol).toBe("minimax-image");
+    // 自定义模型名不在目录列表 → 同步为目录首个模型（resolve 主进程侧以 settings.model 优先）
+    expect(image.model).toBe("image-01");
   });
 
-  it("选「自定义」时显示协议/baseUrl/密钥字段", () => {
-    setImageState({ enabled: true, providerId: "" });
+  it("目录态隐藏协议/API 地址/API 密钥三行,模型变下拉", () => {
+    setImageState({ enabled: true, providerId: "minimax", protocol: "minimax-image", model: "image-01" });
     renderUI(<MediaGenSettingsSection />);
-    // providerId 为空 = 自定义，应显示 baseUrl 输入 + SecretField
-    expect(screen.getByText("API 地址")).toBeInTheDocument();
-    expect(screen.getByText("API 密钥")).toBeInTheDocument();
-  });
-
-  it("选已配置供应商时隐藏 key/baseUrl 行，显示「使用 X 密钥」提示", () => {
-    setProviders([fakeProvider]);
-    setImageState({ enabled: true, providerId: "test-provider" });
-    renderUI(<MediaGenSettingsSection />);
-    // 不显示 API 地址行和 API 密钥行
+    expect(screen.queryByText("协议")).toBeNull();
     expect(screen.queryByText("API 地址")).toBeNull();
     expect(screen.queryByText("API 密钥")).toBeNull();
-    // 显示「使用 X 的密钥」提示
-    expect(screen.getByText("使用 TestProvider 的密钥")).toBeInTheDocument();
+    // 模型下拉包含目录模型
+    const modelSelect = selectWithOption("image-01-live");
+    expect(modelSelect).toBeInTheDocument();
   });
 
-  it("切换供应商到「自定义」时写入 store providerId=custom 并保留自填值不清空", () => {
-    setProviders([fakeProvider]);
+  it("切换供应商不清空自填 baseUrl/apiKey（Kun bug 不搬）", () => {
     setImageState({
       enabled: true,
-      providerId: "test-provider",
-      apiKey: "my-own-key",
+      providerId: "",
+      apiKey: "${secret:media.image.custom}",
       baseUrl: "https://my-endpoint.com",
     });
     renderUI(<MediaGenSettingsSection />);
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0] as HTMLElement, { target: { value: "custom" } });
-    // store 更新为 custom，自填值保留
-    const imageState = usePersonalStore.getState().mediaGenSettings.image;
-    expect(imageState.providerId).toBe("custom");
-    expect(imageState.apiKey).toBe("my-own-key");
-    expect(imageState.baseUrl).toBe("https://my-endpoint.com");
+    const providerSelect = selectWithOption("自定义");
+    fireEvent.change(providerSelect, { target: { value: "minimax" } });
+    let image = usePersonalStore.getState().mediaGenSettings.image;
+    expect(image.apiKey).toBe("${secret:media.image.custom}");
+    expect(image.baseUrl).toBe("https://my-endpoint.com");
+    // 切回自定义仍保留
+    fireEvent.change(providerSelect, { target: { value: "custom" } });
+    image = usePersonalStore.getState().mediaGenSettings.image;
+    expect(image.providerId).toBe("custom");
+    expect(image.apiKey).toBe("${secret:media.image.custom}");
+    expect(image.baseUrl).toBe("https://my-endpoint.com");
   });
 
-  // ── 协议切换 ──────────────────────────────────────────────────────────────
+  // ── 配置状态提示 ─────────────────────────────────────────────────────────
 
-  it("切换图片协议 OpenAI Images → MiniMax 后 store 更新", () => {
+  it("catalog 型未配置密钥 → 黄色警示 + 跳转 Provider 设置", async () => {
+    setImageState({ enabled: true, providerId: "minimax", protocol: "minimax-image", model: "image-01" });
+    renderUI(<MediaGenSettingsSection />, makeBridge({ statuses: [] }));
+    expect(await screen.findByText("「MiniMax」尚未配置密钥,媒体生成调用会失败。")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("前往 Provider 设置"));
+    // 经既有 settingsTab 导航跳到 Pi 分区（Provider 管理并入 Pi）
+    expect(usePersonalStore.getState().settingsTab).toBe("pi");
+  });
+
+  it("catalog 型已配置 API Key → 灰字托管提示", async () => {
+    setImageState({ enabled: true, providerId: "minimax", protocol: "minimax-image", model: "image-01" });
+    renderUI(
+      <MediaGenSettingsSection />,
+      makeBridge({ statuses: [{ providerId: "minimax", configured: true, type: "api-key", source: "safe-storage" }] }),
+    );
+    expect(await screen.findByText("使用 MiniMax 的密钥（已在 Provider 设置配置）")).toBeInTheDocument();
+  });
+
+  it("catalog 型 OAuth 凭据 → 提示改配 API Key", async () => {
+    setImageState({ enabled: true, providerId: "minimax", protocol: "minimax-image", model: "image-01" });
+    renderUI(
+      <MediaGenSettingsSection />,
+      makeBridge({ statuses: [{ providerId: "minimax", configured: true, type: "oauth", source: "safe-storage" }] }),
+    );
+    expect(
+      await screen.findByText("媒体生成暂不支持 OAuth 登录的密钥,请在 Provider 设置改配 API Key。"),
+    ).toBeInTheDocument();
+  });
+
+  it("standalone 型（volcengine）→ 内联密钥字段,无协议/API 地址行", () => {
+    setImageState({ enabled: true, providerId: "volcengine", protocol: "volcengine-ark-image", model: "doubao-seedream-5-0-pro-260628" });
+    renderUI(<MediaGenSettingsSection />);
+    // 内联 MediaSecretKeyField（API 密钥行存在）,但协议/API 地址仍隐藏
+    expect(screen.getByText("API 密钥")).toBeInTheDocument();
+    expect(screen.queryByText("协议")).toBeNull();
+    expect(screen.queryByText("API 地址")).toBeNull();
+  });
+
+  // ── 图片动态选项 ─────────────────────────────────────────────────────────
+
+  it("图片分辨率档位:volcengine → 2K/3K/4K,其余 → 自动/1K/2K", () => {
+    setImageState({ enabled: true, providerId: "volcengine", protocol: "volcengine-ark-image", model: "doubao-seedream-5-0-pro-260628", defaultResolution: "1K" });
+    renderUI(<MediaGenSettingsSection />);
+    const resolutionSelect = selectWithOption("3K");
+    const values = Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    expect(values).toEqual(["2K", "3K", "4K"]);
+    // 当前值 1K 不在火山档位 → 显示档位首项 2K（effective 值,不静默写回 store）
+    expect(resolutionSelect.value).toBe("2K");
+    expect(usePersonalStore.getState().mediaGenSettings.image.defaultResolution).toBe("1K");
+  });
+
+  it("图片画质下拉写入 store", () => {
     setImageState({ enabled: true, providerId: "" });
     renderUI(<MediaGenSettingsSection />);
-    // 初始协议 openai-images
-    expect(usePersonalStore.getState().mediaGenSettings.image.protocol).toBe("openai-images");
-    // 供应商下拉 + 协议下拉（自定义时才出现）
-    const selects = screen.getAllByRole("combobox");
-    // selects[0] = 供应商, selects[1] = 协议
-    fireEvent.change(selects[1] as HTMLElement, { target: { value: "minimax-image" } });
-    expect(usePersonalStore.getState().mediaGenSettings.image.protocol).toBe("minimax-image");
+    const qualitySelect = selectWithOption("高");
+    fireEvent.change(qualitySelect, { target: { value: "high" } });
+    expect(usePersonalStore.getState().mediaGenSettings.image.quality).toBe("high");
   });
 
-  // ── 编辑字段写 store ─────────────────────────────────────────────────────
+  it("defaultSize 非法输入红框且不写入 store,合法输入写入", () => {
+    setImageState({ enabled: true, providerId: "", defaultSize: "" });
+    renderUI(<MediaGenSettingsSection />);
+    const sizeInput = screen.getByPlaceholderText("如 1024x1024");
+    fireEvent.change(sizeInput, { target: { value: "abc" } });
+    expect(sizeInput).toHaveAttribute("aria-invalid", "true");
+    expect(usePersonalStore.getState().mediaGenSettings.image.defaultSize).toBe("");
+    fireEvent.change(sizeInput, { target: { value: "1024x1024" } });
+    expect(sizeInput).toHaveAttribute("aria-invalid", "false");
+    expect(usePersonalStore.getState().mediaGenSettings.image.defaultSize).toBe("1024x1024");
+  });
+
+  // ── 视频按协议动态档位 ───────────────────────────────────────────────────
+
+  it("视频 minimax 协议:分辨率 768P/1080P,时长为 number 输入", () => {
+    setVideoState({ enabled: true, providerId: "minimax", protocol: "minimax-video", model: "MiniMax-Hailuo-2.3" });
+    renderUI(<MediaGenSettingsSection />);
+    const resolutionSelect = selectWithOption("768P");
+    const values = Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    expect(values).toEqual(["768P", "1080P"]);
+    // number 输入存在（min=1 max=30）
+    const durationInput = document.querySelector('input[type="number"][min="1"][max="30"]');
+    expect(durationInput).not.toBeNull();
+  });
+
+  it("视频 grok 协议:分辨率 480P/720P,时长变 6s/10s select,值不在档位回落默认", () => {
+    // 当前 1080P/8s 都不在 grok 档位 → 显示 720P（回落默认）与 6s
+    setVideoState({ enabled: true, providerId: "xai", protocol: "grok-imagine-video", model: "grok-imagine-video", defaultResolution: "1080P", defaultDuration: 8 });
+    renderUI(<MediaGenSettingsSection />);
+    const resolutionSelect = selectWithOption("480P");
+    expect(Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"))).toEqual(["480P", "720P"]);
+    expect(resolutionSelect.value).toBe("720P");
+    const durationSelect = selectWithOption("6s");
+    expect(Array.from(durationSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"))).toEqual(["6", "10"]);
+    expect(durationSelect.value).toBe("6");
+    fireEvent.change(durationSelect, { target: { value: "10" } });
+    expect(usePersonalStore.getState().mediaGenSettings.video.defaultDuration).toBe(10);
+  });
+
+  it("视频 volcengine 协议:分辨率含 4K,时长 number 4-15", () => {
+    setVideoState({ enabled: true, providerId: "volcengine", protocol: "volcengine-ark-video", model: "doubao-seedance-2-0-260128" });
+    renderUI(<MediaGenSettingsSection />);
+    const resolutionSelect = selectWithOption("4K");
+    expect(Array.from(resolutionSelect.querySelectorAll("option")).map((o) => o.getAttribute("value"))).toEqual(["480P", "720P", "1080P", "4K"]);
+    const durationInput = document.querySelector('input[type="number"][min="4"][max="15"]');
+    expect(durationInput).not.toBeNull();
+  });
+
+  // ── 自定义态 ─────────────────────────────────────────────────────────────
+
+  it("自定义态显示协议下拉（i18n 查表标签）与 baseUrl/密钥行", () => {
+    setImageState({ enabled: true, providerId: "" });
+    renderUI(<MediaGenSettingsSection />);
+    expect(screen.getByText("协议")).toBeInTheDocument();
+    expect(screen.getByText("API 地址")).toBeInTheDocument();
+    expect(screen.getByText("API 密钥")).toBeInTheDocument();
+    // 协议标签查 i18n 表（含新协议）
+    const protocolSelect = selectWithOption("Grok Imagine 图像");
+    fireEvent.change(protocolSelect, { target: { value: "volcengine-ark-image" } });
+    expect(usePersonalStore.getState().mediaGenSettings.image.protocol).toBe("volcengine-ark-image");
+  });
 
   it("编辑图片 baseUrl 写入 store", () => {
     setImageState({ enabled: true, providerId: "" });
@@ -195,49 +298,11 @@ describe("MediaGenSettingsSection（U3）", () => {
     expect(usePersonalStore.getState().mediaGenSettings.image.baseUrl).toBe("https://custom-api.com");
   });
 
-  it("编辑图片模型输入写入 store", () => {
-    setImageState({ enabled: true });
+  it("编辑图片模型输入写入 store（自定义态）", () => {
+    setImageState({ enabled: true, providerId: "" });
     renderUI(<MediaGenSettingsSection />);
     const modelInput = screen.getByPlaceholderText("如 dall-e-3");
     fireEvent.change(modelInput, { target: { value: "dall-e-3" } });
     expect(usePersonalStore.getState().mediaGenSettings.image.model).toBe("dall-e-3");
-  });
-
-  // ── SecretField 显隐 ──────────────────────────────────────────────────────
-
-  it("SecretField 默认遮蔽（password 类型），点击「显示」切换为明文", () => {
-    setImageState({ enabled: true, providerId: "" });
-    renderUI(<MediaGenSettingsSection />);
-    // 密钥输入默认为 password 类型
-    const secretInputs = document.querySelectorAll('input[type="password"]');
-    expect(secretInputs.length).toBeGreaterThan(0);
-    // 点击显示按钮（SecretField 内的「显示」按钮）
-    const showBtns = screen.getAllByText("显示");
-    fireEvent.click(showBtns[0] as HTMLElement);
-    // 切换后该 input 变为 text 类型（密钥已明文）
-    const textInputs = document.querySelectorAll('input[type="text"]');
-    expect(textInputs.length).toBeGreaterThan(0);
-  });
-
-  // ── 视频子区特有字段 ─────────────────────────────────────────────────────
-
-  it("视频模态开启时显示时长/分辨率/轮询间隔字段", () => {
-    usePersonalStore.setState((s) => ({
-      mediaGenSettings: {
-        ...s.mediaGenSettings,
-        video: { ...s.mediaGenSettings.video, enabled: true },
-      },
-    }));
-    renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("默认时长（秒）")).toBeInTheDocument();
-    expect(screen.getByText("默认分辨率")).toBeInTheDocument();
-    expect(screen.getByText("轮询间隔（ms）")).toBeInTheDocument();
-  });
-
-  // ── 总览说明卡 ────────────────────────────────────────────────────────────
-
-  it("始终渲染总览说明卡", () => {
-    renderUI(<MediaGenSettingsSection />);
-    expect(screen.getByText("总览")).toBeInTheDocument();
   });
 });
