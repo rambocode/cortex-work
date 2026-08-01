@@ -16,6 +16,7 @@ import { safeId } from "../agents/pi-providers";
 import type { PiProviderInput } from "../ipc/types";
 import { getProviderCatalog } from "./catalog";
 import { readStoredCredential } from "./credentials";
+import { syncOAuthWithPiNativeStore } from "./pi-native-auth";
 import { getBaseUrlOverride } from "./prefs";
 
 /**
@@ -33,9 +34,14 @@ export async function resolvePiProviderInput(providerId: string): Promise<PiProv
   // 会把它当内建处理（同样不下发 models），最坏结果是 pi 侧报一次响亮的「provider 未知」。
   if (!catalogProvider && getProviderCatalog()) return undefined;
 
+  // spawn 出去的 pi 二进制只认 ~/.pi/agent/auth.json（读不到主进程金库）：spawn 前按新鲜度
+  // 对齐两边的 OAuth 凭据，否则会话会拿着 CLI 时代的旧 token 请求（deactivated_workspace 事故）。
+  // 同步失败不拦 spawn（内部已吞错），最坏回到「会话报未登录」的响亮失败。
+  await syncOAuthWithPiNativeStore(id);
+
   const credential = await readStoredCredential(id);
-  // 只有 api-key 型凭据需要经环境变量注入；OAuth 凭据由 pi 自己从金库（CredentialStore）取，
-  // 这里不碰、也不该把 token 塞进 argv/env。
+  // 只有 api-key 型凭据需要经环境变量注入；OAuth 凭据由 spawn 的 pi 从 auth.json（上面刚同步）
+  // 取，这里不碰、也不该把 token 塞进 argv/env。
   const apiKey = credential?.type === "api_key" ? credential.key : undefined;
 
   return {

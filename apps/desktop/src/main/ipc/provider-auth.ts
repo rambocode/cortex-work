@@ -39,6 +39,7 @@ import {
 } from "../providers/custom-providers";
 import { createLoginController } from "../providers/oauth";
 import type { LoginController } from "../providers/oauth";
+import { removeFromPiNativeStore, syncOAuthWithPiNativeStore } from "../providers/pi-native-auth";
 import { getPiAuthRuntime, primePiRuntime } from "../providers/pi-runtime";
 import {
   getBaseUrlOverride,
@@ -59,6 +60,11 @@ const ENV_LABEL_RE = /^[A-Z][A-Z0-9_]*$/;
 
 /** 推给所有窗口：设置页可能开在主窗口，也可能开在二级窗口，按 requestId 分发由 renderer 负责。 */
 function emitAuthEvent(event: ProviderAuthEvent): void {
+  // OAuth 登录一完成就把新凭据推到 pi 二进制的 auth.json（spawn 的会话只认那份文件）。
+  // spawn 前的 resolvePiProviderInput 还会再同步一次，这里是让「登录完立刻发消息」也拿到新 token。
+  if (event.type === "done" && event.status.configured && event.status.type === "oauth") {
+    void syncOAuthWithPiNativeStore(event.providerId);
+  }
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(PROVIDER_IPC.authEvent, event);
   }
@@ -208,6 +214,9 @@ export function registerProviderAuthHandlers(): void {
         .catch(() => undefined);
       // 无条件再删一次金库：delete 幂等，这样即便 pi 侧实现变化，Cortex 自己保存的凭据一定被清掉。
       await deleteStoredCredential(providerId);
+      // 同时清掉 pi 二进制 auth.json 里的条目：不清的话旧 token 会在下一次会话 spawn 时复活
+      //（spawn 侧同步「金库为空不删文件」是为保护纯 CLI 登录态，注销必须在这里显式清）。
+      await removeFromPiNativeStore(providerId);
       emitAuthEvent({ type: "done", providerId, status: await resolveProviderStatus(providerId) });
       return { ok: true };
     } catch (err) {
