@@ -5033,6 +5033,10 @@ button.sb-row {
   right: auto;
   bottom: auto;
   min-width: 180px;
+  /* 宽度上限:长模型名（"GPT-5.3 Codex Spark"）会把 min-width 撑到 230px+，
+     在窄栏里直接顶出窗口。有了上限，下面 .pw-mt-models 的省略号截断才真正生效
+     —— 没有 max-width 时容器跟着内容长，截断永远不触发。 */
+  max-width: min(260px, 46vw);
   background: var(--bg-app);
   z-index: 210;
 }

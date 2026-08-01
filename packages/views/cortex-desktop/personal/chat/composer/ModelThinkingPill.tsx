@@ -1,13 +1,13 @@
 // agent(可选)+ 模型 + 推理强度合并为单个 pill(效果图 Image #3),减少 composer 底部占用。
 // 触发器紧凑显示「[agent 头像] <模型> <推理短标签> ▾」;菜单默认向下弹出(底部空间不足自动
-// 翻上,见 useAutoFlipUp)为级联面板:一级是 Agent(可选)/ 模型 / 推理三行(标签 + 当前值 + ›),
+// 翻上,见 useOverflowSafePlacement)为级联面板:一级是 Agent(可选)/ 模型 / 推理三行(标签 + 当前值 + ›),
 // 鼠标悬停(或点击)行即在右侧展开该维度的二级 flyout(右侧不足自动翻左)——不点下钻、不原地换层。
 // agent 维度 opt-in:落地页 composer 传 onSwitchAgent 才有 Agent 行与头像;会话内/写作栏不传
 // 时退化为「模型 + 推理」两行(触发器用 lightning 图标),行为与旧版一致。
 // agent 列表/门控/选中态规则与 AgentSelect 单一同源(见下方 agentList 注释),两处不漂移。
 // 兼容两类 agent:claude/codex 走 models/model/onChangeModel;pi 走 piModelOptions/piModelValue/onChangePiModel。
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -15,7 +15,7 @@ import type { AgentKind, AgentThinkingValue, DerivedAgentMeta } from "@cortex-wo
 import { agentDisplayAvatar, agentDisplayLabel } from "../agentMeta";
 import { AgentMenuItems } from "../AgentMenuItems";
 import { useDismissableMenu } from "../../shared/useDismissableMenu";
-import { useAutoFlipUp } from "../../shared/useAutoFlipUp";
+import { useOverflowSafePlacement } from "../../shared/useOverflowSafePlacement";
 
 interface Opt {
   value: string;
@@ -74,48 +74,17 @@ export function ModelThinkingPill({
 }) {
   const { t } = useTranslation("chat");
   const menu = useDismissableMenu();
-  // 垂直方向默认下弹,底部空间不足(历史会话页 composer 贴底)自动翻上。
-  const flip = useAutoFlipUp(menu.open);
   const [openSub, setOpenSub] = useState<Sub | null>(null);
-  // 二级 flyout 默认右开、与所属行顶部对齐;实测溢出视口时分别翻左 / 翻成底对齐
-  //（见下方 layoutEffect）。两个维度独立:窄栏里可能同时翻左又翻上。
-  const [flipLeft, setFlipLeft] = useState(false);
-  const [subFlipUp, setSubFlipUp] = useState(false);
-  const subRef = useRef<HTMLDivElement>(null);
-  // 一级面板默认与 pill 左缘对齐向右展开;窄容器里(写作助手栏 ~370px,pill 又贴右)
-  // 会越过视口右缘,故同样实测后改为右对齐。中栏 composer 宽,平时不会触发。
-  const [menuFlipRight, setMenuFlipRight] = useState(false);
+  // 二级 flyout 与一级面板都走同一套「先翻转、翻不动就钳回视口」的避让
+  //（useOverflowSafePlacement）。此前是各写一段只翻转的 layoutEffect，
+  // 但窄栏里两侧都不够时翻转失效，用户反复反馈「模型选择右侧显示不全」。
+  const subPlace = useOverflowSafePlacement(!!openSub);
+  const menuPlace = useOverflowSafePlacement(menu.open);
 
   // 主菜单关闭时复位二级展开态,避免下次打开残留在上次的 flyout。
   useEffect(() => {
     if (!menu.open) setOpenSub(null);
   }, [menu.open]);
-
-  // 一级面板展开后在绘制前测量右缘;溢出即翻成右对齐(与 flyout 同款「同帧改类、无闪烁」手法)。
-  useLayoutEffect(() => {
-    if (!menu.open) {
-      setMenuFlipRight(false);
-      return;
-    }
-    const el = flip.menuRef.current;
-    setMenuFlipRight(!!el && el.getBoundingClientRect().right > window.innerWidth - 8);
-  }, [menu.open, flip.menuRef]);
-
-  // flyout 每次展开后在绘制前测量(留 8px 余量),同帧改类无可见闪烁;收起/切换行时复位。
-  // 两个方向都要测:「推理」有 5 档,从行顶向下展开时底部很容易被窗口下边缘裁掉
-  //（写作助手栏贴底,用户实测「低」档只剩半行）——那时改为与行底部对齐向上铺。
-  useLayoutEffect(() => {
-    if (!openSub) {
-      setFlipLeft(false);
-      setSubFlipUp(false);
-      return;
-    }
-    const el = subRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setFlipLeft(r.right > window.innerWidth - 8);
-    setSubFlipUp(r.bottom > window.innerHeight - 8);
-  }, [openSub]);
 
   const modelOpts = isPi ? piModelOptions : models;
   const currentModelValue = isPi ? piModelValue : model || models[0]?.value || "";
@@ -223,10 +192,11 @@ export function ModelThinkingPill({
       </button>
       {openSub === target ? (
         <div
-          ref={subRef}
-          className={`pw-tb-menu pw-mt-sub${flipLeft ? " pw-mt-sub--left" : ""}${
-            subFlipUp ? " pw-mt-sub--up" : ""
+          ref={subPlace.ref}
+          className={`pw-tb-menu pw-mt-sub${subPlace.flipX ? " pw-mt-sub--left" : ""}${
+            subPlace.flipY ? " pw-mt-sub--up" : ""
           }`}
+          style={subPlace.style}
           role="menu"
         >
           {list}
@@ -267,10 +237,11 @@ export function ModelThinkingPill({
       </button>
       {menu.open ? (
         <div
-          ref={flip.menuRef}
-          className={`pw-tb-menu pw-mt-menu${flip.flipUp ? " pw-tb-menu--up" : ""}${
-            menuFlipRight ? " pw-mt-menu--right" : ""
+          ref={menuPlace.ref}
+          className={`pw-tb-menu pw-mt-menu${menuPlace.flipY ? " pw-tb-menu--up" : ""}${
+            menuPlace.flipX ? " pw-mt-menu--right" : ""
           }`}
+          style={menuPlace.style}
           role="menu"
         >
           {onSwitchAgent ? subRow("agent", "Agent", agentLabel, agentList) : null}

@@ -153,6 +153,28 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     }
   });
 
+  // 翻转的前提是「另一侧空间够」。窄栏里两侧都不够时（写作助手栏 ~370px + 长模型名把
+  // flyout 撑到 230px+），翻完照样漏出窗口——这是用户反复反馈「模型选择右侧显示不全」的根因。
+  // useOverflowSafePlacement 在翻转后再测一次，仍越界就用 translate 把浮层钳回视口内。
+  it("两侧都放不下时把 flyout 钳回视口内(translate 兜底)", () => {
+    // 恒定返回越界矩形:翻转后再测仍越界 → 触发钳制。
+    const rect = {
+      right: 1200, left: 970, top: 0, bottom: 100, width: 230, height: 100, x: 970, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      const { container } = renderPill();
+      fireEvent.click(container.querySelector(".pw-mt-trigger")!);
+      fireEvent.mouseEnter(row(container, "模型"));
+      const sub = container.querySelector(".pw-mt-sub") as HTMLElement;
+      // jsdom innerWidth 1024:right=1200 越界 176px,需要左移到 1024-8 → translateX 为负。
+      expect(sub.style.transform).toMatch(/translate\(-\d+(\.\d+)?px/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("菜单默认下弹;底部空间不足(历史会话页贴底)自动翻上", () => {
     // jsdom innerHeight 默认 768;让菜单底缘超出视口 → 应翻上。
     const rect = {
