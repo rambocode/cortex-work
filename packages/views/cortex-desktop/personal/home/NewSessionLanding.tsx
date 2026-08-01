@@ -27,7 +27,7 @@ import type {
   PendingDocFile,
   PendingImage,
   PersonalAttachment,
-  ProviderSettings,
+  DefaultModelRef,
   SessionMeta,
 } from "@cortex-work/core";
 import {
@@ -49,23 +49,19 @@ import {
   upsertConversationArtifact,
 } from "../chat/artifactDispatch";
 
-// 按目标 agent 解析草稿默认 model/provider：pi 用默认 provider + 默认模型(或 provider 首模型);
+// 按目标 agent 解析草稿默认 model/provider：pi 走全局 defaultModelRef(Catalog 单一引用),
 // 其余内置 agent 用各自 DEFAULT_MODEL。初始化与切换 agent 共用,保证两处默认一致(R4)。
+//
+// pi 分支为什么只读 defaultModelRef:旧实现读 @deprecated 的 providerSettings——它在首启
+// 就被主进程整体清空,导致设置页明明配好了默认模型,落地页 pill 仍恒显「未配置供应商」。
+// 解析不出时返回 undefined,由合并 pill 进「未配置供应商」阻断态,**不回退**任何模型(计划 §5,
+// 与 store 的 initialModelDraft 同规则)。
 function draftDefaultsForAgent(
   base: AgentKind,
-  providerSettings: ProviderSettings,
+  defaultModelRef: DefaultModelRef | undefined,
 ): { model: string | undefined; providerId: string | undefined } {
   if (base === "pi") {
-    // 默认 provider 解析:优先 defaultProviderId,缺省/失效则回退「第一个已启用」provider
-    //(与 initialModelDraft 一致)。否则 defaultProviderId 未设时会落 providerId=undefined →
-    // 合并 pill 找不到匹配项,误显示「未配置供应商」(即便实际已配 provider)。
-    const enabled = providerSettings.providers.filter((p) => p.enabled);
-    const provider = enabled.find((p) => p.id === providerSettings.defaultProviderId) ?? enabled[0];
-    // model 必须属于所选 provider:否则 `providerId::model` 在合并 pill 选项里找不到匹配 → 误显示
-    // 「未配置供应商」。defaultModel 仅在它确属该 provider 时沿用,否则取该 provider 首个模型。
-    const model =
-      provider?.models.find((m) => m.id === providerSettings.defaultModel)?.id ?? provider?.models[0]?.id;
-    return { model, providerId: provider?.id };
+    return { model: defaultModelRef?.modelId, providerId: defaultModelRef?.providerId };
   }
   return { model: DEFAULT_MODEL[base], providerId: undefined };
 }
@@ -80,7 +76,7 @@ export function NewSessionLanding({
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const derivedAgents = usePersonalStore((s) => s.derivedAgents);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
-  const providerSettings = usePersonalStore((s) => s.providerSettings);
+  const defaultModelRef = usePersonalStore((s) => s.defaultModelRef);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const setRightView = usePersonalStore((s) => s.setRightView);
@@ -97,7 +93,7 @@ export function NewSessionLanding({
     return {
       agent,
       derivedAgentId: undefined as string | undefined,
-      ...draftDefaultsForAgent(agent, providerSettings),
+      ...draftDefaultsForAgent(agent, defaultModelRef),
       useOwnSkills: true, // Skills 默认打开(用户要求),可在 composer 里关
       thinkingValue: agent === "pi" ? undefined : DEFAULT_AGENT_THINKING as AgentThinkingValue,
       execPermission: DEFAULT_NEW_SESSION_EXEC_PERMISSION as ExecPermission,
@@ -129,7 +125,7 @@ export function NewSessionLanding({
       ...d,
       agent: base,
       derivedAgentId: derived?.id,
-      ...draftDefaultsForAgent(base, providerSettings),
+      ...draftDefaultsForAgent(base, defaultModelRef),
     }));
   };
 

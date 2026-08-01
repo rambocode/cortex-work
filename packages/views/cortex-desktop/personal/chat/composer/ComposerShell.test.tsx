@@ -1111,3 +1111,75 @@ describe("ComposerShell 转为深度研究", () => {
     expect(container.querySelector(".pw-skill-pill")).not.toBeNull();
   });
 });
+
+describe("pi 模型 pill 的 defaultModelRef 回退(与发送侧 resolveSessionModelRef 同链)", () => {
+  // 回归:落地页草稿挂载早于持久态水合、或老会话没落 model/providerId 时,
+  // pill 曾恒显「未配置供应商」,而发送实际用的是全局默认——显示与事实错位。
+  const catalogBridge = {
+    loadChat: async () => [],
+    saveChat: async () => {},
+    providerCatalogGet: async () => ({
+      ok: true,
+      catalog: {
+        schemaVersion: 1,
+        piVersion: "t",
+        hash: "t",
+        providers: [
+          {
+            id: "deepseek",
+            name: "DeepSeek",
+            api: "openai-completions",
+            auth: ["api-key"],
+            models: [
+              { id: "ds-flash", name: "DeepSeek V4 Flash", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 8192 },
+            ],
+          },
+        ],
+      },
+    }),
+    providerAuthStatus: async () => ({
+      statuses: [{ providerId: "deepseek", configured: true, type: "api-key", source: "safe-storage" }],
+      health: { available: true },
+      hiddenProviderIds: [],
+    }),
+    providerCustomList: async () => [],
+  } as unknown as DesktopBridge;
+
+  function renderPiShell() {
+    return render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={catalogBridge}>
+        <ComposerShell
+          agent="pi"
+          model={undefined}
+          providerId={undefined}
+          useOwnSkills={false}
+          running={false}
+          onSend={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onChangeThinking={() => {}}
+          onToggleSkills={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    usePersonalStore.setState({ defaultModelRef: undefined });
+  });
+
+  it("会话/草稿未落 model+providerId 但配了全局默认 → pill 显示默认模型,而非「未配置供应商」", async () => {
+    usePersonalStore.setState({ defaultModelRef: { providerId: "deepseek", modelId: "ds-flash" } });
+    const { container } = renderPiShell();
+    await waitFor(() => expect(container.querySelector(".pw-mt-trigger")!.textContent).toContain("DeepSeek V4 Flash"));
+    expect(container.querySelector(".pw-mt-trigger")!.textContent).not.toContain("未配置");
+  });
+
+  it("全局默认也未配置 → 仍显示「未配置供应商」阻断态(绝不回退到第一个可用模型)", async () => {
+    const { container } = renderPiShell();
+    // 等 Catalog 取回、候选就位后,pill 仍应停在阻断态。
+    await waitFor(() => expect(container.querySelector(".pw-mt-trigger")).not.toBeNull());
+    expect(container.querySelector(".pw-mt-trigger")!.textContent).toContain("未配置");
+  });
+});

@@ -300,7 +300,15 @@ export function ComposerShell({
   const piModelOptions = isPi
     ? collectModelOptions(providerViews).map((o) => ({ value: `${o.providerId}::${o.modelId}`, label: o.model.name }))
     : [];
-  const piModelValue = `${providerId ?? ""}::${model ?? ""}`;
+  // pi 生效引用与发送侧 resolveSessionModelRef(messages.ts)是**同一条逐字段回退链**:
+  // 会话/草稿字段缺失时落到全局 defaultModelRef。没有这一层,「挂载早于持久态水合的落地页
+  // 草稿」与「历史上没落 model 的老会话」都会显示「未配置供应商」,而发送实际用的是全局
+  // 默认——显示与事实错位。这不是「取第一个可用模型」式的静默回退(§5 禁止):回退目标是
+  // 用户在设置页显式选定的默认模型,且响应式跟随 store,与 pill 阻断态判定共用同一候选集。
+  const defaultModelRef = usePersonalStore((s) => s.defaultModelRef);
+  const effProviderId = isPi ? providerId || defaultModelRef?.providerId : providerId;
+  const effModel = isPi ? model || defaultModelRef?.modelId : model;
+  const piModelValue = `${effProviderId ?? ""}::${effModel ?? ""}`;
 
   useEffect(() => {
     if (!taRef.current) return;

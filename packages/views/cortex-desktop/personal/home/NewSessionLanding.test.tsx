@@ -1,6 +1,6 @@
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, DEFAULT_MODEL, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, DEFAULT_MODEL, resetProviderCatalogCache, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 
 // send 走 usePersonalActions（内部依赖 bridge spawn 管线），单测里 spy 掉只验调用契约。
@@ -35,6 +35,37 @@ function fakeBridge(extra: Partial<DesktopBridge> = {}): DesktopBridge {
   } as unknown as DesktopBridge;
 }
 
+// pi 模型 pill 的 Catalog/认证数据面:openai 已配置且有一个模型 gpt-x。
+function piCatalogBridge(): Partial<DesktopBridge> {
+  return {
+    providerCatalogGet: async () => ({
+      ok: true,
+      catalog: {
+        schemaVersion: 1,
+        piVersion: "t",
+        hash: "t",
+        providers: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            api: "openai-responses",
+            auth: ["api-key"],
+            models: [
+              { id: "gpt-x", name: "GPT X", api: "openai-responses", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 8192 },
+            ],
+          },
+        ],
+      },
+    }),
+    providerAuthStatus: async () => ({
+      statuses: [{ providerId: "openai", configured: true, type: "api-key", source: "safe-storage" }],
+      health: { available: true },
+      hiddenProviderIds: [],
+    }),
+    providerCustomList: async () => [],
+  } as unknown as Partial<DesktopBridge>;
+}
+
 function renderLanding(bridge: DesktopBridge, onToast: (t: string) => void = () => {}) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
@@ -57,10 +88,12 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
 
   beforeEach(() => {
     sendSpy.mockClear();
+    resetProviderCatalogCache();
     usePersonalStore.setState({
       homeOpen: false,
       activeProjectId: undefined,
       activeSessionId: undefined,
+      defaultModelRef: undefined,
       // claude 可用 → 草稿默认 agent=claude、model=DEFAULT_MODEL.claude(sonnet)。
       agentsAvailable: { claude: true },
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
@@ -242,15 +275,25 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     // 实际能力、输出与账单全变了——这正是本次事故的同类形态。
     usePersonalStore.setState({
       agentsAvailable: {}, // 无 claude/codex → 默认 agent 回退 pi
-      providerSettings: {
-        defaultProviderId: undefined,
-        defaultModel: undefined,
-        providers: [],
-      } as never,
+      defaultModelRef: { providerId: "openai", modelId: "ghost-model" }, // Catalog 里不存在
     });
-    const { container } = renderLanding(fakeBridge());
+    const { container } = renderLanding(fakeBridge(piCatalogBridge()));
     const trigger = container.querySelector(".pw-mt-trigger")!;
     expect(trigger.textContent).toContain("未配置");
+  });
+
+  it("pi 默认模型已在设置页配好(defaultModelRef):落地页 pill 显示该模型,而非「未配置供应商」", async () => {
+    // 回归:草稿默认值曾读 @deprecated 的 providerSettings(首启即被清空),导致设置页配了
+    // 默认模型、落地页仍恒显「未配置供应商」。现在草稿只认 defaultModelRef(与 store 的
+    // initialModelDraft 同源)。
+    usePersonalStore.setState({
+      agentsAvailable: {},
+      defaultModelRef: { providerId: "openai", modelId: "gpt-x" },
+    });
+    const { container } = renderLanding(fakeBridge(piCatalogBridge()));
+    // Catalog/认证经 React Query 异步取回后,pill 才解析出模型名。
+    await waitFor(() => expect(container.querySelector(".pw-mt-trigger")!.textContent).toContain("GPT X"));
+    expect(container.querySelector(".pw-mt-trigger")!.textContent).not.toContain("未配置");
   });
 
   it("不支持 ensureNoProjectDir 的环境:提示且不建会话不 send", async () => {
@@ -297,10 +340,12 @@ describe("NewSessionLanding agent 选择(U3)", () => {
 
   beforeEach(() => {
     sendSpy.mockClear();
+    resetProviderCatalogCache();
     usePersonalStore.setState({
       homeOpen: false,
       activeProjectId: undefined,
       activeSessionId: undefined,
+      defaultModelRef: undefined,
       agentsAvailable: { claude: true, codex: true },
       derivedAgents: [{ id: "my-cx", base: "codex", label: "我的CX" }],
       projects: [],
