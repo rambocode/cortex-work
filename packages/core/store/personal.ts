@@ -54,6 +54,7 @@ import {
   DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_TTS_SETTINGS,
   defaultMediaGenSettings,
+  normalizeMediaGenSettings,
   defaultAsrSettings,
   DEFAULT_WRITING_LLM_SETTINGS,
   clampWritingDebounceMs,
@@ -682,9 +683,11 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
-      // 媒体生成/ASR：旧档无此字段时回落工厂默认（向后兼容）。
-      // 各模态子字段全量覆盖（无 deep merge），旧档缺字段时整体回落工厂对象。
-      mediaGenSettings: s.mediaGenSettings ?? defaultMediaGenSettings(),
+      // 媒体生成：旧档经 normalizeMediaGenSettings 归一化——缺字段 deep-merge 工厂默认、
+      // 枚举兜底、非法 providerId 归 "custom"、数值按 MAX_TIMEOUT_MS_BY_MODALITY 钳制。
+      // （旧版「?? 整体回落」在旧档缺新字段 quality 等时会 undefined 穿透，已废弃。）
+      mediaGenSettings: normalizeMediaGenSettings(s.mediaGenSettings),
+      // ASR：旧档无此字段时回落工厂默认（向后兼容）。
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
       // 写作续写/改写模型配置：旧档缺字段（如 debounceMs/maxTokens）由默认补齐。
       writingLlmSettings: hydrateWritingLlmSettings(s.writingLlmSettings),
