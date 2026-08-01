@@ -88,7 +88,7 @@ import type { ReplyRelearnResult } from "./ipc/reply-types";
 import { ReplyDistiller } from "./reply/distill";
 import { chatComplete, REPLY_TEMPERATURES } from "./reply/draft-generator";
 import { resolveReplyModel } from "./reply/resolve-model";
-import { getPersistedState, purgeLegacyPlaintextCredentials } from "./ipc/store";
+import { getPersistedState, purgeLegacyPlaintextCredentials, migrateMediaGenPlaintextKeys } from "./ipc/store";
 // 用户记忆做梦管线（跨工作台持久记忆,与 reply 域独立）。
 import { Dreamer } from "./memory/dreamer";
 import { initMemoryDream } from "./memory/dream-scheduler";
@@ -600,6 +600,11 @@ if (!app.requestSingleInstanceLock()) {
     // 这个只摘掉凭据字段、保留用户调过的行为参数。失败只记日志——抹不掉不该拦住启动。
     void purgeLegacyPlaintextCredentials().catch((err) => {
       log.warn("[store] 清除残留明文凭据失败（下次启动重试）:", err);
+    });
+    // 媒体生成明文密钥一次性迁移（设计 §4.3）：明文 apiKey → safeStorage 金库 + `${secret:}` 引用。
+    // 与上面的 purge 同一注册点、同样不阻断启动；金库不可用 / 失败只记日志，下次启动重试。
+    void migrateMediaGenPlaintextKeys().catch((err) => {
+      log.warn("[store] 媒体生成明文密钥迁移失败（下次启动重试）:", err);
     });
     // 用户记忆做梦管线（跨平台）：Dreamer 依赖注入 + 混合触发调度。失败不阻断启动。
     try {

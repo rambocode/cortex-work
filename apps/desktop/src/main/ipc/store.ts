@@ -4,9 +4,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { existsSync, promises as fsp } from "fs";
 import { dirname } from "path";
+import { mediaCustomSecretName, type MediaModality } from "@cortex-work/core/desktop/media-provider-directory";
 import type { PersistedState, PushSettings } from "./types";
 import { ensureMigrated, workspaceStorePath } from "../paths";
 import { createLogger } from "../log";
+import { isAllowedSensitiveValue } from "../providers/secrets";
+import { getCredentialStoreHealth, setSecrets } from "../providers/credentials";
 
 const log = createLogger("personal-workspace");
 
@@ -159,6 +162,62 @@ export async function purgeLegacyPlaintextCredentials(): Promise<boolean> {
   }
   await commit(base, next);
   log.info("已清除写作 / 日报设置里残留的明文凭据，相关模型需重新选择");
+  return true;
+}
+
+/// 媒体生成明文密钥一次性迁移（设计 §4.3，与 purgeLegacyPlaintextCredentials 并排、同一注册点触发）：
+/// 把四模态 mediaGenSettings.<m>.apiKey 里残留的明文搬进 safeStorage 金库命名 Secret
+/// （media.<modality>.custom，与设置 UI 共用 mediaCustomSecretName 常量），
+/// 并把持久化字段改写为 `${secret:media.<modality>.custom}` 引用。
+///
+/// 判定：apiKey 非空、且不是 `${secret:}` / `$ENV` / `!cmd` 三种允许形态（isAllowedSensitiveValue）
+/// 才算待迁移明文；无待迁移项**完全不写盘**（幂等，同 purge 先例）。
+/// safeStorage 不可用（部分 Linux）时整体跳过、下次启动重试——绝不能出现「金库写失败、
+/// 原值又被抹掉」的丢 key 事故，也绝不明文进金库。
+///
+/// 顺序刻意：先 setSecrets 落金库，成功后才 updatePersistedState 改写引用。反过来的话，
+/// 状态先改写、金库写失败会立即产生悬空引用（媒体生成直接断档）；现顺序下状态改写失败
+/// 只是金库多存一份副本，下次启动重跑仍能收敛到一致态。
+export async function migrateMediaGenPlaintextKeys(): Promise<boolean> {
+  const base = await getPersistedState();
+  const mediaGen = base.mediaGenSettings;
+  if (!mediaGen) return false;
+
+  const modalities: readonly MediaModality[] = ["image", "speech", "music", "video"];
+  const pending = modalities.filter((m) => {
+    const raw = mediaGen[m]?.apiKey;
+    const key = typeof raw === "string" ? raw.trim() : "";
+    return key !== "" && !isAllowedSensitiveValue(key);
+  });
+  if (pending.length === 0) return false;
+
+  if (!getCredentialStoreHealth().available) {
+    log.warn("系统密钥库不可用，媒体生成明文密钥迁移跳过（原值保留，下次启动重试）");
+    return false;
+  }
+
+  // 金库先行（见函数头注释的顺序说明）；一次 setSecrets 批量落盘，避免部分成功。
+  const secretPatch: Record<string, string> = {};
+  for (const m of pending) secretPatch[mediaCustomSecretName(m)] = mediaGen[m].apiKey.trim();
+  await setSecrets(secretPatch);
+
+  const migrated = new Set<MediaModality>(pending);
+  const ref = (m: MediaModality) => `\${secret:${mediaCustomSecretName(m)}}`;
+  await updatePersistedState((state) => {
+    const cur = state.mediaGenSettings;
+    if (!cur) return state;
+    // 逐模态显式改写（四模态类型各异，绕开联合索引赋值的类型收窄问题）。
+    return {
+      ...state,
+      mediaGenSettings: {
+        image: migrated.has("image") ? { ...cur.image, apiKey: ref("image") } : cur.image,
+        speech: migrated.has("speech") ? { ...cur.speech, apiKey: ref("speech") } : cur.speech,
+        music: migrated.has("music") ? { ...cur.music, apiKey: ref("music") } : cur.music,
+        video: migrated.has("video") ? { ...cur.video, apiKey: ref("video") } : cur.video,
+      },
+    };
+  });
+  log.info(`媒体生成明文密钥已迁入金库并改写为引用：${pending.join(", ")}`);
   return true;
 }
 

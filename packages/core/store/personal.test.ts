@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersistedState, ProjectMeta, PushSettings, SessionMeta } from "../desktop/types";
-import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings, MAX_TIMEOUT_MS_BY_MODALITY } from "../desktop/types";
 import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
@@ -1304,6 +1304,66 @@ describe("媒体生成设置（mediaGenSettings）", () => {
     expect(usePersonalStore.getState().mediaGenSettings.speech.enabled).toBe(false);
   });
 
+  it("hydrate 旧档缺 quality/defaultResolution → normalize 补默认（deep-merge）", () => {
+    // 模拟 quality 时代之前的旧档：image 只有旧字段集。
+    const legacyImage = {
+      enabled: true,
+      providerId: "custom",
+      protocol: "openai-images",
+      baseUrl: "https://api.openai.com",
+      apiKey: "",
+      model: "gpt-image-1",
+      defaultSize: "1024x1024",
+      timeoutMs: 120_000,
+    };
+    usePersonalStore.getState().hydrate({
+      ...base,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mediaGenSettings: { image: legacyImage } as any,
+    });
+    const mg = usePersonalStore.getState().mediaGenSettings;
+    expect(mg.image.quality).toBe("auto");
+    expect(mg.image.defaultResolution).toBe("1K");
+    expect(mg.image.enabled).toBe(true);
+    expect(mg.image.model).toBe("gpt-image-1");
+    // 缺失的其余模态整体回落默认。
+    expect(mg.video).toEqual(defaultMediaGenSettings().video);
+  });
+
+  it("hydrate 非法 providerId（不在媒体供应商目录）→ 归 custom 且保留自填字段", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      mediaGenSettings: {
+        ...defaultMediaGenSettings(),
+        image: {
+          ...defaultMediaGenSettings().image,
+          providerId: "dead-profile-id",
+          baseUrl: "https://my.example.com",
+          model: "m1",
+        },
+      },
+    });
+    const img = usePersonalStore.getState().mediaGenSettings.image;
+    expect(img.providerId).toBe("custom");
+    expect(img.baseUrl).toBe("https://my.example.com");
+    expect(img.model).toBe("m1");
+  });
+
+  it("hydrate 超限数值 → 按模态钳制（timeoutMs 上限表 / pollIntervalMs 下限）", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      mediaGenSettings: {
+        ...defaultMediaGenSettings(),
+        image: { ...defaultMediaGenSettings().image, timeoutMs: 9_999_999 },
+        video: { ...defaultMediaGenSettings().video, timeoutMs: 9_999_999, pollIntervalMs: 1 },
+      },
+    });
+    const mg = usePersonalStore.getState().mediaGenSettings;
+    expect(mg.image.timeoutMs).toBe(290_000);
+    expect(mg.video.timeoutMs).toBe(1_500_000);
+    expect(mg.video.pollIntervalMs).toBe(1_000);
+  });
+
   it("setMediaGenSettings patch 单模态 enabled → 其他模态不变", () => {
     usePersonalStore.getState().hydrate(base);
     usePersonalStore.getState().setMediaGenSettings({
@@ -1322,12 +1382,16 @@ describe("媒体生成设置（mediaGenSettings）", () => {
     expect(toPersistedState(s).mediaGenSettings).toBe(s.mediaGenSettings);
   });
 
-  it("工厂默认:timeoutMs 均 <300_000 (看门狗上限)", () => {
+  it("工厂默认:timeoutMs 均不超过按模态钳制表上限（对齐 Kun 默认值）", () => {
+    // 旧规则「全部 <300s」已被 MAX_TIMEOUT_MS_BY_MODALITY 按模态钳制取代：
+    // music 默认 300s（上限 600s）、video 默认 900s（上限 1500s，仍远低于 30min 看门狗）。
     const d = defaultMediaGenSettings();
-    expect(d.image.timeoutMs).toBeLessThan(300_000);
-    expect(d.speech.timeoutMs).toBeLessThan(300_000);
-    expect(d.music.timeoutMs).toBeLessThan(300_000);
-    expect(d.video.timeoutMs).toBeLessThan(300_000);
+    expect(d.image.timeoutMs).toBeLessThanOrEqual(MAX_TIMEOUT_MS_BY_MODALITY.image);
+    expect(d.speech.timeoutMs).toBeLessThanOrEqual(MAX_TIMEOUT_MS_BY_MODALITY.speech);
+    expect(d.music.timeoutMs).toBeLessThanOrEqual(MAX_TIMEOUT_MS_BY_MODALITY.music);
+    expect(d.video.timeoutMs).toBeLessThanOrEqual(MAX_TIMEOUT_MS_BY_MODALITY.video);
+    expect(d.music.timeoutMs).toBe(300_000);
+    expect(d.video.timeoutMs).toBe(900_000);
   });
 
   it("视频默认值:defaultDuration=6、defaultResolution='1080P'、pollIntervalMs=10_000", () => {

@@ -1,33 +1,39 @@
-// resolve.test.ts — resolveMediaGenSettings() 单测
-// 不涉及网络，全纯函数测试。
+// resolve.test.ts — resolveMediaGenSettings() 单测（async 版）。
+// 金库依赖（readSecrets / readStoredCredential）全部 mock，不碰磁盘与 electron safeStorage。
+// 覆盖：custom+secret 引用 / secret 缺失 / 历史明文兼容 / 目录继承（protocol 权威、baseUrl 覆盖、
+// model 回落、能力缺失）/ oauth 拒绝 / standalone secret / https 校验 / 按模态 timeoutMs 钳制。
 
-import { describe, it, expect } from "vitest";
-import {
-  resolveMediaGenSettings,
-  assertHttps,
-  MAX_TIMEOUT_MS,
-} from "./resolve";
-import type { MediaGenSettings, ProviderSettings } from "@cortex-work/core/desktop/types";
-import {
-  defaultMediaGenSettings,
-} from "@cortex-work/core/desktop/types";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { resolveMediaGenSettings, assertHttps } from "./resolve";
+import { MAX_TIMEOUT_MS_BY_MODALITY } from "../../ipc/types";
+import type { MediaGenSettings } from "@cortex-work/core/desktop/types";
+import { defaultMediaGenSettings } from "@cortex-work/core/desktop/types";
+
+// ── 金库 mock（resolve.ts 经 ../../providers/credentials 读金库） ─────────────
+
+const vault = vi.hoisted(() => ({
+  readSecrets: vi.fn<() => Promise<Record<string, string>>>(),
+  readStoredCredential: vi.fn<(providerId: string) => Promise<unknown>>(),
+}));
+
+vi.mock("../../providers/credentials", () => ({
+  readSecrets: vault.readSecrets,
+  readStoredCredential: vault.readStoredCredential,
+}));
+
+beforeEach(() => {
+  vault.readSecrets.mockReset().mockResolvedValue({});
+  vault.readStoredCredential.mockReset().mockResolvedValue(undefined);
+});
 
 // ── 辅助工厂 ──────────────────────────────────────────────────────────────────
 
-function makeProviderSettings(override?: Partial<ProviderSettings>): ProviderSettings {
-  return {
-    providers: [],
-    ...override,
-  };
-}
-
 function makeMediaGenSettings(override?: Partial<MediaGenSettings>): MediaGenSettings {
-  const defaults = defaultMediaGenSettings();
-  return { ...defaults, ...override };
+  return { ...defaultMediaGenSettings(), ...override };
 }
 
-// 创建一个有效的图片设置（custom 模式）
-function customImageSettings() {
+/** 一份可解析的 custom 图片设置（各用例在其上做增量覆盖）。 */
+function customImageSettings(imageOverride?: Partial<MediaGenSettings["image"]>): MediaGenSettings {
   return makeMediaGenSettings({
     image: {
       enabled: true,
@@ -36,8 +42,33 @@ function customImageSettings() {
       baseUrl: "https://api.example.com",
       apiKey: "sk-test-key",
       model: "dall-e-3",
+      quality: "auto",
+      defaultResolution: "1K",
       defaultSize: "1024x1024",
       timeoutMs: 180_000,
+      ...imageOverride,
+    },
+  });
+}
+
+/** 指向目录条目的图片设置（baseUrl/model 留空 → 走目录继承）。 */
+function directoryImageSettings(
+  providerId: string,
+  imageOverride?: Partial<MediaGenSettings["image"]>,
+): MediaGenSettings {
+  return makeMediaGenSettings({
+    image: {
+      enabled: true,
+      providerId,
+      protocol: "openai-images", // 刻意写错误协议：目录路径应忽略它、以 capability 为准
+      baseUrl: "",
+      apiKey: "",
+      model: "",
+      quality: "auto",
+      defaultResolution: "1K",
+      defaultSize: "",
+      timeoutMs: 180_000,
+      ...imageOverride,
     },
   });
 }
@@ -62,356 +93,295 @@ describe("assertHttps", () => {
   });
 });
 
-// ── providerId = '' 或 'custom' → 使用自填字段 ────────────────────────────────
+// ── custom 路径：密钥解析 ─────────────────────────────────────────────────────
 
-describe("resolveMediaGenSettings - 自定义模式", () => {
-  it("providerId='' 时直接使用自填字段", () => {
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "",
-        protocol: "openai-images",
-        baseUrl: "https://api.example.com",
-        apiKey: "sk-key",
-        model: "dall-e-3",
-        defaultSize: "512x512",
-        timeoutMs: 180_000,
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
+describe("resolveMediaGenSettings - custom 密钥解析", () => {
+  it("apiKey 为 ${secret:NAME} 引用时从金库解密", async () => {
+    vault.readSecrets.mockResolvedValue({ "media.image.custom": "sk-from-vault" });
+    const mediaGen = customImageSettings({ apiKey: "${secret:media.image.custom}" });
+    const result = await resolveMediaGenSettings("image", mediaGen);
+    expect(result.apiKey).toBe("sk-from-vault");
+  });
+
+  it("secret 引用缺失时报错并点名缺失引用，且不夹带金库里其它值", async () => {
+    vault.readSecrets.mockResolvedValue({ other: "sk-other-secret" });
+    const mediaGen = customImageSettings({ apiKey: "${secret:media.image.custom}" });
+    await expect(resolveMediaGenSettings("image", mediaGen)).rejects.toThrowError(
+      /media\.image\.custom.*未在金库中定义/,
+    );
+    await expect(resolveMediaGenSettings("image", mediaGen)).rejects.not.toThrowError(/sk-other-secret/);
+  });
+
+  it("历史明文 apiKey 直接使用（迁移窗口期兼容），不触碰金库", async () => {
+    const mediaGen = customImageSettings({ apiKey: "sk-legacy-plaintext" });
+    const result = await resolveMediaGenSettings("image", mediaGen);
+    expect(result.apiKey).toBe("sk-legacy-plaintext");
+    expect(vault.readSecrets).not.toHaveBeenCalled();
+  });
+
+  it("providerId='' 等价 custom：使用自填字段", async () => {
+    const mediaGen = customImageSettings({ providerId: "" });
+    const result = await resolveMediaGenSettings("image", mediaGen);
     expect(result.baseUrl).toBe("https://api.example.com");
-    expect(result.apiKey).toBe("sk-key");
-    expect(result.model).toBe("dall-e-3");
-    expect(result.protocol).toBe("openai-images");
-  });
-
-  it("providerId='custom' 时直接使用自填字段", () => {
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "custom",
-        protocol: "openai-images",
-        baseUrl: "https://custom.api.com/v1",
-        apiKey: "custom-key",
-        model: "image-gen-model",
-        defaultSize: "1024x1024",
-        timeoutMs: 180_000,
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
-    expect(result.apiKey).toBe("custom-key");
-    expect(result.baseUrl).toBe("https://custom.api.com/v1");
-  });
-
-  it("speech 模态自定义模式可以解析", () => {
-    const mediaGen = makeMediaGenSettings({
-      speech: {
-        enabled: true,
-        providerId: "",
-        protocol: "openai-speech",
-        baseUrl: "https://api.openai.com",
-        apiKey: "sk-speech-key",
-        model: "tts-1",
-        voice: "alloy",
-        format: "mp3",
-        timeoutMs: 120_000,
-      },
-    });
-    const result = resolveMediaGenSettings("speech", mediaGen, makeProviderSettings());
-    expect(result.voice).toBe("alloy");
-    expect(result.format).toBe("mp3");
-  });
-
-  it("music 模态自定义模式可以解析", () => {
-    const mediaGen = makeMediaGenSettings({
-      music: {
-        enabled: true,
-        providerId: "",
-        protocol: "minimax-music",
-        baseUrl: "https://api.minimax.chat",
-        apiKey: "minimax-key",
-        model: "music-01",
-        format: "mp3",
-        timeoutMs: 280_000,
-      },
-    });
-    const result = resolveMediaGenSettings("music", mediaGen, makeProviderSettings());
-    expect(result.model).toBe("music-01");
-    expect(result.protocol).toBe("minimax-music");
-  });
-
-  it("video 模态自定义模式可以解析", () => {
-    const mediaGen = makeMediaGenSettings({
-      video: {
-        enabled: true,
-        providerId: "",
-        protocol: "minimax-video",
-        baseUrl: "https://api.minimax.chat",
-        apiKey: "minimax-key",
-        model: "video-01",
-        defaultDuration: 6,
-        defaultResolution: "1080P",
-        timeoutMs: 280_000,
-        pollIntervalMs: 5_000,
-      },
-    });
-    const result = resolveMediaGenSettings("video", mediaGen, makeProviderSettings());
-    expect(result.defaultDuration).toBe(6);
-    expect(result.defaultResolution).toBe("1080P");
-    expect(result.pollIntervalMs).toBe(5_000);
-  });
-});
-
-// ── 有效 provider → 继承 apiKey/baseUrl ────────────────────────────────────────
-
-describe("resolveMediaGenSettings - 供应商继承", () => {
-  it("指向有效供应商时继承 apiKey 和 baseUrl", () => {
-    const providerSettings = makeProviderSettings({
-      providers: [
-        {
-          id: "minimax",
-          name: "MiniMax",
-          baseUrl: "https://api.minimax.chat",
-          apiKey: "provider-key",
-          endpointFormat: "chat_completions",
-          models: [],
-          enabled: true,
-        },
-      ],
-    });
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "minimax",
-        protocol: "minimax-image",
-        baseUrl: "", // 继承供应商的
-        apiKey: "", // 继承供应商的
-        model: "image-01",
-        defaultSize: "",
-        timeoutMs: 180_000,
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, providerSettings);
-    expect(result.apiKey).toBe("provider-key");
-    expect(result.baseUrl).toBe("https://api.minimax.chat");
-    expect(result.model).toBe("image-01");
-  });
-
-  it("指向供应商时，模态设置的 protocol 和 model 保持优先", () => {
-    const providerSettings = makeProviderSettings({
-      providers: [
-        {
-          id: "my-provider",
-          name: "My Provider",
-          baseUrl: "https://api.my-provider.com",
-          apiKey: "provider-api-key",
-          endpointFormat: "chat_completions",
-          models: [],
-          enabled: true,
-        },
-      ],
-    });
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "my-provider",
-        protocol: "openai-images",
-        baseUrl: "",
-        apiKey: "",
-        model: "dall-e-3",
-        defaultSize: "1024x1024",
-        timeoutMs: 180_000,
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, providerSettings);
     expect(result.protocol).toBe("openai-images");
     expect(result.model).toBe("dall-e-3");
   });
+
+  it("金库读取失败时报「读取密钥金库失败」且经 safeErrorMessage 清洗", async () => {
+    vault.readSecrets.mockRejectedValue(new Error("boom token=sk-raw-leak"));
+    const mediaGen = customImageSettings({ apiKey: "${secret:media.image.custom}" });
+    const err = await resolveMediaGenSettings("image", mediaGen).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/读取密钥金库失败/);
+    // safeErrorMessage 会把 token=... 之类的 kv 掐掉，不允许原样透传。
+    expect((err as Error).message).not.toContain("sk-raw-leak");
+  });
 });
 
-// ── 找不到 provider → 抛出诊断错误 ──────────────────────────────────────────
+// ── 目录路径：能力继承 ────────────────────────────────────────────────────────
 
-describe("resolveMediaGenSettings - 供应商查找失败", () => {
-  it("指向不存在的 provider 时抛出含诊断信息的 Error", () => {
-    const providerSettings = makeProviderSettings({ providers: [] });
+describe("resolveMediaGenSettings - 目录继承", () => {
+  it("catalog 条目（minimax）：protocol 以目录为准、baseUrl/model 回落目录值", async () => {
+    vault.readStoredCredential.mockResolvedValue({ type: "api_key", key: "mx-key" });
+    const result = await resolveMediaGenSettings("image", directoryImageSettings("minimax"));
+    // settings.protocol 写的是 openai-images，但目录 capability 是权威。
+    expect(result.protocol).toBe("minimax-image");
+    expect(result.baseUrl).toBe("https://api.minimaxi.com");
+    expect(result.model).toBe("image-01"); // models[0] 回落
+    expect(result.apiKey).toBe("mx-key");
+    expect(vault.readStoredCredential).toHaveBeenCalledWith("minimax");
+  });
+
+  it("自填 baseUrl 非空时覆盖目录端点", async () => {
+    vault.readStoredCredential.mockResolvedValue({ type: "api_key", key: "mx-key" });
+    const result = await resolveMediaGenSettings(
+      "image",
+      directoryImageSettings("minimax", { baseUrl: "  https://proxy.example.com  " }),
+    );
+    expect(result.baseUrl).toBe("https://proxy.example.com");
+  });
+
+  it("自填 model 非空时优先于目录 models[0]", async () => {
+    vault.readStoredCredential.mockResolvedValue({ type: "api_key", key: "mx-key" });
+    const result = await resolveMediaGenSettings(
+      "image",
+      directoryImageSettings("minimax", { model: "image-01-live" }),
+    );
+    expect(result.model).toBe("image-01-live");
+  });
+
+  it("speech 模态映射 textToSpeech 能力（minimax 走国际域）", async () => {
+    vault.readStoredCredential.mockResolvedValue({ type: "api_key", key: "mx-key" });
     const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "nonexistent-provider",
-        protocol: "openai-images",
-        baseUrl: "",
-        apiKey: "",
-        model: "dall-e-3",
-        defaultSize: "",
-        timeoutMs: 180_000,
-      },
+      speech: { ...defaultMediaGenSettings().speech, enabled: true, providerId: "minimax" },
     });
-    expect(() => resolveMediaGenSettings("image", mediaGen, providerSettings)).toThrowError(
-      /nonexistent-provider/,
+    const result = await resolveMediaGenSettings("speech", mediaGen);
+    expect(result.protocol).toBe("minimax-t2a");
+    expect(result.baseUrl).toBe("https://api.minimax.io");
+    expect(result.model).toBe("speech-2.8-hd");
+  });
+
+  it("条目无该模态能力时报「不支持」（xiaomi 无图片能力）", async () => {
+    await expect(resolveMediaGenSettings("image", directoryImageSettings("xiaomi"))).rejects.toThrowError(
+      /不支持图片生成/,
     );
   });
 
-  it("错误信息包含已配置的供应商列表", () => {
-    const providerSettings = makeProviderSettings({
-      providers: [
-        {
-          id: "openai",
-          name: "OpenAI",
-          baseUrl: "https://api.openai.com",
-          apiKey: "sk-key",
-          endpointFormat: "chat_completions",
-          models: [],
-          enabled: true,
-        },
-      ],
-    });
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "missing-provider",
-        protocol: "openai-images",
-        baseUrl: "",
-        apiKey: "",
-        model: "dall-e-3",
-        defaultSize: "",
-        timeoutMs: 180_000,
-      },
-    });
-    let errorMsg = "";
-    try {
-      resolveMediaGenSettings("image", mediaGen, providerSettings);
-    } catch (e) {
-      errorMsg = (e as Error).message;
-    }
-    // 错误信息中应包含已配置的 openai 供应商（便于诊断）
-    expect(errorMsg).toContain("openai");
+  it("providerId 不在目录时报「找不到媒体供应商」", async () => {
+    await expect(
+      resolveMediaGenSettings("image", directoryImageSettings("nonexistent-provider")),
+    ).rejects.toThrowError(/找不到媒体供应商.*nonexistent-provider/);
   });
 });
 
-// ── 缺 apiKey/model → 报 unavailable 错误 ────────────────────────────────────
+// ── 目录路径：密钥来源 ────────────────────────────────────────────────────────
+
+describe("resolveMediaGenSettings - 目录密钥", () => {
+  it("catalog 条目无 credential 时引导到「设置 → Provider」", async () => {
+    vault.readStoredCredential.mockResolvedValue(undefined);
+    await expect(resolveMediaGenSettings("image", directoryImageSettings("minimax"))).rejects.toThrowError(
+      /未配置密钥.*Provider/,
+    );
+  });
+
+  it("catalog 条目为 oauth credential 时拒绝并引导改用 API Key", async () => {
+    vault.readStoredCredential.mockResolvedValue({
+      type: "oauth",
+      access: "oauth-access-token-secret",
+      refresh: "r",
+      expires: 0,
+    });
+    const err = await resolveMediaGenSettings("image", directoryImageSettings("xai")).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/OAuth 登录.*暂只支持 API Key/);
+    // 错误文案不得夹带任何 token material。
+    expect((err as Error).message).not.toContain("oauth-access-token-secret");
+  });
+
+  it("standalone 条目（volcengine）从金库命名 Secret 取 key", async () => {
+    vault.readSecrets.mockResolvedValue({ "media.provider.volcengine": "vk-key" });
+    const result = await resolveMediaGenSettings("image", directoryImageSettings("volcengine"));
+    expect(result.apiKey).toBe("vk-key");
+    expect(result.protocol).toBe("volcengine-ark-image");
+    expect(result.baseUrl).toBe("https://ark.cn-beijing.volces.com/api/v3");
+    expect(result.model).toBe("doubao-seedream-5-0-pro-260628");
+    // standalone 不读 credential 区。
+    expect(vault.readStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it("standalone Secret 缺失时引导到「设置 → 媒体生成」", async () => {
+    vault.readSecrets.mockResolvedValue({});
+    await expect(
+      resolveMediaGenSettings("image", directoryImageSettings("volcengine")),
+    ).rejects.toThrowError(/未配置密钥.*媒体生成/);
+  });
+});
+
+// ── 字段校验（https + 非空三项） ───────────────────────────────────────────────
 
 describe("resolveMediaGenSettings - 字段校验", () => {
-  it("baseUrl 为空时报错", () => {
-    const mediaGen = customImageSettings();
-    mediaGen.image.baseUrl = "";
-    expect(() =>
-      resolveMediaGenSettings("image", mediaGen, makeProviderSettings()),
-    ).toThrowError(/baseUrl/);
+  it("custom：baseUrl 为空时报错", async () => {
+    await expect(
+      resolveMediaGenSettings("image", customImageSettings({ baseUrl: "" })),
+    ).rejects.toThrowError(/baseUrl/);
   });
 
-  it("apiKey 为空时报 unavailable 错误", () => {
-    const mediaGen = customImageSettings();
-    mediaGen.image.apiKey = "";
-    expect(() =>
-      resolveMediaGenSettings("image", mediaGen, makeProviderSettings()),
-    ).toThrowError(/apiKey|unavailable/i);
+  it("custom：baseUrl 为 http:// 时被拒（非 https）", async () => {
+    await expect(
+      resolveMediaGenSettings("image", customImageSettings({ baseUrl: "http://api.example.com" })),
+    ).rejects.toThrowError(/https/);
   });
 
-  it("model 为空时报 unavailable 错误", () => {
-    const mediaGen = customImageSettings();
-    mediaGen.image.model = "";
-    expect(() =>
-      resolveMediaGenSettings("image", mediaGen, makeProviderSettings()),
-    ).toThrowError(/model|unavailable/i);
+  it("目录路径：自填 baseUrl 覆盖值同样过 https 校验", async () => {
+    vault.readStoredCredential.mockResolvedValue({ type: "api_key", key: "mx-key" });
+    await expect(
+      resolveMediaGenSettings("image", directoryImageSettings("minimax", { baseUrl: "http://evil.example.com" })),
+    ).rejects.toThrowError(/https/);
   });
 
-  it("baseUrl 为 http:// 时被拒（非 https）", () => {
-    const mediaGen = customImageSettings();
-    mediaGen.image.baseUrl = "http://api.example.com";
-    expect(() =>
-      resolveMediaGenSettings("image", mediaGen, makeProviderSettings()),
-    ).toThrowError(/https/);
+  it("custom：apiKey 为空时报 unavailable 错误", async () => {
+    await expect(
+      resolveMediaGenSettings("image", customImageSettings({ apiKey: "" })),
+    ).rejects.toThrowError(/apiKey|unavailable/i);
+  });
+
+  it("custom：model 为空时报 unavailable 错误", async () => {
+    await expect(
+      resolveMediaGenSettings("image", customImageSettings({ model: "" })),
+    ).rejects.toThrowError(/model|unavailable/i);
   });
 });
 
-// ── timeoutMs 夹紧（OQ1/KTD8，防止超过看门狗 300s） ──────────────────────────
+// ── timeoutMs 按模态钳制（MAX_TIMEOUT_MS_BY_MODALITY 表） ─────────────────────
 
-describe("resolveMediaGenSettings - timeoutMs 夹紧", () => {
-  it("image: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "custom",
-        protocol: "openai-images",
-        baseUrl: "https://api.example.com",
-        apiKey: "sk-key",
-        model: "dall-e-3",
-        defaultSize: "1024x1024",
-        timeoutMs: 500_000, // 超过 290s
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
-    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+describe("resolveMediaGenSettings - timeoutMs 按模态钳制", () => {
+  it("image: 超上限（290s）被夹紧", async () => {
+    const result = await resolveMediaGenSettings("image", customImageSettings({ timeoutMs: 500_000 }));
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS_BY_MODALITY.image);
   });
 
-  it("speech: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+  it("speech: 超上限（290s）被夹紧", async () => {
     const mediaGen = makeMediaGenSettings({
       speech: {
+        ...defaultMediaGenSettings().speech,
         enabled: true,
         providerId: "custom",
-        protocol: "openai-speech",
+        baseUrl: "https://api.openai.com",
+        apiKey: "sk-key",
+        model: "tts-1",
+        timeoutMs: 999_000,
+      },
+    });
+    const result = await resolveMediaGenSettings("speech", mediaGen);
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS_BY_MODALITY.speech);
+  });
+
+  it("music: 上限为 600s（宽于 image）", async () => {
+    const mediaGen = makeMediaGenSettings({
+      music: {
+        ...defaultMediaGenSettings().music,
+        enabled: true,
+        providerId: "custom",
+        baseUrl: "https://api.minimax.io",
+        apiKey: "key",
+        model: "music-2.6",
+        timeoutMs: 700_000,
+      },
+    });
+    const result = await resolveMediaGenSettings("music", mediaGen);
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS_BY_MODALITY.music);
+    expect(result.timeoutMs).toBe(600_000);
+  });
+
+  it("video: 上限为 1500s（宽于 music）", async () => {
+    const mediaGen = makeMediaGenSettings({
+      video: {
+        ...defaultMediaGenSettings().video,
+        enabled: true,
+        providerId: "custom",
+        baseUrl: "https://api.minimax.io",
+        apiKey: "key",
+        model: "MiniMax-Hailuo-2.3",
+        timeoutMs: 2_000_000,
+      },
+    });
+    const result = await resolveMediaGenSettings("video", mediaGen);
+    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS_BY_MODALITY.video);
+    expect(result.timeoutMs).toBe(1_500_000);
+  });
+
+  it("未超上限时保持原值", async () => {
+    const result = await resolveMediaGenSettings("image", customImageSettings({ timeoutMs: 180_000 }));
+    expect(result.timeoutMs).toBe(180_000);
+  });
+});
+
+// ── 模态特有字段透传 ──────────────────────────────────────────────────────────
+
+describe("resolveMediaGenSettings - 特有字段透传", () => {
+  it("image 透传 quality/defaultResolution/defaultSize", async () => {
+    const result = await resolveMediaGenSettings(
+      "image",
+      customImageSettings({ quality: "high", defaultResolution: "2K", defaultSize: "512x512" }),
+    );
+    expect(result.quality).toBe("high");
+    expect(result.defaultResolution).toBe("2K");
+    expect(result.defaultSize).toBe("512x512");
+  });
+
+  it("speech 透传 voice/format", async () => {
+    const mediaGen = makeMediaGenSettings({
+      speech: {
+        ...defaultMediaGenSettings().speech,
+        enabled: true,
+        providerId: "custom",
         baseUrl: "https://api.openai.com",
         apiKey: "sk-key",
         model: "tts-1",
         voice: "alloy",
-        format: "mp3",
-        timeoutMs: 999_000,
+        format: "wav",
       },
     });
-    const result = resolveMediaGenSettings("speech", mediaGen, makeProviderSettings());
-    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
+    const result = await resolveMediaGenSettings("speech", mediaGen);
+    expect(result.voice).toBe("alloy");
+    expect(result.format).toBe("wav");
   });
 
-  it("music: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
-    const mediaGen = makeMediaGenSettings({
-      music: {
-        enabled: true,
-        providerId: "custom",
-        protocol: "minimax-music",
-        baseUrl: "https://api.minimax.chat",
-        apiKey: "key",
-        model: "music-01",
-        format: "mp3",
-        timeoutMs: 400_000,
-      },
-    });
-    const result = resolveMediaGenSettings("music", mediaGen, makeProviderSettings());
-    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
-  });
-
-  it("video: timeoutMs 超过 MAX_TIMEOUT_MS 时被夹紧", () => {
+  it("video 透传 defaultDuration/defaultResolution/pollIntervalMs", async () => {
     const mediaGen = makeMediaGenSettings({
       video: {
+        ...defaultMediaGenSettings().video,
         enabled: true,
         providerId: "custom",
-        protocol: "minimax-video",
-        baseUrl: "https://api.minimax.chat",
+        baseUrl: "https://api.minimax.io",
         apiKey: "key",
-        model: "video-01",
-        defaultDuration: 6,
-        defaultResolution: "1080P",
-        timeoutMs: 600_000,
+        model: "MiniMax-Hailuo-2.3",
+        defaultDuration: 10,
+        defaultResolution: "768P",
         pollIntervalMs: 5_000,
       },
     });
-    const result = resolveMediaGenSettings("video", mediaGen, makeProviderSettings());
-    expect(result.timeoutMs).toBe(MAX_TIMEOUT_MS);
-  });
-
-  it("timeoutMs 未超过 MAX_TIMEOUT_MS 时保持原值", () => {
-    const mediaGen = makeMediaGenSettings({
-      image: {
-        enabled: true,
-        providerId: "custom",
-        protocol: "openai-images",
-        baseUrl: "https://api.example.com",
-        apiKey: "sk-key",
-        model: "dall-e-3",
-        defaultSize: "1024x1024",
-        timeoutMs: 180_000, // 180s < 290s，保持原值
-      },
-    });
-    const result = resolveMediaGenSettings("image", mediaGen, makeProviderSettings());
-    expect(result.timeoutMs).toBe(180_000);
+    const result = await resolveMediaGenSettings("video", mediaGen);
+    expect(result.defaultDuration).toBe(10);
+    expect(result.defaultResolution).toBe("768P");
+    expect(result.pollIntervalMs).toBe(5_000);
   });
 });

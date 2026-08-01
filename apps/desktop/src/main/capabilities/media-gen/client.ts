@@ -9,18 +9,22 @@
 //   - 所有 Agent 提供路径在读写前必须过 assertWithinWorkspace（KTD11）
 //   - 响应体大小受 MAX_RESPONSE_BYTES 限制（KTD11）
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve as pathResolve, sep } from "node:path";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve as pathResolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 
 import type { ResolvedMediaGenConfig } from "./resolve";
 import { openaiImagesGenerate } from "./protocols/openai-images";
-import {
-  minimaxGenerateImage,
-  minimaxGenerateVideo,
-  minimaxGenerateMusic,
-  minimaxGenerateTts,
-} from "./protocols/minimax";
+import { minimaxGenerateImage } from "./protocols/minimax-image";
+import { grokImagineGenerateImage } from "./protocols/grok-imagine-image";
+import { volcengineArkGenerateImage } from "./protocols/volcengine-ark-image";
+import { minimaxGenerateMusic, minimaxGenerateTts } from "./protocols/minimax-audio";
+import { minimaxGenerateVideo } from "./protocols/minimax-video";
+import { openaiSpeechGenerate } from "./protocols/openai-speech";
+import { mimoGenerateSpeech } from "./protocols/mimo";
+import { grokImagineGenerateVideo } from "./protocols/grok-imagine-video";
+import { volcengineArkGenerateVideo } from "./protocols/volcengine-ark-video";
+import { dataUri, detectImageMime, mapImageSize, protocolSupportsImageEdit } from "./protocols/shared";
 
 // ── 响应体大小限制（KTD11） ────────────────────────────────────────────────────
 
@@ -42,11 +46,21 @@ export interface GenerateMediaArgs {
   // 视频特有
   firstFrameImagePath?: string;
   lastFrameImagePath?: string;
+  /** 视频/图片宽高比（grok/volcengine 协议消费；波次 1 实装透传）。*/
+  aspectRatio?: string;
   // 音频（TTS）特有
   voice?: string;
   speed?: number;
+  /** 语音风格指令（MiMo 等支持的供应商消费；波次 1 实装透传）。*/
+  style?: string;
   // 音乐特有
   lyrics?: string;
+  /** 纯器乐（无人声）。*/
+  instrumental?: boolean;
+  /** 让供应商生成/润色歌词（MiniMax lyrics_optimizer；波次 1 实装透传）。*/
+  lyricsOptimizer?: boolean;
+  /** 翻唱/参考音频公网 URL（MiniMax audio_url；波次 1 实装透传）。*/
+  referenceAudioUrl?: string;
 }
 
 export interface GeneratedFile {
@@ -69,7 +83,8 @@ export interface GenerateMediaResult {
 // （例如 format='../../etc/passwd'）。此白名单只允许已知音频扩展名，非白名单回落 'mp3'。
 // mimeType 映射确保落盘文件的 MIME 类型正确（而非一律 audio/mpeg）。
 
-const AUDIO_EXT_WHITELIST = ["mp3", "wav", "ogg", "flac", "m4a", "aac"] as const;
+// 白名单为「Kun AUDIO_FORMATS ∪ 既有扩展名」并集：pcm/pcm16 → audio/L16（未压缩 PCM）。
+export const AUDIO_EXT_WHITELIST = ["mp3", "wav", "ogg", "flac", "m4a", "aac", "pcm", "pcm16"] as const;
 type AudioExt = (typeof AUDIO_EXT_WHITELIST)[number];
 
 const AUDIO_MIME_MAP: Record<AudioExt, string> = {
@@ -79,17 +94,22 @@ const AUDIO_MIME_MAP: Record<AudioExt, string> = {
   flac: "audio/flac",
   m4a:  "audio/mp4",
   aac:  "audio/mp4",
+  pcm:  "audio/L16",
+  pcm16: "audio/L16",
 };
 
 /**
  * 将 Agent 提供的 format 字符串规范化为安全扩展名与对应 mimeType。
  * 非白名单值一律回落到 'mp3'（防路径穿越 + 未知格式兜底）。
+ * pcm16 的文件扩展名归一为 'pcm'（对齐 Kun audioExtension——pcm16 只是位深标注，
+ * 落盘扩展名与 pcm 相同）。
  */
 export function resolveAudioFormat(format: string | undefined): { ext: AudioExt; mimeType: string } {
   const lower = format?.toLowerCase() ?? "";
   if ((AUDIO_EXT_WHITELIST as readonly string[]).includes(lower)) {
-    const ext = lower as AudioExt;
-    return { ext, mimeType: AUDIO_MIME_MAP[ext] };
+    const fmt = lower as AudioExt;
+    const ext = fmt === "pcm16" ? "pcm" : fmt;
+    return { ext, mimeType: AUDIO_MIME_MAP[fmt] };
   }
   return { ext: "mp3", mimeType: AUDIO_MIME_MAP.mp3 };
 }
@@ -111,6 +131,141 @@ export function assertWithinWorkspace(workspaceRoot: string, inputPath: string):
     throw new Error(`路径越界: "${inputPath}" 不在 workspace 内（${workspaceRoot}）`);
   }
   return resolvedPath;
+}
+
+/**
+ * lexical 校验 + realpath 复核（防 symlink 逃逸/竞态），返回符号链接展开后的绝对路径。
+ *
+ * 为什么 lexical 校验不够：workspace 内一个指向外部（如 ~/.ssh）的 symlink，
+ * lexical 上仍在 workspace 内——读侧会把任意文件读进 dataUri 外发给第三方 API，
+ * 写侧（media 目录被替换成 symlink）会把产物写出 workspace。因此读/写两侧都必须
+ * 经本函数二次复核；写侧还需在 mkdir 之后再调一次（对齐 Kun 的双重检查——
+ * mkdir 与 writeFile 之间目录可能被并发替换为 symlink）。
+ *
+ * target 不存在时（写路径的新文件名），对其最近存在的祖先做 realpath，
+ * 再拼回剩余段（lexical 已归一化，剩余段不含 ".."）。
+ */
+export async function assertRealWithinWorkspace(
+  workspaceRoot: string,
+  inputPath: string,
+): Promise<string> {
+  // 第一道：lexical（同步、无 IO），先挡掉明显的 ../ 与绝对路径越界。
+  const lexical = assertWithinWorkspace(workspaceRoot, inputPath);
+
+  // workspaceRoot 自身也要展开（根目录本身可能是 symlink，如 macOS /tmp → /private/tmp）。
+  let realRoot: string;
+  try {
+    realRoot = await realpath(pathResolve(workspaceRoot));
+  } catch {
+    // 根目录不存在（测试/异常场景）：退回 lexical 根，后续比较仍然成立。
+    realRoot = pathResolve(workspaceRoot);
+  }
+
+  // target 或其最近存在祖先做 realpath，展开路径中所有 symlink。
+  let probe = lexical;
+  const pendingSegments: string[] = [];
+  let expanded: string;
+  for (;;) {
+    try {
+      expanded = await realpath(probe);
+      break;
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) {
+        // 已到文件系统根仍不存在：无 symlink 可展开，用 lexical 结果。
+        expanded = probe;
+        break;
+      }
+      pendingSegments.push(basename(probe));
+      probe = parent;
+    }
+  }
+  while (pendingSegments.length > 0) {
+    expanded = join(expanded, pendingSegments.pop()!);
+  }
+
+  if (expanded !== realRoot && !expanded.startsWith(realRoot + sep)) {
+    throw new Error(
+      `路径越界: "${inputPath}" 经符号链接解析后不在 workspace 内（${workspaceRoot}）`,
+    );
+  }
+  return expanded;
+}
+
+// ── 参考图/帧图收集（≤10MB + 魔数校验 → dataUri，供协议客户端上传） ───────────
+
+export const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+/** 参考图数量上限（对齐 Kun maxReferenceImages 默认值；v1 不做可配置）。*/
+export const MAX_REFERENCE_IMAGES = 4;
+
+export interface CollectedImage {
+  name: string;
+  mimeType: string;
+  data: Buffer;
+  /** data:{mime};base64,… 形态，协议客户端可直接塞进 JSON 载荷。*/
+  dataUri: string;
+}
+
+/**
+ * 读取并校验参考图片集合：workspace 边界（含 symlink 复核）→ ≤10MB → png/jpeg/webp 魔数。
+ * 任一失败即抛错（fail loudly，不静默跳过）；返回带 dataUri 的图片列表。
+ */
+export async function collectReferenceImages(
+  workspaceRoot: string,
+  paths: string[] | undefined,
+  maxCount: number = MAX_REFERENCE_IMAGES,
+): Promise<CollectedImage[]> {
+  if (!paths || paths.length === 0) return [];
+  const trimmed = paths.filter((p) => typeof p === "string" && p.trim().length > 0);
+  if (trimmed.length > maxCount) {
+    throw new Error(`参考图片最多 ${maxCount} 张（收到 ${trimmed.length} 张）`);
+  }
+  const images: CollectedImage[] = [];
+  for (const rawPath of trimmed) {
+    images.push(await readWorkspaceImage(workspaceRoot, rawPath, "参考图片"));
+  }
+  return images;
+}
+
+/**
+ * 读取并校验单张首/尾帧图片（视频协议用）；path 为空返回 undefined。
+ */
+export async function collectFrameImage(
+  workspaceRoot: string,
+  path: string | undefined,
+  fieldName: string,
+): Promise<CollectedImage | undefined> {
+  if (!path || !path.trim()) return undefined;
+  return readWorkspaceImage(workspaceRoot, path.trim(), fieldName);
+}
+
+/** 参考图/帧图共用读取管线：边界校验 → 读取 → 大小 → 魔数。*/
+async function readWorkspaceImage(
+  workspaceRoot: string,
+  rawPath: string,
+  fieldName: string,
+): Promise<CollectedImage> {
+  // 读侧必须走 realpath 复核：symlink 可把 workspace 外任意文件伪装进来。
+  const resolved = await assertRealWithinWorkspace(workspaceRoot, rawPath);
+  let data: Buffer;
+  try {
+    data = await readFile(resolved);
+  } catch {
+    throw new Error(`${fieldName}不存在或不可读: ${rawPath}`);
+  }
+  if (data.byteLength > MAX_REFERENCE_IMAGE_BYTES) {
+    throw new Error(`${fieldName}超过 ${MAX_REFERENCE_IMAGE_BYTES} 字节上限: ${rawPath}`);
+  }
+  const mimeType = detectImageMime(data);
+  if (!mimeType) {
+    throw new Error(`${fieldName}必须是 png/jpeg/webp 格式（按魔数校验）: ${rawPath}`);
+  }
+  return {
+    name: rawPath.split("/").pop() || "reference.png",
+    mimeType,
+    data,
+    dataUri: dataUri(mimeType, data),
+  };
 }
 
 // ── 产物目录 ───────────────────────────────────────────────────────────────────
@@ -139,8 +294,12 @@ async function saveToWorkspace(
   const dir = mediaDir(workspaceRoot, modality);
   await mkdir(dir, { recursive: true });
 
+  // mkdir 后二次复核（对齐 Kun 双重检查）：已存在的 media 目录 symlink 是最常见的
+  // 逃逸路径——mkdir recursive 对已有 symlink 目录静默成功，若不复核会把产物写出 workspace。
+  const realDir = await assertRealWithinWorkspace(workspaceRoot, dir);
+
   const fileName = generateFileName(ext);
-  const absolutePath = join(dir, fileName);
+  const absolutePath = join(realDir, fileName);
   await writeFile(absolutePath, buffer);
 
   // 相对路径（相对 workspaceRoot）
@@ -168,7 +327,7 @@ function assertResponseSize(buffer: Buffer, maxBytes: number, modality: string):
 
 /**
  * 生成图片，产物落盘 {workspaceRoot}/.cortex/media/images/。
- * 支持协议：openai-images、minimax-image。
+ * 支持协议：openai-images、minimax-image、grok-imagine-image、volcengine-ark-image。
  */
 export async function generateImage(
   args: GenerateMediaArgs,
@@ -177,11 +336,42 @@ export async function generateImage(
 ): Promise<GenerateMediaResult> {
   const startTs = Date.now();
   const { workspaceRoot } = ctx;
+  const protocol = resolvedConfig.protocol;
 
-  // 安全校验：参考图片路径
-  const safeRefPaths = args.referenceImagePaths?.map((p) =>
-    assertWithinWorkspace(workspaceRoot, p),
+  // 参考图收集：workspace 边界（lexical + realpath 双重检查）→ ≤10MB → 魔数校验，
+  // 返回带二进制的图片列表供协议客户端上传（FormData / dataUri）。
+  const references = await collectReferenceImages(
+    workspaceRoot,
+    args.referenceImagePaths,
+    (resolvedConfig.maxReferenceImages as number | undefined) ?? MAX_REFERENCE_IMAGES,
   );
+
+  // edits 门控（防御纵深）：MCP 层已按运行时协议拦截，但 workflow/直调路径不经过
+  // MCP handler，这里必须在任何网络调用前再拦一次——不支持真编辑的协议（minimax
+  // 的 subject_reference 是角色保持、grok 无编辑端点）静默产出一张全新（错误）的
+  // 图比报错更糟，报错后调用方可去掉参考图重试。
+  if (references.length > 0 && !protocolSupportsImageEdit(protocol)) {
+    throw new Error(
+      "edits_unsupported：当前图片协议不支持参考图编辑（其参考图能力是角色/身份保持" +
+      "而非忠实编辑）；请去掉 referenceImagePaths 重试。",
+    );
+  }
+
+  // 尺寸决策（优先级：工具入参 > defaultSize > defaultResolution，经 mapImageSize）：
+  // MCP 层已映射并经 args.size 传入；此兜底服务 workflow 等未映射的调用方。
+  // defaultResolution 缺失（旧 resolve 路径未透传）时回落 "auto"——无比例则不上送
+  // 尺寸、交给供应商默认，保持旧行为不强加 1K。
+  const mappedSize =
+    args.size ??
+    mapImageSize(
+      args.aspectRatio,
+      undefined,
+      (resolvedConfig.defaultSize as string | undefined) || undefined,
+      (resolvedConfig.defaultResolution as "auto" | "1K" | "2K" | "3K" | "4K" | undefined) ?? "auto",
+    );
+  const size = mappedSize === "auto" ? undefined : mappedSize;
+  // 画质档（openai-images 协议消费；'auto' 在协议层不上送）。
+  const quality = resolvedConfig.quality as string | undefined;
 
   // 超时 AbortController（KTD8）
   const abortCtrl = new AbortController();
@@ -192,22 +382,51 @@ export async function generateImage(
 
   try {
     let buffer: Buffer;
-    const protocol = resolvedConfig.protocol;
 
     if (protocol === "openai-images") {
+      // 参考图非空时协议内部自动切 /images/edits（FormData）。
       buffer = await openaiImagesGenerate(
         {
           prompt: args.prompt,
           model: resolvedConfig.model,
-          size: args.size ?? (resolvedConfig.defaultSize as string | undefined),
-          referenceImagePaths: safeRefPaths,
+          size,
+          quality,
+          referenceImages: references,
         },
         resolvedConfig,
         signal,
       );
     } else if (protocol === "minimax-image") {
       buffer = await minimaxGenerateImage(
-        { prompt: args.prompt, model: resolvedConfig.model },
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          aspectRatio: args.aspectRatio,
+        },
+        resolvedConfig,
+        signal,
+      );
+    } else if (protocol === "grok-imagine-image") {
+      buffer = await grokImagineGenerateImage(
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          aspectRatio: args.aspectRatio,
+        },
+        resolvedConfig,
+        signal,
+      );
+    } else if (protocol === "volcengine-ark-image") {
+      // 方舟图生图与文生图同端点（image dataUri 数组），参考图直接透传。
+      buffer = await volcengineArkGenerateImage(
+        {
+          prompt: args.prompt,
+          model: resolvedConfig.model,
+          size,
+          referenceImages: references,
+        },
         resolvedConfig,
         signal,
       );
@@ -251,25 +470,43 @@ export async function generateSpeech(
     // 白名单校验：防止 Agent 提供的 format 含路径穿越字符，非白名单回落 mp3。
     const { ext, mimeType } = resolveAudioFormat(rawFormat);
 
+    // voice 消费顺序：工具入参优先，其次模态设置里的默认音色。
+    const voice = args.voice ?? (resolvedConfig.voice as string | undefined);
+
     if (protocol === "openai-speech") {
+      // style 在本协议刻意不透传（对齐 Kun）：OpenAI /v1/audio/speech 无风格字段。
       buffer = await openaiSpeechGenerate(
         {
           text: args.prompt,
           model: resolvedConfig.model,
-          voice: args.voice ?? (resolvedConfig.voice as string | undefined),
+          voice,
           speed: args.speed,
           format: ext,
         },
         resolvedConfig,
         signal,
       );
-    } else if (protocol === "minimax-t2a" || protocol === "mimo-tts") {
+    } else if (protocol === "minimax-t2a") {
       buffer = await minimaxGenerateTts(
         {
           text: args.prompt,
           model: resolvedConfig.model,
-          voice: args.voice ?? (resolvedConfig.voice as string | undefined),
+          voice,
           speed: args.speed,
+          format: ext,
+        },
+        resolvedConfig,
+        signal,
+      );
+    } else if (protocol === "mimo-tts") {
+      // 路由修复：mimo-tts 此前误走 minimax t2a_v2（载荷/响应不兼容，现网必失败），
+      // 现走独立 MiMo chat/completions 客户端；style 仅该协议消费。
+      buffer = await mimoGenerateSpeech(
+        {
+          text: args.prompt,
+          model: resolvedConfig.model,
+          voice,
+          style: args.style,
           format: ext,
         },
         resolvedConfig,
@@ -318,9 +555,13 @@ export async function generateMusic(
     if (protocol === "minimax-music") {
       buffer = await minimaxGenerateMusic(
         {
+          // prompt 可为空串（三选一约束由 server 层校验），协议层空值不进载荷。
           prompt: args.prompt,
           model: resolvedConfig.model,
           lyrics: args.lyrics,
+          instrumental: args.instrumental,
+          lyricsOptimizer: args.lyricsOptimizer,
+          referenceAudioUrl: args.referenceAudioUrl,
           format: ext,
         },
         resolvedConfig,
@@ -343,7 +584,9 @@ export async function generateMusic(
 
 /**
  * 生成视频，产物落盘 {workspaceRoot}/.cortex/media/video/。
- * 支持协议：minimax-video。
+ * 支持协议：minimax-video、grok-imagine-video、volcengine-ark-video。
+ * 三协议共用一套准备管线：帧图片经 collectFrameImage 产出 dataUri → 提前生成落盘路径 →
+ * 协议客户端异步轮询 + 流式写盘（返回字节数，不经过大 Buffer，KTD11 / ADV-006）。
  */
 export async function generateVideo(
   args: GenerateMediaArgs,
@@ -352,14 +595,22 @@ export async function generateVideo(
 ): Promise<GenerateMediaResult> {
   const startTs = Date.now();
   const { workspaceRoot } = ctx;
+  const protocol = resolvedConfig.protocol;
 
-  // 安全校验：帧图片路径
-  const safeFirstFrame = args.firstFrameImagePath
-    ? assertWithinWorkspace(workspaceRoot, args.firstFrameImagePath)
-    : undefined;
-  const safeLastFrame = args.lastFrameImagePath
-    ? assertWithinWorkspace(workspaceRoot, args.lastFrameImagePath)
-    : undefined;
+  if (
+    protocol !== "minimax-video" &&
+    protocol !== "grok-imagine-video" &&
+    protocol !== "volcengine-ark-video"
+  ) {
+    throw new Error(`不支持的视频生成协议: ${protocol}`);
+  }
+
+  // 帧图片收集（≤10MB + png/jpeg/webp 魔数 + workspace 边界含 symlink 复核 → dataUri）。
+  // 任一校验失败在发起网络请求前就抛错（fail loudly）。
+  // 注：grok 无末帧概念——schema 层已不生成 last_frame_image_path 字段，这里不提前拦截，
+  // 由协议层防御性报错（保持「协议约束归协议层」的单一判定点）。
+  const firstFrame = await collectFrameImage(workspaceRoot, args.firstFrameImagePath, "首帧图片");
+  const lastFrame = await collectFrameImage(workspaceRoot, args.lastFrameImagePath, "尾帧图片");
 
   const abortCtrl = new AbortController();
   const timeoutId = setTimeout(() => abortCtrl.abort(), resolvedConfig.timeoutMs);
@@ -368,113 +619,55 @@ export async function generateVideo(
     : abortCtrl.signal;
 
   try {
-    const protocol = resolvedConfig.protocol;
+    // 视频最大 500MB，提前生成落盘路径，协议函数直接流式写盘，不经过 Buffer（KTD11 / ADV-006）。
+    const dir = mediaDir(workspaceRoot, "video");
+    await mkdir(dir, { recursive: true });
+    // mkdir 后二次复核（同 saveToWorkspace）：防已存在的 media 目录 symlink 把视频写出 workspace。
+    const realDir = await assertRealWithinWorkspace(workspaceRoot, dir);
+    const fileName = generateFileName("mp4");
+    const absolutePath = join(realDir, fileName);
+    const relativePath = `.cortex/media/video/${fileName}`;
 
+    // 三协议共用参数：duration/resolution 取 resolvedConfig 的 default*（server 层已用
+    // 工具入参覆盖过），pollIntervalMs/timeoutMs 由协议客户端从 config 消费。
+    const commonArgs = {
+      prompt: args.prompt,
+      model: resolvedConfig.model,
+      firstFrameImage: firstFrame?.dataUri,
+      lastFrameImage: lastFrame?.dataUri,
+      duration: resolvedConfig.defaultDuration as number | undefined,
+      resolution: resolvedConfig.defaultResolution as string | undefined,
+      destPath: absolutePath,
+    };
+
+    let byteSize: number;
     if (protocol === "minimax-video") {
-      // 视频最大 500MB，提前生成落盘路径，协议函数直接流式写盘，不经过 Buffer（KTD11 / ADV-006）。
-      const dir = mediaDir(workspaceRoot, "video");
-      await mkdir(dir, { recursive: true });
-      const fileName = generateFileName("mp4");
-      const absolutePath = join(dir, fileName);
-      const relativePath = `.cortex/media/video/${fileName}`;
-
-      const byteSize = await minimaxGenerateVideo(
-        {
-          prompt: args.prompt,
-          model: resolvedConfig.model,
-          firstFrameImagePath: safeFirstFrame,
-          lastFrameImagePath: safeLastFrame,
-          duration: resolvedConfig.defaultDuration as number | undefined,
-          resolution: resolvedConfig.defaultResolution as string | undefined,
-          destPath: absolutePath,
-        },
+      // minimax 接口无 aspect_ratio 参数，不透传。
+      byteSize = await minimaxGenerateVideo(commonArgs, resolvedConfig, signal);
+    } else if (protocol === "grok-imagine-video") {
+      byteSize = await grokImagineGenerateVideo(
+        { ...commonArgs, aspectRatio: args.aspectRatio },
         resolvedConfig,
         signal,
       );
-
-      const file: GeneratedFile = {
-        relativePath,
-        absolutePath,
-        mimeType: "video/mp4",
-        byteSize,
-      };
-      return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
     } else {
-      throw new Error(`不支持的视频生成协议: ${protocol}`);
+      byteSize = await volcengineArkGenerateVideo(
+        { ...commonArgs, aspectRatio: args.aspectRatio },
+        resolvedConfig,
+        signal,
+      );
     }
+
+    const file: GeneratedFile = {
+      relativePath,
+      absolutePath,
+      mimeType: "video/mp4",
+      byteSize,
+    };
+    return { files: [file], model: resolvedConfig.model, durationMs: Date.now() - startTs };
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-// ── OpenAI Speech（在线 TTS）内部实现 ─────────────────────────────────────────
-
-interface OpenAISpeechArgs {
-  text: string;
-  model: string;
-  voice?: string;
-  speed?: number;
-  format?: string;
-}
-
-/**
- * 调用 OpenAI 兼容 /v1/audio/speech 接口。
- */
-async function openaiSpeechGenerate(
-  args: OpenAISpeechArgs,
-  config: ResolvedMediaGenConfig,
-  signal: AbortSignal,
-): Promise<Buffer> {
-  const url = `${config.baseUrl.replace(/\/+$/, "")}/v1/audio/speech`;
-  const body: Record<string, unknown> = {
-    model: args.model,
-    input: args.text,
-    ...(args.voice ? { voice: args.voice } : {}),
-    ...(args.speed !== undefined ? { speed: args.speed } : {}),
-    ...(args.format ? { response_format: args.format } : {}),
-  };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => "");
-    throw new Error(`OpenAI Speech 接口 HTTP ${res.status}: ${errorBody.slice(0, 300)}`);
-  }
-
-  // 语音响应直接是二进制流（非 JSON），使用 streamDownloadToBuffer 流式读取（KTD11 / ADV-006）：
-  // 边读边计数，超过 MAX_RESPONSE_BYTES.speech（200MB）时立即中止，不等全量进堆。
-  if (!res.body) {
-    throw new Error("OpenAI Speech 响应缺少 body（ReadableStream）");
-  }
-  // 复用 streamDownloadToBuffer 的 drainStream 逻辑；此处 URL 已消耗，直接读 res.body
-  const chunks: Uint8Array[] = [];
-  const reader = res.body.getReader();
-  let bytesRead = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytesRead += value.byteLength;
-      if (bytesRead > MAX_RESPONSE_BYTES.speech) {
-        await reader.cancel();
-        throw new Error(
-          `[speech] 响应体超过大小限制（已读 ${bytesRead} > ${MAX_RESPONSE_BYTES.speech} bytes），下载已中止`,
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks);
 }
 
 // ── AbortSignal 合并（两个信号任一触发则整体 abort） ─────────────────────────

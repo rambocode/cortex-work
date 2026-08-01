@@ -500,14 +500,42 @@ export interface PushSettings {
 // 推送渠道标识(与 core/desktop/types.ts 镜像)。自动化「完成后通知」按此选择渠道。
 export type PushChannelKind = "wecom" | "dingtalk" | "feishu" | "email" | "internal";
 
-// ── 媒体生成/ASR 设置镜像（与 packages/core/desktop/types.ts 逐字镜像;主进程
-//    仅持久化转发,运行期由 U4/U7/U9 读取,故当前不在 GeneralSettings 里消费）。
-// timeoutMs 全部 <300s:主进程看门狗上限约 300s TCP,卡在 280 以内可得清晰超时错误。
+// ── 媒体生成/ASR 设置镜像（与 packages/core/desktop/media-gen-types.ts 逐字镜像;
+//    主进程仅持久化转发,运行期由 U4/U7/U9 读取,故当前不在 GeneralSettings 里消费）。
+// timeoutMs 上限按模态钳制,见下方 MAX_TIMEOUT_MS_BY_MODALITY 注释。
+//
+// ⚠️ apiKey 字段红线（全四模态）：持久化值只允许「空串」或「${secret:NAME} 金库引用」
+// （迁移期兼容历史明文）。personal-workspace.json 会被 renderer 全量读写过桥，
+// 明文密钥只在主进程金库（safeStorage）里存活。
 
-export type ImageGenProtocol = "openai-images" | "minimax-image";
+export type ImageGenProtocol =
+  | "openai-images"
+  | "minimax-image"
+  | "grok-imagine-image"
+  | "volcengine-ark-image";
 export type SpeechGenProtocol = "openai-speech" | "minimax-t2a" | "mimo-tts";
 export type MusicGenProtocol = "minimax-music";
-export type VideoGenProtocol = "minimax-video";
+export type VideoGenProtocol =
+  | "minimax-video"
+  | "grok-imagine-video"
+  | "volcengine-ark-video";
+
+// 图片画质档位与默认分辨率档（与 core 镜像；语义见 core 侧注释）。
+export type ImageGenQuality = "auto" | "low" | "medium" | "high";
+export type ImageGenResolution = "auto" | "1K" | "2K" | "3K" | "4K";
+
+// ── 按模态的 timeoutMs 钳制上限（与 core/desktop/media-gen-types.ts 逐字镜像） ──
+// 钳制依据（承接原 resolve.ts:38-45 注释）：约束方是渲染端 per-run 静默看门狗
+// （RUN_STALL_TIMEOUT_MS 现为 30min）与主进程活跃度兜底（40min）——媒体工具执行期间
+// 无 CLI stdout 事件，工具超时必须先于看门狗触发，否则整轮 session 被杀、poll 悬挂。
+// video 取 25min（1_500_000）留 5min 余量，music 10min，image/speech 沿用 290s 保守值；
+// normalize（core）/ resolve（main）/ 设置 UI 三处共用此表。
+export const MAX_TIMEOUT_MS_BY_MODALITY = {
+  image: 290_000,
+  speech: 290_000,
+  music: 600_000,
+  video: 1_500_000,
+} as const;
 
 export interface ImageGenSettings {
   enabled: boolean;
@@ -516,6 +544,10 @@ export interface ImageGenSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 供应商画质档位；与分辨率相互独立，默认 "auto"。*/
+  quality: ImageGenQuality;
+  /** 默认分辨率档；优先级：工具入参 > defaultSize > defaultResolution（MCP 层执行）。*/
+  defaultResolution: ImageGenResolution;
   defaultSize: string;
   timeoutMs: number;
 }

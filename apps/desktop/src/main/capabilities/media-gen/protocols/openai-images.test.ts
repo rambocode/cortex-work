@@ -147,7 +147,7 @@ describe("openaiImagesGenerate", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("重试后仍然 4xx → 抛出错误", async () => {
+  it("重试后仍然 4xx → 抛出 MediaGenHttpError（HTTP 400）", async () => {
     // 两次都 4xx 含 response_format
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -161,7 +161,7 @@ describe("openaiImagesGenerate", () => {
     });
 
     await expect(openaiImagesGenerate(makeArgs(), makeConfig(), makeSignal())).rejects.toThrow(
-      /重试后仍失败/,
+      /HTTP 400/,
     );
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -208,5 +208,221 @@ describe("openaiImagesGenerate", () => {
     const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
     // 不应出现双斜杠
     expect(url).toBe("https://api.example.com/v1/images/generations");
+  });
+});
+
+// ── quality 参数与降级链 ──────────────────────────────────────────────────────
+
+describe("openaiImagesGenerate - quality", () => {
+  function okB64Once(content = "ok") {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: Buffer.from(content).toString("base64") }] }),
+    });
+  }
+
+  it("quality 非 auto 时进入请求 body", async () => {
+    okB64Once();
+    await openaiImagesGenerate(
+      { ...makeArgs(), quality: "high" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.quality).toBe("high");
+  });
+
+  it("quality 为 auto 时不上送", async () => {
+    okB64Once();
+    await openaiImagesGenerate(
+      { ...makeArgs(), quality: "auto" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.quality).toBeUndefined();
+  });
+
+  it("4xx 含 quality 字样 → 去 quality 重试一次", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => "quality parameter is not supported by this model",
+    });
+    okB64Once("no-quality-retry");
+
+    const buffer = await openaiImagesGenerate(
+      { ...makeArgs(), quality: "high" },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    expect(buffer.toString()).toBe("no-quality-retry");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [, retryInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    const retryBody = JSON.parse(retryInit.body as string) as Record<string, unknown>;
+    expect(retryBody.quality).toBeUndefined();
+    // response_format 仍保留（quality 与 response_format 独立降级）
+    expect(retryBody.response_format).toBe("b64_json");
+  });
+
+  it("双级降级：quality 4xx → response_format 4xx → 第三次全裸成功", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => "unknown parameter: quality",
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => "response_format is not supported",
+    });
+    okB64Once("bare-retry");
+
+    const buffer = await openaiImagesGenerate(
+      { ...makeArgs(), quality: "medium" },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    expect(buffer.toString()).toBe("bare-retry");
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const [, thirdInit] = mockFetch.mock.calls[2] as [string, RequestInit];
+    const thirdBody = JSON.parse(thirdInit.body as string) as Record<string, unknown>;
+    expect(thirdBody.quality).toBeUndefined();
+    expect(thirdBody.response_format).toBeUndefined();
+  });
+});
+
+// ── edits（图生图 FormData） ──────────────────────────────────────────────────
+
+describe("openaiImagesGenerate - edits", () => {
+  function makeRef(name: string) {
+    return { name, mimeType: "image/png", data: Buffer.from(`png-bytes-${name}`) };
+  }
+
+  it("单参考图 → /v1/images/edits + FormData 字段名 'image'", async () => {
+    const fakeBase64 = Buffer.from("edited").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeBase64 }] }),
+    });
+
+    const buffer = await openaiImagesGenerate(
+      { ...makeArgs(), referenceImages: [makeRef("a.png")] },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    expect(buffer.toString()).toBe("edited");
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/images/edits");
+    const form = init.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect(form.get("model")).toBe("dall-e-3");
+    expect(form.get("prompt")).toBe("a beautiful sunset");
+    expect(form.get("size")).toBe("1024x1024");
+    expect(form.get("response_format")).toBe("b64_json");
+    expect(form.getAll("image")).toHaveLength(1);
+    expect(form.getAll("image[]")).toHaveLength(0);
+    // FormData 请求不得手写 Content-Type（boundary 由 fetch 生成）
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBeUndefined();
+  });
+
+  it("多参考图 → FormData 字段名 'image[]'", async () => {
+    const fakeBase64 = Buffer.from("multi").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeBase64 }] }),
+    });
+
+    await openaiImagesGenerate(
+      { ...makeArgs(), referenceImages: [makeRef("a.png"), makeRef("b.png")] },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const form = init.body as FormData;
+    expect(form.getAll("image[]")).toHaveLength(2);
+    expect(form.getAll("image")).toHaveLength(0);
+  });
+
+  it("edits 端点 404/405 → edits_unsupported 结构化错误", async () => {
+    for (const status of [404, 405]) {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status,
+        text: async () => "Not Found",
+      });
+      await expect(
+        openaiImagesGenerate(
+          { ...makeArgs(), referenceImages: [makeRef("a.png")] },
+          makeConfig(),
+          makeSignal(),
+        ),
+      ).rejects.toThrow(/edits_unsupported/);
+    }
+  });
+
+  it("edits 端点 501（5xx 路径）→ 同样 edits_unsupported", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 501,
+      text: async () => "Not Implemented",
+    });
+    await expect(
+      openaiImagesGenerate(
+        { ...makeArgs(), referenceImages: [makeRef("a.png")] },
+        makeConfig(),
+        makeSignal(),
+      ),
+    ).rejects.toThrow(/edits_unsupported/);
+  });
+
+  it("edits 4xx 含 quality 字样 → FormData 降级重试去掉 quality", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => "quality not supported",
+    });
+    const fakeBase64 = Buffer.from("edit-no-quality").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeBase64 }] }),
+    });
+
+    const buffer = await openaiImagesGenerate(
+      { ...makeArgs(), quality: "high", referenceImages: [makeRef("a.png")] },
+      makeConfig(),
+      makeSignal(),
+    );
+
+    expect(buffer.toString()).toBe("edit-no-quality");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [, retryInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    const retryForm = retryInit.body as FormData;
+    expect(retryForm.get("quality")).toBeNull();
+    expect(retryForm.getAll("image")).toHaveLength(1);
+  });
+
+  it("baseUrl 已含完整 generations 路径时 edits 能正确改写端点", async () => {
+    const fakeBase64 = Buffer.from("rewrite").toString("base64");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: fakeBase64 }] }),
+    });
+
+    await openaiImagesGenerate(
+      { ...makeArgs(), referenceImages: [makeRef("a.png")] },
+      makeConfig({ baseUrl: "https://api.example.com/v1/images/generations" }),
+      makeSignal(),
+    );
+
+    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.example.com/v1/images/edits");
   });
 });

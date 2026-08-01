@@ -24,6 +24,23 @@ vi.mock("../log", () => ({
   createLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
 }));
 
+// 金库替身（migrateMediaGenPlaintextKeys 用）：可切换 safeStorage 可用性、记录/注入 setSecrets 行为。
+// secrets.ts（isAllowedSensitiveValue）是纯函数，不 mock、走真实现。
+const credVault = vi.hoisted(() => ({
+  available: true,
+  setSecretsCalls: [] as Record<string, string>[],
+  setSecretsError: null as Error | null,
+}));
+
+vi.mock("../providers/credentials", () => ({
+  getCredentialStoreHealth: () =>
+    credVault.available ? { available: true } : { available: false, reason: "keychain unavailable" },
+  setSecrets: async (patch: Record<string, string>) => {
+    if (credVault.setSecretsError) throw credVault.setSecretsError;
+    credVault.setSecretsCalls.push({ ...patch });
+  },
+}));
+
 const storePath = () => join(state.home, "personal-workspace.json");
 
 /** 带旧供应商配置（含明文 apiKey）的历史存档。 */
@@ -63,6 +80,9 @@ async function loadModule() {
 
 beforeEach(() => {
   state.home = mkdtempSync(join(tmpdir(), "cortex-store-"));
+  credVault.available = true;
+  credVault.setSecretsCalls = [];
+  credVault.setSecretsError = null;
 });
 
 afterEach(async () => {
@@ -229,5 +249,110 @@ describe("purgeLegacyPlaintextCredentials", () => {
     await writeStore({ version: 1, projects: [], sessions: [] });
     const { purgeLegacyPlaintextCredentials } = await loadModule();
     expect(await purgeLegacyPlaintextCredentials()).toBe(false);
+  });
+});
+
+// ── 设计 §4.3：媒体生成明文密钥一次性迁移金库 ────────────────────────────────────
+//
+// 与 purge 系不同：明文**不能删**（那是用户唯一的一份 key），必须「先落金库、后改写引用」，
+// 任一环失败都要保证下次启动可重试收敛、绝不丢 key。
+describe("migrateMediaGenPlaintextKeys", () => {
+  /** 四模态混合形态旧档：image 明文待迁；speech 已是引用、music $ENV、video !cmd 均不迁。 */
+  const mixedMediaGen = () => ({
+    image: { enabled: true, providerId: "custom", apiKey: "sk-plain-IMAGE-KEY", baseUrl: "https://a", model: "m" },
+    speech: { enabled: false, providerId: "custom", apiKey: "${secret:media.speech.custom}" },
+    music: { enabled: false, providerId: "custom", apiKey: "$MEDIA_MUSIC_KEY" },
+    video: { enabled: false, providerId: "custom", apiKey: "!op read video-key" },
+  });
+
+  const stateWith = (mediaGenSettings: unknown) => ({ version: 1, projects: [], sessions: [], mediaGenSettings });
+
+  it("明文 → 先落金库（media.<modality>.custom），再把 apiKey 改写为引用", async () => {
+    await writeStore(stateWith(mixedMediaGen()));
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+
+    expect(await migrateMediaGenPlaintextKeys()).toBe(true);
+
+    // 金库收到的是明文，且只含待迁模态。
+    expect(credVault.setSecretsCalls).toEqual([{ "media.image.custom": "sk-plain-IMAGE-KEY" }]);
+
+    const mg = (await readStore()).mediaGenSettings as Record<string, { apiKey: string }>;
+    expect(mg.image.apiKey).toBe("${secret:media.image.custom}");
+    // 已是允许形态的三个模态原样保留。
+    expect(mg.speech.apiKey).toBe("${secret:media.speech.custom}");
+    expect(mg.music.apiKey).toBe("$MEDIA_MUSIC_KEY");
+    expect(mg.video.apiKey).toBe("!op read video-key");
+    // 落盘后整份存档搜不到明文。
+    expect(await fsp.readFile(storePath(), "utf8")).not.toContain("sk-plain-IMAGE-KEY");
+  });
+
+  it("多模态明文一次批量进金库（同一把锁内落盘，避免部分成功）", async () => {
+    const mg = mixedMediaGen();
+    mg.video.apiKey = "sk-plain-VIDEO-KEY";
+    await writeStore(stateWith(mg));
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+
+    expect(await migrateMediaGenPlaintextKeys()).toBe(true);
+    expect(credVault.setSecretsCalls).toEqual([
+      { "media.image.custom": "sk-plain-IMAGE-KEY", "media.video.custom": "sk-plain-VIDEO-KEY" },
+    ]);
+    const next = (await readStore()).mediaGenSettings as Record<string, { apiKey: string }>;
+    expect(next.video.apiKey).toBe("${secret:media.video.custom}");
+  });
+
+  it("幂等：迁移完成后二跑返回 false 且不写盘、不再触碰金库", async () => {
+    await writeStore(stateWith(mixedMediaGen()));
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+    await migrateMediaGenPlaintextKeys();
+    credVault.setSecretsCalls = [];
+    const before = (await fsp.stat(storePath())).mtimeMs;
+
+    expect(await migrateMediaGenPlaintextKeys()).toBe(false);
+    expect(credVault.setSecretsCalls).toEqual([]);
+    expect((await fsp.stat(storePath())).mtimeMs).toBe(before);
+  });
+
+  it("safeStorage 不可用：整体跳过（原值保留、不触金库），下次可用时重试成功", async () => {
+    await writeStore(stateWith(mixedMediaGen()));
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+    credVault.available = false;
+
+    expect(await migrateMediaGenPlaintextKeys()).toBe(false);
+    expect(credVault.setSecretsCalls).toEqual([]);
+    const mg = (await readStore()).mediaGenSettings as Record<string, { apiKey: string }>;
+    expect(mg.image.apiKey).toBe("sk-plain-IMAGE-KEY"); // 绝不丢 key
+
+    // 「下次启动重试」路径：钥匙串恢复后同一函数即可收敛。
+    credVault.available = true;
+    expect(await migrateMediaGenPlaintextKeys()).toBe(true);
+    expect(credVault.setSecretsCalls).toEqual([{ "media.image.custom": "sk-plain-IMAGE-KEY" }]);
+  });
+
+  it("全部已是允许形态（引用/$ENV/!cmd/空串）时完全不写盘", async () => {
+    const mg = mixedMediaGen();
+    mg.image.apiKey = ""; // 空串不算待迁移
+    await writeStore(stateWith(mg));
+    const before = (await fsp.stat(storePath())).mtimeMs;
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+
+    expect(await migrateMediaGenPlaintextKeys()).toBe(false);
+    expect(credVault.setSecretsCalls).toEqual([]);
+    expect((await fsp.stat(storePath())).mtimeMs).toBe(before);
+  });
+
+  it("mediaGenSettings 不存在（全新安装）返回 false 不报错", async () => {
+    await writeStore({ version: 1, projects: [], sessions: [] });
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+    expect(await migrateMediaGenPlaintextKeys()).toBe(false);
+  });
+
+  it("金库写入失败：状态不改写、明文保留（下次启动重试，不产生悬空引用）", async () => {
+    await writeStore(stateWith(mixedMediaGen()));
+    const { migrateMediaGenPlaintextKeys } = await loadModule();
+    credVault.setSecretsError = new Error("vault write failed");
+
+    await expect(migrateMediaGenPlaintextKeys()).rejects.toThrowError(/vault write failed/);
+    const mg = (await readStore()).mediaGenSettings as Record<string, { apiKey: string }>;
+    expect(mg.image.apiKey).toBe("sk-plain-IMAGE-KEY"); // 原值仍在，可重试
   });
 });

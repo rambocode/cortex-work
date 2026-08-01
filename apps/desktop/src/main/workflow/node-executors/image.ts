@@ -64,16 +64,15 @@ export async function executeGenerateImage(
   }
 
   const mediaGenSettings = state.mediaGenSettings
-  const providerSettings = state.providerSettings ?? { providers: [] }
 
   // provider override 策略（KTD7）：
   // 节点 config 的 providerId/model 覆盖 mediaGenSettings.image，
-  // 再经 resolveMediaGenSettings 统一解析，保留 resolveImageGenConfig 的 https 校验与 timeoutMs 钳制。
+  // 再经 resolveMediaGenSettings 统一解析（async：apiKey 可能是金库 `${secret:}` 引用），
+  // 保留 https 校验与按模态 timeoutMs 钳制。
   const effectiveImageSettings = buildEffectiveImageSettings(config, mediaGenSettings.image)
-  const resolvedConfig = resolveMediaGenSettings(
+  const resolvedConfig = await resolveMediaGenSettings(
     'image',
     { ...mediaGenSettings, image: effectiveImageSettings },
-    providerSettings,
   )
 
   // prompt 经模板插值展开（使上游节点输出可注入 prompt）
