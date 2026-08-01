@@ -128,6 +128,72 @@ describe("minimaxGenerateImage", () => {
     ).rejects.toThrow(/HTTP 503/);
   });
 
+  // ── 维度字段（shared.minimaxImageDimensionFields 接入） ──────────────────────
+
+  function okImageOnce() {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        base_resp: { status_code: 0 },
+        data: { image_base64: [Buffer.from("x").toString("base64")] },
+      }),
+    });
+  }
+
+  it("image-01 + size → 显式 width/height（不带 aspect_ratio）", async () => {
+    okImageOnce();
+    await minimaxGenerateImage(
+      { prompt: "cat", model: "image-01", size: "1024x680" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.width).toBe(1024);
+    expect(body.height).toBe(680);
+    expect(body.aspect_ratio).toBeUndefined();
+  });
+
+  it("image-01-live + size → 最近比例 aspect_ratio（1024x680 → 3:2）", async () => {
+    okImageOnce();
+    await minimaxGenerateImage(
+      { prompt: "cat", model: "image-01-live", size: "1024x680" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.aspect_ratio).toBe("3:2");
+    expect(body.width).toBeUndefined();
+    expect(body.height).toBeUndefined();
+  });
+
+  it("无 size 有 aspectRatio → 直接透传 aspect_ratio（workflow 旧路径兼容）", async () => {
+    okImageOnce();
+    await minimaxGenerateImage(
+      { prompt: "cat", model: "image-01-live", aspectRatio: "16:9" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.aspect_ratio).toBe("16:9");
+  });
+
+  it("size 优先于 aspectRatio（两者同传时 size 派生字段生效）", async () => {
+    okImageOnce();
+    await minimaxGenerateImage(
+      { prompt: "cat", model: "image-01", size: "2048x2048", aspectRatio: "16:9" },
+      makeConfig(),
+      makeSignal(),
+    );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.width).toBe(2048);
+    expect(body.height).toBe(2048);
+    expect(body.aspect_ratio).toBeUndefined();
+  });
+
   it("Authorization 头正确传入", async () => {
     const fakeBase64 = Buffer.from("x").toString("base64");
     mockFetch.mockResolvedValueOnce({
