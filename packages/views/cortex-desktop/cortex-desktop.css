@@ -5041,6 +5041,12 @@ button.sb-row {
   left: auto;
   right: calc(100% + 4px);
 }
+/* 翻上变体:flyout 默认与所属行顶部对齐向下铺,「推理」5 档在贴底的写作助手栏里会被
+   窗口下边缘裁掉;溢出时改为与行底部对齐向上铺。与水平翻转是两个独立维度,可同时生效。 */
+.pw-mt-pill .pw-mt-sub--up {
+  top: auto;
+  bottom: -5px;
+}
 /* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。
    用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
    故必须用 (0,2,0) 选择器确保左对齐/背景/层级生效。 */
@@ -6247,27 +6253,28 @@ button.sb-row {
 .pw-tb-menu-item:disabled:hover { background: transparent; }
 .pw-tb-menu-item span { flex: 1; text-align: left; }
 .pw-tb-menu-item svg:last-child:not(:first-child) { color: var(--accent); }
-/* 两行式菜单项(主名 + 副标题说明),目前用于 agent 选择器:让用户在下拉里就分清
-   Cortex(内置,模型自配) 与 Claude Code / Codex(需本机装 CLI)。
-   刻意用修饰类而非改上面的 .pw-tb-menu-item span —— 那条规则被所有顶栏菜单共用,
-   .pw-mt-models 已在打补丁覆盖它,再动会波及一片。 */
-.pw-tb-menu-item--rich { align-items: flex-start; padding: 8px 9px; }
-.pw-tb-menu-item--rich .pw-tb-menu-text {
+/* agent 选择菜单项：单行「名字 + 徽标/注记」。
+   曾经每项顶一行灰色说明（「需本机安装 CLI」「内置 · 用「设置 → 模型」配置的供应商」），
+   把菜单撑得很高而信息只在初次看时有用；现只保留必要的两类附注。 */
+.pw-agent-name {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
 }
-.pw-tb-menu-item--rich .pw-tb-menu-title { flex: none; line-height: 1.3; }
-.pw-tb-menu-item--rich .pw-tb-menu-sub {
-  flex: none;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--text-3);
-  white-space: normal;
+/* Cortex 的「内置」：强调色小字，说明它随应用打包、不需要装任何东西。 */
+.pw-agent-badge {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent, #7c5cff);
 }
-/* 勾选图标与主名行对齐(默认 align-items:flex-start 会把它顶到最上沿)。 */
-.pw-tb-menu-item--rich > svg:last-child { margin-top: 2px; flex: 0 0 auto; }
+/* 异常/补充注记（未安装、派生 agent 的底座）：弱化灰字，不抢主名。 */
+.pw-agent-note {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
 .pw-tb-menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
 /* 「+」菜单里 Skills 行的当前状态徽标:靠右、不抢占 flex,开启态用强调色高亮。 */
 .pw-tb-menu-state {
@@ -11600,9 +11607,19 @@ button.sb-row {
 /* 左栏贴顶拖拽条:避让 macOS 红绿灯(左侧留白),右侧放返回按钮。 */
 .pw-writing-left-titlebar {
   display: flex; align-items: center; justify-content: flex-end;
+  gap: 2px;
   height: 40px; flex-shrink: 0;
   padding: 0 8px 0 78px;
 }
+/* 左栏折叠按钮(紧跟返回)。方形图标按钮,配色跟随返回按钮的冷蓝 --w-* token。
+   折叠态没有这个按钮——左栏整条隐藏,展开入口在中栏顶栏。 */
+.pw-writing-left-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px;
+  color: var(--w-muted); cursor: pointer;
+  border: none; background: transparent;
+}
+.pw-writing-left-toggle:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-writing-back {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 10px; border-radius: 7px;
@@ -11907,12 +11924,6 @@ button.sb-row {
 .pw-wt-icon-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-wt-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
 .pw-wt-icon-btn.is-on { background: var(--w-accent-soft); color: var(--w-accent); }
-/* 文件图标:Kun h-8 w-8 rounded-lg bg-accent/10 text-accent */
-.pw-wt-file-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
-  background: var(--w-accent-soft); color: var(--w-accent);
-}
 .pw-wt-file-meta { min-width: 0; flex: 1; line-height: 1; }
 .pw-wt-file-name {
   font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
@@ -11940,7 +11951,6 @@ button.sb-row {
 }
 .pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
-.pw-wt-mode-label { font-weight: 500; }
 .pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
 
 /* 通用下拉菜单(模式 / 导出) */

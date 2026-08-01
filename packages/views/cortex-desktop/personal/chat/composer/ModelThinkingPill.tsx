@@ -77,8 +77,10 @@ export function ModelThinkingPill({
   // 垂直方向默认下弹,底部空间不足(历史会话页 composer 贴底)自动翻上。
   const flip = useAutoFlipUp(menu.open);
   const [openSub, setOpenSub] = useState<Sub | null>(null);
-  // 二级 flyout 默认右开;实测右缘溢出视口时翻左(见下方 layoutEffect)。
+  // 二级 flyout 默认右开、与所属行顶部对齐;实测溢出视口时分别翻左 / 翻成底对齐
+  //（见下方 layoutEffect）。两个维度独立:窄栏里可能同时翻左又翻上。
   const [flipLeft, setFlipLeft] = useState(false);
+  const [subFlipUp, setSubFlipUp] = useState(false);
   const subRef = useRef<HTMLDivElement>(null);
   // 一级面板默认与 pill 左缘对齐向右展开;窄容器里(写作助手栏 ~370px,pill 又贴右)
   // 会越过视口右缘,故同样实测后改为右对齐。中栏 composer 宽,平时不会触发。
@@ -99,15 +101,20 @@ export function ModelThinkingPill({
     setMenuFlipRight(!!el && el.getBoundingClientRect().right > window.innerWidth - 8);
   }, [menu.open, flip.menuRef]);
 
-  // flyout 每次展开后在绘制前测量:右缘越过视口(留 8px 余量)即翻左,同帧改类无可见闪烁;
-  // 收起/切换行时复位为默认右开。
+  // flyout 每次展开后在绘制前测量(留 8px 余量),同帧改类无可见闪烁;收起/切换行时复位。
+  // 两个方向都要测:「推理」有 5 档,从行顶向下展开时底部很容易被窗口下边缘裁掉
+  //（写作助手栏贴底,用户实测「低」档只剩半行）——那时改为与行底部对齐向上铺。
   useLayoutEffect(() => {
     if (!openSub) {
       setFlipLeft(false);
+      setSubFlipUp(false);
       return;
     }
     const el = subRef.current;
-    setFlipLeft(!!el && el.getBoundingClientRect().right > window.innerWidth - 8);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setFlipLeft(r.right > window.innerWidth - 8);
+    setSubFlipUp(r.bottom > window.innerHeight - 8);
   }, [openSub]);
 
   const modelOpts = isPi ? piModelOptions : models;
@@ -215,7 +222,13 @@ export function ModelThinkingPill({
         </span>
       </button>
       {openSub === target ? (
-        <div ref={subRef} className={`pw-tb-menu pw-mt-sub${flipLeft ? " pw-mt-sub--left" : ""}`} role="menu">
+        <div
+          ref={subRef}
+          className={`pw-tb-menu pw-mt-sub${flipLeft ? " pw-mt-sub--left" : ""}${
+            subFlipUp ? " pw-mt-sub--up" : ""
+          }`}
+          role="menu"
+        >
           {list}
         </div>
       ) : null}

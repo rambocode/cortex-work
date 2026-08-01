@@ -46,12 +46,11 @@ export function AgentMenuItems({
         // pi（显示为 Cortex）是内置兜底，随包打成自包含二进制，永不禁用；
         // 其余 agent 依赖本机 PATH 上的外部 CLI，未探测到安装时禁用。
         const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
-        const sub = a === "pi" ? t("agentPicker.builtinSub") : unavailable ? t("agentPicker.cliMissing") : t("agentPicker.cliSub");
         return (
           <button
             key={a}
             type="button"
-            className="pw-tb-menu-item pw-tb-menu-item--rich"
+            className="pw-tb-menu-item pw-agent-item"
             role="menuitem"
             disabled={unavailable}
             onClick={() => {
@@ -60,9 +59,14 @@ export function AgentMenuItems({
               onClose();
             }}
           >
-            <span className="pw-tb-menu-text">
-              <span className="pw-tb-menu-title">{AGENT_LABEL[a]}</span>
-              <span className="pw-tb-menu-sub">{sub}</span>
+            <span className="pw-agent-name">
+              {AGENT_LABEL[a]}
+              {/* Cortex 的「内置」用强调色小字挂在名字后。常态说明（原先那行
+                  「需本机安装 CLI」/「内置 · 用「设置 → 模型」配置的供应商」）已去掉：
+                  每项都顶一行灰字，菜单被撑得很高，而这些信息只在第一次看时有用。 */}
+              {a === "pi" ? <span className="pw-agent-badge">{t("agentPicker.builtinBadge")}</span> : null}
+              {/* 未安装是**异常态**，必须留：否则用户只看到一项灰掉，不知道为什么点不动。 */}
+              {unavailable ? <span className="pw-agent-note">{t("agentPicker.cliMissing")}</span> : null}
             </span>
             {/* 选中态:内置项当且仅当无派生标记且 base 匹配(避免派生时把内置也打勾)。 */}
             {a === agent && !derivedAgentId ? <Icon.Check size={checkSize} /> : null}
@@ -74,16 +78,17 @@ export function AgentMenuItems({
         <button
           key={d.id}
           type="button"
-          className="pw-tb-menu-item pw-tb-menu-item--rich"
+          className="pw-tb-menu-item pw-agent-item"
           role="menuitem"
           onClick={() => {
             onSwitch(d.base, d);
             onClose();
           }}
         >
-          <span className="pw-tb-menu-text">
-            <span className="pw-tb-menu-title">{d.label ?? d.id}</span>
-            <span className="pw-tb-menu-sub">{t("agentPicker.derivedSub", { base: AGENT_LABEL[d.base] })}</span>
+          <span className="pw-agent-name">
+            {d.label ?? d.id}
+            {/* 派生 agent 的名字是用户自取的，不标出底座就看不出它到底跑哪个 CLI。 */}
+            <span className="pw-agent-note">{t("agentPicker.derivedSub", { base: AGENT_LABEL[d.base] })}</span>
           </span>
           {d.id === derivedAgentId ? <Icon.Check size={checkSize} /> : null}
         </button>

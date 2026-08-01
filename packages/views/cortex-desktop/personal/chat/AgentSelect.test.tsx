@@ -75,6 +75,22 @@ describe("AgentSelect", () => {
     expect(piItem).toHaveProperty("disabled", false);
   });
 
+  // 菜单项是单行「名字 + 必要附注」：常态说明（原「需本机安装 CLI」等）已去掉，
+  // Cortex 用强调色「内置」徽标替代，未安装这种异常态仍须标出。
+  it("Cortex 带「内置」徽标;已安装的 CLI 项无任何附注", () => {
+    renderSelect({ agent: "claude", agentsAvailable: { claude: true, codex: true } });
+    const menu = openMenu();
+
+    const piItem = within(menu).getByRole("menuitem", { name: /Cortex/ });
+    expect(within(piItem).getByText("内置")).toBeTruthy();
+    expect(piItem.querySelector(".pw-agent-badge")).not.toBeNull();
+
+    // 已安装的 claude/codex 不再顶一行灰字说明。
+    const codexItem = within(menu).getByRole("menuitem", { name: /^Codex/ });
+    expect(codexItem.querySelector(".pw-agent-note")).toBeNull();
+    expect(codexItem.textContent).toBe("Codex");
+  });
+
   it("点击内置项 → onSwitch(agent) 无第二参", () => {
     const { onSwitch } = renderSelect({ agent: "claude" });
     const menu = openMenu();

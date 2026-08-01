@@ -156,8 +156,7 @@
     "pi": "Cortex"
   },
   "agentPicker": {
-    "builtinSub": "内置 · 用「设置 → 模型」配置的供应商",
-    "cliSub": "需本机安装 CLI",
+    "builtinBadge": "内置",
     "cliMissing": "未安装",
     "derivedSub": "基于 {{base}}"
   },

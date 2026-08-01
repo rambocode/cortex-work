@@ -156,8 +156,7 @@
     "pi": "Cortex"
   },
   "agentPicker": {
-    "builtinSub": "Built-in · uses providers from Settings → Models",
-    "cliSub": "Requires the CLI installed locally",
+    "builtinBadge": "Built-in",
     "cliMissing": "Not installed",
     "derivedSub": "Based on {{base}}"
   },
