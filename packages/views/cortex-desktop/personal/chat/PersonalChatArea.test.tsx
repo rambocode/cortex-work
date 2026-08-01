@@ -376,26 +376,22 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     );
   });
 
-  it("无项目会话 DOCX + 二进制桥 → 聊天区 Word 浮层打开", async () => {
+  it("无项目会话 DOCX + 二进制桥 → 右栏 FilesView 预览(__noproject__ 哨兵)", async () => {
     usePersonalStore.setState({
       sessions: [{ id: "s5", title: "报告", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
       activeProjectId: undefined,
       activeSessionId: "s5",
     });
+    useCortexUIStore.setState({ rightOpen: false });
     const abs = "/Users/mike/.codex/outputs/report.docx";
-    const readFileBinary = vi.fn(async () => ({
-      data: "UEsDBA==",
-      truncated: false,
-      size: 4,
-      mtimeMs: 1,
-    }));
     const openPath = vi.fn(async () => "");
     const b = {
       loadChat: async () => [{ kind: "text", who: "codex", time: "06:03", uid: "m5", text: `产物在 [报告](${abs})` }],
       saveChat: async () => {},
       fileExists: vi.fn(async () => true),
-      readFileBinary,
+      readFileBinary: vi.fn(async () => ({ data: "UEsDBA==", truncated: false, size: 4, mtimeMs: 1 })),
       openPath,
+      documentsCortexRoot: vi.fn(async () => "/Users/mike/Documents/cortex"),
     } as unknown as DesktopBridge;
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
@@ -406,11 +402,19 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("报告"));
 
-    expect(await screen.findByLabelText("report.docx Word 文档预览")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "__noproject__",
+        path: abs,
+        name: "report.docx",
+      }),
+    );
+    expect(usePersonalStore.getState().rightView).toBe("files");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
     expect(openPath).not.toHaveBeenCalled();
   });
 
-  it("无项目会话 PPTX + 二进制桥 → 聊天区演示文稿浮层打开", async () => {
+  it("无项目会话 PPTX + 无 documentsCortexRoot 桥(旧壳)→ 回退系统打开,不留悬挂请求", async () => {
     usePersonalStore.setState({
       sessions: [{ id: "s6", title: "演示", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
       activeProjectId: undefined,
@@ -434,8 +438,10 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("演示")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("演示"));
 
-    expect(await screen.findByLabelText("slides.pptx 演示文稿预览")).toBeInTheDocument();
-    expect(openPath).not.toHaveBeenCalled();
+    // 右栏 FilesView 的无项目回退根依赖 documentsCortexRoot;桥缺失时请求会永远无人消费,
+    // 应直接回退系统打开而非派发悬挂请求。
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith(abs));
+    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
 
   it("历史会话:file:/// HTML 链接保留绝对路径并在内置浏览器打开", async () => {
@@ -514,14 +520,14 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
   });
 
-  it("无项目会话:xlsx + 二进制桥 → 聊天区 SheetOverlay 浮层打开,不走系统打开", async () => {
+  it("无项目会话:xlsx + 二进制桥 → 右栏 FilesView 预览(__noproject__ 哨兵),不走系统打开", async () => {
     usePersonalStore.setState({
       sessions: [{ id: "s4", title: "分析", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
       activeProjectId: undefined,
       activeSessionId: "s4",
     });
+    useCortexUIStore.setState({ rightOpen: false });
     const openPath = vi.fn(async () => "");
-    // 无效 xlsx 字节:SheetViewer 解析失败降级错误占位,但浮层与二进制读取路径已生效。
     const readFileBinary = vi.fn(async () => ({ data: "AAAA", truncated: false, size: 3, mtimeMs: 1 }));
     const abs = "/Users/mike/Documents/cortex/2026-07-18/财务分析.xlsx";
     const b = {
@@ -530,6 +536,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
       fileExists: vi.fn(async () => true),
       openPath,
       readFileBinary,
+      documentsCortexRoot: vi.fn(async () => "/Users/mike/Documents/cortex"),
     } as unknown as DesktopBridge;
     render(
       <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
@@ -538,11 +545,88 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     );
     await waitFor(() => expect(screen.getByText("工作簿")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("工作簿"));
-    // 浮层头部显示文件名,且经二进制通道读取;不再交系统应用打开。
-    await waitFor(() => expect(screen.getByText("财务分析.xlsx")).toBeInTheDocument());
-    await waitFor(() => expect(readFileBinary).toHaveBeenCalledWith(abs));
+    // 派发右栏预览请求(FilesView 侧以 __noproject__ 回退项目消费)并展开右栏;不再交系统应用打开。
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "__noproject__",
+        path: abs,
+        name: "财务分析.xlsx",
+      }),
+    );
+    expect(usePersonalStore.getState().rightView).toBe("files");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
     expect(openPath).not.toHaveBeenCalled();
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
+  it("无项目会话:md 链接带 :行号(截图回归)→ 剥后缀命中真实文件,右栏预览打开", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s8", title: "skill 调整", agent: "codex", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s8",
+    });
+    useCortexUIStore.setState({ rightOpen: false });
+    const openPath = vi.fn(async () => "");
+    const abs = "/Users/mike/source/ai/skills/incident-apology-report/references/content-schema.md";
+    const b = {
+      loadChat: async () => [
+        { kind: "text", who: "codex", time: "17:43", uid: "m8", text: `改动点见 [content-schema.md](${abs}:53)` },
+      ],
+      saveChat: async () => {},
+      // 只有剥掉 :53 的真实路径存在——原样探测必须落空后回退命中。
+      fileExists: vi.fn(async (p: string) => p === abs),
+      openPath,
+      documentsCortexRoot: vi.fn(async () => "/Users/mike/Documents/cortex"),
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("content-schema.md")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("content-schema.md"));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "__noproject__",
+        path: abs,
+        name: "content-schema.md",
+      }),
+    );
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("无项目会话:markdown → 右栏内置文件预览(所有会话统一),不走系统打开", async () => {
+    usePersonalStore.setState({
+      sessions: [{ id: "s7", title: "笔记", agent: "claude", createdAt: NOW, updatedAt: NOW, noProjectDir: "/tmp/x" }],
+      activeProjectId: undefined,
+      activeSessionId: "s7",
+    });
+    useCortexUIStore.setState({ rightOpen: false });
+    const openPath = vi.fn(async () => "");
+    const abs = "/Users/mike/Documents/cortex/2026-07-18/沟通建议.md";
+    const b = {
+      loadChat: async () => [{ kind: "text", who: "claude", time: "06:03", uid: "m7", text: `建议在 [文档](${abs})` }],
+      saveChat: async () => {},
+      fileExists: vi.fn(async () => true),
+      openPath,
+      documentsCortexRoot: vi.fn(async () => "/Users/mike/Documents/cortex"),
+    } as unknown as DesktopBridge;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("文档")).toHaveClass("file-link"));
+    fireEvent.click(screen.getByText("文档"));
+    await waitFor(() =>
+      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+        projectId: "__noproject__",
+        path: abs,
+        name: "沟通建议.md",
+      }),
+    );
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+    expect(openPath).not.toHaveBeenCalled();
   });
 });
 

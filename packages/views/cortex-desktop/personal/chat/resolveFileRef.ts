@@ -19,8 +19,28 @@ export function canProbeFile(bridge: DesktopBridge | null): boolean {
   return !!(bridge?.fileExists || bridge?.resolveProjectFile);
 }
 
+// `path/to/file.md:53`(agent 引用常带行号,甚至 `:53:7` 行列)→ 剥掉尾部 `:数字` 段的候选;
+// 无后缀可剥时返回 null。只在原样探测落空后才用:真名含冒号的文件仍以原样命中优先。
+function stripLineSuffix(ref: string): string | null {
+  const stripped = ref.replace(/(:\d+)+$/, "");
+  return stripped !== ref && stripped ? stripped : null;
+}
+
 // 解析为真实存在的绝对路径;找不到 / 不存在 / 无探测能力 → null。
+// 原样探测落空后剥行号后缀重试(返回的是剥掉后缀的真实路径,下游打开/预览直接可用)。
 export async function resolveExistingFile(
+  bridge: DesktopBridge | null,
+  projectPath: string,
+  ref: string,
+): Promise<string | null> {
+  const direct = await resolveOnce(bridge, projectPath, ref);
+  if (direct) return direct;
+  const stripped = stripLineSuffix(ref);
+  return stripped ? resolveOnce(bridge, projectPath, stripped) : null;
+}
+
+// 单次解析(不含行号后缀回退):绝对路径按存在性,相对路径先项目内定位再拼根验证。
+async function resolveOnce(
   bridge: DesktopBridge | null,
   projectPath: string,
   ref: string,

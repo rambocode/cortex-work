@@ -33,9 +33,7 @@ import { extractLatestTurnAutoOpenDevPreviewUrls } from "@cortex-work/core/perso
 import { MessageStream } from "../../ChatArea";
 import { resolveSkillDispatch } from "../skills/skillDispatch";
 import { agentContact } from "./agentMeta";
-import { inAppDocumentKind, isOpenExternalLike, isSpreadsheetLike, type InAppDocumentKind } from "../shared/fileIcons";
-import { DocumentOverlay } from "../files/DocumentOverlay";
-import { SheetOverlay } from "../files/sheet/SheetOverlay";
+import { inAppDocumentKind, isOpenExternalLike, isSpreadsheetLike } from "../shared/fileIcons";
 import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
@@ -240,19 +238,6 @@ export function PersonalChatArea({
   // 追问浮层(U5):以某条 assistant 正文为种子的临时多轮问答,关闭即弃。单实例;
   // returnFocusEl 记录触发按钮,关闭后焦点归还(无障碍)。
   const [followup, setFollowup] = useState<{ seedText: string; returnFocusEl?: HTMLElement | null } | null>(null);
-  // 无项目会话的表格预览浮层(有项目走右栏 FilesView,不用浮层)。
-  const [sheetOverlay, setSheetOverlay] = useState<{ path: string; name: string } | null>(null);
-  const [documentOverlay, setDocumentOverlay] = useState<{
-    path: string;
-    name: string;
-    kind: InAppDocumentKind;
-  } | null>(null);
-  // 切换会话时关掉浮层,避免上个会话的表格残留盖在新会话上。
-  useEffect(() => {
-    setSheetOverlay(null);
-    setDocumentOverlay(null);
-  }, [activeSessionId]);
-
   useEffect(() => {
     setShowHiddenHistory(false);
     setEditing(null);
@@ -323,8 +308,8 @@ export function PersonalChatArea({
   // 覆盖项目外 agent 产物如 ~/.codex/generated_images 与 `../outputs` 爬出),按文件类型分发:
   // - HTML → 经主进程授权为 file:// URL 后在右侧内置浏览器打开;
   // - 非文本(图片/媒体/office/pdf/二进制)→ 系统默认应用打开,不依赖项目上下文;
-  // - 电子表格(xlsx/csv)→ 有项目走右栏内置表格;无项目会话在聊天区盖 SheetOverlay 浮层;
-  // - 文本类 → 右栏内置预览并展开右栏(需项目);无项目会话退化为系统打开。
+  // - 电子表格(xlsx/csv)→ 右栏内置表格(无项目会话同样走右栏,FilesView 回退 cortex 根);
+  // - 文本类(含 markdown)→ 右栏内置预览并展开右栏;无项目会话同走右栏,旧壳退化系统打开。
   const handleOpenFile = useCallback(
     (ref: string) => {
       // 无项目会话也有创建时固定的 noProjectDir(project 为上方 syntheticNoProject);
@@ -352,30 +337,24 @@ export function PersonalChatArea({
             .catch(() => onToast(`无法预览网页：${name}`));
           return;
         }
-        // DOCX/PDF/PPTX 有二进制桥时走应用内只读预览:项目会话复用右栏 FilesView,
-        // 无项目会话仿 SheetOverlay 在聊天区就地覆盖。旧壳/网页端继续系统打开。
+        // DOCX/PDF/PPTX/表格有二进制桥时统一走右栏 FilesView 应用内预览(与中栏并排、顶部对齐):
+        // 无项目会话用 __noproject__ 哨兵与 FilesView 的回退项目对上,但回退根依赖
+        // documentsCortexRoot 桥——缺失(旧壳)时请求永远不被消费,落到下方系统打开。
         const documentKind = inAppDocumentKind(name);
-        if (documentKind && bridge?.readFileBinary) {
-          if (!realProject) {
-            setDocumentOverlay({ path: abs, name, kind: documentKind });
-            return;
-          }
-          requestFilePreview({ projectId: realProject.id, path: abs, name });
+        const rightFilesReady = !!realProject || !!bridge?.documentsCortexRoot;
+        if ((documentKind || isSpreadsheetLike(name)) && bridge?.readFileBinary && rightFilesReady && project) {
+          requestFilePreview({ projectId: project.id, path: abs, name });
           setRightOpen(true);
           return;
         }
-        // 表格 + 无项目会话:右栏 FilesView 需要项目上下文,改在聊天区就地浮层打开
-        // (无二进制桥的 web/旧壳仍落到下方系统打开)。
-        if (isSpreadsheetLike(name) && !realProject && bridge?.readFileBinary) {
-          setSheetOverlay({ path: abs, name });
-          return;
-        }
-        // 图片/office/pdf/媒体/二进制 → 系统打开;无项目会话(无右栏预览上下文)亦同。
-        if (isOpenExternalLike(name) || !realProject) {
+        // 图片/office/pdf/媒体/二进制(内置编辑器打不开)→ 系统打开;
+        // 无项目会话缺 documentsCortexRoot 桥(旧壳,右栏无回退根)时文本也只能系统打开。
+        if (isOpenExternalLike(name) || !rightFilesReady || !project) {
           void bridge?.openPath?.(abs).catch(() => onToast(`打开失败：${name}`));
           return;
         }
-        requestFilePreview({ projectId: realProject.id, path: abs, name });
+        // 文本类(含 markdown)→ 右栏内置预览,所有会话统一(无项目会话走 __noproject__ 哨兵)。
+        requestFilePreview({ projectId: project.id, path: abs, name });
         setRightOpen(true);
       };
       // 无任何探测能力(web/旧壳):沿用原乐观逻辑(仅项目内相对路径,凭 within 放行)。
@@ -914,27 +893,6 @@ export function PersonalChatArea({
             setFollowup(null);
             el?.focus();
           }}
-        />
-      ) : null}
-
-      {/* 无项目会话的表格预览浮层:消息里点 xlsx/csv 链接时就地盖在聊天区上。 */}
-      {sheetOverlay && bridge ? (
-        <SheetOverlay
-          path={sheetOverlay.path}
-          name={sheetOverlay.name}
-          bridge={bridge}
-          onToast={onToast}
-          onClose={() => setSheetOverlay(null)}
-        />
-      ) : null}
-      {documentOverlay && bridge ? (
-        <DocumentOverlay
-          kind={documentOverlay.kind}
-          path={documentOverlay.path}
-          name={documentOverlay.name}
-          bridge={bridge}
-          onToast={onToast}
-          onClose={() => setDocumentOverlay(null)}
         />
       ) : null}
     </main>

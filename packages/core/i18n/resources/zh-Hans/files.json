@@ -37,13 +37,12 @@
     "editTitle": "编辑文件",
     "cancel": "取消",
     "cancelTitle": "放弃改动并退出编辑",
-    "copyContentTitle": "复制文件内容",
-    "copyPathTitle": "复制文件路径",
     "open": "打开",
     "openTitle": "用系统默认应用打开",
-    "reveal": "访达",
     "revealTitle": "在访达中显示",
-    "reload": "重新加载"
+    "more": "更多",
+    "copyContent": "复制内容",
+    "copyPath": "复制路径"
   },
   "binaryNotice": "二进制文件,不支持文本预览",
   "sheet": {

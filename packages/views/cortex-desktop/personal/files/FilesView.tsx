@@ -5,7 +5,16 @@
 // - 选中片段可发送到终端（bracketed paste）或插入会话输入框。
 // 变更文件优先显示 git diff（+/− 着色,仍走纯文本渲染）。
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
@@ -140,6 +149,68 @@ function DiffText({ content }: { content: string }) {
   );
 }
 
+// 预览工具栏「⋯ 更多」下拉:低频动作(复制内容/路径/打开/访达)收敛于此,保持工具栏单行。
+// fixed 定位 + 视口内收敛,点击外部/Escape/窗口失焦关闭(交互与 FileContextMenu 同款)。
+function PreviewMoreMenu({
+  anchor,
+  items,
+  onClose,
+}: {
+  anchor: { x: number; y: number };
+  items: { key: string; label: string; icon: ReactNode; onClick: () => void }[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: anchor.x, top: anchor.y });
+
+  // 防菜单溢出视口:渲染后按实际尺寸收敛(锚点是 ⋯ 按钮右下角,通常需向左回拉)。
+  useLayoutEffect(() => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPos({
+      left: Math.max(8, Math.min(anchor.x - rect.width, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(anchor.y, window.innerHeight - rect.height - 8)),
+    });
+  }, [anchor]);
+
+  // 点击菜单外/Escape/窗口失焦:关闭
+  useEffect(() => {
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onClose);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className="pw-ctx-menu" style={pos} role="menu">
+      {items.map((it) => (
+        <button
+          key={it.key}
+          className="pw-tb-menu-item"
+          role="menuitem"
+          onClick={() => {
+            it.onClick();
+            onClose();
+          }}
+        >
+          {it.icon}
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const { t } = useTranslation("files");
   const STATUS_LABEL: Record<string, string> = {
@@ -177,11 +248,20 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
   const [tree, setTree] = useState<PromptNode | null>(null);
   const [changes, setChanges] = useState<GitChangesResult | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // 预览开合镜像到 store:面板头(PersonalRightPanel)据此对 files 视图开放「放大」。
+  // 卸载(切视图/关面板)时清零,避免残留 true 让下次进入误判。
+  const setFilePreviewOpen = usePersonalStore((s) => s.setFilePreviewOpen);
+  useEffect(() => {
+    setFilePreviewOpen(!!preview);
+    return () => setFilePreviewOpen(false);
+  }, [preview, setFilePreviewOpen]);
   const [editMode, setEditMode] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [selection, setSelection] = useState("");
   const [selAnchor, setSelAnchor] = useState<SelectionAnchor | null>(null);
   const [ctxMenu, setCtxMenu] = useState<FileCtxTarget | null>(null);
+  // 预览工具栏 ⋯ 菜单的锚点(⋯ 按钮右下角);null 即关闭。
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
   // 目录 watch 信号计数:表格预览(SheetViewer)据此比对 mtime,联动 agent 改文件后的自动重载。
   const [dirTick, setDirTick] = useState(0);
   const draftRef = useRef("");
@@ -298,15 +378,17 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setDirty(false);
     setSelection("");
     setSelAnchor(null);
+    setMoreMenu(null);
   };
 
   // 文本预览路径(Monaco/Markdown);csv 在表格预览里点「以文本打开」也走这里,
   // 故先复位编辑/脏态(表格切文本时脏标记不应残留)。
-  // .md 直接进内置编辑器(用户要求:md 文档以编辑态打开,点「完成」可回渲染预览);其余文本仍从预览态起步。
+  // 一律从预览态起步:.md 默认渲染预览(MarkdownView),点「编辑」进内置编辑器(用户要求改回)。
   const openTextFile = async (path: string, name: string) => {
     if (!bridge) return;
-    setEditMode(isMarkdownName(name));
+    setEditMode(false);
     setDirty(false);
+    setMoreMenu(null);
     try {
       const { content, truncated } = await bridge.readFile(path);
       draftRef.current = content;
@@ -321,6 +403,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     setEditMode(false);
     setDirty(false);
     setSelection("");
+    setMoreMenu(null);
     // DOCX/PDF/PPTX → 内置只读文档预览。无二进制桥(web/旧壳)时回退系统默认应用。
     const documentKind = inAppDocumentKind(name);
     if (documentKind) {
@@ -479,6 +562,44 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     const documentKind = preview.kind !== "sheet" ? preview.kind : undefined;
     const isDocument = !!documentKind;
     const canEdit = !isSheet && !isDocument && !preview.isDiff && !preview.truncated && !!preview.path;
+    // ⋯ 菜单条目:低频动作按可用性组装(与原独立按钮的显隐条件一一对应)。
+    const moreItems = [
+      ...(!isSheet && !isDocument
+        ? [{
+            key: "copyContent",
+            label: t("toolbar.copyContent"),
+            icon: <Icon.Copy size={13} />,
+            onClick: () => void copyText(dirty ? draftRef.current : preview.content, t("content")),
+          }]
+        : []),
+      ...(preview.path
+        ? [{
+            key: "copyPath",
+            label: t("toolbar.copyPath"),
+            icon: <Icon.Copy size={13} />,
+            onClick: () => void copyText(preview.path!, t("path")),
+          }]
+        : []),
+      ...(preview.path && bridge?.openPath
+        ? [{
+            key: "open",
+            label: t("toolbar.open"),
+            icon: <Icon.Share size={13} />,
+            onClick: () =>
+              void bridge.openPath!(preview.path!).catch((e: unknown) =>
+                onToast(t("openFailed", { error: e instanceof Error ? e.message : String(e) })),
+              ),
+          }]
+        : []),
+      ...(preview.path && bridge?.revealInFolder
+        ? [{
+            key: "reveal",
+            label: t("toolbar.revealTitle"),
+            icon: <Icon.Folder size={13} />,
+            onClick: () => void bridge.revealInFolder!(preview.path!).catch(() => onToast(t("revealFailed"))),
+          }]
+        : []),
+    ];
     return (
       <div className="pw-rp-view is-fileopen">
         <div className="pw-editor-h pw-file-toolbar">
@@ -511,46 +632,25 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   {t("toolbar.edit")}
                 </button>
               ) : null}
-              {!isSheet && !isDocument ? (
+              {moreItems.length ? (
                 <button
-                  className="pw-ftb-btn"
-                  title={t("toolbar.copyContentTitle")}
-                  onClick={() => void copyText(dirty ? draftRef.current : preview.content, t("content"))}
+                  className="pw-icon-btn"
+                  title={t("toolbar.more")}
+                  onClick={(e) => {
+                    // 锚定 ⋯ 按钮右下角;再点一次收起。
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setMoreMenu(moreMenu ? null : { x: r.right, y: r.bottom + 4 });
+                  }}
                 >
-                  {t("content")}
-                </button>
-              ) : null}
-              {preview.path ? (
-                <button className="pw-ftb-btn" title={t("toolbar.copyPathTitle")} onClick={() => void copyText(preview.path!, t("path"))}>
-                  {t("path")}
-                </button>
-              ) : null}
-              {preview.path && bridge?.openPath ? (
-                <button
-                  className="pw-ftb-btn"
-                  title={t("toolbar.openTitle")}
-                  onClick={() => void bridge.openPath!(preview.path!).catch((e: unknown) => onToast(t("openFailed", { error: e instanceof Error ? e.message : String(e) })))}
-                >
-                  {t("toolbar.open")}
-                </button>
-              ) : null}
-              {preview.path && bridge?.revealInFolder ? (
-                <button
-                  className="pw-ftb-btn"
-                  title={t("toolbar.revealTitle")}
-                  onClick={() => void bridge.revealInFolder!(preview.path!).catch(() => onToast(t("revealFailed")))}
-                >
-                  {t("toolbar.reveal")}
-                </button>
-              ) : null}
-              {preview.path && !preview.isDiff && !isSheet ? (
-                <button className="pw-icon-btn" title={t("toolbar.reload")} onClick={() => void openFile(preview.path!, preview.name)}>
-                  <Icon.Workflow size={13} />
+                  <Icon.More size={14} />
                 </button>
               ) : null}
             </>
           )}
         </div>
+        {moreMenu && !editMode ? (
+          <PreviewMoreMenu anchor={moreMenu} items={moreItems} onClose={() => setMoreMenu(null)} />
+        ) : null}
         {isSheet && preview.path && bridge ? (
           // 表格预览:SheetViewer 自管读写/保存/批注;脏标记上抛复用头部 ● 。
           <SheetViewer

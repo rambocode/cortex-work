@@ -43,25 +43,24 @@ export const RP_LEFT_RESERVED = 250;
 // 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) / :has(.pw-research-panel) 的默认宽度公式
 // 是同一个数,改一处要改三处(两条 CSS 规则 + 本常量)。
 export const RP_LEFT_RESERVED_ARTIFACT = 660;
-// 文件预览是覆盖在中栏上的侧边层；拖拽上限要露出 660px 中栏，并给右侧
-// --pw-float-gap 留 8px。默认文件列表仍是同层三栏，不使用这个拖拽档位。
-const RP_LEFT_RESERVED_FILES = RP_LEFT_RESERVED_ARTIFACT + 8;
 
 /// 这些视图按「宽面板」档位给中栏保留 660px；其余走 RP_LEFT_RESERVED。
 /// knowledge 同档的理由：知识库文档常含宽表格，320px 窄栏里每列会被压成一列一个字。
+/// files 同档：文件预览态是与产物同款的 in-flow 展宽面板（中栏压缩自适应,非覆盖）。
 function isWidePanel(view: string): boolean {
   return view === "artifact" || view === "research" || view === "knowledge";
 }
 
+/// 拖拽调宽时给中栏保留的最小宽度（按当前视图档位）。
 function reservedWidthForView(view: string): number {
-  if (view === "files") return RP_LEFT_RESERVED_FILES;
-  return isWidePanel(view) ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
+  return isWidePanel(view) || view === "files" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
 }
 
 /// 允许放大（绝对定位盖住中栏）的视图。放大是强状态，只给「读长文/宽内容」的面板开放；
-/// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。
-function canMaximize(view: string): boolean {
-  return view === "artifact" || view === "knowledge";
+/// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。files 例外:文件打开预览态
+/// (filePreviewOpen)本就是覆盖中栏的宽层,与产物/知识库同权开放放大/收缩。
+function canMaximize(view: string, filePreviewOpen: boolean): boolean {
+  return view === "artifact" || view === "knowledge" || (view === "files" && filePreviewOpen);
 }
 
 export function PersonalRightPanel({
@@ -76,6 +75,7 @@ export function PersonalRightPanel({
   researchExportTargets?: readonly ResearchExportTarget[];
 }) {
   const view = usePersonalStore((s) => s.rightView);
+  const filePreviewOpen = usePersonalStore((s) => s.filePreviewOpen);
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const maximized = usePersonalStore((s) => s.rightPanelMaximized);
   const setMaximized = usePersonalStore((s) => s.setRightPanelMaximized);
@@ -100,10 +100,10 @@ export function PersonalRightPanel({
     researchRefs?.[researchRefs.length - 1]?.sessionId ??
     null;
 
-  // 放大只对产物编辑器与知识库文档开放:切到文件/Tasks 等窄面板还盖着中栏,用户会以为会话不见了。
+  // 切到不可放大的视图(或文件预览退回列表)时自动还原,避免窄面板盖着中栏让用户以为会话不见了。
   useEffect(() => {
-    if (!canMaximize(view) && maximized) setMaximized(false);
-  }, [maximized, setMaximized, view]);
+    if (!canMaximize(view, filePreviewOpen) && maximized) setMaximized(false);
+  }, [filePreviewOpen, maximized, setMaximized, view]);
 
   useEffect(() => {
     if (view === "artifact" && !activeArtifact) setRightOpen(false);
@@ -200,7 +200,7 @@ export function PersonalRightPanel({
             <div className="spacer" />
           </>
         )}
-        {canMaximize(view) ? (
+        {canMaximize(view, filePreviewOpen) ? (
           <button
             className="pw-icon-btn"
             title={maximized ? "还原面板" : "放大面板"}

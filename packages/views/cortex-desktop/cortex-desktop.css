@@ -4032,22 +4032,14 @@ button.sb-row {
   width: var(--rp-custom-width, 40vw);
   min-width: var(--rp-custom-width, 480px);
 }
-/* 文件打开后:文件区占整个应用宽度的 3/7,关闭预览自动恢复 320px */
-.pw-prompts:has(.pw-rp-view.is-fileopen) {
-  width: var(--rp-custom-width, calc(100vw * 3 / 7));
-  min-width: var(--rp-custom-width, 480px);
-}
-/* 统一会话的文件预览是覆盖在中栏上的侧边层，不参与默认三栏 flex，也不会触发中栏重排。
-   宽度上限确保 overlay 左侧仍露出 660px 中栏与浮动间距。自定义宽度不能继续直接成为
-   min-width:旧存档里的超大值会令 min 压过 max,再次遮住中栏。 */
-.pw-prompts[data-right-view="files"]:has(.pw-rp-view.is-fileopen) {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
-  min-width: min(var(--rp-custom-width, 480px), 480px);
-  max-width: calc(100% - 660px - var(--pw-float-gap));
+/* 文件打开后:与产物/研究/知识库同一条向左展宽公式 —— 参与三栏 flex,中栏被真实压缩
+   到 660px 并自适应重排(旧版是绝对定位 overlay 盖住中栏,会话内容左边留白右边被遮挡)。
+   关闭预览自动恢复 320px。660 同 RP_LEFT_RESERVED_ARTIFACT,改一处要改两处。
+   :not(.is-maximized):本条特异性高于 .pw-prompts.is-maximized(在源码上方),
+   不排除放大态的话宽度档位会压住放大规则,「放大」按钮形同虚设。 */
+.pw-prompts:not(.is-maximized):has(.pw-rp-view.is-fileopen) {
+  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 /* 展宽态(详情/文件预览):顶部贴齐标题栏——去掉顶部 8px 浮起缝隙与顶角圆角,
    否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
@@ -5616,28 +5608,6 @@ button.sb-row {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 .pw-sel-pop .pw-ftb-btn { border-color: transparent; }
-
-/* ── 内置表格预览(SheetViewer:xlsx/csv + 批注侧栏) ─────────────────────── */
-/* 无项目会话的聊天区浮层:盖满 .chat(position:relative),内部纵排 头部+SheetViewer */
-.pw-sheet-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-app);
-}
-
-/* ── 内置 Word 预览(docx-preview,只读 + 本地渲染) ─────────────────────── */
-.pw-docx-overlay,
-.pw-document-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-app);
-}
 
 /* ── PDF / PowerPoint 本地只读预览 ────────────────────────────────────── */
 .pw-document-viewer {

@@ -37,13 +37,12 @@
     "editTitle": "Edit file",
     "cancel": "Cancel",
     "cancelTitle": "Discard changes and exit editing",
-    "copyContentTitle": "Copy file content",
-    "copyPathTitle": "Copy file path",
     "open": "Open",
     "openTitle": "Open with default app",
-    "reveal": "Finder",
     "revealTitle": "Reveal in Finder",
-    "reload": "Reload"
+    "more": "More",
+    "copyContent": "Copy content",
+    "copyPath": "Copy path"
   },
   "binaryNotice": "Binary file, text preview not supported",
   "sheet": {

@@ -86,17 +86,39 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
   });
 
-  it("项目匹配 → readFile(abs) 并渲染预览,请求被消费清空;.md 直接进内置编辑器(Monaco)", async () => {
+  it("项目匹配 → readFile(abs) 并渲染预览,请求被消费清空;.md 默认渲染预览(MarkdownView)", async () => {
     const bridge = makeBridge();
     usePersonalStore.setState({
       filePreviewRequest: { projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" },
     });
     const { container } = renderView(bridge);
     await waitFor(() => expect(bridge.readFile).toHaveBeenCalledWith("/code/alpha/docs/a.md"));
-    // .md 默认进内置编辑器(editMode=true → MonacoViewer),不再是渲染预览(MarkdownView)。
-    await waitFor(() => expect(container.querySelector(".pw-mona-wrap")).not.toBeNull());
-    expect(container.querySelector(".pw-file-md")).toBeNull();
+    // .md 默认渲染预览(editMode=false → MarkdownView),点「编辑」才进 Monaco。
+    await waitFor(() => expect(container.querySelector(".pw-file-md")).not.toBeNull());
+    expect(container.querySelector(".pw-mona-wrap")).toBeNull();
     expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+  });
+
+  it("预览工具栏收敛:低频动作(复制/打开/访达)在 ⋯ 菜单里,点「打开」走系统应用", async () => {
+    const openPath = vi.fn().mockResolvedValue("");
+    const revealInFolder = vi.fn().mockResolvedValue(undefined);
+    const bridge = makeBridge({ openPath, revealInFolder });
+    usePersonalStore.setState({
+      filePreviewRequest: { projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" },
+    });
+    renderView(bridge);
+    await waitFor(() => expect(bridge.readFile).toHaveBeenCalled());
+    // 工具栏只留「编辑」与 ⋯;原独立按钮不再直接可见。
+    expect(screen.getByTitle("编辑文件")).toBeInTheDocument();
+    expect(screen.queryByTitle("用系统默认应用打开")).toBeNull();
+    fireEvent.click(screen.getByTitle("更多"));
+    // 菜单展开后包含四个低频动作,点「打开」调 openPath 并收起菜单。
+    expect(screen.getByRole("menuitem", { name: /复制内容/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /复制路径/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /在访达中显示/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /打开/ }));
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/docs/a.md"));
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("项目不匹配 → 不消费、不调 readFile", async () => {

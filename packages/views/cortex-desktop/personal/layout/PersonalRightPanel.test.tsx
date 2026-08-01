@@ -231,7 +231,7 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     expect(usePersonalStore.getState().rightPanelWidth).toBe(RP_MIN_WIDTH);
   });
 
-  it("文件预览 overlay 拖到最宽时仍露出 660px 中栏与 8px 浮动间距", () => {
+  it("文件预览拖到最宽时仍给中栏保留 660px(与产物面板同档)", () => {
     usePersonalStore.setState({ rightView: "files" });
     const { container } = renderPanel();
     const aside = container.querySelector<HTMLElement>("aside.pw-prompts")!;
@@ -244,8 +244,8 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     fireEvent.mouseDown(resizer, { clientX: 480 });
     fireEvent.mouseMove(document, { clientX: -5000 });
 
-    // overlay 宽度上限 = 宿主宽度 - 660px 可见中栏 - 8px 右栏浮动间距。
-    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe("932px");
+    // 宽度上限 = 宿主宽度 - 中栏保留 660px(RP_LEFT_RESERVED_ARTIFACT,files 同档)。
+    expect(aside.style.getPropertyValue("--rp-custom-width")).toBe(`${1600 - RP_LEFT_RESERVED_ARTIFACT}px`);
     fireEvent.mouseUp(document);
   });
 
@@ -253,39 +253,28 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     expect(desktopCss).toMatch(
       /\.pw-prompts\s*\{[^}]*width:\s*320px;[^}]*position:\s*relative/s,
     );
-    // files 标记本身不能令右栏脱离文档流；只有打开预览后的 is-fileopen 才切 overlay。
+    // files 标记本身不能令右栏脱离文档流。
     expect(desktopCss).not.toMatch(
       /\.pw-prompts\[data-right-view="files"\]\s*\{[^}]*position:\s*absolute/s,
     );
   });
 
-  it("会话内打开文件预览后脱离三栏流,作为覆盖在中栏上的侧边层", () => {
+  it("会话内打开文件预览后与产物同档向左展宽,参与三栏 flex(中栏压缩自适应,非覆盖层)", () => {
     const block = desktopCss.match(
-      /\.pw-prompts\[data-right-view="files"\]:has\(\.pw-rp-view\.is-fileopen\)\s*\{([^}]*)\}/s,
+      /\.pw-prompts:not\(\.is-maximized\):has\(\.pw-rp-view\.is-fileopen\)\s*\{([^}]*)\}/s,
     )?.[1];
-    expect(block).toContain("position: absolute;");
-    expect(block).toContain("top: 0;");
-    expect(block).toContain("right: 0;");
-    expect(block).toContain("bottom: 0;");
-    expect(block).toMatch(/z-index:\s*\d+;/);
-    // 绝对定位必须锚在 .pw-upper，而不是跑到整个窗口。
-    expect(desktopCss).toMatch(/\.pw-upper\s*\{[^}]*position:\s*relative/s);
-    // 中栏本体继续铺满，不再用 min-width 把预览和中栏混成同层 flex。
+    // 与 .pw-prompts:has(.pw-artifact-editor) 同一条宽度公式:中栏保 660px(自适应重排),
+    // 窗口不够宽时 max() 兜底不让预览被夹成窄缝。
+    expect(block).toContain(
+      "width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));",
+    );
+    expect(block).toContain(
+      "min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));",
+    );
+    // 不再是绝对定位覆盖层:那会让中栏布局不动,内容左边留白、右边被遮挡。
+    expect(block).not.toContain("position: absolute");
     expect(desktopCss).not.toMatch(
-      /\.pw-upper:has\(>\s*\.pw-prompts\[data-right-view="files"\][^)]*\)\s*>\s*\.pw-center-col/,
-    );
-  });
-
-  it("文件预览 overlay 会夹住默认及旧持久化宽度,始终露出 660px 中栏", () => {
-    const block = desktopCss.match(
-      /\.pw-prompts\[data-right-view="files"\]:has\(\.pw-rp-view\.is-fileopen\)\s*\{([^}]*)\}/s,
-    )?.[1];
-    expect(block).toContain(
-      "max-width: calc(100% - 660px - var(--pw-float-gap));",
-    );
-    // 自定义值只参与期望宽度；若继续直接成为 min-width，CSS 的 min 会压过 max。
-    expect(block).toContain(
-      "min-width: min(var(--rp-custom-width, 480px), 480px);",
+      /\.pw-prompts\[data-right-view="files"\][^{]*\{[^}]*position:\s*absolute/s,
     );
   });
 
@@ -557,6 +546,24 @@ describe("PersonalRightPanel 拖拽调宽", () => {
       );
       expect(screen.queryByTitle("放大面板")).toBeNull();
       expect(usePersonalStore.getState().rightPanelMaximized).toBe(false);
+    });
+
+    it("文件视图:列表态无放大按钮,文件预览态(filePreviewOpen)开放放大,退回列表自动还原", async () => {
+      usePersonalStore.setState({ rightView: "files", filePreviewOpen: false, rightPanelMaximized: false });
+      useCortexUIStore.setState({ rightOpen: true });
+      renderPanel();
+      expect(screen.queryByTitle("放大面板")).toBeNull();
+
+      // 进入文件预览(FilesView 镜像 preview → store)后头部出现放大按钮
+      usePersonalStore.setState({ filePreviewOpen: true });
+      await waitFor(() => expect(screen.getByTitle("放大面板")).toBeInTheDocument());
+      fireEvent.click(screen.getByTitle("放大面板"));
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+
+      // 返回列表:预览关闭,放大态自动还原(否则窄列表盖住中栏)
+      usePersonalStore.setState({ filePreviewOpen: false });
+      await waitFor(() => expect(usePersonalStore.getState().rightPanelMaximized).toBe(false));
+      expect(screen.queryByTitle("放大面板")).toBeNull();
     });
 
     it("放大态盖住中栏是 CSS 契约(绝对定位铺满 .pw-upper)", () => {

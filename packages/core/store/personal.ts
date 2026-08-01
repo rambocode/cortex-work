@@ -208,6 +208,9 @@ export interface PersonalState {
   // 右侧面板放大态:绝对定位盖住中栏（产物编辑器用,见 .pw-prompts.is-maximized）。
   // 不持久化 —— 它是「这会儿想看大点」的临时姿态,不该跨重启粘住。
   rightPanelMaximized: boolean;
+  // 右栏文件视图是否处于「文件打开」预览态（FilesView 本地 preview 的镜像,瞬态不持久化）。
+  // 面板头据此决定 files 视图能否放大:列表态放大没有意义,预览态才开放。
+  filePreviewOpen: boolean;
   // 项目工作台右列详情宽度（px,拖拽调整,持久化）;undefined 走 CSS 默认 380。
   projectsDetailWidth?: number;
   // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
@@ -391,6 +394,8 @@ export interface PersonalState {
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
   setRightPanelMaximized: (maximized: boolean) => void;
+  // FilesView 进入/退出文件预览时同步(镜像其本地 preview 状态,供面板头判断可否放大)。
+  setFilePreviewOpen: (open: boolean) => void;
   setProjectsDetailWidth: (width: number | undefined) => void;
   openTimeline: (projectId: string) => void;
   closeTimeline: () => void;
@@ -642,6 +647,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   terminalOpen: false,
   rightView: "todos" as const,
   rightPanelMaximized: false,
+  filePreviewOpen: false,
   homeOpen: true,
   automationOpen: false,
   workflowOpen: false,
@@ -1248,6 +1254,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
   setRightPanelMaximized: (maximized) => set({ rightPanelMaximized: maximized }),
+  setFilePreviewOpen: (open) => set({ filePreviewOpen: open }),
   setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
   openTimeline: (projectId) =>
