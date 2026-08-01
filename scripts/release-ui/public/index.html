@@ -40,6 +40,28 @@
   <section class="col side">
     <div class="card">
       <div class="card-head">
+        <h2>版本与 tag</h2>
+        <span class="hint" id="tag-status"></span>
+      </div>
+      <div class="tag-row">
+        <label for="tag-version">新版本</label>
+        <input id="tag-version" type="text" placeholder="0.0.0" spellcheck="false" />
+        <button id="btn-draft">生成发布说明</button>
+      </div>
+      <textarea id="tag-notes" rows="10" spellcheck="false"
+        placeholder="点「生成发布说明」，由 claude 读取上一个 tag 以来的全部提交起草；生成后可直接在这里修改。"></textarea>
+      <div class="tag-row apply">
+        <label class="tick"><input type="checkbox" id="tag-push" /> 同时推送到 origin</label>
+        <button id="btn-apply" class="primary">写入并打 tag</button>
+      </div>
+      <p class="foot-note">
+        写入前会用 <b>extract-release-notes.mjs</b> 实测版本段能否被提取（CI 发布时取更新说明的正是它），
+        不过就中止且不提交。提交只含 <b>package.json</b> 与 <b>CHANGELOG.md</b> 两个文件。
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
         <h2>前置检查</h2>
         <button class="link" id="btn-preflight">重新检查</button>
       </div>

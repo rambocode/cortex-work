@@ -14,6 +14,14 @@ function dur(ms) {
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
 }
 
+/** 顶栏版本 chip。数据来自每次 state 推送的快照——版本切换（打完 tag / 手改 package.json）
+ *  要能不刷新页面就跟上，否则页面会一直显示进程启动那一刻的旧版本。 */
+function renderIdent(snap) {
+  if (!snap?.version) return;
+  $("chip-version").textContent = `v${snap.version}`;
+  $("chip-tag").textContent = `tag ${snap.tag}`;
+}
+
 // ── 阶段列表 ──────────────────────────────────────────────────────────────────
 function renderSteps(snap) {
   const box = $("steps");
@@ -142,6 +150,7 @@ function connect() {
   const es = new EventSource("/api/events");
   es.addEventListener("state", (e) => {
     state.run = JSON.parse(e.data);
+    renderIdent(state.run);
     renderSteps(state.run);
   });
   es.addEventListener("log", (e) => appendLog(JSON.parse(e.data)));
@@ -152,7 +161,8 @@ function connect() {
 }
 
 // ── 交互 ──────────────────────────────────────────────────────────────────────
-async function post(path, body) {
+/** POST 并在失败时弹窗（前置检查未过时把阻断项一并列出）。成功返回响应体，失败返回 null。 */
+async function postJson(path, body) {
   const r = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -162,9 +172,62 @@ async function post(path, body) {
   if (!r.ok) {
     const detail = data.checks?.filter((c) => !c.ok && c.level === "error").map((c) => `${c.name}：${c.detail}`).join("\n");
     alert(`${data.error ?? "请求失败"}${detail ? `\n\n${detail}` : ""}`);
-    return false;
+    return null;
   }
-  return true;
+  return data;
+}
+
+const post = async (path, body) => (await postJson(path, body)) !== null;
+
+// ── 版本与 tag ────────────────────────────────────────────────────────────────
+/** 打 tag 期间锁住两个按钮并在状态行走计时——claude 生成要几十秒，没有反馈会被当成卡死。 */
+function tagBusy(on, text = "") {
+  $("btn-draft").disabled = on;
+  $("btn-apply").disabled = on;
+  $("tag-status").textContent = text;
+  if (tagBusy.timer) clearInterval(tagBusy.timer);
+  if (!on) return;
+  const t0 = Date.now();
+  tagBusy.timer = setInterval(() => {
+    $("tag-status").textContent = `${text} ${Math.round((Date.now() - t0) / 1000)}s`;
+  }, 1000);
+}
+
+$("btn-draft").onclick = async () => {
+  const version = $("tag-version").value.trim();
+  tagBusy(true, "claude 生成中…");
+  const data = await postJson("/api/tag/draft", { version });
+  tagBusy(false);
+  if (!data) return;
+  $("tag-notes").value = data.notes;
+  $("tag-status").textContent = `基于 ${data.prevTag}..HEAD 的 ${data.commitCount} 条提交`;
+};
+
+$("btn-apply").onclick = async () => {
+  const version = $("tag-version").value.trim();
+  const notes = $("tag-notes").value.trim();
+  const push = $("tag-push").checked;
+  if (!notes) return alert("发布说明为空，先生成或手写一份。");
+  const warn = push ? `\n\n并且会立刻把当前分支与 v${version} 推送到 origin。` : "";
+  if (!confirm(`将写入 CHANGELOG、把版本改为 ${version}，提交并打 tag v${version}。${warn}`)) return;
+  tagBusy(true, "写入中…");
+  const data = await postJson("/api/tag/apply", { version, notes, push });
+  tagBusy(false);
+  if (!data) {
+    loadPreflight();
+    return;
+  }
+  $("tag-status").textContent = `✓ 已打 ${data.tag}${data.pushed ? "（已推送）" : "（未推送）"}`;
+  $("tag-notes").value = "";
+  $("tag-push").checked = false;
+  $("tag-version").value = nextPatch(data.version);
+  loadPreflight();
+};
+
+/** patch 位 +1，与后端 tagger.mjs 的 nextPatchVersion 同一口径。 */
+function nextPatch(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v ?? "");
+  return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : "";
 }
 
 $("btn-start").onclick = () => post("/api/start", { mode: "resume" });
@@ -186,9 +249,9 @@ $("filter").oninput = (e) => {
 
 (async function boot() {
   const s = await fetch("/api/state").then((r) => r.json());
-  $("chip-version").textContent = `v${s.version}`;
-  $("chip-tag").textContent = `tag ${s.tag}`;
-  $("chip-repo").textContent = s.repo;
+  renderIdent(s);
+  $("chip-repo").textContent = s.repo; // 目标仓库是常量，只取这一次
+  $("tag-version").value = s.nextVersion ?? "";
   renderSteps(s.run);
   connect();
   loadPreflight();

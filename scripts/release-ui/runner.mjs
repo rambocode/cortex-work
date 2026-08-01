@@ -185,18 +185,42 @@ export class ReleaseRun extends EventEmitter {
     });
   }
 
-  /** 同 exec，但捕获 stdout 返回字符串（用于 gh api 之类要取值的调用），失败不抛。 */
-  capture(cmd, args, { cwd = this.repoRoot, env = process.env } = {}) {
+  /**
+   * 同 exec，但捕获 stdout 返回字符串（用于 gh api 之类要取值的调用），失败不抛。
+   * stdin 传字符串时改为管道投递:claude 的 prompt 含 git log 全文,走 argv 有长度上限。
+   * timeoutMs 给会长时间无输出的调用兜底(claude 生成发布说明),超时即杀并按失败返回。
+   */
+  capture(cmd, args, { cwd = this.repoRoot, env = process.env, stdin = null, timeoutMs = 0 } = {}) {
     return new Promise((resolve) => {
-      const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(cmd, args, { cwd, env, stdio: [stdin == null ? "ignore" : "pipe", "pipe", "pipe"] });
+      if (stdin != null) {
+        // EPIPE:子进程没读完就退出(如参数错误)属正常失败路径,由 close 事件统一报错。
+        child.stdin.on("error", () => {});
+        child.stdin.end(stdin);
+      }
       let out = "";
       let err = "";
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
       child.stdout.on("data", (d) => (out += d));
       child.stderr.on("data", (d) => (err += d));
-      child.on("error", () => resolve({ ok: false, stdout: "", stderr: "spawn failed", code: -1 }));
-      child.on("close", (code) => resolve({ ok: code === 0, stdout: out.trim(), stderr: err.trim(), code }));
+      let timer = null;
+      let timedOut = false;
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, timeoutMs);
+      }
+      const done = (payload) => {
+        if (timer) clearTimeout(timer);
+        resolve(payload);
+      };
+      child.on("error", () => done({ ok: false, stdout: "", stderr: "spawn failed", code: -1 }));
+      child.on("close", (code) => {
+        if (timedOut) return done({ ok: false, stdout: out.trim(), stderr: `超时 ${Math.round(timeoutMs / 1000)}s 未返回，已终止`, code: -1 });
+        done({ ok: code === 0, stdout: out.trim(), stderr: err.trim(), code });
+      });
     });
   }
 

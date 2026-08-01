@@ -11,6 +11,7 @@ import { ReleaseRun, STATUS } from "./runner.mjs";
 import { buildSteps, RELEASE_REPO } from "./steps.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { fetchHistory, fetchInfo } from "./notary.mjs";
+import { applyTag, collectReleaseInput, draftReleaseNotes, isValidVersion, nextPatchVersion } from "./tagger.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -39,17 +40,53 @@ const creds = {
 // 子进程环境：electron-builder 的公证步骤就是从这些环境变量里取凭据的。
 const childEnv = { ...process.env, ...envFile, APPLE_TEAM_ID: creds.teamId };
 
-const version = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "apps/desktop/package.json"), "utf8")).version;
-const tag = `v${version}`;
-// 暂存目录按 tag 分开并落在仓库外的固定位置:必须跨进程重启存活,否则「续跑」就无从谈起
-// （原脚本用 mktemp,进程一退产物就散了）。
-const stageDir = path.join(REPO_ROOT, ".release-stage", tag);
-const stateFile = path.join(REPO_ROOT, ".release-stage", `${tag}.state.json`);
+function readDesktopVersion() {
+  return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "apps/desktop/package.json"), "utf8")).version;
+}
+
+/** 由版本号派生出整条流水线的上下文。暂存目录按 tag 分开并落在仓库外的固定位置:
+ *  必须跨进程重启存活,否则「续跑」就无从谈起（原脚本用 mktemp,进程一退产物就散了）。 */
+function contextFor(version) {
+  const tag = `v${version}`;
+  return {
+    version,
+    tag,
+    stageDir: path.join(REPO_ROOT, ".release-stage", tag),
+    stateFile: path.join(REPO_ROOT, ".release-stage", `${tag}.state.json`),
+  };
+}
+
+// 刻意不是 const:版本号会在控制台自己打 tag 后变,也可能被人手改 package.json。整条流水线的
+// tag/暂存目录/状态文件都由它派生,一旦读死在启动那一刻,后续发布会用旧 tag 发新代码(实测事故)。
+let ctx = contextFor(readDesktopVersion());
 
 const stepDefs = buildSteps();
-const run = new ReleaseRun({ repoRoot: REPO_ROOT, stateFile });
-run.init(stepDefs, { tag, version, stageDir });
+const run = new ReleaseRun({ repoRoot: REPO_ROOT, stateFile: ctx.stateFile });
+run.init(stepDefs, ctx);
 run.restore();
+
+/**
+ * 重读 package.json 版本，变了就把上下文与阶段状态整体切过去。返回是否发生了切换。
+ * 发布流程运行中一律不切:跑到一半换 tag 会让状态机与已产出的暂存产物对不上。
+ */
+function syncVersion() {
+  if (inflight) return false;
+  let latest;
+  try {
+    latest = readDesktopVersion();
+  } catch {
+    return false; // package.json 正被编辑器写到一半之类，下次再说
+  }
+  if (latest === ctx.version) return false;
+  const from = ctx.tag;
+  ctx = contextFor(latest);
+  run.stateFile = ctx.stateFile;
+  run.init(stepDefs, ctx);
+  run.restore();
+  run.log(`版本已切换：${from} → ${ctx.tag}`, "stage");
+  run.emitUpdate();
+  return true;
+}
 
 // ── SSE 订阅者 ────────────────────────────────────────────────────────────────
 const clients = new Set();
@@ -62,6 +99,8 @@ run.on("update", (snap) => broadcast("state", snap));
 
 // ── 流程编排 ──────────────────────────────────────────────────────────────────
 let inflight = null;
+// 打 tag 与发布流程互斥:两者都动 git 工作区与版本上下文,叠在一起跑必然互相踩。
+let tagging = false;
 
 /**
  * 从第一个未完成的阶段开始往下跑。
@@ -93,7 +132,7 @@ async function startRelease({ mode = "resume", stopAfter = null } = {}) {
         run.markStep(def.id, STATUS.RUNNING);
         run.log(`▶ ${def.group} · ${def.title}`, "stage");
         try {
-          await def.run({ run, repoRoot: REPO_ROOT, tag, version, stageDir, env: childEnv });
+          await def.run({ run, repoRoot: REPO_ROOT, tag: ctx.tag, version: ctx.version, stageDir: ctx.stageDir, env: childEnv });
           run.markStep(def.id, STATUS.DONE);
         } catch (err) {
           run.markStep(def.id, STATUS.FAILED, String(err?.message ?? err));
@@ -145,6 +184,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (p === "/api/events") {
+      syncVersion();
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -164,11 +204,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/state") {
-      return sendJson(res, 200, { version, tag, repo: RELEASE_REPO, stageDir, run: run.snapshot() });
+      syncVersion();
+      return sendJson(res, 200, {
+        version: ctx.version,
+        tag: ctx.tag,
+        nextVersion: nextPatchVersion(ctx.version),
+        repo: RELEASE_REPO,
+        stageDir: ctx.stageDir,
+        run: run.snapshot(),
+      });
     }
 
     if (p === "/api/preflight") {
-      const result = await runPreflight({ repoRoot: REPO_ROOT, version, tag, creds });
+      syncVersion();
+      const result = await runPreflight({ repoRoot: REPO_ROOT, version: ctx.version, tag: ctx.tag, creds });
       return sendJson(res, 200, result);
     }
 
@@ -181,7 +230,10 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/start" && req.method === "POST") {
       const body = await readBody(req);
       if (inflight) return sendJson(res, 409, { error: "已有发布流程在跑" });
-      const pre = await runPreflight({ repoRoot: REPO_ROOT, version, tag, creds });
+      if (tagging) return sendJson(res, 409, { error: "正在打 tag，稍后再开始发布" });
+      // 必须先同步版本再跑前置检查:否则会拿旧 tag 校验、又用旧 tag 发新代码。
+      syncVersion();
+      const pre = await runPreflight({ repoRoot: REPO_ROOT, version: ctx.version, tag: ctx.tag, creds });
       if (!pre.canRelease && !body.force) {
         return sendJson(res, 412, { error: "前置检查未通过", checks: pre.checks });
       }
@@ -207,6 +259,54 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // ── 打 tag（两步：先出草稿供人审阅编辑，再落盘 commit+tag）────────────────────
+    // 刻意不进 run.steps 状态机:阶段列表代表「一次发布的产物流水线」,把打 tag 混进去会污染
+    // .release-stage/<tag>.state.json 的续跑进度（打完 tag 版本就变了，旧进度本该作废）。
+    // 只借 run.log 把过程打进同一条实时日志，用户仍能在日志面板看到全过程。
+    if (p === "/api/tag/draft" && req.method === "POST") {
+      const body = await readBody(req);
+      if (inflight || tagging) return sendJson(res, 409, { error: "发布流程或打 tag 正在进行中" });
+      syncVersion();
+      const version = body.version || nextPatchVersion(ctx.version);
+      if (!isValidVersion(version)) return sendJson(res, 400, { error: `版本号格式不对：${version}` });
+      tagging = true;
+      try {
+        const input = await collectReleaseInput({ repoRoot: REPO_ROOT, run });
+        const notes = await draftReleaseNotes({ repoRoot: REPO_ROOT, run, input, version, env: childEnv });
+        return sendJson(res, 200, { version, prevTag: input.prevTag, commitCount: input.commitCount, notes });
+      } catch (err) {
+        run.log(`✗ 生成发布说明失败：${err?.message ?? err}`, "error");
+        return sendJson(res, 500, { error: String(err?.message ?? err) });
+      } finally {
+        tagging = false;
+      }
+    }
+
+    if (p === "/api/tag/apply" && req.method === "POST") {
+      const body = await readBody(req);
+      if (inflight || tagging) return sendJson(res, 409, { error: "发布流程或打 tag 正在进行中" });
+      tagging = true;
+      try {
+        run.log(`▶ 写入 CHANGELOG 并打 tag v${body.version}${body.push ? "（含推送）" : ""}`, "stage");
+        const result = await applyTag({
+          repoRoot: REPO_ROOT,
+          run,
+          version: body.version,
+          notes: body.notes,
+          push: Boolean(body.push),
+          env: childEnv,
+        });
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        run.log(`✗ 打 tag 失败：${err?.message ?? err}`, "error");
+        return sendJson(res, 500, { error: String(err?.message ?? err) });
+      } finally {
+        tagging = false;
+        // 版本已变:切换上下文让 chip、暂存目录、前置检查全部跟上（失败路径下是无操作）。
+        syncVersion();
+      }
+    }
+
     // 浏览器会自动请求 favicon，没有就是一条刺眼的 404——直接回 204 收敛掉。
     if (p === "/favicon.ico") {
       res.writeHead(204).end();
@@ -229,5 +329,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`\n  Cortex 发布控制台  →  http://localhost:${PORT}`);
-  console.log(`  版本 ${version} · tag ${tag} · 目标仓库 ${RELEASE_REPO}\n`);
+  console.log(`  版本 ${ctx.version} · tag ${ctx.tag} · 目标仓库 ${RELEASE_REPO}\n`);
 });
