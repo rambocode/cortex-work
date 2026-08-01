@@ -176,7 +176,7 @@ describe("ModelThinkingPill(agent+模型+推理 单 pill 悬停二级菜单)", (
     // agent 二级:内置三项 + 新派生。
     expect(subItem(container, "Claude Code")).toBeTruthy();
     expect(subItem(container, "Codex")).toBeTruthy();
-    expect(subItem(container, "Pi")).toBeTruthy();
+    expect(subItem(container, "Cortex")).toBeTruthy();
     fireEvent.click(subItem(container, "我的CX"));
     expect(onSwitchAgent).toHaveBeenCalledWith("codex", { id: "my-cx", base: "codex", label: "我的CX" });
   });

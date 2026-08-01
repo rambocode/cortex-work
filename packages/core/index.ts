@@ -78,6 +78,8 @@ export {
 export type { DesktopBridge } from "./desktop/bridge";
 export {
   AGENT_MODELS,
+  AGENT_LABEL,
+  AGENT_LABEL_SHORT,
   DEFAULT_MODEL,
   type AgentKind,
   type AgentTraceEvent,

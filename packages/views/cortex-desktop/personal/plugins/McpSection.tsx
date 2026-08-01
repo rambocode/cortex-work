@@ -47,7 +47,7 @@ export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) 
         <div className="pw-mcp-item-main">
           <span className="pw-mcp-item-name">Agent Browser（内置）</span>
           <span className="pw-tag">STDIO</span>
-          <span className="pw-mcp-item-sub">为 Claude、Codex 与 Pi 提供完整浏览器自动化工具</span>
+          <span className="pw-mcp-item-sub">为 Claude Code、Codex 与 Cortex 提供完整浏览器自动化工具</span>
           <span className="pw-mcp-item-sub">
             {bridge?.agentBrowserStatus
               ? agentBrowserStatus?.message ?? "正在检查 Chrome"
@@ -81,7 +81,7 @@ export function McpCard({ onEdit }: { onEdit: (index: number | null) => void }) 
         </label>
       </div>
       <div className="pw-srow-desc">
-        这里只控制下表的自定义 MCP server；内置 Agent Browser 使用上方独立开关，并按会话注入给 Claude、Codex 与 Pi。
+        这里只控制下表的自定义 MCP server；内置 Agent Browser 使用上方独立开关，并按会话注入给 Claude Code、Codex 与 Cortex。
       </div>
 
       {mcp.servers.length === 0 ? (

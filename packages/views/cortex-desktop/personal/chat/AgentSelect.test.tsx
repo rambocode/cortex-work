@@ -29,7 +29,7 @@ function renderSelect(props: Partial<Parameters<typeof AgentSelect>[0]> = {}) {
 
 // 打开下拉菜单并返回 menu 容器。
 function openMenu() {
-  fireEvent.click(screen.getByRole("button", { name: /Claude Code|Codex|Pi|我的CX/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Claude Code|Codex|Cortex|我的CX/ }));
   return screen.getByRole("menu");
 }
 
@@ -55,13 +55,13 @@ describe("AgentSelect", () => {
     // 「覆盖内置」label 的派生 id=codex 不应出现(被内置 codex 吸收)
     expect(within(menu).queryByText("覆盖内置")).toBeNull();
     // 内置三者各一条
-    expect(within(menu).getByRole("menuitem", { name: /Codex/ })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: /^Codex/ })).toBeTruthy();
   });
 
   it("门控:agentsAvailable.codex=false → codex 禁用且标注,点击不触发 onSwitch", () => {
     const { onSwitch } = renderSelect({ agent: "claude", agentsAvailable: { codex: false } });
     const menu = openMenu();
-    const codexItem = within(menu).getByRole("menuitem", { name: /Codex/ });
+    const codexItem = within(menu).getByRole("menuitem", { name: /^Codex/ });
     expect(codexItem).toHaveProperty("disabled", true);
     expect(within(codexItem).getByText(/未安装/)).toBeTruthy();
     fireEvent.click(codexItem);
@@ -71,14 +71,14 @@ describe("AgentSelect", () => {
   it("pi 永不禁用", () => {
     renderSelect({ agent: "claude", agentsAvailable: { pi: false } });
     const menu = openMenu();
-    const piItem = within(menu).getByRole("menuitem", { name: /Pi/ });
+    const piItem = within(menu).getByRole("menuitem", { name: /Cortex/ });
     expect(piItem).toHaveProperty("disabled", false);
   });
 
   it("点击内置项 → onSwitch(agent) 无第二参", () => {
     const { onSwitch } = renderSelect({ agent: "claude" });
     const menu = openMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: /^Codex$/ }));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /^Codex/ }));
     expect(onSwitch).toHaveBeenCalledWith("codex");
   });
 });

@@ -106,7 +106,7 @@ export function KnowledgeSettingsSection(): ReactElement {
         onChange={(v) => void save(v)}
       />
       <div className="pw-srow-desc">
-        知识库以 MCP 方式接入，claude / codex / pi 三端通用。地址与令牌向管理员索取；
+        知识库以 MCP 方式接入，Claude Code / Codex / Cortex 三端通用。地址与令牌向管理员索取；
         令牌加密保存在本机，界面不会回显。
       </div>
 

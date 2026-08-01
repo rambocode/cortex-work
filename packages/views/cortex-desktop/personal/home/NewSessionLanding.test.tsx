@@ -363,7 +363,7 @@ describe("NewSessionLanding agent 选择(U3)", () => {
     // 合并 pill → Agent 行 → 下钻 → 内置 Codex。
     fireEvent.click(container.querySelector(".pw-mt-trigger")!);
     fireEvent.click(mtRow("Agent"));
-    fireEvent.click(screen.getByRole("menuitem", { name: /^Codex$/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Codex/ }));
     fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "go" } });
     fireEvent.click(screen.getByTitle("发送 (Enter)"));
     await Promise.resolve();

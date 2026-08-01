@@ -140,11 +140,12 @@ export function PluginManagePage({
         <div className="pw-plg-manage-mcp">
           <McpCard onEdit={(index) => setMcpEditing({ index })} />
           {/* 电脑操作（Computer Use）:由第三方 pi package 供能,与 pi 原生扩展同属「只在 pi 会话生效」
-              的一类,故与 ExtensionPanel 并列放在这里、而不是设置→Pi（避免同一个开关出现在两处）。
-              自带「独属 pi」标记与非 mac 隐藏,故不并入下面那条共用提示。 */}
+              的一类,故与 ExtensionPanel 并列放在这里、而不是设置→模型（避免同一个开关出现在两处）。
+              自带「独属 Cortex」标记与非 mac 隐藏,故不并入下面那条共用提示。
+              （"pi" 是技术标识符,面向用户显示为内置的 Cortex Agent。） */}
           <ComputerUseSection />
           <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
-            <b>pi 原生扩展</b> 仅在 pi 会话中加载，对 <b>claude</b> / <b>codex</b> 无效。
+            <b>Cortex 原生扩展</b> 仅在 <b>Cortex</b> 会话中加载，对 <b>Claude Code</b> / <b>Codex</b> 无效。
           </div>
           <ExtensionPanel bridge={bridge} />
         </div>

@@ -5,6 +5,7 @@
 // (子 agent 编排开关已升为全局设置,见 设置 → Agent。)复用 pw-tb-menu 菜单 + useDismissableMenu 关闭范式。
 
 import {
+  AGENT_LABEL,
   EXEC_PERMISSIONS,
   DEFAULT_EXEC_PERMISSION,
   type AgentKind,
@@ -27,8 +28,6 @@ const EXEC_ICON: Record<ExecPermission, typeof Icon.Folder> = {
   ask: Icon.Hand,
   auto: Icon.AlertCircle,
 };
-// 菜单标题问句里的 agent 展示名(与 ModeBlockBanner 同款本地映射)。
-const AGENT_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
 
 export function CustomizePill({
   agent,

@@ -153,10 +153,16 @@
   "agentName": {
     "claude": "Claude Code",
     "codex": "Codex",
-    "pi": "Pi"
+    "pi": "Cortex"
+  },
+  "agentPicker": {
+    "builtinSub": "内置 · 用「设置 → 模型」配置的供应商",
+    "cliSub": "需本机安装 CLI",
+    "cliMissing": "未安装",
+    "derivedSub": "基于 {{base}}"
   },
   "core": {
-    "externalUnavailable": "⚠️ {{name}} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Pi 后重试。",
+    "externalUnavailable": "⚠️ {{name}} 未安装或不可用。请安装后重启 Cortex Desktop,或切换到 Cortex 后重试。",
     "typing": {
       "starting": "正在启动 {{name}}…",
       "thinking": "{{name}} 正在思考…",

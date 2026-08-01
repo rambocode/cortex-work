@@ -375,9 +375,16 @@ describe("旧配置清理", () => {
     fresh.resetProviderAuthForTests();
     fresh.registerProviderAuthHandlers();
 
-    // 清理是 fire-and-forget，等一拍让写队列跑完。
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const raw = await fsp.readFile(join(state.home, "personal-workspace.json"), "utf8");
+    // 清理是 fire-and-forget，没有可 await 的句柄 → 只能轮询落盘结果。
+    // 原先是固定 sleep 50ms：`vi.resetModules()` 后 `import("./provider-auth")` 要重新加载
+    // 整条依赖链（含 @cortex-work/core），依赖图一变大就越过那个窗口、间歇性红。
+    // 轮询取代固定值：既不受模块加载耗时影响，通过时也不必白等满整个超时。
+    let raw = "";
+    for (let i = 0; i < 100; i += 1) {
+      raw = await fsp.readFile(join(state.home, "personal-workspace.json"), "utf8");
+      if (raw.includes("legacyProviderSettingsCleared")) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     expect(raw).not.toContain("sk-live-OLD");
     expect(raw).toContain("legacyProviderSettingsCleared");
   });

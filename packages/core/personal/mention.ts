@@ -4,8 +4,16 @@
 
 import type { RoleConfig } from "../desktop/types";
 
-// 内置 shortcut：@claude / @codex / @pi 无需创建角色直接可用。
+// 内置 shortcut：@claude / @codex / @cortex 无需创建角色直接可用。
 // systemPrompt 为空——内置 agent 不附加额外 persona。
+//
+// **对象 key 就是 mention token**（下方 parseMentions 直接 `BUILTIN_ROLES[lower]` 查表）。
+// cortex 项的 id/label 走用户可见名，`agent` 仍是技术标识符 "pi"——真正决定 spawn 哪个
+// adapter 的是 `agent`（apps/desktop/src/main/ipc/cli.ts 的 getAgentDef(role.agent)），
+// `id` 只用于委派工具名 ask_<id> 与事件 roleId，改名不影响派发。
+//
+// 旧的 `@pi` 已**硬切下线**（用户明确选择不做兼容）：老会话 / 自建角色 / 自动化里残留的
+// `@pi` 不再匹配任何内置角色，parseMentions 未匹配即静默跳过，不报错、不误派发。
 export const BUILTIN_ROLES: Record<string, RoleConfig> = {
   claude: {
     id: "claude",
@@ -23,9 +31,9 @@ export const BUILTIN_ROLES: Record<string, RoleConfig> = {
     createdAt: "",
     updatedAt: "",
   },
-  pi: {
-    id: "pi",
-    label: "Pi",
+  cortex: {
+    id: "cortex",
+    label: "Cortex",
     agent: "pi",
     systemPrompt: "",
     createdAt: "",

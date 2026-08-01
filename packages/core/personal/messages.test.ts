@@ -1549,12 +1549,12 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
     expect(chatOf(qc).find((m) => m.kind === "typing")).toMatchObject({
       kind: "typing",
-      text: "Pi 正在执行 Bash · ls",
+      text: "Cortex 正在执行 Bash · ls",
     });
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
     expect(chatOf(qc).find((m) => m.kind === "typing")).toMatchObject({
       kind: "typing",
-      text: "Pi 已完成 Bash",
+      text: "Cortex 已完成 Bash",
     });
     vi.useRealTimers();
   });

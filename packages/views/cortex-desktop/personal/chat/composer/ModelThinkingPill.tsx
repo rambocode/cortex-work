@@ -11,9 +11,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { AGENT_MODELS } from "@cortex-work/core";
 import type { AgentKind, AgentThinkingValue, DerivedAgentMeta } from "@cortex-work/core";
-import { AGENT_LABEL, agentDisplayAvatar, agentDisplayLabel } from "../agentMeta";
+import { agentDisplayAvatar, agentDisplayLabel } from "../agentMeta";
+import { AgentMenuItems } from "../AgentMenuItems";
 import { useDismissableMenu } from "../../shared/useDismissableMenu";
 import { useAutoFlipUp } from "../../shared/useAutoFlipUp";
 
@@ -128,49 +128,17 @@ export function ModelThinkingPill({
     menu.setOpen(false);
   };
 
-  // agent 二级列表:列表/门控/选中态规则照搬 AgentSelect —— 内置三项(非 pi 未安装禁用并标注,
-  // pi 永不置灰)+ 过滤内置同名 id 后的新派生;选中态「派生优先、内置需无 derivedAgentId」。
+  // agent 二级列表:与 AgentSelect 共用 AgentMenuItems —— 候选/门控/选中态/副标题文案单一口径。
   const agentList = (
-    <>
-      {(Object.keys(AGENT_MODELS) as AgentKind[]).map((a) => {
-        const unavailable = a !== "pi" && agentsAvailable?.[a] === false;
-        return (
-          <button
-            key={a}
-            className="pw-tb-menu-item"
-            role="menuitem"
-            disabled={unavailable}
-            onClick={() => {
-              if (unavailable) return;
-              onSwitchAgent?.(a);
-              menu.setOpen(false);
-            }}
-          >
-            <span>
-              {AGENT_LABEL[a]}
-              {unavailable ? "（未安装）" : ""}
-            </span>
-            {a === agent && !derivedAgentId ? <Icon.Check size={14} /> : null}
-          </button>
-        );
-      })}
-      {(derivedAgents ?? [])
-        .filter((d) => !(["claude", "codex", "pi"] as readonly string[]).includes(d.id))
-        .map((d) => (
-          <button
-            key={d.id}
-            className="pw-tb-menu-item"
-            role="menuitem"
-            onClick={() => {
-              onSwitchAgent?.(d.base, d);
-              menu.setOpen(false);
-            }}
-          >
-            <span>{d.label ?? d.id}</span>
-            {d.id === derivedAgentId ? <Icon.Check size={14} /> : null}
-          </button>
-        ))}
-    </>
+    <AgentMenuItems
+      agent={agent}
+      derivedAgentId={derivedAgentId}
+      agentsAvailable={agentsAvailable}
+      derivedAgents={derivedAgents}
+      onSwitch={(a, d) => onSwitchAgent?.(a, d)}
+      onClose={() => menu.setOpen(false)}
+      checkSize={14}
+    />
   );
 
   // 模型二级列表:.pw-mt-models 限高内部滚动承载长模型列表/后续搜索。

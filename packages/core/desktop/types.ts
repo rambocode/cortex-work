@@ -1653,6 +1653,28 @@ export const DEFAULT_MODEL: Record<AgentKind, string> = {
   pi: "sonnet",
 };
 
+// agent 用户可见显示名的**唯一真源**。
+//
+// "pi" 只是技术标识符,继续存在于 AgentKind / 资源目录(resources/pi) / 日志 / IPC 契约里;
+// 面向用户一律呈现为 "Cortex"——它是 app 内置、恒可用的 agent,模型来自用户在「设置 → 模型」
+// 里自配的供应商。之所以不叫「内置模型」:agent 选择器这一维回答的是「谁在执行」,
+// Claude Code / Codex / Cortex 三项词性齐整,而「内置模型」会与下一级的「模型」行重名。
+//
+// 这份表曾在 core/views/desktop 三层散落 8 份硬编码副本(含 typing 指示器用的 AGENT_NAME),
+// 改一处必漏其余 → 已全部收敛到此处,**不要再在别处重新声明**。
+export const AGENT_LABEL: Record<AgentKind, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  pi: "Cortex",
+};
+
+// 紧凑场景(Spotlight / 时间线卡片)用短名,避免「Claude Code」撑破窄容器。
+export const AGENT_LABEL_SHORT: Record<AgentKind, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  pi: "Cortex",
+};
+
 // ── 应用自动更新（与 apps/desktop/src/main/ipc/types.ts 镜像） ─────────────
 
 // 主进程 electron-updater 状态快照。phase 流转:

@@ -44,7 +44,7 @@ describe("CustomizePill(执行权限选择器)", () => {
     expect(container.querySelector(".pw-tb-menu")).toBeNull();
     fireEvent.click(screen.getByLabelText("执行权限"));
     expect(container.querySelector(".pw-tb-menu.pw-perm-menu")).not.toBeNull();
-    expect(screen.getByText(/应如何批准 Pi 操作/)).toBeInTheDocument();
+    expect(screen.getByText(/应如何批准 Cortex 操作/)).toBeInTheDocument();
     expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
   });
 

@@ -33,10 +33,10 @@ describe("whoMeta — 用户本人 profile 注入", () => {
     expect(whoMeta("me", { nickname: "   " }).name).toBe("我");
   });
 
-  it("pi agent 头像与顶部一致(PI / #4338ca / Pi),不回退成灰色 ?", () => {
+  it("pi agent 头像与顶部一致(C / #4338ca / Cortex),不回退成灰色 ?", () => {
     const meta = whoMeta("pi");
-    expect(meta.name).toBe("Pi");
-    expect(meta.avatar).toEqual({ initials: "PI", bg: "#4338ca" });
+    expect(meta.name).toBe("Cortex");
+    expect(meta.avatar).toEqual({ initials: "C", bg: "#4338ca" });
     expect(meta.agent).toBe("agent");
   });
 

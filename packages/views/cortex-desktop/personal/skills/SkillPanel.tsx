@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
+  AGENT_LABEL_SHORT,
   DEFAULT_PI_SKILLS,
   DEFAULT_AGENT_SKILL_ROOTS,
   DEFAULT_SHARED_SKILL_ROOTS,
@@ -21,10 +22,11 @@ import { skillTitleCase } from "./skillDisplay";
 type StatusFilter = "all" | "enabled" | "disabled";
 
 // Design B(plan 002 U7):面板按 agent 管理各自私有根 + 共享根。选择器候选。
+// value 是 AgentKind 技术标识符（"pi" 不变）；label 走用户可见名（pi → Cortex）。
 const AGENT_OPTIONS: { value: AgentKind; label: string }[] = [
   { value: "claude", label: "Claude" },
   { value: "codex", label: "Codex" },
-  { value: "pi", label: "Pi" },
+  { value: "pi", label: AGENT_LABEL_SHORT.pi },
 ];
 type LoadState =
   | { kind: "loading" }
