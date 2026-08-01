@@ -4037,6 +4037,18 @@ button.sb-row {
   width: var(--rp-custom-width, calc(100vw * 3 / 7));
   min-width: var(--rp-custom-width, 480px);
 }
+/* 统一会话的文件预览是覆盖在中栏上的侧边层，不参与默认三栏 flex，也不会触发中栏重排。
+   宽度上限确保 overlay 左侧仍露出 660px 中栏与浮动间距。自定义宽度不能继续直接成为
+   min-width:旧存档里的超大值会令 min 压过 max,再次遮住中栏。 */
+.pw-prompts[data-right-view="files"]:has(.pw-rp-view.is-fileopen) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  min-width: min(var(--rp-custom-width, 480px), 480px);
+  max-width: calc(100% - 660px - var(--pw-float-gap));
+}
 /* 展宽态(详情/文件预览):顶部贴齐标题栏——去掉顶部 8px 浮起缝隙与顶角圆角,
    否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
    展宽后挪到中部就被注意到)。用与浮起规则同级的选择器确保覆盖其 margin/圆角。 */
