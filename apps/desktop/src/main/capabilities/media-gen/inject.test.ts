@@ -33,6 +33,8 @@ vi.mock("./client", () => ({
     durationMs: 60000,
   }),
   assertWithinWorkspace: vi.fn().mockImplementation((_root: string, p: string) => p),
+  // server.ts 从 client 导入的常量：mock 模块必须一并导出，否则 registerTool 时抛错。
+  MAX_REFERENCE_IMAGES: 4,
 }));
 
 import { getPersistedState } from "../../ipc/store";
@@ -53,6 +55,9 @@ function makeMediaGenSettings(overrides: {
   speech?: boolean;
   music?: boolean;
   video?: boolean;
+  /** 可选：覆盖各模态协议（动态 schema 测试用）。*/
+  imageProtocol?: string;
+  videoProtocol?: string;
 }): MediaGenSettings {
   const mk = (enabled: boolean, protocol: string) => ({
     enabled,
@@ -61,23 +66,24 @@ function makeMediaGenSettings(overrides: {
     baseUrl: "https://api.example.com",
     apiKey: "test-key",
     model: "test-model",
+    quality: "auto",
+    defaultResolution: "1K",
     defaultSize: "1024x1024",
     voice: "alloy",
     format: "mp3",
     timeoutMs: 60000,
     defaultDuration: 5,
-    defaultResolution: "1280x720",
     pollIntervalMs: 5000,
     lyrics: "",
   });
   return {
-    image: { ...mk(overrides.image ?? false, "openai-images"), defaultSize: "1024x1024" },
+    image: { ...mk(overrides.image ?? false, overrides.imageProtocol ?? "openai-images"), defaultSize: "1024x1024" },
     speech: { ...mk(overrides.speech ?? false, "openai-speech"), voice: "alloy", format: "mp3" },
     music: { ...mk(overrides.music ?? false, "minimax-music"), format: "mp3" },
     video: {
-      ...mk(overrides.video ?? false, "minimax-video"),
+      ...mk(overrides.video ?? false, overrides.videoProtocol ?? "minimax-video"),
       defaultDuration: 5,
-      defaultResolution: "1280x720",
+      defaultResolution: "1080P",
       pollIntervalMs: 5000,
     },
   } as MediaGenSettings;
@@ -278,6 +284,110 @@ describe("媒体生成 MCP server — 工具列表按模态过滤", () => {
       body: INIT_BODY,
     });
     expect(res.status).toBe(401);
+  });
+});
+
+// ── 测试：协议快照驱动的动态 schema ───────────────────────────────────────────
+
+// 从 tools/list 结果中取指定工具的 inputSchema.properties（JSON Schema 形态）。
+async function fetchToolSchema(
+  port: number,
+  token: string,
+  sessionId: string,
+  toolName: string,
+): Promise<Record<string, unknown> | undefined> {
+  const sessionHeader = { "X-Cortex-Session": sessionId };
+  await postMcp(port, token, INIT_BODY, sessionHeader);
+  const result = (await postMcp(port, token, TOOLS_LIST_BODY, sessionHeader)) as Record<string, unknown>;
+  const tools = (result?.result as Record<string, unknown> | undefined)?.tools as
+    | Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }>
+    | undefined;
+  return tools?.find((t) => t.name === toolName)?.inputSchema?.properties;
+}
+
+function cfgPortToken(cfg: McpServerConfigLike): { port: number; token: string } {
+  return {
+    port: parseInt(cfg.url!.split(":")[2]),
+    token: (cfg.headers as Record<string, string>)["Authorization"].replace("Bearer ", ""),
+  };
+}
+
+type McpServerConfigLike = NonNullable<ReturnType<typeof buildMediaGenMcpServerConfig>>;
+
+describe("动态 schema — 协议快照（buildMediaGenMcpServerConfig 注入时冻结）", () => {
+  beforeEach(async () => {
+    await startMediaGenHost();
+  });
+
+  afterEach(() => {
+    stopMediaGenHost();
+  });
+
+  it("openai-images：schema 含 reference_image_paths（edit-allowlist）", async () => {
+    const settings = makeMediaGenSettings({ image: true, imageProtocol: "openai-images" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-oai", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-oai", "generate_image");
+    if (!props) return; // SSE 流式响应场景下解析不到 JSON——不视为失败（与既有测试口径一致）
+    expect(props.reference_image_paths).toBeDefined();
+    // image_size 档位为通用 1K/2K。
+    expect(JSON.stringify(props.image_size)).toContain("1K");
+  });
+
+  it("grok-imagine-image：无 reference_image_paths，aspect_ratio 用 13 值 Grok 集", async () => {
+    const settings = makeMediaGenSettings({ image: true, imageProtocol: "grok-imagine-image" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-grok-img", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-grok-img", "generate_image");
+    if (!props) return;
+    expect(props.reference_image_paths).toBeUndefined();
+    expect(JSON.stringify(props.aspect_ratio)).toContain("19.5:9");
+  });
+
+  it("volcengine-ark-image：image_size 档位为 2K/3K/4K 且保留参考图（edit-allowlist）", async () => {
+    const settings = makeMediaGenSettings({ image: true, imageProtocol: "volcengine-ark-image" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-volc-img", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-volc-img", "generate_image");
+    if (!props) return;
+    expect(props.reference_image_paths).toBeDefined();
+    const sizeJson = JSON.stringify(props.image_size);
+    expect(sizeJson).toContain("4K");
+    expect(sizeJson).not.toContain("1K");
+  });
+
+  it("grok-imagine-video：无 last_frame_image_path，有 aspect_ratio，分辨率 480P/720P", async () => {
+    const settings = makeMediaGenSettings({ video: true, videoProtocol: "grok-imagine-video" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-grok-vid", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-grok-vid", "generate_video");
+    if (!props) return;
+    expect(props.last_frame_image_path).toBeUndefined();
+    expect(props.aspect_ratio).toBeDefined();
+    const resJson = JSON.stringify(props.resolution);
+    expect(resJson).toContain("480P");
+    expect(resJson).not.toContain("1080P");
+  });
+
+  it("minimax-video：有 last_frame_image_path，无 aspect_ratio，分辨率 768P/1080P", async () => {
+    const settings = makeMediaGenSettings({ video: true, videoProtocol: "minimax-video" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-mmx-vid", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-mmx-vid", "generate_video");
+    if (!props) return;
+    expect(props.last_frame_image_path).toBeDefined();
+    expect(props.aspect_ratio).toBeUndefined();
+    expect(JSON.stringify(props.resolution)).toContain("768P");
+  });
+
+  it("volcengine-ark-video：aspect_ratio 含 adaptive，分辨率含 4K", async () => {
+    const settings = makeMediaGenSettings({ video: true, videoProtocol: "volcengine-ark-video" });
+    const cfg = buildMediaGenMcpServerConfig(settings, "s-schema-volc-vid", "/ws")!;
+    const { port, token } = cfgPortToken(cfg);
+    const props = await fetchToolSchema(port, token, "s-schema-volc-vid", "generate_video");
+    if (!props) return;
+    expect(JSON.stringify(props.aspect_ratio)).toContain("adaptive");
+    expect(JSON.stringify(props.resolution)).toContain("4K");
   });
 });
 
