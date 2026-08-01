@@ -240,6 +240,17 @@ export function providerUsable(v: ProviderView): boolean {
   return v.provider.auth.length === 0 || v.status.configured;
 }
 
+/**
+ * 认证状态 → i18n key（providers.status.* / providers.statusHint.*）的五态映射。
+ * 平铺页多处（订阅卡 / API Key 行 / 云平台行）共用，避免各写一份三元链漂移。
+ */
+export function authStatusKey(status: ProviderAuthStatus): "none" | "safeStorage" | "oauth" | "env" | "ambient" {
+  if (status.source === "safe-storage") return status.type === "oauth" ? "oauth" : "safeStorage";
+  if (status.source === "env") return "env";
+  if (status.source === "ambient") return "ambient";
+  return "none";
+}
+
 /** 该来源的凭据是否由 Cortex 保管（= 可删除）。env / ambient 由宿主环境提供，只能读。 */
 export function credentialDeletable(status: ProviderAuthStatus): boolean {
   return status.configured && status.source === "safe-storage";

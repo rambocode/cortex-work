@@ -1,4 +1,5 @@
 // 自定义 Provider 编辑器：完整 Pi Provider JSON + 行级校验 + 独立 Secret 编辑器。
+// （列表与「添加」入口在 PiCustomProviderSection —— 供应商管理平铺进设置页后本文件只剩编辑器。）
 //
 // 为什么存的是**整段 JSON** 而不是拆成表单字段：拆字段就必须为没填的字段选默认值，
 // 而「Cortex 替用户猜 `input:["text"]` / `contextWindow:131072`」正是本次事故的根因。
@@ -25,39 +26,34 @@ interface SecretDraft {
   value: string;
 }
 
-export function CustomProviderPanel({
-  items,
+/** 编辑一条（或新建一条）自定义 Provider。保存成功后调用 onClose 收起编辑器。 */
+export function CustomProviderEditor({
+  initial,
   storageAvailable,
+  onClose,
 }: {
-  items: CustomProviderDefinition[];
+  initial?: CustomProviderDefinition;
   storageAvailable: boolean;
+  onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
-  const { save, remove } = useCustomProviderActions();
+  const { save } = useCustomProviderActions();
   const { setSecrets } = useProviderAuthActions();
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [idDraft, setIdDraft] = useState("");
-  const [json, setJson] = useState("");
+  const [idDraft, setIdDraft] = useState(initial?.id ?? "");
+  const [json, setJson] = useState(initial?.json ?? "");
   const [validation, setValidation] = useState<CustomProviderValidation | null>(null);
   const [validating, setValidating] = useState(false);
-  const [secrets, setSecretDrafts] = useState<SecretDraft[]>([]);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [secrets, setSecretDrafts] = useState<SecretDraft[]>(
+    (initial?.secretRefs ?? []).map((name) => ({ name, value: "" })),
+  );
 
   const refs = extractSecretRefs(json);
   const inline = findInlineSecrets(json);
   const missing = undefinedSecretRefs(json, secrets.map((s) => s.name));
   // 三道门全绿才允许保存：schema 合法 ∧ 无内嵌明文 ∧ 无未定义引用。
   const canSave = !!json.trim() && !!idDraft.trim() && validation?.ok === true && inline.length === 0 && missing.length === 0;
-
-  const openEditor = (def?: CustomProviderDefinition) => {
-    setEditingId(def?.id ?? "");
-    setIdDraft(def?.id ?? "");
-    setJson(def?.json ?? "");
-    setValidation(null);
-    setSecretDrafts((def?.secretRefs ?? []).map((name) => ({ name, value: "" })));
-  };
 
   const validate = async () => {
     if (!bridge?.providerCustomValidate) {
@@ -83,50 +79,15 @@ export function CustomProviderPanel({
       { id, json, secretRefs: refs, updatedAt: Date.now() },
       {
         onSuccess: (r) => {
-          if (r.ok) setEditingId(null);
+          if (r.ok) onClose();
         },
       },
     );
   };
 
-  if (editingId === null) {
-    return (
-      <div className="pw-prov-custom">
-        <div className="pw-set-hint">{t("providers.custom.hint")}</div>
-        {items.length === 0 ? <div className="pw-set-hint">{t("providers.custom.empty")}</div> : null}
-        {items.map((def) => (
-          <div key={def.id} className="pw-ml-card">
-            <div className="pw-ml-card-main">
-              <span className="pw-ml-id">{def.id}</span>
-              {def.secretRefs.length ? (
-                <span className="pw-ml-sub">{t("providers.custom.refsFound", { names: def.secretRefs.join(", ") })}</span>
-              ) : null}
-            </div>
-            <div className="pw-ml-actions">
-              <button title={t("providers.custom.save")} onClick={() => openEditor(def)}>
-                <Icon.Edit size={14} />
-              </button>
-              <button
-                className={confirmDeleteId === def.id ? "is-confirming" : ""}
-                title={t("providers.custom.delete")}
-                onBlur={() => setConfirmDeleteId(null)}
-                onClick={() => (confirmDeleteId === def.id ? remove.mutate(def.id) : setConfirmDeleteId(def.id))}
-              >
-                {confirmDeleteId === def.id ? t("providers.custom.deleteConfirm") : <Icon.Trash size={14} />}
-              </button>
-            </div>
-          </div>
-        ))}
-        <button className="pw-ml-add" onClick={() => openEditor()}>
-          <Icon.Plus size={13} />
-          {t("providers.custom.add")}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="pw-prov-custom">
+      <div className="pw-set-hint">{t("providers.custom.hint")}</div>
       <label className="pw-set-field">
         <span className="pw-set-lbl">{t("providers.custom.idLabel")}</span>
         <input
@@ -201,7 +162,7 @@ export function CustomProviderPanel({
         <button type="button" className="pw-mode-block-btn primary" disabled={!canSave} onClick={doSave}>
           {t("providers.custom.save")}
         </button>
-        <button type="button" className="pw-mode-block-btn" onClick={() => setEditingId(null)}>
+        <button type="button" className="pw-mode-block-btn" onClick={onClose}>
           {t("providers.connectionTestCancel")}
         </button>
       </div>

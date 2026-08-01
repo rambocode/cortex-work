@@ -1,7 +1,7 @@
 // ModelPicker 的弹窗外壳。给「点一下才需要选模型」的场景用（聊天里的图片阻断提示条、
 // 各设置页的模型字段），避免每处自己写一遍遮罩 + ESC + 焦点管理。
 //
-// ESC 处理与 ProviderManagerModal 同款：capture 阶段监听 + stopPropagation，
+// ESC 处理：capture 阶段监听 + stopPropagation，
 // 否则会连带触发设置整页的「ESC 返回」。
 
 import { useEffect } from "react";
@@ -57,7 +57,8 @@ export function ModelPickerDialog({
             onSelect={onSelect}
             onOpenManager={() => {
               onClose();
-              openSettings("providers");
+              // 供应商管理已平铺进「Pi」分区（独立 "providers" tab 在阶段③被并入 pi）。
+              openSettings("pi");
             }}
           />
         </div>

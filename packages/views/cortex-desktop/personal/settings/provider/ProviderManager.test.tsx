@@ -1,13 +1,14 @@
-// Provider 管理页（阶段③重构）与全局模型选择器的回归测试。
+// 供应商平铺页（设置→Pi 内联，替代旧弹窗）与全局模型选择器的回归测试。
 //
-// 覆盖计划 §4.2 / §5 的验收点：
-//   · 认证五态渲染（未配置 / safeStorage / OAuth / 环境变量 / 系统凭据）；
-//   · 能力**不可由用户修改** —— 内建 Provider 详情里没有任何能力相关的可交互控件（事故根因回归）；
+// 覆盖计划 §4.2 / §5 的验收点（与弹窗时代一致，载体换成平铺页）：
+//   · 认证形态分区渲染（订阅登录 / API Key / 环境变量 / 系统凭据 / 免认证本地端点）；
+//   · 能力**不可由用户修改** —— 展开的模型列表里没有任何能力相关的可交互控件（事故根因回归）；
 //   · 只读能力展示与搜索；
 //   · ambient 凭据不可删除（禁用 + 说明原因）；
 //   · 连接测试的费用提示（确认前不得发起调用）；
 //   · safeStorage 不可用 → 只读降级；
 //   · Catalog 不可用 → 明确降级提示，不白屏不崩；
+//   · 默认模型级联下拉：只列可用供应商、悬空引用阻断不回退；
 //   · 模型选择器：搜索、徽标、requireImage 过滤、键盘全流程。
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -15,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 import { CoreProvider, resetProviderCatalogCache, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
-import { ProviderManagerModal } from "../ProviderManagerModal";
+import { PiProvidersSection } from "./PiProvidersSection";
+import { DefaultModelSelects } from "./DefaultModelSelects";
 import { ModelPicker } from "./ModelPicker";
 
 const CATALOG = {
@@ -61,6 +63,17 @@ const CATALOG = {
         { id: "qwen-local", name: "Qwen Local", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 32000, maxTokens: 4096 },
       ],
     },
+    {
+      // 未配置的纯 api-key Provider：API Key 分区应渲染成「粘贴即存」的输入行。
+      id: "deepseek",
+      name: "DeepSeek",
+      api: "openai-completions",
+      auth: ["api-key"],
+      envVars: ["DEEPSEEK_API_KEY"],
+      models: [
+        { id: "ds-chat", name: "DS Chat", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 64000, maxTokens: 8192 },
+      ],
+    },
   ],
 };
 
@@ -78,7 +91,8 @@ function makeBridge(o: BridgeOpts = {}): DesktopBridge {
     ),
     providerAuthStatus: vi.fn(async () => ({
       statuses: [
-        // 五态各占一个：safe-storage(api-key) / safe-storage(oauth) / env / ambient / none(local 免认证)
+        // 认证形态各占一个：env(api-key) / safe-storage(oauth) / ambient；
+        // local 免认证、deepseek 未配置 → 不出现在 statuses 里。
         { providerId: "openai", configured: true, type: "api-key", source: "env" },
         { providerId: "anthropic", configured: true, type: "oauth", source: "safe-storage", expiresAt: 1_800_000_000_000 },
         { providerId: "bedrock", configured: true, source: "ambient" },
@@ -87,6 +101,8 @@ function makeBridge(o: BridgeOpts = {}): DesktopBridge {
       hiddenProviderIds: o.hidden ?? [],
     })),
     providerCustomList: vi.fn(async () => []),
+    providerCustomSave: vi.fn(async () => ({ ok: true })),
+    providerAuthSetSecrets: vi.fn(async () => ({ ok: true })),
     providerAuthSetApiKey: vi.fn(async () => ({ ok: true })),
     providerAuthLogout: vi.fn(async () => ({ ok: true })),
     providerAuthSetHidden: vi.fn(async () => ({ ok: true })),
@@ -104,70 +120,80 @@ function renderUI(ui: ReactElement, bridge: DesktopBridge | null) {
   );
 }
 
+/** 找到某 Provider 在 API Key 分区里的整行容器（行内按钮太多，断言必须限定作用域）。 */
+async function findKeyRow(name: string): Promise<HTMLElement> {
+  const label = await screen.findByText(name);
+  const row = label.closest(".pw-pip-row");
+  if (!row) throw new Error(`row of ${name} not found`);
+  return row as HTMLElement;
+}
+
 beforeEach(() => {
   resetProviderCatalogCache();
-  usePersonalStore.setState({ legacyProviderSettingsCleared: undefined });
+  usePersonalStore.setState({ legacyProviderSettingsCleared: undefined, defaultModelRef: undefined });
 });
 afterEach(() => cleanup());
 
-describe("Provider 管理页：认证状态与降级", () => {
-  it("左栏区分五种认证状态", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge());
-    // 未配置（local 无需认证 → source=none）
-    expect(await screen.findByText("环境变量")).toBeInTheDocument();
-    expect(screen.getAllByText("已登录（OAuth）").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("系统凭据").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("未配置").length).toBeGreaterThan(0);
+describe("Pi 供应商平铺页：认证状态与降级", () => {
+  it("按认证形态分区渲染：订阅卡已登录、env/ambient 徽标、免认证说明、未配置输入行", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    // 订阅登录卡（anthropic oauth）→ 绿色「已登录」
+    expect(await screen.findByText("已登录")).toBeInTheDocument();
+    // API Key 分区：openai 凭据来自环境变量、bedrock 来自系统凭据
+    expect(screen.getByText("环境变量")).toBeInTheDocument();
+    expect(screen.getByText("系统凭据")).toBeInTheDocument();
+    // local 免认证 → 本地端点说明
+    expect(screen.getByText("该供应商无需登录（本地端点）。")).toBeInTheDocument();
+    // deepseek 未配置 → 粘贴即存的密码输入行
+    expect(screen.getByLabelText("DeepSeek API Key")).toBeInTheDocument();
   });
 
   it("safeStorage 不可用 → 只读警告条 + 密钥输入被禁用", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge({ storageAvailable: false }));
-    // 弹窗顶部一条全局警告 + 详情面板一条，两处都在（全局说明影响面，详情说明本页禁用原因）。
+    renderUI(<PiProvidersSection />, makeBridge({ storageAvailable: false }));
     expect((await screen.findAllByText(/系统密钥库不可用/)).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getAllByText("OpenAI")[0]!);
-    const key = screen.getByPlaceholderText("粘贴该供应商的 API Key") as HTMLInputElement;
+    const key = (await screen.findByLabelText("DeepSeek API Key")) as HTMLInputElement;
     expect(key.disabled).toBe(true);
   });
 
   it("Catalog 不可用 → 明确降级提示，不白屏", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge({ catalogOk: false }));
+    renderUI(<PiProvidersSection />, makeBridge({ catalogOk: false }));
     expect(await screen.findByText(/模型目录不可用/)).toBeInTheDocument();
   });
 
   it("桥不支持（Web 端）→ 「桌面端专属」提示", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, null);
+    renderUI(<PiProvidersSection />, null);
     expect(await screen.findByText("供应商管理仅在桌面端可用。")).toBeInTheDocument();
   });
 
   it("旧配置被首启清理 → 一次性提示，点「知道了」后置 noticeAcknowledged", async () => {
     usePersonalStore.setState({ legacyProviderSettingsCleared: { at: 1 } });
-    const { rerender } = renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge());
+    const { rerender } = renderUI(<PiProvidersSection />, makeBridge());
     expect(await screen.findByText(/供应商配置已升级/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "知道了" }));
     // 标记随下一次全量保存落盘（toPersistedState 白名单里已透传），之后不再弹。
     expect(usePersonalStore.getState().legacyProviderSettingsCleared?.noticeAcknowledged).toBe(true);
     rerender(
       <CoreProvider wsId="ws" identity={{ userId: "me", name: "我" }} desktopBridge={makeBridge()}>
-        <ProviderManagerModal onClose={() => {}} />
+        <PiProvidersSection />
       </CoreProvider>,
     );
     expect(screen.queryByText(/供应商配置已升级/)).toBeNull();
   });
 
-  it("ambient 凭据不可删除：注销按钮禁用并说明去哪儿删", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge());
-    fireEvent.click(await screen.findByText("Bedrock"));
-    const logout = (await screen.findByRole("button", { name: /注销/ })) as HTMLButtonElement;
-    expect(logout.disabled).toBe(true);
-    expect(screen.getByText(/Cortex 只能读取、不能删除/)).toBeInTheDocument();
+  it("ambient 凭据不可删除：「更换」禁用并说明去哪儿删", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    const row = await findKeyRow("Bedrock");
+    const replace = within(row).getByRole("button", { name: "更换" }) as HTMLButtonElement;
+    expect(replace.disabled).toBe(true);
+    expect(within(row).getByText(/Cortex 只能读取、不能删除/)).toBeInTheDocument();
   });
 });
 
-describe("Provider 管理页：能力只读（事故根因回归）", () => {
-  it("内建 Provider 详情里没有任何能力编辑控件", async () => {
-    const { container } = renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge());
-    // 左栏按名称排序（Anthropic 在前），显式切到 OpenAI 再断言其模型列表。
-    fireEvent.click(await screen.findByText("OpenAI"));
+describe("Pi 供应商平铺页：能力只读（事故根因回归）", () => {
+  it("展开的模型列表里没有任何能力编辑控件", async () => {
+    const { container } = renderUI(<PiProvidersSection />, makeBridge());
+    const row = await findKeyRow("OpenAI");
+    fireEvent.click(within(row).getByRole("button", { name: /2 模型/ }));
     await screen.findByText("GPT Vision");
     // 事故根因是「用户勾选推理/视觉、手填上下文」被写进 extension 覆盖 pi 内置目录。
     // 因此这里断言：不存在任何 checkbox（能力开关）、也没有「添加模型 / 删除模型」入口。
@@ -178,8 +204,9 @@ describe("Provider 管理页：能力只读（事故根因回归）", () => {
   });
 
   it("只读模型列表展示完整能力，并可按 id / 名称搜索", async () => {
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge());
-    fireEvent.click(await screen.findByText("OpenAI"));
+    renderUI(<PiProvidersSection />, makeBridge());
+    const row = await findKeyRow("OpenAI");
+    fireEvent.click(within(row).getByRole("button", { name: /2 模型/ }));
     await screen.findByText("GPT Vision");
     expect(screen.getByText("图片输入")).toBeInTheDocument();
     expect(screen.getAllByText("仅文本").length).toBeGreaterThan(0);
@@ -193,17 +220,106 @@ describe("Provider 管理页：能力只读（事故根因回归）", () => {
   });
 });
 
-describe("Provider 管理页：连接测试的费用提示", () => {
-  it("点「测试连接」先出费用确认，确认前不得发起调用", async () => {
+describe("Pi 供应商平铺页：连接测试的费用提示", () => {
+  it("点「测试」先出费用确认，确认前不得发起调用", async () => {
     const test = vi.fn(async () => ({ ok: true, modelId: "gpt-vision", latencyMs: 42 }));
-    renderUI(<ProviderManagerModal onClose={() => {}} />, makeBridge({ connectionTest: test }));
-    fireEvent.click(await screen.findByRole("button", { name: /测试连接/ }));
+    renderUI(<PiProvidersSection />, makeBridge({ connectionTest: test }));
+    const row = await findKeyRow("OpenAI");
+    fireEvent.click(within(row).getByRole("button", { name: /测试/ }));
     expect(screen.getByText("连接测试会真实调用一次模型")).toBeInTheDocument();
     expect(test).not.toHaveBeenCalled(); // 关键：确认前一次调用都不能发出去（会产生费用）
 
     fireEvent.click(screen.getByRole("button", { name: "确认测试" }));
     await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/连接正常/)).toBeInTheDocument();
+  });
+});
+
+describe("自定义供应商预制表单", () => {
+  /** 打开表单并用 Ollama 预设 + 能力声明填出一份可保存的配置。 */
+  async function fillForm() {
+    fireEvent.click(await screen.findByRole("button", { name: /添加自定义供应商/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ollama" }));
+    fireEvent.change(screen.getByLabelText(/模型 ID/), { target: { value: "qwen3, llama4" } });
+    fireEvent.change(screen.getByLabelText(/上下文窗口/), { target: { value: "32000" } });
+    fireEvent.change(screen.getByLabelText(/最大输出/), { target: { value: "4096" } });
+  }
+
+  it("预设一键填充;保存生成含完整能力声明的 Pi Provider JSON,未填 Key 不下发 apiKey", async () => {
+    const bridge = makeBridge();
+    renderUI(<PiProvidersSection />, bridge);
+    await fillForm();
+    // 预设填充 Base URL 与名称(本地服务加「本地」前缀)。
+    expect((screen.getByLabelText("Base URL") as HTMLInputElement).value).toBe("http://localhost:11434/v1");
+    expect((screen.getByLabelText("名称") as HTMLInputElement).value).toBe("本地 Ollama");
+
+    fireEvent.click(screen.getByRole("button", { name: "保存供应商" }));
+    const saveMock = bridge.providerCustomSave as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    const def = saveMock.mock.calls[0]![0] as { id: string; json: string; secretRefs: string[] };
+    expect(def.id).toBe("ollama");
+    expect(def.secretRefs).toEqual([]);
+    const json = JSON.parse(def.json) as Record<string, unknown>;
+    expect(json.baseUrl).toBe("http://localhost:11434/v1");
+    expect(json.api).toBe("openai-completions");
+    expect(json.apiKey).toBeUndefined(); // 没填 Key 就不写 apiKey 字段
+    // 能力字段全部来自表单的显式声明(含主进程必填的全零 cost),绝无猜测缺省。
+    expect(json.models).toEqual([
+      { id: "qwen3", name: "qwen3", api: "openai-completions", reasoning: false, input: ["text"], contextWindow: 32000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+      { id: "llama4", name: "llama4", api: "openai-completions", reasoning: false, input: ["text"], contextWindow: 32000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    ]);
+    // 保存成功后表单收起,回到虚线「添加」入口。
+    expect(await screen.findByRole("button", { name: /添加自定义供应商/ })).toBeInTheDocument();
+  });
+
+  it("填了 API Key:明文只进 Secret 金库,JSON 里只落 ${secret:NAME} 引用", async () => {
+    const bridge = makeBridge();
+    renderUI(<PiProvidersSection />, bridge);
+    await fillForm();
+    fireEvent.change(screen.getByLabelText(/API Key/), { target: { value: "sk-test-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存供应商" }));
+
+    const saveMock = bridge.providerCustomSave as ReturnType<typeof vi.fn>;
+    const secretsMock = bridge.providerAuthSetSecrets as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    // Secret 先于保存写入金库(主进程会拒绝未定义引用),且拿到的是明文真值。
+    expect(secretsMock).toHaveBeenCalledWith({ CUSTOM_OLLAMA_API_KEY: "sk-test-123" });
+    const def = saveMock.mock.calls[0]![0] as { json: string; secretRefs: string[] };
+    expect(def.secretRefs).toEqual(["CUSTOM_OLLAMA_API_KEY"]);
+    expect(def.json).not.toContain("sk-test-123"); // 明文绝不落 JSON
+    expect((JSON.parse(def.json) as { apiKey?: string }).apiKey).toBe("${secret:CUSTOM_OLLAMA_API_KEY}");
+  });
+
+  it("能力声明缺失时保存按钮不可用——不猜默认值,而是逼出显式输入", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    fireEvent.click(await screen.findByRole("button", { name: /添加自定义供应商/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ollama" }));
+    fireEvent.change(screen.getByLabelText(/模型 ID/), { target: { value: "qwen3" } });
+    // 上下文窗口 / 最大输出未填 → 禁止保存。
+    expect((screen.getByRole("button", { name: "保存供应商" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("默认模型级联下拉", () => {
+  it("只列「认证可用 ∧ 未隐藏」的供应商；切供应商落到其第一个模型", async () => {
+    usePersonalStore.setState({ defaultModelRef: { providerId: "openai", modelId: "gpt-vision" } });
+    renderUI(<DefaultModelSelects />, makeBridge({ hidden: ["bedrock"] }));
+    const provSel = (await screen.findByLabelText("默认供应商")) as HTMLSelectElement;
+    await waitFor(() => expect(provSel.value).toBe("openai"));
+    // 被隐藏的 bedrock 不出现在候选里（隐藏是展示偏好，与认证解耦）。
+    expect(within(provSel).queryByText("Bedrock")).toBeNull();
+    expect(within(provSel).getByText("Local")).toBeInTheDocument();
+
+    fireEvent.change(provSel, { target: { value: "local" } });
+    expect(usePersonalStore.getState().defaultModelRef).toEqual({ providerId: "local", modelId: "qwen-local" });
+  });
+
+  it("悬空引用进入阻断态并保留原始值，不自动回退到任何模型", async () => {
+    usePersonalStore.setState({ defaultModelRef: { providerId: "gone", modelId: "ghost" } });
+    renderUI(<DefaultModelSelects />, makeBridge());
+    expect(await screen.findByText(/不会替你回退到别的模型/)).toBeInTheDocument();
+    // 引用保持原样——阻断而非静默改写。
+    expect(usePersonalStore.getState().defaultModelRef).toEqual({ providerId: "gone", modelId: "ghost" });
   });
 });
 
@@ -252,7 +368,7 @@ describe("全局模型选择器", () => {
     fireEvent.keyDown(search, { key: "ArrowDown" });
     fireEvent.keyDown(search, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledTimes(1);
-    // 候选顺序按 Provider 名排序（Anthropic → Bedrock → Local → OpenAI），↓ 一次落到第二项。
+    // 候选顺序按 Provider 名排序（Anthropic → Bedrock → DeepSeek → Local → OpenAI），↓ 一次落到第二项。
     expect(onSelect.mock.calls[0]![0]).toEqual({ providerId: "bedrock", modelId: "bedrock-claude" });
   });
 

@@ -247,38 +247,38 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
-  it("pi 设置已从「通用」迁出,聚合到「Pi」分区(供应商管理收进弹窗)", () => {
+  it("Pi 分区只剩默认模型 + 供应商平铺:行为设置卡片已按原型移除", () => {
     renderUI(<PersonalSettingsView />);
-    // 「通用」不再含 pi 工具审批开关。
+    // 「通用」不含 pi 工具审批开关(历史迁移的回归断言)。
     fireEvent.click(screen.getByRole("button", { name: "通用" }));
     expect(screen.queryByText("工具执行审批")).toBeNull();
     // 左栏不再有独立「供应商」导航项（并入「Pi」）。
     expect(screen.queryByRole("button", { name: "供应商" })).toBeNull();
-    // 「Pi」含工具审批 + 默认供应商(空态下「默认供应商」为卡片标题,唯一);
-    // 供应商管理在弹窗内,页内不直接出现「从模板添加」。
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    expect(screen.getByText("工具执行审批")).toBeTruthy();
-    // 默认模型改为 Catalog 驱动的单一引用字段；未配置时是阻断态而不是两级下拉。
     expect(screen.getByText("默认模型")).toBeTruthy();
     // 全局默认模型读的是 PersistedState.defaultModelRef（主进程 default-model.ts 同源），
-    // 未配置时必须是阻断态——绝不能悄悄显示某个「第一个可用模型」（计划 §5）。
-    expect(screen.getByText("未配置模型")).toBeTruthy();
+    // 未配置时必须停在「未设置」——绝不能悄悄显示某个「第一个可用模型」（计划 §5）。
+    expect(screen.getAllByText("未设置").length).toBeGreaterThan(0);
+    // 思考强度 / System Prompt / 工具审批 / 高级定制卡片不在本页(对齐原型,只做供应商与默认模型)。
+    expect(screen.queryByText("工具执行审批")).toBeNull();
+    expect(screen.queryByText("默认思考强度")).toBeNull();
+    expect(screen.queryByText("持久系统提示词")).toBeNull();
     expect(screen.queryByText("从模板添加")).toBeNull();
   });
 
-  it("供应商管理弹窗:空态点「供应商管理」开弹窗,关闭后消失", () => {
+  it("供应商管理平铺进 Pi 页:无桥环境给「桌面端专属」降级,不再有弹窗入口", () => {
     renderUI(<PersonalSettingsView />);
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    fireEvent.click(screen.getByRole("button", { name: "供应商管理" }));
-    expect(screen.getByRole("dialog", { name: "供应商管理" })).toBeTruthy();
-    // 弹窗改为 Catalog 驱动：内建 / 自定义两个 tab，且**不再有**任何模型能力编辑入口。
-    expect(screen.getByRole("tab", { name: "内建供应商" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "自定义供应商" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    // 平铺区总览行直接在页内(标题「供应商」),旧「供应商管理」按钮与弹窗已删除。
+    expect(screen.getByText("供应商")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "供应商管理" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: "供应商管理" })).toBeNull();
+    // renderUI 默认 bridge=null(Web 端/旧壳)→ Catalog 降级提示,不白屏。
+    expect(screen.getByText("供应商管理仅在桌面端可用。")).toBeTruthy();
   });
 
-  it("有供应商时「供应商管理」按钮在默认供应商行,页内不渲染紧凑列表", () => {
+  it("旧 providerSettings 体系不再被渲染:遗留供应商不出现在页面任何位置", () => {
+    // providerSettings 是被废弃且首启即清理的旧体系；平铺页只认 Catalog + AuthSnapshot。
     usePersonalStore.setState((s) => ({
       providerSettings: {
         ...s.providerSettings,
@@ -297,53 +297,7 @@ describe("Pi 设置分区(聚合 + 迁移)", () => {
     }));
     renderUI(<PersonalSettingsView />);
     fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    // 供应商名只出现在默认供应商下拉里,不再是可点的紧凑列表行。
-    expect(screen.queryByRole("button", { name: /DeepSeek/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "供应商管理" }));
-    expect(screen.getByRole("dialog", { name: "供应商管理" })).toBeTruthy();
-  });
-
-  it("工具审批开启时渲染可勾选工具清单,点击切换写入 approvalTools", () => {
-    usePersonalStore.setState((s) => ({
-      generalSettings: {
-        ...s.generalSettings,
-        piCustomization: { toolApproval: true, sampleTools: false, sampleCommands: false },
-      },
-    }));
-    renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    expect(screen.getByText("需审批的工具")).toBeTruthy();
-    // 默认勾选 bash/write/edit（approvalTools 未设 → 兜底默认三件）。
-    expect((screen.getByLabelText("bash") as HTMLInputElement).checked).toBe(true);
-    const read = screen.getByLabelText("read") as HTMLInputElement;
-    expect(read.checked).toBe(false);
-    // 勾选 read → approvalTools 含 read。
-    fireEvent.click(read);
-    expect(usePersonalStore.getState().generalSettings.piCustomization?.approvalTools).toContain("read");
-  });
-
-  it("工具审批关闭时不渲染工具清单", () => {
-    renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    expect(screen.queryByText("需审批的工具")).toBeNull();
-  });
-
-  it("System Prompt textarea 绑定 piSystemPrompt,输入写入、清空归一 undefined", () => {
-    renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    const ta = screen.getByPlaceholderText(/资深 TypeScript/) as HTMLTextAreaElement;
-    fireEvent.change(ta, { target: { value: "你是简洁的助手" } });
-    expect(usePersonalStore.getState().generalSettings.piSystemPrompt).toBe("你是简洁的助手");
-    fireEvent.change(ta, { target: { value: "" } });
-    expect(usePersonalStore.getState().generalSettings.piSystemPrompt).toBeUndefined();
-  });
-
-  it("思考强度全局默认下拉绑定 piThinkingDefault", () => {
-    renderUI(<PersonalSettingsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    const select = screen.getByDisplayValue("关闭") as HTMLSelectElement; // 默认 off → 展示「关闭」
-    fireEvent.change(select, { target: { value: "high" } });
-    expect(usePersonalStore.getState().generalSettings.piThinkingDefault).toBe("high");
+    expect(screen.queryByText(/DeepSeek/)).toBeNull();
   });
 
   it("切到「插件」标签渲染插件管理器(三层 IA 顶栏:插件/技能)", () => {

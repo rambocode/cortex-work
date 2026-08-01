@@ -14,9 +14,6 @@ import {
   AVATAR_BG_COLORS,
   AVATAR_EMOJIS,
   DEFAULT_MODEL,
-  DEFAULT_PI_APPROVAL_TOOLS,
-  PI_APPROVAL_TOOL_OPTIONS,
-  PI_THINKING_LEVELS,
   DEFAULT_PUSH_TEMPLATE,
   profileInitial,
   resolveAvatar,
@@ -41,7 +38,6 @@ import type {
   InternalNotifyConfig,
   PromptNode,
   SummaryModelConfig,
-  ThinkingLevel,
   TtsEngineConfig,
   TtsVoiceOption,
   UpdateState,
@@ -64,7 +60,8 @@ import { WritingSettingsSection } from "./WritingSettingsSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { ResearchSettingsSection } from "./ResearchSettingsSection";
 import { KnowledgeSettingsSection } from "./KnowledgeSettingsSection";
-import { ProviderManagerModal } from "./ProviderManagerModal";
+import { PiProvidersSection } from "./provider/PiProvidersSection";
+import { DefaultModelSelects } from "./provider/DefaultModelSelects";
 import { ModelRefField } from "./provider/ModelRefField";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "../shared/platform";
@@ -813,126 +810,27 @@ function AgentTraceWindowCard({ bridge }: { bridge: DesktopBridge }) {
 }
 /* eslint-enable i18next/no-literal-string */
 
-// 「Pi」设置分区:pi 专属设置(默认供应商/模型、工具审批、高级定制);供应商管理是低频
-// 操作,收进弹窗,入口在「默认供应商」卡片的「供应商管理」按钮。卡片锚点顺序:
-// 默认供应商 → Thinking → System Prompt → 工具审批 → 高级定制。
+// 「Pi」设置分区(对齐高保真原型「Pi Providers 设置 v1」):默认模型级联下拉 + 供应商管理
+// **内联平铺**(订阅登录 / API Key / 云平台 / 自定义四区,见 PiProvidersSection)——旧的
+// ProviderManagerModal 弹窗已删除。本页只做供应商接入与默认模型;思考强度 / System Prompt /
+// 工具审批等行为设置卡片已按原型移除(piThinkingDefault 等 store 字段仍在,由会话内控件消费)。
 function PiSection() {
   const { t } = useTranslation("settings");
-  const general = usePersonalStore((s) => s.generalSettings);
-  const setGeneral = usePersonalStore((s) => s.setGeneralSettings);
-  // 全局默认模型：Catalog 时代的单一引用 PersistedState.defaultModelRef。
-  // 主进程侧 providers/default-model.ts 读的是同一个字段（Reply / Research / 做梦蒸馏的兜底源），
-  // 所以这里写进去的值就是那三处真正会用的——不再经已废弃、且首启即被清理的 providerSettings。
-  // 二者缺一即「未配置」，由 ModelRefField 渲染阻断态，不回退到任何模型（计划 §5）。
-  const defaultRef = usePersonalStore((s) => s.defaultModelRef);
-  const setDefaultModelRef = usePersonalStore((s) => s.setDefaultModelRef);
-  // 供应商管理弹窗:由「默认供应商」卡片里的按钮打开(低频管理不占页面)。
-  const [provMgrOpen, setProvMgrOpen] = useState(false);
 
   return (
     <>
       <div className="pw-dlg-title">{t("pi.title")}</div>
       <div className="pw-dlg-desc">{t("pi.desc")}</div>
 
-      {/* 默认模型改为 Catalog 驱动的单一 {providerId, modelId} 引用（计划 §4.2/§5）：
-          候选只含「认证可用 ∧ 未隐藏」的 Provider，能力徽标只读；引用悬空时进入阻断态并
-          提示重选，**不自动回退到任何模型**。旧的「供应商下拉 + 模型下拉」两级选择已删除，
-          它依赖的 providerSettings.providers 是被废弃且首启即清理的旧体系。 */}
+      {/* 默认模型:写 PersistedState.defaultModelRef(主进程 providers/default-model.ts 读
+          同一字段,是 Reply / Research / 做梦蒸馏的兜底源)。候选只含「认证可用 ∧ 未隐藏」
+          的供应商;引用悬空时阻断提示,**不自动回退到任何模型**(计划 §5)。 */}
       <SettingCard title={t("pi.defaultProviderCard")}>
-        <ModelRefField
-          label={t("pi.defaultModel")}
-          hint={t("pi.defaultProviderDesc")}
-          value={defaultRef}
-          onChange={(ref) => setDefaultModelRef(ref)}
-        />
-        <SRow label={t("providers.manageHint")} end>
-          <button className="pw-btn-sm" onClick={() => setProvMgrOpen(true)}>
-            {t("providers.manage")}
-          </button>
-        </SRow>
+        <DefaultModelSelects />
       </SettingCard>
 
-      <SettingCard title={t("pi.thinkingCard")}>
-        <SRow label={t("pi.thinkingDefault")} desc={t("pi.thinkingDefaultDesc")}>
-          <BareSelect
-            value={general.piThinkingDefault ?? "off"}
-            options={PI_THINKING_LEVELS.map((lv) => ({ label: t(`thinkingLevel.${lv}`), value: lv }))}
-            onChange={(v) => setGeneral({ piThinkingDefault: v as ThinkingLevel })}
-          />
-        </SRow>
-      </SettingCard>
-
-      <SettingCard title={t("pi.systemPromptCard")}>
-        <SBlock label={t("pi.systemPrompt")} desc={t("pi.systemPromptDesc")}>
-          <textarea
-            className="pw-ta"
-            rows={6}
-            maxLength={4000}
-            placeholder={t("pi.systemPromptPlaceholder")}
-            value={general.piSystemPrompt ?? ""}
-            spellCheck={false}
-            onChange={(e) => setGeneral({ piSystemPrompt: e.target.value || undefined })}
-          />
-          <div className="pw-ta-count">{(general.piSystemPrompt ?? "").length}/4000</div>
-        </SBlock>
-      </SettingCard>
-
-      <SettingCard title={t("pi.toolApprovalCard")}>
-        <SwitchRow
-          label={t("pi.toolApproval")}
-          desc={t("pi.toolApprovalDesc")}
-          value={general.piCustomization?.toolApproval ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { sampleTools: false, sampleCommands: false, approvalTools: DEFAULT_PI_APPROVAL_TOOLS, ...general.piCustomization, toolApproval: v } })}
-        />
-        {general.piCustomization?.toolApproval ? (
-          <SBlock label={t("pi.approvalTools")} desc={t("pi.approvalToolsDesc")}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
-              {PI_APPROVAL_TOOL_OPTIONS.map((tool) => {
-                const selected = general.piCustomization?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
-                const checked = selected.includes(tool);
-                return (
-                  <label key={tool} className="pw-ml-check">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const next = e.target.checked ? [...selected, tool] : selected.filter((x) => x !== tool);
-                        setGeneral({
-                          piCustomization: {
-                            sampleTools: false,
-                            sampleCommands: false,
-                            ...general.piCustomization,
-                            toolApproval: true,
-                            approvalTools: next,
-                          },
-                        });
-                      }}
-                    />
-                    {tool}
-                  </label>
-                );
-              })}
-            </div>
-          </SBlock>
-        ) : null}
-      </SettingCard>
-
-      <SettingCard title={t("pi.advancedCard")}>
-        <SwitchRow
-          label={t("pi.sampleTools")}
-          desc={t("pi.sampleToolsDesc")}
-          value={general.piCustomization?.sampleTools ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleCommands: false, ...general.piCustomization, sampleTools: v } })}
-        />
-        <SwitchRow
-          label={t("pi.sampleCommands")}
-          desc={t("pi.sampleCommandsDesc")}
-          value={general.piCustomization?.sampleCommands ?? false}
-          onChange={(v) => setGeneral({ piCustomization: { toolApproval: false, sampleTools: false, ...general.piCustomization, sampleCommands: v } })}
-        />
-      </SettingCard>
-
-      {provMgrOpen ? <ProviderManagerModal onClose={() => setProvMgrOpen(false)} /> : null}
+      {/* 供应商接入平铺在本页完成:登录/粘贴 Key 即保存,改动即刻反映到上面的默认模型候选。 */}
+      <PiProvidersSection />
     </>
   );
 }
