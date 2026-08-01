@@ -12,7 +12,8 @@ run-name: Desktop Release ${{ github.ref_name }}
 #    本仓库为私有库,Release 仅维护者可下载——自取后转发分发(如官网/网盘)。
 #  - publish-draft / publish-release(dispatch):跨库发到公开库 rambocode/cortex-work-release
 #    (见 apps/desktop/electron-builder.yml 的 publish),需 RELEASE_GH_TOKEN(PAT)。
-#  - tag push:自动构建、签名、公证,并发布到 rambocode/cortex-work-release。
+#  - tag push 触发已停用:发版一律手动从 Actions 页发起 workflow_dispatch(可选 tag 作为 ref),
+#    避免推 tag 就自动占用构建资源。原 `push: tags: v*` 触发器保留在下方注释里,需要恢复直接取消注释。
 # Windows 不签名(CSC_IDENTITY_AUTO_DISCOVERY=false 现状不变),故 build-windows-x64 job
 # 不需要任何 Apple/签名 secret,始终按同一套流程构建,只是否发布仍受 MODE 控制。
 #
@@ -35,9 +36,11 @@ on:
           - publish-draft
           - publish-release
         default: build-unsigned
-  push:
-    tags:
-      - "v*"
+  # 停用 tag push 自动构建:推 v* tag 不再触发流水线,发版改为手动 dispatch(ref 选对应 tag)。
+  # 恢复自动化时取消下面三行注释即可(publish-release 模式的判定仍读 event_name == 'push')。
+  # push:
+  #   tags:
+  #     - "v*"
 
 # publish-self 用默认 GITHUB_TOKEN 写本仓库 Release,故需 contents: write。
 # 跨库写公开库仍完全靠 RELEASE_GH_TOKEN(PAT),与此默认 token 无关(默认 token 无跨库权限)。
