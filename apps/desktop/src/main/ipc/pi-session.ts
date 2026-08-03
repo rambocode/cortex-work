@@ -13,7 +13,7 @@ import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcRe
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
 import { writePiExtension } from "../agents/pi-providers";
-import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { resolvePiSessionProvider } from "../providers/custom-provider-runtime";
 import {
   writeApprovalExtension,
   writeAskQuestionExtension,
@@ -176,6 +176,13 @@ export function filterLoadableExtensionPaths(paths: string[] | undefined): strin
 
 export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRequest> {
   const prepared = req;
+  // ⚠️ 安全:req 是 renderer 经 IPC 传来的对象,而下面这两个字段是**主进程内部填充**的
+  // 子进程环境变量。不先清空的话,renderer 可以直接传
+  // `customProviderEnv: { PATH: "/tmp/evil", NODE_OPTIONS: "--require /tmp/x.js" }` ——
+  // 它们在 spawnEnvFor 里以 Object.assign 合并在 buildEnv() **之后**,足以劫持 pi 子进程。
+  // 类型注释写了「renderer 不传」,但注释拦不住任何人,必须在边界上真删。
+  delete prepared.customProviderEnv;
+  delete prepared.computerUseEnv;
   // cwd 归一放在最前:空串会让 spawn 继承 Electron 自己的工作目录
   //(dev 下 = apps/desktop/,agent 产物写进程序目录)。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
@@ -183,10 +190,29 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   // 这里是 pi 主会话与三段编排子会话的共同入口,放这一处即两条路径都覆盖。
   // 不接的话,§5 清掉 providerSettings 后 provider 恒为 undefined —— pi 会静默退回自己的默认
   // provider,用户以为在用选定的模型,实际不是。
+  //
+  // 三段式解析（Catalog → 自定义 → 响亮失败）收在 resolvePiSessionProvider 里。解析不出时
+  // 它直接抛错 —— 本函数在 spawnPiRpc **之前**执行,故 pi 进程根本不会被拉起来,
+  // 用户拿到的是「供应商未配置」而不是 pi 兜底换模型后那句毫不相干的下游报错。
   if (!prepared.provider && prepared.providerId) {
-    prepared.provider = await resolvePiProviderInput(prepared.providerId);
+    const resolved = await resolvePiSessionProvider(prepared.providerId);
+    if (resolved.kind === "builtin") {
+      prepared.provider = resolved.provider;
+      prepared.piExtensionPath = resolved.extensionPath;
+    } else {
+      prepared.piExtensionPath = resolved.runtime.extensionPath;
+      // Secret 真值只走子进程 env（extension 文件里只有 ${CORTEX_PI_SECRET_N} 占位）。
+      prepared.customProviderEnv = resolved.runtime.secretEnv;
+      // 合成一个「只承载 id」的 provider:buildRpcArgs 据它下发 `--provider`,
+      // 没有它 pi 会拿到孤立的 --model 并走自己的兜底链选模型（本次事故的直接成因）。
+      // baseUrl/models 留空、apiKey 缺省 —— 真配置全在上面那份 extension 里,
+      // 且 spawnEnvFor 不会因此注入 CORTEX_PI_KEY。
+      prepared.provider = { id: resolved.runtime.providerId, baseUrl: "", models: [] };
+    }
+  } else if (prepared.provider) {
+    // provider 由调用方（编排子会话）直接给定时,沿用既有内建渲染路径。
+    prepared.piExtensionPath = writePiExtension(prepared.provider);
   }
-  if (prepared.provider) prepared.piExtensionPath = writePiExtension(prepared.provider);
 
   const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
   if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
@@ -311,7 +337,16 @@ export function registerPiSessionHandlers(): void {
       cwd: prepared.cwd,
       // computerUseEnv 由 preparePiOpenRequest 填充（Computer Use 的 grounding 模型）;
       // 后合并使其覆盖同名基础变量,缺省为空对象、不影响原行为。
-      env: { ...spawnEnvFor({ agent: "pi", provider: prepared.provider }), ...prepared.computerUseEnv },
+      // customProviderEnv 走 spawnEnvFor（而非在此后合并）:它与 CORTEX_PI_KEY 同属
+      // 「供应商密钥注入」职责,放一处便于日后统一审计。
+      env: {
+        ...spawnEnvFor({
+          agent: "pi",
+          provider: prepared.provider,
+          customProviderEnv: prepared.customProviderEnv,
+        }),
+        ...prepared.computerUseEnv,
+      },
     });
     const session = new PiRpcSession(
       transport,

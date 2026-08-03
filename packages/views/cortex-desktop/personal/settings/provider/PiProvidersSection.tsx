@@ -20,10 +20,12 @@ import { ProviderAuthDialog } from "./ProviderAuthDialog";
 import { ProviderTestControl } from "./ProviderTestControl";
 import { PiProviderCloudRows } from "./PiProviderCloudRows";
 import { PiCustomProviderSection } from "./PiCustomProviderSection";
+import { readCapabilitySources } from "@cortex-work/core/desktop/provider-catalog";
 import {
   authStatusKey,
   credentialDeletable,
   providerUsable,
+  useCustomProviders,
   useProviderAuthActions,
   useProviderViews,
   type ProviderView,
@@ -239,6 +241,14 @@ export function authResetKey(status: ProviderView["status"]): string {
 export function ModelsPopover({ view }: { view: ProviderView }) {
   const { t } = useTranslation("settings");
   const [open, setOpen] = useState(false);
+  // 能力来源标注只对自定义 Provider 有意义(内建的能力恒来自随包目录,标注是废话)。
+  // 从原始定义里读,而不是让它混进 CatalogModel —— 见 readCapabilitySources 的说明。
+  const { items } = useCustomProviders();
+  const capabilitySources = useMemo(() => {
+    if (!view.custom) return undefined;
+    const def = items.find((d) => d.id === view.provider.id);
+    return def ? readCapabilitySources(def) : undefined;
+  }, [view.custom, view.provider.id, items]);
   const wrapRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -275,7 +285,7 @@ export function ModelsPopover({ view }: { view: ProviderView }) {
           role="dialog"
           aria-label={t("providers.models.title", { count: view.provider.models.length })}
         >
-          <ProviderModelList models={view.provider.models} />
+          <ProviderModelList models={view.provider.models} capabilitySources={capabilitySources} />
         </div>
       ) : null}
     </span>

@@ -215,6 +215,33 @@ describe("落盘", () => {
     expect(list[0]?.updatedAt).toBeGreaterThan(0);
   });
 
+  it("compat 里的 maxTokensField 不被误判成明文密钥（线上故障回归）", () => {
+    // isSensitiveFieldName 把键名归一后按 `includes("token")` 判定，`maxTokensField` 会中招。
+    // 但它是 pi 的**协议行为开关**（目录里 93 个模型都有，取值恒为 "max_tokens"），
+    // 与认证 token 毫无关系。误判的后果格外反讽：**恰恰是最需要这个开关的那批模型**
+    // （经网关转发、必须用 max_tokens 而非 max_completion_tokens 的）保存不进去。
+    const json = validJson({
+      models: [
+        {
+          id: "minimax-m2.7",
+          name: "MiniMax-M2.7",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0 },
+          contextWindow: 204800,
+          maxTokens: 131072,
+          compat: { supportsDeveloperRole: false, maxTokensField: "max_tokens", supportsToolSearch: true },
+        },
+      ],
+    });
+    expect(validateCustomProviderJson(json, ["CORP_KEY"])).toEqual({ ok: true, errors: [] });
+  });
+
+  it("compat 之外的敏感字段照常被拒（跳过 compat 不等于整体放松）", () => {
+    const json = validJson({ headers: { Authorization: "Bearer sk-plain" } });
+    expect(messages(validateCustomProviderJson(json, ["CORP_KEY"]))).toContain("不得内嵌明文");
+  });
+
   it("落盘文件里没有明文密钥，只有 ${secret:} 引用", async () => {
     await saveCustomProvider({ id: "corp", json: validJson(), secretRefs: [], updatedAt: 0 }, ["CORP_KEY"]);
     const text = await fsp.readFile(customProvidersPath(), "utf8");

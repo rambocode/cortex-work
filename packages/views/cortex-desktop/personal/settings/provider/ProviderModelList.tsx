@@ -12,7 +12,17 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type { CatalogModel } from "@cortex-work/core/desktop/provider-catalog";
 import { CapabilityBadges } from "./capabilityFormat";
 
-export function ProviderModelList({ models }: { models: CatalogModel[] }) {
+export function ProviderModelList({
+  models,
+  /**
+   * 每个模型的能力来源标注（modelId → sourceRef）。只有聚合网关向导生成的自定义 Provider
+   * 才有；内建 Provider 与手写 JSON 的定义传空/不传，界面上就不显示这一行。
+   */
+  capabilitySources,
+}: {
+  models: CatalogModel[];
+  capabilitySources?: Record<string, string>;
+}) {
   const { t } = useTranslation("settings");
   const [query, setQuery] = useState("");
 
@@ -53,8 +63,40 @@ export function ProviderModelList({ models }: { models: CatalogModel[] }) {
             {m.name !== m.id ? <span className="pw-ml-sub">{m.id}</span> : null}
           </div>
           <CapabilityBadges model={m} />
+          <CapabilitySourceNote source={capabilitySources?.[m.id]} />
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * 「这套能力当初是从哪来的」的只读标注（方案 §B2/§B4）。
+ *
+ * 两种来源要分开说，因为可信度不同：`目录` 是从随包 pi 内置目录逐字段取的；
+ * `参照 <model>` 是用户指认另一个模型后整套继承的 —— 后者是人的判断，日后回看时
+ * 需要知道当初照的是谁，才能判断它还对不对。没有标注（手写 JSON / 旧定义）就不渲染，
+ * 绝不编一个来源出来。
+ */
+function CapabilitySourceNote({ source }: { source: string | undefined }) {
+  const { t } = useTranslation("settings");
+  if (!source) return null;
+  // 三态：目录命中 / 用户指认的参照 / 保守兜底。兜底必须单独说清楚 ——
+  // 把它混进「目录」会让保守默认看起来像查到的事实，那正是能力可追溯性要防的。
+  if (source === "fallback") {
+    return (
+      <span className="pw-ml-source is-fallback" title={t("providers.models.sourceTitle")}>
+        {t("providers.models.sourceFallback")}
+      </span>
+    );
+  }
+  const reference = source.startsWith("reference:");
+  const ref = reference ? source.slice("reference:".length) : source;
+  return (
+    <span className="pw-ml-source" title={t("providers.models.sourceTitle")}>
+      {reference
+        ? t("providers.models.sourceReference", { ref })
+        : t("providers.models.sourceCatalog", { ref })}
+    </span>
   );
 }

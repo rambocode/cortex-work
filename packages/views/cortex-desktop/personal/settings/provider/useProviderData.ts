@@ -12,10 +12,15 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDesktopBridge, useProviderCatalog } from "@cortex-work/core";
+import { parseCustomProvider } from "@cortex-work/core/desktop/provider-catalog";
 import type {
   CatalogModel,
   CatalogProvider,
   CustomProviderDefinition,
+  GatewayBuildRequest,
+  GatewayBuildResult,
+  GatewayDiscoverRequest,
+  GatewayDiscoverResult,
   ModelRef,
   ProviderAuthSnapshot,
   ProviderAuthStatus,
@@ -135,54 +140,32 @@ export function useCustomProviderActions() {
 }
 
 /**
- * 把一条自定义 Provider 的 JSON 解析成 Catalog 形状，供模型选择器与只读能力列表统一消费。
+ * 聚合网关向导的两个主进程调用（发现模型 / 生成 Provider JSON）。
  *
- * 刻意**不补任何默认值**：`input` / `reasoning` / `contextWindow` / `maxTokens` 缺失就整条模型
- * 丢弃（返回的 models 里没有它）。研究文档 §5.1 的硬要求——「目录不知道」绝不能被写成
- * `input:["text"]`，那正是事故根因；宁可让模型不出现在选择器里，也不能给出错误能力。
- * 解析失败返回 undefined，调用方按「该自定义 Provider 配置不完整」展示。
+ * 刻意**不**在成功后失效任何 query：这两步都只是「算」，还没落盘——真正写入
+ * provider-custom.json 的仍是 `useCustomProviderActions().save`，失效由它负责。
+ * 桥缺方法（Web 端 / 旧壳）时返回 `unsupported`，向导据此渲染降级提示而非白屏。
  */
-export function parseCustomProvider(def: CustomProviderDefinition): CatalogProvider | undefined {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(def.json);
-  } catch {
-    return undefined;
-  }
-  if (!raw || typeof raw !== "object") return undefined;
-  const o = raw as Record<string, unknown>;
-  const models: CatalogModel[] = [];
-  for (const m of Array.isArray(o.models) ? o.models : []) {
-    if (!m || typeof m !== "object") continue;
-    const mm = m as Record<string, unknown>;
-    const id = typeof mm.id === "string" ? mm.id : "";
-    const input = Array.isArray(mm.input) ? mm.input.filter((x): x is "text" | "image" => x === "text" || x === "image") : [];
-    // 四个能力字段缺一不可 —— 缺了就是配置不完整，不猜。
-    if (!id || input.length === 0) continue;
-    if (typeof mm.reasoning !== "boolean") continue;
-    if (typeof mm.contextWindow !== "number" || typeof mm.maxTokens !== "number") continue;
-    models.push({
-      id,
-      name: typeof mm.name === "string" ? mm.name : id,
-      api: typeof mm.api === "string" ? mm.api : typeof o.api === "string" ? o.api : "",
-      input,
-      reasoning: mm.reasoning,
-      thinkingLevelMap: (mm.thinkingLevelMap as Record<string, string> | undefined) ?? undefined,
-      contextWindow: mm.contextWindow,
-      maxTokens: mm.maxTokens,
-      cost: (mm.cost as CatalogModel["cost"]) ?? undefined,
-      compat: mm.compat,
-    });
-  }
-  return {
-    id: def.id,
-    name: typeof o.name === "string" ? o.name : def.id,
-    api: typeof o.api === "string" ? o.api : "",
-    baseUrl: typeof o.baseUrl === "string" ? o.baseUrl : undefined,
-    auth: [],
-    models,
-  };
+export function useGatewayActions() {
+  const bridge = useDesktopBridge();
+  const supported = !!bridge?.providerGatewayDiscover && !!bridge?.providerGatewayBuild;
+
+  const discover = useMutation<GatewayDiscoverResult, Error, GatewayDiscoverRequest>({
+    mutationFn: async (req) =>
+      (await bridge?.providerGatewayDiscover?.(req)) ?? { ok: false, error: "unsupported" },
+  });
+  const build = useMutation<GatewayBuildResult, Error, GatewayBuildRequest>({
+    mutationFn: async (req) =>
+      (await bridge?.providerGatewayBuild?.(req)) ?? { ok: false, error: "unsupported" },
+  });
+
+  return { discover, build, supported };
 }
+
+// parseCustomProvider 已下沉到 `@cortex-work/core/desktop/provider-catalog`：阶段 A 起，
+// 发送路径的图片能力判定与 pi 会话指纹也要认识自定义模型，而 core 不能反向依赖 views。
+// 这里保留再导出，避免设置页各调用点大面积改 import。
+export { parseCustomProvider };
 
 /** 一个 Provider 在 UI 里的合并视图：目录条目 + 认证状态 + 隐藏偏好 + 是否自定义。 */
 export interface ProviderView {

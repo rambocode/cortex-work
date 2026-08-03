@@ -56,6 +56,15 @@ export function undefinedSecretRefs(json: string, definedNames: string[]): strin
   return extractSecretRefs(json).filter((n) => !defined.has(n));
 }
 
+/**
+ * 由 provider slug 派生 Secret 名。须满足主进程 SECRET_NAME_RE（字母数字与 _ . -）。
+ * 预制表单与聚合网关向导共用同一条规则——两处若各写一份，同名 Provider 在两条路径下会
+ * 落到不同 Secret 上，表现为「换个入口重配就说找不到密钥」。
+ */
+export function secretNameFor(slug: string): string {
+  return `CUSTOM_${slug.replace(/-/g, "_").toUpperCase()}_API_KEY`;
+}
+
 /** id slug 化：作为 pi provider 名，仅允许字母数字与 - _。 */
 export function slugifyProviderId(s: string): string {
   const out = s

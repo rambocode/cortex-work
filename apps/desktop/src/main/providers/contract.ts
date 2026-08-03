@@ -124,6 +124,53 @@ export interface CustomProviderValidation {
   errors: { line?: number; message: string }[];
 }
 
+// ── 聚合网关接入（阶段B：填地址 + Key → 自动拉模型 → 勾选启用） ────────────────
+//
+// 顺路径全程零手填：模型列表由 `GET <baseUrl>/models` 发现，能力由 capability-resolver 从
+// 随包 Catalog 解析。`/models` 只负责**发现**、不负责能力（标准响应只有 id/created/owned_by）。
+//
+// ⚠️ API Key 只以 Secret **名**在这两条通道上流动，明文永不过桥（与自定义 Provider 同规矩）。
+
+export interface GatewayDiscoveredModel {
+  id: string;
+  status: "known" | "unknown";
+  model?: CatalogModel;
+  capabilitySource?: string;
+}
+
+export interface GatewayDiscoverRequest {
+  baseUrl: string;
+  api: string;
+  secretName?: string;
+}
+
+export interface GatewayDiscoverResult {
+  ok: boolean;
+  models?: GatewayDiscoveredModel[];
+  error?: string;
+}
+
+export interface GatewayModelSelection {
+  id: string;
+  referenceProviderId?: string;
+  referenceModelId?: string;
+}
+
+export interface GatewayBuildRequest {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  secretName?: string;
+  models: GatewayModelSelection[];
+}
+
+export interface GatewayBuildResult {
+  ok: boolean;
+  json?: string;
+  error?: string;
+}
+
 // ── Gateway ──────────────────────────────────────────────────────────────────
 
 export interface GatewayContentBlock {
@@ -196,6 +243,9 @@ export const PROVIDER_IPC = {
   authEvent: "providerAuth:event",
   /** 显式连接测试（可能产生费用，调用前 UI 须提示）。 */
   connectionTest: "providerConnection:test",
+  /** 阶段B：聚合网关接入 —— 模型发现（GET /v1/models）与 Pi Provider JSON 生成。 */
+  gatewayDiscover: "providerGateway:discover",
+  gatewayBuild: "providerGateway:build",
   /** 自定义 Provider 定义的读写与校验。 */
   customList: "providerCustom:list",
   customSave: "providerCustom:save",

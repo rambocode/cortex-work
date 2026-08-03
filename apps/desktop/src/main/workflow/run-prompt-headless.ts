@@ -22,6 +22,7 @@ import { getAgentDef, parseLineEvents } from '../agents/index.js'
 import { CODEX_MCP_CLEAR } from '../ipc/mcp-config.js'
 import { writePiExtension } from '../agents/pi-providers.js'
 import { resolvePiProviderInput } from '../providers/pi-provider-input.js'
+import { assertOneShotProviderSupported } from '../providers/custom-provider-runtime.js'
 import { getWorkspaceRoot } from '../ipc/store.js'
 import type { CliStartRequest, ReasoningEffort } from '../ipc/types.js'
 
@@ -54,6 +55,9 @@ export function killAllHeadlessPrompts(): void {
 // PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让工作流的每个 AI 节点
 // 都解析不到 provider 而失败（后台执行，用户不在场）。与 automation/runner.ts 同源。
 async function resolveProvider(providerId: string): Promise<CliStartRequest['provider'] | null> {
+  // 自定义 Provider 本阶段只接了聊天 RPC 路径：命中即抛错（同 automation/runner.ts）。
+  // 工作流 AI 节点同样是后台执行，静默换 provider 的代价比一次响亮失败大得多。
+  await assertOneShotProviderSupported(providerId)
   return (await resolvePiProviderInput(providerId)) ?? null
 }
 

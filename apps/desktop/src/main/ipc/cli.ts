@@ -13,6 +13,7 @@ import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refre
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { assertOneShotProviderSupported, CUSTOM_SECRET_ENV_PREFIX } from "../providers/custom-provider-runtime";
 import { writeTodoExtension } from "../agents/pi-extensions";
 import { mcpServerToBridge, writeMcpBridgeExtension, type BridgeServer } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
@@ -386,12 +387,26 @@ export function buildEnv(): NodeJS.ProcessEnv {
 
 // 按 agent 定制子进程环境：pi 把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension
 // 里 apiKey:"$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
-export function spawnEnvFor(req: { agent: string; provider?: { apiKey?: string } }): NodeJS.ProcessEnv {
+export function spawnEnvFor(req: {
+  agent: string;
+  provider?: { apiKey?: string };
+  // 自定义 Provider 的 `${secret:NAME}` 真值,形如 { CORTEX_PI_SECRET_0: "sk-..." }。
+  // 与生成的 extension 里 `${CORTEX_PI_SECRET_0}` 占位一一对应,由
+  // providers/custom-provider-runtime.ts 派生;明文只存在于子进程 env。
+  customProviderEnv?: Record<string, string>;
+}): NodeJS.ProcessEnv {
   const env = buildEnv();
   if (req.agent !== "pi") return env;
   // 防御性清除可能残留的 ELECTRON_RUN_AS_NODE(pi 是独立二进制,不该带 Electron 标记)。
   delete env.ELECTRON_RUN_AS_NODE;
   if (req.provider?.apiKey) env[PI_KEY_ENV] = req.provider.apiKey;
+  // 第二道闸(第一道是 preparePiOpenRequest 开头的 delete):只接受 CORTEX_PI_SECRET_ 前缀的键。
+  // 这个 map 一路从 IPC 载荷类型上带过来,无过滤地 Object.assign 等于把「设任意环境变量」
+  // 的能力交给调用方 —— 它合并在 buildEnv() 之后,能覆盖 PATH / NODE_OPTIONS / CORTEX_PI_KEY。
+  // 白名单按前缀而非逐个枚举:序号 N 是运行时派生的,枚举不出来。
+  for (const [key, value] of Object.entries(req.customProviderEnv ?? {})) {
+    if (key.startsWith(CUSTOM_SECRET_ENV_PREFIX)) env[key] = value;
+  }
   return env;
 }
 
@@ -666,7 +681,13 @@ export function registerCliHandlers(): void {
     req.cwd = resolveSpawnCwd(req.cwd);
     // 供应商解析:renderer 只给 providerId,endpoint 与密钥从「Catalog + provider-prefs + 凭据金库」取。
     // 必须早于下方所有 writePiExtension / spawnEnvFor 的消费点（含 delegate 子 agent 继承 parent.provider）。
-    if (!req.provider && req.providerId) req.provider = await resolvePiProviderInput(req.providerId);
+    // 守卫与解析同条件:自定义 Provider 本阶段只接了聊天 RPC 路径,命中即响亮失败 ——
+    // 不拦的话解析得 undefined 后仍继续 spawn,pi 会拿着孤立的 --model 走兜底链换 provider
+    //（本次 azure 事故的形态）。req.provider 已由调用方给定时无需判定,也就不额外加异步跳。
+    if (!req.provider && req.providerId) {
+      await assertOneShotProviderSupported(req.providerId);
+      req.provider = await resolvePiProviderInput(req.providerId);
+    }
     assertConversationArtifactRequestShape(req.runId, req.artifactContext);
     if (req.artifactContext) {
       const fallbackRoot = join(documentsCortexDir(), "design");
@@ -1333,6 +1354,9 @@ export function registerCliHandlers(): void {
       const cwd = req.cwd ?? homedir();
       await assertAgentAvailable(agent);
       const adapter = getAgentDef(agent);
+      // 单发路径尚未接入自定义 Provider,命中即响亮失败（同 cli:start 的守卫,理由见其注释）。
+      // 条件与下面的解析逐字相同,不给「不带 providerId 的 oneshot」新增异步跳。
+      if (agent === "pi" && req.providerId) await assertOneShotProviderSupported(req.providerId);
       const provider =
         agent === "pi" && req.providerId ? await resolvePiProviderInput(req.providerId) : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;

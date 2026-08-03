@@ -59,6 +59,11 @@ export function registerAskHandlers(): void {
     const cwd = req.cwd && existsSync(req.cwd) ? req.cwd : homedir();
 
     // pi 自定义供应商:先生成 extension 文件,把路径塞进 buildArgs 入参供加 -e(复用 cli:start 逻辑)。
+    //
+    // ⚠️ 这条单发路径**刻意没有** assertOneShotProviderSupported 守卫(cli:start / oneshot /
+    // automation / workflow 那四处都有):本通道消费的是调用方直传的 `req.provider` 对象,
+    // 不走 providerId → resolvePiProviderInput 解析,自定义 Provider 的 id 根本进不来。
+    // 若日后本通道改为接收 providerId,必须同步补上守卫,否则会重演「pi 拿孤立 --model 换 provider」。
     const piExtensionPath = req.agent === "pi" && req.provider ? writePiExtension(req.provider) : undefined;
 
     // askId 同时充当 runId/sessionId(adapter buildArgs 需要这两个字段,但本通道不落盘、不 resume)。

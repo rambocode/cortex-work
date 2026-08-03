@@ -369,7 +369,11 @@
       "badgeMaxOutput": "最大输出 {{value}}",
       "badgeApi": "协议 {{value}}",
       "badgeCost": "${{input}} / ${{output}} 每百万 token",
-      "costUnknown": "成本未知"
+      "costUnknown": "成本未知",
+      "sourceTitle": "这些能力数值的来源",
+      "sourceCatalog": "能力来源：目录 · {{ref}}",
+      "sourceReference": "能力来源：参照 · {{ref}}",
+      "sourceFallback": "能力来源:保守默认(目录未收录)"
     },
     "custom": {
       "title": "自定义供应商",
@@ -459,8 +463,12 @@
       "test": "测试",
       "edit": "编辑",
       "incomplete": "配置不完整",
+      "chatReady": "已可在聊天的模型选择器中选用（{{count}} 个模型）",
+      "chatUnusableParse": "配置不完整：Provider JSON 无法解析，模型不会出现在聊天的模型选择器中。点「编辑」后用「校验」定位错误。",
+      "chatUnusableModels": "配置不完整：没有一条模型通过校验，模型不会出现在聊天的模型选择器中。每个模型都要显式写全 input / reasoning / contextWindow / maxTokens。",
       "unset": "未设置",
-      "defaultModelHint": "仅列出已配置供应商的模型,当前 {{count}} 个供应商可用;供应商在下方本页直接接入。"
+      "defaultModelHint": "仅列出已配置供应商的模型,当前 {{count}} 个供应商可用;供应商在下方本页直接接入。",
+      "addGateway": "＋ 接入聚合网关(new-api / one-api)"
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -497,6 +505,45 @@
       "save": "保存供应商",
       "jsonMode": "改用 JSON 粘贴(高级)",
       "savedHint": "保存后写入 provider-custom.json,并出现在默认模型候选中"
+    },
+    "gateway": {
+      "title": "接入聚合网关",
+      "desc": "new-api / one-api 等 OpenAI 兼容网关:填地址即自动拉取模型,能力由系统解析,全程无需手填",
+      "unsupported": "当前环境不支持聚合网关接入(Web 端或旧版本外壳)。",
+      "name": "名称",
+      "namePh": "例:公司网关",
+      "api": "API 协议",
+      "baseUrl": "接入地址",
+      "baseUrlPh": "http://openai.example.cn/v1",
+      "keyOptional": "可选",
+      "keyPh": "网关需要鉴权时填写",
+      "keyStored": "API Key 将以 Secret「{{name}}」存入系统密钥库,配置里只落引用、不落明文。",
+      "secretFailed": "Secret 写入系统密钥库失败",
+      "connect": "连接",
+      "connecting": "连接中…",
+      "discoverFailed": "连接网关失败:{{error}}。请检查接入地址与 API Key 后重试——探测不通的配置不会被保存。",
+      "back": "返回修改",
+      "modelsTitle": "网关模型 · {{count}}",
+      "capsReadonly": "能力由系统从内置模型目录解析,只读——Cortex 不替你猜任何能力字段",
+      "empty": "网关没有返回任何模型。请确认接入地址指向 /v1 且 Key 有权限。",
+      "sourceCatalog": "能力来源:目录 {{ref}}",
+      "sourceCatalogPlain": "能力来源:内置模型目录",
+      "sourceReference": "能力来源:参照 {{ref}}",
+      "changeReference": "更换参照",
+      "referenceSearch": "搜索供应商 / 模型 id / 名称",
+      "referenceNoResult": "没有匹配的模型",
+      "referenceCancel": "收起",
+      "referenceMore": "还有 {{count}} 条,继续输入以缩小范围",
+      "missingWarn": "以下已启用的模型在最近一次刷新中没有出现:{{names}}。它们仍会被保存——请确认网关是否下线了这些模型。",
+      "missingRow": "最近一次刷新时网关没有返回这个模型。",
+      "refresh": "刷新模型列表",
+      "save": "启用 {{count}} 个模型并保存",
+      "saving": "保存中…",
+      "saveFailed": "保存失败",
+      "buildFailed": "生成供应商配置失败:{{error}}",
+      "advanced": "改用 JSON 粘贴(高级)",
+      "fallbackHint": "内置目录未收录,已按保守默认启用(仅文本)。可直接使用",
+      "refineReference": "选参照模型以获得准确能力"
     }
   },
   "agent": {

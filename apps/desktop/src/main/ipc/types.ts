@@ -962,6 +962,10 @@ export interface PiOpenRequest {
   // 额外配置（当前只有 PI_COMPUSE_GROUNDING_MODEL）。空/缺省 = 不加任何变量。
   // 走 env 而非 CLI 参数,因为这是 pi-computer-use package 自己读的配置,pi 无对应 flag。
   computerUseEnv?: Record<string, string>;
+  // 主进程内部填充（同 computerUseEnv 的模式）:自定义 Provider 的 `${secret:NAME}` 真值,
+  // 形如 { CORTEX_PI_SECRET_0: "sk-..." },与生成的 extension 里同名占位一一对应。
+  // ⚠️ 含明文密钥,**绝不得回传 renderer**;renderer 也不传这个字段。
+  customProviderEnv?: Record<string, string>;
 }
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。

@@ -19,6 +19,10 @@ import type {
   ProviderAuthEvent,
   ProviderAuthSnapshot,
   ProviderAuthStatus,
+  GatewayBuildRequest,
+  GatewayBuildResult,
+  GatewayDiscoverRequest,
+  GatewayDiscoverResult,
   ProviderConnectionTestResult,
   ProviderCredentialSource,
 } from "../providers/contract";
@@ -37,6 +41,7 @@ import {
   saveCustomProvider,
   validateCustomProviderJson,
 } from "../providers/custom-providers";
+import { buildGatewayProviderJson, discoverGatewayModels } from "../providers/gateway-onboarding";
 import { createLoginController } from "../providers/oauth";
 import type { LoginController } from "../providers/oauth";
 import { removeFromPiNativeStore, syncOAuthWithPiNativeStore } from "../providers/pi-native-auth";
@@ -277,6 +282,41 @@ export function registerProviderAuthHandlers(): void {
         return { ok: true, modelId: result.modelId, latencyMs: Date.now() - startedAt };
       } catch (err) {
         return { ok: false, ...(modelId ? { modelId } : {}), error: safeErrorMessage(err, "连接测试失败") };
+      }
+    },
+  );
+
+  // ── 阶段B：聚合网关接入 ────────────────────────────────────────────────────
+  //
+  // 两条通道都**只收 Secret 名、不收明文**：真值由主进程自金库取，用完即弃。
+  // 能力解析与 JSON 生成全在主进程 —— 渲染端在这条链路上没有任何产出能力字段的入口，
+  // 这是「能力对用户只读」红线在阶段B 的落实点。
+  ipcMain.handle(
+    PROVIDER_IPC.gatewayDiscover,
+    async (_e, req: GatewayDiscoverRequest): Promise<GatewayDiscoverResult> => {
+      try {
+        return await discoverGatewayModels(req);
+      } catch (err) {
+        return { ok: false, error: safeErrorMessage(err, "连接网关失败") };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    PROVIDER_IPC.gatewayBuild,
+    async (_e, req: GatewayBuildRequest): Promise<GatewayBuildResult> => {
+      try {
+        const built = buildGatewayProviderJson(req);
+        if (!built.ok || !built.json) return built;
+        // 生成器与校验器必须同契约（方案 §B5.4）：生成完立刻过一遍保存时的校验，
+        // 不一致就当场暴露，而不是等用户点保存才在另一条路径上报错。
+        const validation = validateCustomProviderJson(built.json, await listSecretNames());
+        if (!validation.ok) {
+          return { ok: false, error: `生成的配置未通过校验：${validation.errors[0]?.message ?? "未知原因"}` };
+        }
+        return built;
+      } catch (err) {
+        return { ok: false, error: safeErrorMessage(err, "生成配置失败") };
       }
     },
   );

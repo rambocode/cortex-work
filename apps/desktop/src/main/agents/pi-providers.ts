@@ -254,28 +254,47 @@ export function buildPiProviderConfig(provider: ProviderInput): Record<string, u
 }
 
 /**
+ * 由「注册名 + 已构造好的 config 对象」渲染 extension 源码（纯函数,便于单测）。
+ * 所有动态值经 JSON.stringify 编码,引号/反斜杠不会逃逸出字符串字面量。
+ *
+ * 单独抽出来是给自定义 Provider 运行时（`providers/custom-provider-runtime.ts`）复用的:
+ * 那条路径的 config 直接来自用户 JSON,不经 buildPiProviderConfig,但必须与内建路径共用
+ * 同一份渲染与落盘逻辑（同目录、同 0600 权限、同「不落明文」的占位约定）。
+ */
+export function renderPiExtensionSource(registerId: string, config: Record<string, unknown>): string {
+  const body = JSON.stringify(config, null, 2).replace(/\n/g, "\n  ");
+  return [
+    "// 由 Cortex Desktop 自动生成,请勿手改。",
+    "export default function (pi) {",
+    `  pi.registerProvider(${JSON.stringify(registerId)}, ${body});`,
+    "}",
+    "",
+  ].join("\n");
+}
+
+/**
  * 渲染 extension 源码（纯函数,便于单测）。所有动态值经 JSON.stringify 编码,
  * 引号/反斜杠不会逃逸出字符串字面量。
  */
 export function renderPiExtension(provider: ProviderInput): string {
-  const id = safeId(provider.id);
-  const config = JSON.stringify(buildPiProviderConfig(provider), null, 2).replace(/\n/g, "\n  ");
-  return [
-    "// 由 Cortex Desktop 自动生成,请勿手改。",
-    "export default function (pi) {",
-    `  pi.registerProvider(${JSON.stringify(id)}, ${config});`,
-    "}",
-    "",
-  ].join("\n");
+  return renderPiExtensionSource(safeId(provider.id), buildPiProviderConfig(provider));
+}
+
+/**
+ * 把 extension 源码落到 `userData/pi-providers/<registerId>.js`,返回绝对路径。
+ * 0600:文件里虽只有 `$ENV` 占位、无明文密钥,但仍按最小可读权限落盘。
+ */
+export function writePiExtensionFile(registerId: string, source: string): string {
+  const dir = join(app.getPath("userData"), "pi-providers");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${registerId}.js`);
+  writeFileSync(file, source, { mode: 0o600 });
+  return file;
 }
 
 /** 写出 extension 文件,返回绝对路径。per-provider 一个文件,key 隔离清晰。 */
 export function writePiExtension(provider: ProviderInput): string {
   // 先渲染再建目录:配置不完整时直接抛错,不留下空目录/半截文件。
   const source = renderPiExtension(provider);
-  const dir = join(app.getPath("userData"), "pi-providers");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${safeId(provider.id)}.js`);
-  writeFileSync(file, source, { mode: 0o600 });
-  return file;
+  return writePiExtensionFile(safeId(provider.id), source);
 }

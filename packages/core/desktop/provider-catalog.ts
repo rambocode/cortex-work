@@ -178,6 +178,52 @@ export interface CustomProviderValidation {
   errors: { line?: number; message: string }[];
 }
 
+// ── 聚合网关接入（阶段B：设置页向导 → 主进程发现与生成） ──────────────────────
+//
+// 渲染端在这条链路上刻意「什么都不算」：模型能力由主进程从随包 Catalog 解析，JSON 也由主
+// 进程生成。渲染端只负责收集用户的「选择」（启用哪些模型、未识别的用哪条参照模型）。
+// 这是能力红线的直接落实——渲染端没有任何产出能力字段的入口。
+
+export interface GatewayDiscoveredModel {
+  id: string;
+  status: "known" | "unknown";
+  model?: CatalogModel;
+  capabilitySource?: string;
+}
+
+export interface GatewayDiscoverRequest {
+  baseUrl: string;
+  api: string;
+  secretName?: string;
+}
+
+export interface GatewayDiscoverResult {
+  ok: boolean;
+  models?: GatewayDiscoveredModel[];
+  error?: string;
+}
+
+export interface GatewayModelSelection {
+  id: string;
+  referenceProviderId?: string;
+  referenceModelId?: string;
+}
+
+export interface GatewayBuildRequest {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  secretName?: string;
+  models: GatewayModelSelection[];
+}
+
+export interface GatewayBuildResult {
+  ok: boolean;
+  json?: string;
+  error?: string;
+}
+
 // ── Model Gateway（阶段③：文本补全唯一出口） ──────────────────────────────────
 
 /** Gateway 消息内容块。图片只传本地路径或 base64，绝不在这里放凭据。 */
@@ -263,4 +309,112 @@ export function findCatalogModel(
   if (!catalog || !ref) return undefined;
   const provider = catalog.providers.find((p) => p.id === ref.providerId);
   return provider?.models.find((m) => m.id === ref.modelId);
+}
+
+/**
+ * 把一条自定义 Provider 的 JSON 解析成 Catalog 形状，供模型选择器、能力判定与只读能力列表
+ * 统一消费。
+ *
+ * 刻意**不补任何默认值**：`input` / `reasoning` / `contextWindow` / `maxTokens` 缺失就整条模型
+ * 丢弃（返回的 models 里没有它）。研究文档 §5.1 的硬要求——「目录不知道」绝不能被写成
+ * `input:["text"]`，那正是事故根因；宁可让模型不出现在选择器里，也不能给出错误能力。
+ * 解析失败返回 undefined，调用方按「该自定义 Provider 配置不完整」展示。
+ *
+ * ⚠️ 放在 core/desktop 而不是设置页：阶段 A 起，发送路径的图片能力判定与 pi 会话指纹
+ * （`personal/modelCapabilities.ts`）也要认识自定义模型，而 core 不能反向依赖 views。
+ */
+export function parseCustomProvider(def: CustomProviderDefinition): CatalogProvider | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(def.json);
+  } catch {
+    return undefined;
+  }
+  // 数组也满足 `typeof === "object"`，必须单独挡掉：主进程的 validateCustomProviderJson 与
+  // resolveCustomProviderExtension 都明确要求「顶层是一个 JSON 对象」，放行数组会让渲染端
+  // 把一份主进程根本加载不了的定义显示成「0 个模型的正常 Provider」，两侧对同一份 JSON 给出
+  // 不同判断，用户看到的提示方向就是错的。
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const models: CatalogModel[] = [];
+  for (const m of Array.isArray(o.models) ? o.models : []) {
+    if (!m || typeof m !== "object") continue;
+    const mm = m as Record<string, unknown>;
+    const id = typeof mm.id === "string" ? mm.id : "";
+    const input = Array.isArray(mm.input)
+      ? mm.input.filter((x): x is ModelInputKind => x === "text" || x === "image")
+      : [];
+    // 四个能力字段缺一不可 —— 缺了就是配置不完整，不猜。
+    if (!id || input.length === 0) continue;
+    if (typeof mm.reasoning !== "boolean") continue;
+    if (typeof mm.contextWindow !== "number" || typeof mm.maxTokens !== "number") continue;
+    models.push({
+      id,
+      name: typeof mm.name === "string" ? mm.name : id,
+      api: typeof mm.api === "string" ? mm.api : typeof o.api === "string" ? o.api : "",
+      input,
+      reasoning: mm.reasoning,
+      thinkingLevelMap: (mm.thinkingLevelMap as Record<string, string> | undefined) ?? undefined,
+      contextWindow: mm.contextWindow,
+      maxTokens: mm.maxTokens,
+      cost: (mm.cost as CatalogModel["cost"]) ?? undefined,
+      compat: mm.compat,
+    });
+  }
+  return {
+    id: def.id,
+    name: typeof o.name === "string" ? o.name : def.id,
+    api: typeof o.api === "string" ? o.api : "",
+    baseUrl: typeof o.baseUrl === "string" ? o.baseUrl : undefined,
+    auth: [],
+    models,
+  };
+}
+
+/**
+ * 读取一条自定义 Provider 定义里每个模型的**能力来源标注**（modelId → sourceRef）。
+ *
+ * sourceRef 有两种形态：`<provider>/<model>`（从随包目录自动命中）与
+ * `reference:<provider>/<model>`（用户指认的参照模型）。聚合网关向导生成定义时写入，
+ * 设置页据此展示「这套能力当初是从哪来的」。
+ *
+ * ⚠️ 刻意**不**把它加进 `CatalogModel`：那个类型声明的是「pi `Model` 的原始元数据子集，
+ * 字段语义与 pi 完全一致」，塞一个 Cortex 自己的字段进去会让这句话不再成立，也会让主进程
+ * 镜像跟着变形。来源标注是**关于**能力的元数据，不是能力本身，单独一条通道读取更诚实。
+ *
+ * 手写 JSON / 旧版预制表单生成的定义没有这个字段，返回的映射里就没有对应项 —— 调用方
+ * 据此显示「来源未记录」，而不是编一个来源出来。
+ */
+export function readCapabilitySources(def: CustomProviderDefinition): Record<string, string> {
+  const out: Record<string, string> = {};
+  let raw: unknown;
+  try {
+    raw = JSON.parse(def.json);
+  } catch {
+    return out;
+  }
+  const models = (raw as { models?: unknown } | null)?.models;
+  if (!Array.isArray(models)) return out;
+  for (const model of models) {
+    if (!model || typeof model !== "object") continue;
+    const { id, capabilitySource } = model as { id?: unknown; capabilitySource?: unknown };
+    if (typeof id === "string" && typeof capabilitySource === "string" && capabilitySource) {
+      out[id] = capabilitySource;
+    }
+  }
+  return out;
+}
+
+/**
+ * 在自定义 Provider 定义列表中定位模型。与 `findCatalogModel` 同语义（双键、查不到给 undefined），
+ * 只是数据源换成用户保存的 JSON。
+ */
+export function findCustomProviderModel(
+  definitions: readonly CustomProviderDefinition[] | undefined,
+  ref: ModelRef | undefined,
+): CatalogModel | undefined {
+  if (!definitions?.length || !ref?.providerId || !ref.modelId) return undefined;
+  const def = definitions.find((d) => d.id === ref.providerId);
+  if (!def) return undefined;
+  return parseCustomProvider(def)?.models.find((m) => m.id === ref.modelId);
 }

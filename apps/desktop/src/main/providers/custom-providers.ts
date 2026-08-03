@@ -99,6 +99,12 @@ function checkInlineSecrets(node: unknown, text: string, errors: ValidationError
     return;
   }
   if (!isPlainObject(node)) return;
+  // `compat` 是 pi 自己的**协议行为开关**（provider/API 特定），Cortex 只原样搬运，
+  // 里面永远不会有凭据。必须整棵跳过，否则 `isSensitiveFieldName` 的 `includes("token")`
+  // 会把 `maxTokensField`（目录里 93 个模型都有，取值恒为 "max_tokens"）误判成明文密钥，
+  // 于是**恰恰是最需要这个开关的那批模型**保存不进去 —— 实测过的真实故障。
+  // 同类还有 `supportsToolSearch` 等，都是「关于 token 计数/工具」而非「认证 token」。
+  if (path.at(-1) === "compat") return;
   const insideHeaders = path.at(-1) === "headers";
   for (const [key, value] of Object.entries(node)) {
     const sensitive = insideHeaders ? SENSITIVE_HEADER_RE.test(key) : isSensitiveFieldName(key);

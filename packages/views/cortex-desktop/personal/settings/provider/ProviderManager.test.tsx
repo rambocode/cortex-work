@@ -300,6 +300,56 @@ describe("自定义供应商预制表单", () => {
   });
 });
 
+describe("自定义供应商：在聊天中是否可用的状态提示", () => {
+  /** 三条已保存条目，分别覆盖「可用 / 模型全被能力校验丢弃 / JSON 解析不了」三态。 */
+  const CUSTOM_DEFS = [
+    {
+      id: "ollama",
+      updatedAt: 1,
+      secretRefs: [],
+      json: JSON.stringify({
+        name: "本地 Ollama",
+        api: "openai-completions",
+        baseUrl: "http://localhost:11434/v1",
+        models: [
+          { id: "qwen3", name: "qwen3", api: "openai-completions", input: ["text"], reasoning: false, contextWindow: 32000, maxTokens: 4096 },
+        ],
+      }),
+    },
+    {
+      // 模型缺 contextWindow / maxTokens → parseCustomProvider 整条丢弃 → 0 个可用模型。
+      id: "half-baked",
+      updatedAt: 1,
+      secretRefs: [],
+      json: JSON.stringify({
+        name: "半成品网关",
+        api: "openai-completions",
+        models: [{ id: "m1", input: ["text"], reasoning: false }],
+      }),
+    },
+    { id: "broken", updatedAt: 1, secretRefs: [], json: "{ 这不是 JSON" },
+  ];
+
+  function bridgeWithCustoms(): DesktopBridge {
+    return { ...makeBridge(), providerCustomList: vi.fn(async () => CUSTOM_DEFS) } as unknown as DesktopBridge;
+  }
+
+  it("解析成功且有模型 → 提示已可在聊天的模型选择器中选用,并给出模型数", async () => {
+    renderUI(<PiProvidersSection />, bridgeWithCustoms());
+    const row = (await screen.findByText("本地 Ollama")).closest(".pw-pip-row") as HTMLElement;
+    expect(within(row).getByText(/已可在聊天的模型选择器中选用（1 个模型）/)).toBeInTheDocument();
+  });
+
+  it("解析成功但无模型通过校验 / JSON 解析失败 → 两种不可用给出各自的排查方向", async () => {
+    renderUI(<PiProvidersSection />, bridgeWithCustoms());
+    const halfRow = (await screen.findByText("半成品网关")).closest(".pw-pip-row") as HTMLElement;
+    expect(within(halfRow).getByText(/没有一条模型通过校验/)).toBeInTheDocument();
+    // JSON 解析失败的条目退化成用 id 展示,提示走另一条文案。
+    const brokenRow = (await screen.findByText("broken")).closest(".pw-pip-row") as HTMLElement;
+    expect(within(brokenRow).getByText(/Provider JSON 无法解析/)).toBeInTheDocument();
+  });
+});
+
 describe("默认模型级联下拉", () => {
   it("只列「认证可用 ∧ 未隐藏」的供应商；切供应商落到其第一个模型", async () => {
     usePersonalStore.setState({ defaultModelRef: { providerId: "openai", modelId: "gpt-vision" } });

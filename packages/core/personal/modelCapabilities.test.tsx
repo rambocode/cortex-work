@@ -27,7 +27,7 @@ import {
 } from "./modelCapabilities";
 import { __resetPiSessionsForTest } from "./pi-session";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { ProviderCatalog } from "../desktop/provider-catalog";
+import type { CustomProviderDefinition, ProviderCatalog } from "../desktop/provider-catalog";
 import type { PendingImage, SessionMeta } from "../desktop/types";
 import type { Message } from "../types";
 
@@ -261,8 +261,15 @@ describe("send：多模态模型 + 图片 → 正常放行", () => {
     });
 
     expect(piPrompt).toHaveBeenCalledTimes(1);
-    // 无图不查 Catalog：发送路径零额外 IPC 开销。
-    expect(providerCatalogGet).not.toHaveBeenCalled();
+    // 开会话时派生 providerFingerprint 需要判定「这个 provider 是不是内建」，故会读一次
+    // Catalog。它是模块级缓存（staleTime 无限、随包不变），**整个进程只打一次 IPC**，
+    // 连发多轮不会累加——下面用两次发送把这一点钉死，防止哪天缓存被去掉导致每轮一次 IPC。
+    expect(providerCatalogGet).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.send(session, "/proj", "再来一条", []);
+    });
+    expect(providerCatalogGet).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -352,5 +359,160 @@ describe("providerConfigFingerprint：同一供应商下的配置变更也要触
       }),
     } as unknown as DesktopBridge;
     await expect(providerConfigFingerprint(bridge, "openai")).resolves.toBeUndefined();
+  });
+});
+
+// ── 自定义 Provider（阶段 A：自定义 Provider 接进 pi 聊天会话）──────────────────
+//
+// 两条缺口的回归防线：
+//  ① 能力判定只认随包 Catalog 时，自定义 Provider 声明了 input:["text","image"] 的模型
+//     仍会被判 unknown → 带图发送被无理由拦下；
+//  ② 会话指纹只从 ProviderAuthSnapshot 派生时，自定义 Provider 恒得不到指纹 → 用户改完
+//     JSON 保存，温会话不重开，聊天里仍是旧定义（「改了不生效」的静默失败）。
+describe("自定义 Provider 的能力判定与会话指纹", () => {
+  /** 一段合法的自定义 Provider 定义：一个多模态模型 + 一个纯文本模型。 */
+  function customDef(updatedAt = 1_000): CustomProviderDefinition {
+    return {
+      id: "corp-gateway",
+      json: JSON.stringify({
+        name: "公司模型",
+        baseUrl: "http://gw.corp.example/v1",
+        api: "openai-completions",
+        apiKey: "${secret:CORP_KEY}",
+        models: [
+          {
+            id: "luna-vision",
+            name: "Luna Vision",
+            reasoning: true,
+            input: ["text", "image"],
+            contextWindow: 200_000,
+            maxTokens: 32_000,
+          },
+          {
+            id: "luna-text",
+            name: "Luna Text",
+            reasoning: false,
+            input: ["text"],
+            contextWindow: 128_000,
+            maxTokens: 8_000,
+          },
+        ],
+      }),
+      secretRefs: ["CORP_KEY"],
+      updatedAt,
+    };
+  }
+
+  /**
+   * ⚠️ 这个替身必须镜像**生产**的快照语义：主进程 `resolveProviderIds` 会把自定义 Provider
+   * 的 id 也放进 statuses，且 `resolveProviderStatus` 对任何 id 都必定返回一个 status
+   *（最差 `{configured:false, source:"none"}`）。
+   *
+   * 早先的版本压根没有 `providerAuthStatus` 方法，比生产宽松 —— 于是「先查快照、命中就返回」
+   * 那版实现把自定义分支变成了死代码，这里却照常绿灯。替身一旦比生产宽松，它守住的就不是
+   * 生产行为，而是替身自己的行为。
+   */
+  function customBridge(defs: CustomProviderDefinition[]): DesktopBridge {
+    return {
+      providerCatalogGet: vi.fn(async () => ({ ok: true, catalog: CATALOG })),
+      providerCustomList: vi.fn(async () => defs),
+      providerAuthStatus: vi.fn(async () => ({
+        statuses: [
+          { providerId: "openai", configured: true, source: "safe-storage" },
+          // 自定义 id 在生产里**一定**出现在快照中，且状态恒定。
+          ...defs.map((d) => ({ providerId: d.id, configured: false, source: "none" })),
+        ],
+        health: { available: true },
+        hiddenProviderIds: [],
+      })),
+    } as unknown as DesktopBridge;
+  }
+
+  beforeEach(() => resetProviderCatalogCache());
+
+  it("自定义 Provider 声明支持图片 → supported（不再被误判成 unknown 而拦下）", async () => {
+    await expect(
+      checkImageSupport(customBridge([customDef()]), { providerId: "corp-gateway", modelId: "luna-vision" }),
+    ).resolves.toBe("supported");
+  });
+
+  it("自定义 Provider 声明只支持文本 → unsupported（明确不支持，不是未知）", async () => {
+    await expect(
+      checkImageSupport(customBridge([customDef()]), { providerId: "corp-gateway", modelId: "luna-text" }),
+    ).resolves.toBe("unsupported");
+  });
+
+  it("两处目录都查不到 → 仍是 unknown（绝不折算成 unsupported）", async () => {
+    await expect(
+      checkImageSupport(customBridge([customDef()]), { providerId: "corp-gateway", modelId: "ghost" }),
+    ).resolves.toBe("unknown");
+  });
+
+  it("内建模型命中 Catalog 时不去读自定义列表（发送路径不多花一次 IPC）", async () => {
+    const bridge = customBridge([customDef()]);
+    await expect(checkImageSupport(bridge, { providerId: "openai", modelId: "gpt-vision" })).resolves.toBe(
+      "supported",
+    );
+    expect(bridge.providerCustomList).not.toHaveBeenCalled();
+  });
+
+  // 这条是本组最重要的回归防线：曾经有一版实现改成「先查认证快照、命中就返回」，
+  // 因为生产的快照里**也包含**自定义 id（main/ipc/provider-auth.ts 的 resolveProviderIds），
+  // 自定义分支变成死代码 → 改完 JSON 指纹不漂移 → 温会话不重开 → 请求继续发往旧网关。
+  // customBridge 现在镜像了这个快照语义，所以这条用例能真正挡住那种改法。
+  it("自定义 Provider 的定义变更 → 指纹漂移（温会话下一轮重开加载新 extension）", async () => {
+    const a = await providerConfigFingerprint(customBridge([customDef(1_000)]), "corp-gateway");
+    const b = await providerConfigFingerprint(customBridge([customDef(2_000)]), "corp-gateway");
+    expect(a).toBeDefined();
+    expect(a).not.toBe(b);
+  });
+
+  it("指纹里不含 Secret 引用名以外的任何配置细节，更不含密钥", async () => {
+    const fp = await providerConfigFingerprint(customBridge([customDef(1_000)]), "corp-gateway");
+    expect(JSON.parse(fp!)).toEqual({ custom: true, updatedAt: 1_000 });
+  });
+
+  it("内建 provider 不去查自定义列表（Catalog 是模块级缓存，开会话热路径不多花 IPC）", async () => {
+    const bridge = customBridge([customDef()]);
+    expect(await providerConfigFingerprint(bridge, "openai")).toContain("safe-storage");
+    expect(bridge.providerCustomList).not.toHaveBeenCalled();
+  });
+
+  it("自定义 id 与内建 id 撞车 → 指纹取内建那一份（与主进程实际走的路径一致）", async () => {
+    // 回归防线：主进程 resolvePiSessionProvider 是 Catalog 优先，撞名时会话实际走内建路径。
+    // 若这里反过来取自定义定义的 updatedAt，用户换 API Key / 重新 OAuth 后指纹不变 →
+    // 温会话不重开 → 继续用旧凭据，且没有任何报错。
+    const shadow: CustomProviderDefinition = { ...customDef(), id: "openai" };
+    // 替身必须提供 Catalog——「是否内建」正是靠它判定的。少了它就等于在模拟
+    // 「Catalog 不可用」这个降级场景，而那时取自定义定义反而是对的，用例就名不副实了。
+    const withKey = (source: string) =>
+      ({
+        providerCatalogGet: vi.fn(async () => ({ ok: true, catalog: CATALOG })),
+        providerCustomList: vi.fn(async () => [shadow]),
+        providerAuthStatus: vi.fn(async () => ({
+          statuses: [{ providerId: "openai", configured: true, source }],
+          health: { available: true },
+          hiddenProviderIds: [],
+        })),
+      }) as unknown as DesktopBridge;
+
+    const a = await providerConfigFingerprint(withKey("env"), "openai");
+    const b = await providerConfigFingerprint(withKey("safe-storage"), "openai");
+    expect(a).not.toBe(b);
+    expect(a).not.toContain("custom");
+  });
+
+  it("providerCustomList 抛错 → 退化成内建路径，不让开会话链路挂掉", async () => {
+    const bridge = {
+      providerCustomList: vi.fn(async () => {
+        throw new Error("main not ready");
+      }),
+      providerAuthStatus: vi.fn(async () => ({
+        statuses: [{ providerId: "openai", configured: true, source: "safe-storage" }],
+        health: { available: true },
+        hiddenProviderIds: [],
+      })),
+    } as unknown as DesktopBridge;
+    await expect(providerConfigFingerprint(bridge, "openai")).resolves.toContain("safe-storage");
   });
 });

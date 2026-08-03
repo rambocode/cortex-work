@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { CustomProviderDefinition } from "@cortex-work/core/desktop/provider-catalog";
-import { slugifyProviderId } from "./customProviderRules";
+import { secretNameFor, slugifyProviderId } from "./customProviderRules";
 import { useCustomProviderActions, useProviderAuthActions } from "./useProviderData";
 
 /** 原型里的四个预设：一键填充名称 / Base URL / 协议。api 均为 OpenAI 兼容。 */
@@ -32,11 +32,6 @@ const API_OPTIONS = [
   { id: "anthropic-messages", label: "Anthropic Messages" },
   { id: "google-generative-ai", label: "Google Generative AI" },
 ] as const;
-
-/** 由 provider slug 派生 Secret 名（须满足主进程 SECRET_NAME_RE：字母数字与 _ . -）。 */
-function secretNameFor(slug: string): string {
-  return `CUSTOM_${slug.replace(/-/g, "_").toUpperCase()}_API_KEY`;
-}
 
 export function CustomProviderForm({
   storageAvailable,

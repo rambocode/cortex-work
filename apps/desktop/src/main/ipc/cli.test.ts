@@ -1270,6 +1270,27 @@ describe("spawnEnvFor", () => {
     const env = spawnEnvFor({ agent: "claude" });
     expect(env[PI_KEY_ENV]).toBeUndefined();
   });
+
+  it("customProviderEnv 只接受 CORTEX_PI_SECRET_ 前缀的键(防注入任意环境变量)", () => {
+    // 回归防线:customProviderEnv 挂在 PiOpenRequest —— 那是 renderer 经 IPC 传来的载荷类型。
+    // 无过滤地 Object.assign 会让调用方覆盖 PATH / NODE_OPTIONS / CORTEX_PI_KEY,
+    // 因为它合并在 buildEnv() 之后。preparePiOpenRequest 会先 delete 这个字段,此处是第二道闸。
+    const before = spawnEnvFor({ agent: "pi", provider: { apiKey: "sk-real" } });
+    const env = spawnEnvFor({
+      agent: "pi",
+      provider: { apiKey: "sk-real" },
+      customProviderEnv: {
+        CORTEX_PI_SECRET_0: "sk-custom",
+        PATH: "/tmp/evil",
+        NODE_OPTIONS: "--require /tmp/x.js",
+        [PI_KEY_ENV]: "sk-hijacked",
+      },
+    });
+    expect(env.CORTEX_PI_SECRET_0).toBe("sk-custom");
+    expect(env.PATH).toBe(before.PATH);
+    expect(env.NODE_OPTIONS).toBe(before.NODE_OPTIONS);
+    expect(env[PI_KEY_ENV]).toBe("sk-real");
+  });
 });
 
 describe("spawnEnvForDef(M3-A 派生 env 注入)", () => {

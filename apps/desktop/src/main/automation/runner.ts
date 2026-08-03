@@ -15,6 +15,7 @@ import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "../ipc/mcp-config";
 import { writePiExtension } from "../agents/pi-providers";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { assertOneShotProviderSupported } from "../providers/custom-provider-runtime";
 import { getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
 import { broadcastChanged, broadcastRunEvent } from "./events";
@@ -53,6 +54,10 @@ export function killAllAutomations(): void {
 // 旧实现读 PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让**每一次**
 // 定时自动化都解析不到 provider 而失败，且失败点在后台、用户不在场。
 async function resolveProvider(providerId: string): Promise<CliStartRequest["provider"] | null> {
+  // 自定义 Provider 本阶段只接了聊天 RPC 路径：命中即抛错，由 runner 的失败通道记进本次运行。
+  // 不拦的话解析得 null 后仍会 spawn，pi 走兜底链换 provider —— 后台执行、用户不在场，
+  // 最难被发现的一种静默错。
+  await assertOneShotProviderSupported(providerId);
   return (await resolvePiProviderInput(providerId)) ?? null;
 }
 

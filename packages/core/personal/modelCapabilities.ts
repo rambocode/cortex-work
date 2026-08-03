@@ -19,8 +19,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
 import {
   findCatalogModel,
+  findCustomProviderModel,
   modelSupportsImage,
   type CatalogProvider,
+  type CustomProviderDefinition,
   type ModelRef,
   type ProviderCatalog,
 } from "../desktop/provider-catalog";
@@ -91,6 +93,25 @@ export function resetProviderCatalogCache(): void {
 }
 
 /**
+ * 读取用户保存的自定义 Provider 定义。**刻意不做进程内缓存**：与随包 Catalog 不同，
+ * 这份数据用户随时能在设置页改，缓存会让「改完 JSON → 下一轮会话仍用旧定义」这种
+ * 静默失效重新出现。调用点只有「开会话」与「带图发送」，IPC 频次可忽略。
+ *
+ * 桥不可用（Web 端 / 旧壳）或读失败一律返回空数组：调用方随后按 unknown 保守处理，
+ * 而不是把一次读盘失败放大成整条链路挂掉。
+ */
+async function loadCustomProviders(
+  bridge: DesktopBridge | null | undefined,
+): Promise<CustomProviderDefinition[]> {
+  if (!bridge?.providerCustomList) return [];
+  try {
+    return (await bridge.providerCustomList()) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 派生某 Provider 的「会影响 pi extension 内容」的配置摘要，供 `extensionFingerprint` 使用。
  *
  * 为什么需要它：阶段② 后渲染端只持有 providerId，看不到 baseUrl 覆盖与密钥。若指纹只认
@@ -108,7 +129,28 @@ export async function providerConfigFingerprint(
   bridge: DesktopBridge | null | undefined,
   providerId: string | undefined,
 ): Promise<string | undefined> {
-  if (!providerId || !bridge?.providerAuthStatus) return undefined;
+  if (!providerId) return undefined;
+
+  // ⚠️ 「是否内建」必须用 **Catalog** 判定，不能用「认证快照里有没有这个 id」代理。
+  // 两者语义不等价：`resolveProviderIds`（main/ipc/provider-auth.ts）会把全部自定义 Provider
+  // 的 id 也塞进快照，且 `resolveProviderStatus` 对任何 id 都必定返回一个 status 对象
+  //（最差是 `{configured:false, source:"none"}`）—— 用快照判定的话，自定义 Provider 永远命中
+  // 内建分支，而那三个字段对它是恒定的（它的密钥走 `${secret:}` → vault.secrets，
+  // 而快照读的是 vault.credentials，两个不同的存储）。结果就是改完 JSON 指纹不漂移、
+  // 温会话不重开、请求继续发往旧网关 —— 正是本函数存在要防的那种静默失败。
+  //
+  // Catalog 优先的顺序与主进程 `resolvePiSessionProvider` 逐字一致：撞名时会话实际走内建路径，
+  // 指纹也就该取内建那一份。且 `loadProviderCatalog` 是模块级缓存，首次之后同步命中，
+  // 比多发一次认证快照 IPC 更便宜 —— 内建热路径仍然只有一次 IPC。
+  const { catalog } = await loadProviderCatalog(bridge);
+  if (!catalog?.providers.some((p) => p.id === providerId)) {
+    // 用定义的 updatedAt 当摘要：用户改了那段 JSON（换端点 / 增删模型 / 换 Secret 引用）
+    // → 指纹漂移 → 温会话重开 → 主进程重新渲染 extension。
+    const custom = (await loadCustomProviders(bridge)).find((d) => d.id === providerId);
+    if (custom) return JSON.stringify({ custom: true, updatedAt: custom.updatedAt });
+  }
+
+  if (!bridge?.providerAuthStatus) return undefined;
   try {
     const snapshot = await bridge.providerAuthStatus();
     const status = snapshot.statuses.find((s) => s.providerId === providerId);
@@ -125,22 +167,32 @@ export async function providerConfigFingerprint(
 }
 
 /**
- * 由已加载的 Catalog 判定图片能力。纯函数、可单测。
- * `modelSupportsImage` 返回 undefined 即「目录里没有这个 {providerId, modelId}」→ unknown。
+ * 由已加载的 Catalog（+ 可选的自定义 Provider 定义）判定图片能力。纯函数、可单测。
+ * 两个数据源都查不到该 `{providerId, modelId}` → unknown（绝不折算成 unsupported）。
+ *
+ * 自定义 Provider 的能力来自用户 JSON 里的 `input` 字段，且保存时已强制必填、
+ * `parseCustomProvider` 又会丢弃缺字段的模型 —— 所以这里读到的 `input` 是确定值而非猜测，
+ * 与「不猜能力」红线一致。
  */
 export function classifyImageSupport(
   catalog: ProviderCatalog | undefined,
   ref: ModelRef | undefined,
+  customProviders?: readonly CustomProviderDefinition[],
 ): ImageSupport {
   const supported = modelSupportsImage(catalog, ref);
-  if (supported === undefined) return "unknown";
-  return supported ? "supported" : "unsupported";
+  if (supported !== undefined) return supported ? "supported" : "unsupported";
+  const customModel = findCustomProviderModel(customProviders, ref);
+  if (customModel) return customModel.input.includes("image") ? "supported" : "unsupported";
+  return "unknown";
 }
 
 /**
  * 发送路径用的能力查询：拿 Catalog（缓存命中即同步返回）再判定。
  * ref 缺 providerId 或 modelId（会话还没选模型）一律 unknown——同样阻断，
  * 因为「不知道选了什么模型」和「不知道这个模型行不行」对用户是同一件事：都不能贸然发图。
+ *
+ * Catalog 未命中时才去读自定义 Provider 列表：内建模型（绝大多数）不必为此多一次 IPC，
+ * 且 Catalog 优先与主进程 `resolvePiSessionProvider` 的三段式顺序保持一致。
  */
 export async function checkImageSupport(
   bridge: DesktopBridge | null | undefined,
@@ -148,7 +200,9 @@ export async function checkImageSupport(
 ): Promise<ImageSupport> {
   if (!ref?.providerId || !ref.modelId) return "unknown";
   const { catalog } = await loadProviderCatalog(bridge);
-  return classifyImageSupport(catalog, ref);
+  const byCatalog = classifyImageSupport(catalog, ref);
+  if (byCatalog !== "unknown") return byCatalog;
+  return classifyImageSupport(catalog, ref, await loadCustomProviders(bridge));
 }
 
 /** 在 Catalog 中定位 Provider。 */

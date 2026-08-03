@@ -5,8 +5,12 @@
 import type {
   CustomProviderDefinition,
   CustomProviderValidation,
+  GatewayBuildRequest,
+  GatewayBuildResult,
   GatewayCompleteRequest,
   GatewayCompleteResult,
+  GatewayDiscoverRequest,
+  GatewayDiscoverResult,
   GatewayStreamEvent,
   ProviderAuthEvent,
   ProviderAuthSnapshot,
@@ -406,6 +410,13 @@ export interface DesktopBridge {
   providerCustomSave?(def: CustomProviderDefinition): Promise<{ ok: boolean; error?: string }>;
   providerCustomDelete?(id: string): Promise<{ ok: boolean; error?: string }>;
   providerCustomValidate?(json: string): Promise<CustomProviderValidation>;
+  // 聚合网关（new-api / one-api 等 OpenAI 兼容网关）接入向导的两个主进程能力。
+  // discover：调网关 `GET /v1/models` 拿 id 列表，并逐 id 过随包 Catalog 解析能力
+  //（known/unknown 是显式状态，渲染端不得把 unknown 折算成任何默认值）。
+  // build：把「启用哪些模型 + 未识别模型的参照模型」翻译成一份合法的 Pi Provider JSON。
+  // 能力字段一律由主进程产出——渲染端没有、也不该有任何生成能力数值的入口。
+  providerGatewayDiscover?(req: GatewayDiscoverRequest): Promise<GatewayDiscoverResult>;
+  providerGatewayBuild?(req: GatewayBuildRequest): Promise<GatewayBuildResult>;
   modelGatewayComplete?(req: GatewayCompleteRequest): Promise<GatewayCompleteResult>;
   // 流式：返回值是终态汇总（含 text/usage），增量经 onModelGatewayEvent 推回。
   modelGatewayStream?(req: GatewayCompleteRequest): Promise<GatewayCompleteResult>;

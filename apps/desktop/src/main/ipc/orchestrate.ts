@@ -420,7 +420,13 @@ async function runPiStage(opts: {
         if (settled || signal.aborted) return;
         const args = buildRpcArgs(req);
         assertSpawnCwd(cwd);
-        const transport = spawnPiRpc(args, { cwd, env: spawnEnvFor({ agent: "pi", provider: req.provider }) });
+        // customProviderEnv 必须跟着一起传:preparePiOpenRequest 已为自定义 Provider 生成了
+        // 带 `${CORTEX_PI_SECRET_N}` 占位的 extension,漏掉 env 注入 pi 就解析不出这些变量,
+        // 编排子会话会以「Failed to resolve API key from environment variable」告终。
+        const transport = spawnPiRpc(args, {
+          cwd,
+          env: spawnEnvFor({ agent: "pi", provider: req.provider, customProviderEnv: req.customProviderEnv }),
+        });
         if (settled || signal.aborted) {
           transport.kill();
           return;

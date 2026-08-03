@@ -11,6 +11,10 @@ import type {
   ProviderAuthEvent,
   ProviderAuthSnapshot,
   ProviderCatalogResult,
+  GatewayBuildRequest,
+  GatewayBuildResult,
+  GatewayDiscoverRequest,
+  GatewayDiscoverResult,
   ProviderConnectionTestResult,
 } from "../main/providers/contract";
 import type {
@@ -442,6 +446,11 @@ const personal = {
   // 显式连接测试：真发一次最小请求，可能产生少量费用 —— UI 调用前必须提示。
   providerConnectionTest: (providerId: string, modelId?: string): Promise<ProviderConnectionTestResult> =>
     ipcRenderer.invoke(PROVIDER_IPC.connectionTest, providerId, modelId),
+  // 阶段B 聚合网关:只传 Secret 名,明文不过这条通道(真值由主进程自金库取)。
+  providerGatewayDiscover: (req: GatewayDiscoverRequest): Promise<GatewayDiscoverResult> =>
+    ipcRenderer.invoke(PROVIDER_IPC.gatewayDiscover, req),
+  providerGatewayBuild: (req: GatewayBuildRequest): Promise<GatewayBuildResult> =>
+    ipcRenderer.invoke(PROVIDER_IPC.gatewayBuild, req),
   providerCustomList: (): Promise<CustomProviderDefinition[]> => ipcRenderer.invoke(PROVIDER_IPC.customList),
   providerCustomSave: (def: CustomProviderDefinition): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(PROVIDER_IPC.customSave, def),

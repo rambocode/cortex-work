@@ -369,7 +369,11 @@
       "badgeMaxOutput": "{{value}} max output",
       "badgeApi": "{{value}}",
       "badgeCost": "${{input}} / ${{output}} per M tokens",
-      "costUnknown": "Cost unknown"
+      "costUnknown": "Cost unknown",
+      "sourceTitle": "Where these capability values came from",
+      "sourceCatalog": "Capabilities from catalog · {{ref}}",
+      "sourceReference": "Capabilities copied from · {{ref}}",
+      "sourceFallback": "Capabilities: conservative defaults (not in catalog)"
     },
     "custom": {
       "title": "Custom providers",
@@ -459,8 +463,12 @@
       "test": "Test",
       "edit": "Edit",
       "incomplete": "Incomplete configuration",
+      "chatReady": "Available in the chat model picker ({{count}} models)",
+      "chatUnusableParse": "Incomplete configuration: the provider JSON cannot be parsed, so its models will not show up in the chat model picker. Open “Edit” and hit “Validate” to locate the error.",
+      "chatUnusableModels": "Incomplete configuration: no model passed validation, so nothing will show up in the chat model picker. Every model must spell out input / reasoning / contextWindow / maxTokens.",
       "unset": "Not set",
-      "defaultModelHint": "Only models from configured providers are listed — {{count}} providers available. Connect providers right below on this page."
+      "defaultModelHint": "Only models from configured providers are listed — {{count}} providers available. Connect providers right below on this page.",
+      "addGateway": "＋ Connect an aggregation gateway (new-api / one-api)"
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -497,6 +505,45 @@
       "save": "Save provider",
       "jsonMode": "Paste JSON instead (advanced)",
       "savedHint": "Saved to provider-custom.json and appears in the default-model candidates"
+    },
+    "gateway": {
+      "title": "Connect an aggregation gateway",
+      "desc": "OpenAI-compatible gateways such as new-api / one-api: enter the endpoint and the model list is fetched for you — capabilities are resolved by the system, nothing to type by hand",
+      "unsupported": "Aggregation gateways are not supported in this environment (web build or an older shell).",
+      "name": "Name",
+      "namePh": "e.g. Company gateway",
+      "api": "API protocol",
+      "baseUrl": "Endpoint",
+      "baseUrlPh": "http://openai.example.cn/v1",
+      "keyOptional": "optional",
+      "keyPh": "Fill in if the gateway requires authentication",
+      "keyStored": "The API key is stored in the system keychain as secret “{{name}}” — the configuration keeps only a reference, never the plaintext.",
+      "secretFailed": "Failed to store the secret in the system keychain",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "discoverFailed": "Could not reach the gateway: {{error}}. Check the endpoint and API key, then try again — a configuration that fails discovery is never saved.",
+      "back": "Edit connection",
+      "modelsTitle": "Gateway models · {{count}}",
+      "capsReadonly": "Capabilities are resolved from the built-in model catalog and are read-only — Cortex never guesses a capability field",
+      "empty": "The gateway returned no models. Make sure the endpoint points at /v1 and that the key has access.",
+      "sourceCatalog": "Capabilities from catalog {{ref}}",
+      "sourceCatalogPlain": "Capabilities from the built-in catalog",
+      "sourceReference": "Capabilities referenced from {{ref}}",
+      "changeReference": "Change reference",
+      "referenceSearch": "Search provider / model id / name",
+      "referenceNoResult": "No matching model",
+      "referenceCancel": "Collapse",
+      "referenceMore": "{{count}} more — keep typing to narrow it down",
+      "missingWarn": "These enabled models did not show up in the latest refresh: {{names}}. They are still saved — check whether the gateway retired them.",
+      "missingRow": "The gateway did not return this model in the latest refresh.",
+      "refresh": "Refresh model list",
+      "save": "Enable {{count}} model(s) and save",
+      "saving": "Saving…",
+      "saveFailed": "Save failed",
+      "buildFailed": "Could not generate the provider configuration: {{error}}",
+      "advanced": "Paste JSON instead (advanced)",
+      "fallbackHint": "Not in the bundled catalog — using conservative defaults (text-only). Usable as is.",
+      "refineReference": "Pick a reference model for exact capabilities"
     }
   },
   "agent": {
