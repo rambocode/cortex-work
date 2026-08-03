@@ -809,21 +809,45 @@ describe("steer / setPiModel（U6）", () => {
     expect(bridge.piCompact).not.toHaveBeenCalled();
   });
 
-  it("setPiModel:会话已开 → updateSession + 实时 piSetModel", async () => {
+  it("setPiModel:会话已开 + 同 provider → updateSession + 实时 piSetModel", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
+    const session = { ...piSession, providerId: "deepseek", model: "deepseek-chat" };
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
     await act(async () => {
-      await result.current.send(piSession, "/proj", "hi", []);
+      await result.current.send(session, "/proj", "hi", []);
     });
     await act(async () => {
-      result.current.setPiModel(piSession, "deepseek", "deepseek-chat");
+      result.current.setPiModel(session, "deepseek", "deepseek-reasoner");
     });
-    expect(bridge.piSetModel).toHaveBeenCalledWith("s-pi", "deepseek", "deepseek-chat");
+    expect(bridge.piSetModel).toHaveBeenCalledWith("s-pi", "deepseek", "deepseek-reasoner");
+    expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({
+      providerId: "deepseek",
+      model: "deepseek-reasoner",
+    });
+  });
+
+  it("setPiModel:会话已开 + 跨 provider → 仅 updateSession,不实时下发(下一轮经指纹漂移重开生效)", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const session = { ...piSession, providerId: "p0", model: "m0" };
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    await act(async () => {
+      await result.current.send(session, "/proj", "hi", []);
+    });
+    await act(async () => {
+      result.current.setPiModel(session, "deepseek", "deepseek-chat");
+      await Promise.resolve();
+    });
+    // 目标 provider 的 extension/密钥不在当前 pi 进程里,实时 set_model 必失败 → 不下发。
+    expect(bridge.piSetModel).not.toHaveBeenCalled();
+    // 记忆保持新值(不回滚):下一轮 send 经 extensionFingerprint(含 providerId)漂移重开会话。
     expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({
       providerId: "deepseek",
       model: "deepseek-chat",
     });
+    const msgs = qc.getQueryData<Message[]>(personalChatKeys.detail("s-pi")) ?? [];
+    expect(msgs.some((m) => m.kind === "text" && typeof m.text === "string" && m.text.includes("切换模型失败"))).toBe(false);
   });
 
   it("setPiModel:会话未开 → 仅 updateSession,不 piSetModel", async () => {
@@ -840,7 +864,7 @@ describe("steer / setPiModel（U6）", () => {
     });
   });
 
-  it("setPiModel 实时下发失败 → 回滚会话记忆 + ⚠️ 提示（阶段4 U8）", async () => {
+  it("setPiModel 同 provider 实时下发失败 → 回滚会话记忆 + ⚠️ 提示（阶段4 U8）", async () => {
     const bridge = makeBridge({ piSetModel: vi.fn(async () => Promise.reject(new Error("不支持轮中切"))) });
     const qc = new QueryClient();
     // 会话已有 model，open 后切换失败应回滚到原值。
@@ -852,7 +876,7 @@ describe("steer / setPiModel（U6）", () => {
       await result.current.send({ ...piSession, providerId: "p0", model: "m0" }, "/proj", "hi", []);
     });
     await act(async () => {
-      result.current.setPiModel({ ...piSession, providerId: "p0", model: "m0" }, "p1", "m1");
+      result.current.setPiModel({ ...piSession, providerId: "p0", model: "m0" }, "p0", "m1");
       await Promise.resolve();
     });
     expect(usePersonalStore.getState().sessions.find((s) => s.id === "s-pi")).toMatchObject({

@@ -278,6 +278,8 @@ export function registerProviderAuthHandlers(): void {
     async (_e, providerId: string, modelId?: string): Promise<ProviderConnectionTestResult> => {
       const startedAt = Date.now();
       try {
+        // 内建与自定义供应商走**同一条** probe:自定义的已由 custom-provider-registry
+        // 同步进主进程 pi-ai 注册表（此前没同步,所以对自定义必报「模型不存在」)。
         const result = await getPiAuthRuntime().probe(providerId, modelId);
         return { ok: true, modelId: result.modelId, latencyMs: Date.now() - startedAt };
       } catch (err) {

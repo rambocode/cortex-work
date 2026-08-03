@@ -44,6 +44,7 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import { getProviderCatalog } from "./catalog";
+import { listCustomProviders } from "./custom-providers";
 import type {
   CatalogModel,
   GatewayCompleteRequest,
@@ -135,15 +136,21 @@ async function resolveModel(ref: ModelRef, runtime: PiGatewayRuntime): Promise<R
     return { ok: false, error: "未配置模型", errorKind: "config" };
   }
 
+  // 自定义供应商本就不在随包 Catalog 里（那是 pi 内置目录的快照），它们经
+  // `custom-provider-registry` 注册进主进程 pi 运行时。对这类引用跳过 Catalog 这一关，
+  // 改由运行时注册表把关 —— 「不自动回退」的保证没有松动:下面 getModel 取不到照样阻断。
+  // 不这么做，Reply / Research / 日报 / Writing 在默认模型是自定义模型时全部失败。
+  const isCustom = (await listCustomProviders()).some((item) => item.id === providerId);
+
   const catalog = getProviderCatalog();
-  if (!catalog) {
+  if (!catalog && !isCustom) {
     return { ok: false, error: "Provider 目录不可用（随包 Catalog 校验失败）", errorKind: "config" };
   }
-  const provider = catalog.providers.find((p) => p.id === providerId);
-  const catalogModel = provider?.models.find((m) => m.id === modelId);
-  if (!catalogModel) {
-    // 自定义 Provider 不在随包 Catalog 里（它们只被渲染成 pi extension 供 agent CLI 加载），
-    // 因此本阶段的 Gateway 只服务内建 Provider；命中这里时文案要说清是「引用无效」而非「网络问题」。
+  const provider = catalog?.providers.find((p) => p.id === providerId);
+  const catalogHit = provider?.models.find((m) => m.id === modelId);
+  if (!catalogHit && !isCustom) {
+    // 既不在内置目录、也不是自定义供应商 —— 是一条悬空引用。
+    // 文案要说清是「引用无效」而非「网络问题」，否则用户会去重试而不是去设置里改。
     return { ok: false, error: `模型引用无效：${providerId}/${modelId}`, errorKind: "config" };
   }
 
@@ -156,7 +163,24 @@ async function resolveModel(ref: ModelRef, runtime: PiGatewayRuntime): Promise<R
     return { ok: false, error: `供应商未认证：${providerId}`, errorKind: "config" };
   }
 
-  return { ok: true, model, catalogModel };
+  // catalogModel 只被 resolveThinkingLevel 消费（读 reasoning / thinkingLevelMap）。
+  // 自定义供应商没有目录条目，就从运行时那份 Model 派生 —— 同一份数据，只是来源不同。
+  return { ok: true, model, catalogModel: catalogHit ?? toCatalogShape(model) };
+}
+
+/** 运行时 `Model` → `CatalogModel` 形状（自定义供应商没有目录条目时用）。 */
+function toCatalogShape(model: Model<Api>): CatalogModel {
+  return {
+    id: model.id,
+    name: model.name,
+    api: model.api,
+    input: model.input,
+    reasoning: model.reasoning,
+    ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap as Record<string, string> } : {}),
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    cost: model.cost,
+  };
 }
 
 /**

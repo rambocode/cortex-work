@@ -3656,21 +3656,30 @@ export function usePersonalActions(): PersonalActions {
   const setPiModel = useCallback<PersonalActions["setPiModel"]>(
     (session, providerId, model) => {
       const prev = { providerId: session.providerId, model: session.model };
+      // 「当前生效」的 providerId 要走 resolveSessionModelRef(会话缺省时落全局默认),
+      // 与开会话(buildPiOpenForSession)同一口径——否则缺省会话切到默认 provider 的另一个
+      // 模型会被误判成「跨 provider」。
+      const currentProviderId = resolveSessionModelRef(session).providerId;
       usePersonalStore.getState().updateSession(session.id, { providerId, model });
-      // 会话已开 → 实时切换（pi 长驻进程无需重启）;未开仅记忆,下次 open 即用新模型。
+      if (session.agent !== "pi" || !bridge || !isPiSessionOpen(session.id)) return;
+      // 跨 provider 切换**不实时下发**:pi 进程在 spawn 时只加载了当前 provider 的
+      // extension 与密钥环境变量,目标 provider 不在其 available 模型集里,set_model 必返
+      // 「Model not found」——旧实现据此回滚记忆,把用户唯一的换供应商入口也堵死了。
+      // 正确通道本就存在:会话记忆已更新,下一轮发送经 extensionFingerprint(含 providerId)
+      // 漂移 → 关旧重开 + resumeFrom 恢复上下文,新 provider 的 extension/密钥随之注入。
+      if (providerId !== currentProviderId) return;
+      // 同 provider → 实时切换（pi 长驻进程无需重启）;未开仅记忆,下次 open 即用新模型。
       // 实时下发失败不再静默吞:回滚会话记忆 + 提示,避免「UI 显新模型、pi 实际仍旧模型」漂移。
-      if (session.agent === "pi" && bridge && isPiSessionOpen(session.id)) {
-        void setModelPi(bridge, session.id, providerId, model).catch(() => {
-          usePersonalStore.getState().updateSession(session.id, prev);
-          appendMsg(qc, session.id, {
-            kind: "text",
-            who: "pi",
-            time: realHHMM(),
-            text: t("chat:core.switchModelFailed"),
-            uid: uid("err"),
-          });
+      void setModelPi(bridge, session.id, providerId, model).catch(() => {
+        usePersonalStore.getState().updateSession(session.id, prev);
+        appendMsg(qc, session.id, {
+          kind: "text",
+          who: "pi",
+          time: realHHMM(),
+          text: t("chat:core.switchModelFailed"),
+          uid: uid("err"),
         });
-      }
+      });
     },
     [bridge, qc],
   );

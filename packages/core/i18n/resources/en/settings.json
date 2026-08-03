@@ -448,6 +448,9 @@
       "keysDesc": "Paste to use · never echoed back after saving",
       "cloudTitle": "Cloud platforms",
       "cloudDesc": "Credentials mostly come from env vars or cloud SDKs (region / account / ADC…); Cortex only manages the API key",
+      "gatewayTitle": "Aggregation gateways",
+      "gatewayDesc": "OpenAI-compatible gateways such as new-api / one-api: one endpoint brings in a whole batch of models, capabilities resolved by the system",
+      "gatewayAdd": "＋ Connect a gateway",
       "customTitle": "Custom providers",
       "customDesc": "Ollama / LM Studio / vLLM or any compatible endpoint — paste a complete Pi provider JSON",
       "addCustom": "＋ Add a custom provider (written to provider-custom.json)",
@@ -468,7 +471,9 @@
       "chatUnusableModels": "Incomplete configuration: no model passed validation, so nothing will show up in the chat model picker. Every model must spell out input / reasoning / contextWindow / maxTokens.",
       "unset": "Not set",
       "defaultModelHint": "Only models from configured providers are listed — {{count}} providers available. Connect providers right below on this page.",
-      "addGateway": "＋ Connect an aggregation gateway (new-api / one-api)"
+      "addGateway": "＋ Connect an aggregation gateway (new-api / one-api)",
+      "baseUrlToggle": "Custom endpoint",
+      "baseUrlSet": "Custom endpoint set"
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -509,6 +514,11 @@
     "gateway": {
       "title": "Connect an aggregation gateway",
       "desc": "OpenAI-compatible gateways such as new-api / one-api: enter the endpoint and the model list is fetched for you — capabilities are resolved by the system, nothing to type by hand",
+      "editTitle": "Edit aggregation gateway",
+      "editDesc": "Change the name, endpoint or key, or add and remove enabled models. Capabilities are still resolved by the system — nothing to type by hand",
+      "editSeedHint": "These are the models saved in this configuration. If the gateway added or retired models, hit “Refresh model list” to probe it again.",
+      "keyKeep": "already saved — leave blank to keep",
+      "keyKeepPh": "Leave blank to keep the saved key, or type a new one to replace it",
       "unsupported": "Aggregation gateways are not supported in this environment (web build or an older shell).",
       "name": "Name",
       "namePh": "e.g. Company gateway",

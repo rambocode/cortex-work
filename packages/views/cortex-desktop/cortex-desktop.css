@@ -8470,7 +8470,7 @@ button.sb-row {
 .pw-ml { display: flex; flex-direction: column; gap: 8px; }
 .pw-ml-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 /* 能力来源标注（目录 / 参照 <model>）：只读元信息，弱化到不与能力徽标抢注意力。 */
-.pw-ml-source { flex-basis: 100%; margin-top: 4px; font-size: 11px; color: var(--text-3); }
+.pw-ml-source { margin-top: 2px; font-size: 11px; color: var(--text-3); }
 /* 保守兜底的来源标注要与「查到的」在视觉上分开,否则默认值会被当成事实。 */
 .pw-ml-source.is-fallback { color: #d9822b; }
 .pw-ml-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
@@ -12304,8 +12304,10 @@ button.sb-row {
 .pw-prov-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px 0; font-size: 13px; color: var(--text-2); }
 
 /* 只读模型卡：无操作按钮，故不留右侧动作列。 */
-.pw-ml-card.is-readonly { align-items: flex-start; }
-.pw-ml-sub { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-3); }
+/* 只读模型卡:徽标多且逐个 nowrap,与名称横排会把左列挤到只剩几个字符宽,
+   长 model id 于是折成三行并与徽标视觉交错(实测 deepseek 长 id)。改为上下堆叠。 */
+.pw-ml-card.is-readonly { flex-direction: column; align-items: stretch; gap: 8px; }
+.pw-ml-sub { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-cap-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .pw-cap-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 1px 9px; border-radius: 999px; background: var(--bg-chip); color: var(--text-2); white-space: nowrap; }
 .pw-cap-badge.is-image { background: color-mix(in srgb, #16a34a 14%, var(--bg-chip)); color: #16a34a; }
@@ -12368,7 +12370,11 @@ button.sb-row {
 .pw-pip-card-keyrow { display: flex; align-items: center; gap: 8px; }
 .pw-pip-card-keyrow > .pw-set-input { flex: 1 1 auto; min-width: 0; }
 /* API Key / 自定义 的行式列表 */
-.pw-pip-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); overflow: hidden; }
+/* ⚠️ 不能用 overflow:hidden 做圆角:行内的「N 模型」浮层是本容器内的绝对定位元素,
+   hidden 会把它整块裁掉(实测弹窗下半截消失)。改为给首/末行各自加圆角。 */
+.pw-pip-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); }
+.pw-pip-table > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+.pw-pip-table > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
 .pw-pip-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .pw-pip-table > .pw-pip-row:last-child, .pw-pip-table > .pw-pip-row:has(+ .pw-pip-more) { border-bottom-color: transparent; }
 .pw-pip-row.is-on { background: color-mix(in srgb, #16a34a 3%, transparent); }
@@ -12386,10 +12392,15 @@ button.sb-row {
 .pw-pip-chev { display: inline-flex; transition: transform 0.15s; }
 .pw-pip-chev.is-open { transform: rotate(90deg); }
 .pw-pip-models-wrap { position: relative; display: inline-flex; }
+.pw-pip-models-pop.is-up { top: auto; bottom: calc(100% + 6px); }
+.pw-pip-models-pop.is-right { left: auto; right: 0; }
 .pw-pip-models-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, calc(100vw - 96px)); max-height: 46vh; overflow-y: auto; padding: 12px 14px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18); }
 /* 云平台折叠行 */
 .pw-pip-cloudlist { display: flex; flex-direction: column; gap: 8px; }
-.pw-pip-cloud { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); overflow: hidden; }
+/* ⚠️ 同 .pw-pip-table 的教训(见上):不得加 overflow:hidden——行脚的「N 模型」浮层是本容器内的
+   绝对定位元素,向上翻出行顶会被整块裁掉(云平台行实测:114 模型的高浮层几乎全部不可见)。
+   行内没有满宽背景的子元素,圆角无需裁剪兜底。 */
+.pw-pip-cloud { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); }
 .pw-pip-cloud.is-open { border-color: color-mix(in srgb, var(--accent, #7c3aed) 35%, var(--border)); }
 .pw-pip-cloud-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 14px; background: none; border: none; text-align: left; cursor: pointer; color: var(--text-1); }
 .pw-pip-cloud-state { font-size: 11.5px; color: var(--text-3); }

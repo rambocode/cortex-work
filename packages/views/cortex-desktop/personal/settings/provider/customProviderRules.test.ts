@@ -63,3 +63,50 @@ describe("provider id slug", () => {
     expect(slugifyProviderId("")).toBe("custom-provider");
   });
 });
+
+describe("findInlineSecrets：compat 子树整棵跳过（线上死锁回归）", () => {
+  it("compat 里的 maxTokensField 不再被判成明文密钥", () => {
+    // `maxTokensField` 归一后含 "token"，曾被判成明文密钥。它是 pi 的协议行为开关，
+    // **根本不能写成 ${secret:} 引用** —— 误报会把用户彻底卡死：网关向导生成的合法配置
+    // 粘进 JSON 编辑器后连报数行，怎么改都保存不了。
+    const json = JSON.stringify(
+      {
+        name: "网关",
+        baseUrl: "https://gw/v1",
+        models: [
+          {
+            id: "m",
+            compat: { supportsDeveloperRole: false, maxTokensField: "max_tokens", supportsToolSearch: true },
+          },
+        ],
+      },
+      null,
+      2,
+    );
+    expect(findInlineSecrets(json)).toEqual([]);
+  });
+
+  it("compat 之外的明文密钥照常被抓（跳过 compat 不等于整体放松）", () => {
+    const json = JSON.stringify(
+      { headers: { Authorization: "Bearer sk-plain" }, models: [{ id: "m", compat: { maxTokensField: "max_tokens" } }] },
+      null,
+      2,
+    );
+    const issues = findInlineSecrets(json);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.message).toBe("Authorization");
+  });
+
+  it("compat 块结束后恢复检测（花括号计数不能漏出）", () => {
+    const json = [
+      "{",
+      '  "models": [',
+      '    { "id": "m", "compat": { "maxTokensField": "max_tokens" } }',
+      "  ],",
+      '  "apiKey": "sk-leaked"',
+      "}",
+    ].join("\n");
+    const issues = findInlineSecrets(json);
+    expect(issues.map((i) => i.message)).toEqual(["apiKey"]);
+  });
+});

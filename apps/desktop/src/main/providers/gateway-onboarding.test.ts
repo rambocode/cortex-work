@@ -121,7 +121,7 @@ describe("discoverGatewayModels", () => {
       secretName: "GW_KEY",
     });
 
-    const init = fetchMock.mock.calls[0]![1] as unknown as RequestInit;
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer sk-real-gateway-key");
     expect(JSON.stringify(res)).not.toContain("sk-real-gateway-key");

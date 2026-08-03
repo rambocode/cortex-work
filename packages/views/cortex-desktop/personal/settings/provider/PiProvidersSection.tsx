@@ -1,11 +1,15 @@
 // 「设置 → Pi」内联的供应商管理平铺页（替代旧 ProviderManagerModal 弹窗）。
 //
-// 按认证形态分四区（对齐高保真原型「Pi Providers 设置 v1」）：
+// 按认证/接入形态分五区（前四区对齐高保真原型「Pi Providers 设置 v1」）：
 //   · 订阅登录  —— auth 含 oauth 的 Provider，卡片网格，一键 OAuth（也可改用 API Key）；
 //   · API Key   —— 纯 api-key 的 Provider，行式列表，粘贴即存、只写不读；
 //   · 云平台    —— Bedrock / Azure / Cloudflare / Vertex 等多环境变量 Provider，折叠行
 //                  （凭据常来自宿主环境，Cortex 只能标注来源；额外提供 Base URL 覆盖）；
+//   · 聚合网关  —— new-api / one-api 等 OpenAI 兼容网关，向导接入（见 PiGatewaySection）；
 //   · 自定义    —— 用户粘贴完整 Pi Provider JSON（见 PiCustomProviderSection）。
+//
+// 后两区的存储是**同一份** provider-custom.json，分区归属按「定义里有没有 capabilitySource」
+// 运行期算出来（详见 PiGatewaySection 文件头）——不要以为网关另有一套存储。
 //
 // 继承弹窗时代的四种降级态（不能白屏、不能崩）：Catalog 失败 / 桥不支持 / safeStorage
 // 只读 / 旧配置被清理的一次性提示。模型能力仍然**只读**——每行「N 模型」展开的是
@@ -14,12 +18,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { usePersonalStore } from "@cortex-work/core";
+import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
+import { BaseUrlOverride } from "./BaseUrlOverride";
 import { ProviderModelList } from "./ProviderModelList";
 import { ProviderAuthDialog } from "./ProviderAuthDialog";
 import { ProviderTestControl } from "./ProviderTestControl";
 import { PiProviderCloudRows } from "./PiProviderCloudRows";
 import { PiCustomProviderSection } from "./PiCustomProviderSection";
+import { PiGatewaySection } from "./PiGatewaySection";
+import { useOverflowSafePlacement } from "../../shared/useOverflowSafePlacement";
 import { readCapabilitySources } from "@cortex-work/core/desktop/provider-catalog";
 import {
   authStatusKey,
@@ -183,6 +190,10 @@ export function PiProvidersSection() {
         </div>
       ) : null}
 
+      {/* 聚合网关（new-api / one-api…）。存储上仍是自定义 Provider，这里只是呈现层单列一区 ——
+          它的配置形态与云平台同构（填地址 + Key → 拉模型），不该埋在「自定义」里。 */}
+      <PiGatewaySection storageAvailable={storageAvailable} query={query} />
+
       {/* 自定义供应商（含内联 JSON 编辑器；搜索由分区内部自理，因为它的数据源是自定义列表） */}
       <PiCustomProviderSection storageAvailable={storageAvailable} query={query} />
     </div>
@@ -250,6 +261,9 @@ export function ModelsPopover({ view }: { view: ProviderView }) {
     return def ? readCapabilitySources(def) : undefined;
   }, [view.custom, view.provider.id, items]);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  // 视口避让:这个浮层挂在表格靠下的行上时,默认向下展开会掉出窗口底部。
+  // 复用统一的「先翻转、翻不动就钳回视口」实现,不要再各写一段只翻转的 layoutEffect。
+  const place = useOverflowSafePlacement(open);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -281,7 +295,9 @@ export function ModelsPopover({ view }: { view: ProviderView }) {
       </button>
       {open ? (
         <div
-          className="pw-pip-models-pop"
+          ref={place.ref}
+          style={place.style}
+          className={`pw-pip-models-pop${place.flipY ? " is-up" : ""}${place.flipX ? " is-right" : ""}`}
           role="dialog"
           aria-label={t("providers.models.title", { count: view.provider.models.length })}
         >
@@ -426,10 +442,16 @@ function ApiKeyRow({
   storageAvailable: boolean;
 }) {
   const { t } = useTranslation("settings");
+  const bridge = useDesktopBridge();
   const { setApiKey, logout } = useProviderAuthActions();
   const [draft, setDraft] = useState("");
 
   const { provider, status } = view;
+  // 自建网关 / 代理端点:此前只有「云平台」折叠行有这个入口,普通 API Key 供应商填不了,
+  // 用户只能去写整段自定义 Provider JSON —— 而 baseUrl 覆盖机制本身早就是通的。
+  // 默认收起(26 个供应商各摆一个地址框会淹没主操作),**已设过覆盖的默认展开** ——
+  // 否则「这个供应商没走官方端点」这件事在界面上完全不可见。
+  const [showBaseUrl, setShowBaseUrl] = useState(!!status.baseUrlOverride);
   const on = providerUsable(view);
   const noAuth = provider.auth.length === 0;
   const statusKey = authStatusKey(status);
@@ -501,8 +523,27 @@ function ApiKeyRow({
             </button>
           </>
         )}
+        <button
+          type="button"
+          className={`pw-pip-linkbtn ${showBaseUrl ? "is-on" : ""}`}
+          aria-expanded={showBaseUrl}
+          title={status.baseUrlOverride || t("providers.baseUrlOverride")}
+          onClick={() => setShowBaseUrl((v) => !v)}
+        >
+          {status.baseUrlOverride
+            ? t("providers.inline.baseUrlSet")
+            : t("providers.inline.baseUrlToggle")}
+        </button>
         <HiddenToggle view={view} hiddenIds={hiddenIds} />
       </div>
+      {showBaseUrl ? (
+        <BaseUrlOverride
+          providerId={provider.id}
+          catalogBaseUrl={provider.baseUrl}
+          override={status.baseUrlOverride}
+          supported={!!bridge?.providerAuthSetBaseUrl}
+        />
+      ) : null}
       {status.error ? <div className="pw-prov-alert is-warn">{t("providers.authError", { error: status.error })}</div> : null}
       {!deletable && status.configured ? (
         <div className="pw-set-hint">{t("providers.ambientReadOnly", { source: status.source })}</div>

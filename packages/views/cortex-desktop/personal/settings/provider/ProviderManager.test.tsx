@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 import { CoreProvider, resetProviderCatalogCache, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
+import type { CustomProviderDefinition } from "@cortex-work/core/desktop/provider-catalog";
 import { PiProvidersSection } from "./PiProvidersSection";
 import { DefaultModelSelects } from "./DefaultModelSelects";
 import { ModelPicker } from "./ModelPicker";
@@ -82,6 +83,11 @@ interface BridgeOpts {
   storageAvailable?: boolean;
   hidden?: string[];
   connectionTest?: DesktopBridge["providerConnectionTest"];
+  setBaseUrl?: DesktopBridge["providerAuthSetBaseUrl"];
+  /** 已保存的 baseUrl 覆盖（providerId → url），并入认证快照。 */
+  baseUrlOverride?: Record<string, string>;
+  /** 已保存的自定义 Provider 定义（网关与手写的都从这一份列表来 —— 存储只有一份）。 */
+  customs?: CustomProviderDefinition[];
 }
 
 function makeBridge(o: BridgeOpts = {}): DesktopBridge {
@@ -96,16 +102,28 @@ function makeBridge(o: BridgeOpts = {}): DesktopBridge {
         { providerId: "openai", configured: true, type: "api-key", source: "env" },
         { providerId: "anthropic", configured: true, type: "oauth", source: "safe-storage", expiresAt: 1_800_000_000_000 },
         { providerId: "bedrock", configured: true, source: "ambient" },
+        // 生产里 resolveProviderStatus 对任何 id 都会给一条 status（未配置也有），
+        // 覆盖值与认证正交，故单独铺进来。
+        ...Object.entries(o.baseUrlOverride ?? {}).map(([providerId, baseUrlOverride]) => ({
+          providerId,
+          configured: false,
+          source: "none",
+          baseUrlOverride,
+        })),
       ],
       health: o.storageAvailable === false ? { available: false, reason: "libsecret 缺失" } : { available: true },
       hiddenProviderIds: o.hidden ?? [],
     })),
-    providerCustomList: vi.fn(async () => []),
+    providerCustomList: vi.fn(async () => o.customs ?? []),
     providerCustomSave: vi.fn(async () => ({ ok: true })),
+    providerCustomDelete: vi.fn(async () => ({ ok: true })),
+    providerGatewayDiscover: vi.fn(async () => ({ ok: true, models: [] })),
+    providerGatewayBuild: vi.fn(async () => ({ ok: true, json: "{}" })),
     providerAuthSetSecrets: vi.fn(async () => ({ ok: true })),
     providerAuthSetApiKey: vi.fn(async () => ({ ok: true })),
     providerAuthLogout: vi.fn(async () => ({ ok: true })),
     providerAuthSetHidden: vi.fn(async () => ({ ok: true })),
+    providerAuthSetBaseUrl: o.setBaseUrl ?? vi.fn(async () => ({ ok: true })),
     providerConnectionTest: o.connectionTest ?? vi.fn(async () => ({ ok: true, modelId: "gpt-vision", latencyMs: 42 })),
     onProviderAuthEvent: vi.fn(() => () => undefined),
     providerAuthLogin: vi.fn(async () => ({ ok: true })),
@@ -186,6 +204,36 @@ describe("Pi 供应商平铺页：认证状态与降级", () => {
     const replace = within(row).getByRole("button", { name: "更换" }) as HTMLButtonElement;
     expect(replace.disabled).toBe(true);
     expect(within(row).getByText(/Cortex 只能读取、不能删除/)).toBeInTheDocument();
+  });
+});
+
+describe("Pi 供应商平铺页：API Key 行的自定义接口地址", () => {
+  it("每个 API Key 行都能展开填自建网关地址，保存后落到主进程", async () => {
+    // 此前只有「云平台」折叠行有这个入口，普通 API Key 供应商填不了，用户被迫去写整段
+    // 自定义 Provider JSON —— 而 baseUrl 覆盖机制本身早就是通的，只是没接上 UI。
+    const setBaseUrl = vi.fn(async () => ({ ok: true }));
+    renderUI(<PiProvidersSection />, makeBridge({ setBaseUrl }));
+    const row = await findKeyRow("DeepSeek");
+
+    fireEvent.click(within(row).getByRole("button", { name: "自定义地址" }));
+    const input = within(row).getByLabelText("Base URL 覆盖") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "https://my-gw.example/v1" } });
+    // 行内有两个「保存」（API Key 的与地址的），必须限定到地址块的动作区。
+    const actions = row.querySelector(".pw-mode-block-actions") as HTMLElement;
+    fireEvent.click(within(actions).getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(setBaseUrl).toHaveBeenCalledWith("deepseek", "https://my-gw.example/v1"),
+    );
+  });
+
+  it("已设过覆盖的供应商默认展开——否则「没走官方端点」这件事在界面上完全不可见", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ baseUrlOverride: { deepseek: "https://my-gw.example/v1" } }));
+    const row = await findKeyRow("DeepSeek");
+    expect((within(row).getByLabelText("Base URL 覆盖") as HTMLInputElement).value).toBe(
+      "https://my-gw.example/v1",
+    );
+    expect(within(row).getByRole("button", { name: "已设自定义地址" })).toBeInTheDocument();
   });
 });
 
@@ -297,6 +345,96 @@ describe("自定义供应商预制表单", () => {
     fireEvent.change(screen.getByLabelText(/模型 ID/), { target: { value: "qwen3" } });
     // 上下文窗口 / 最大输出未填 → 禁止保存。
     expect((screen.getByRole("button", { name: "保存供应商" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("聚合网关顶层分区", () => {
+  /**
+   * 两份定义存在**同一个** provider-custom.json 里，分区归属完全由「有没有 capabilitySource」
+   * 运行期算出来（isGatewayGenerated）。这组用例守的就是这条分流不能漏、不能重：
+   * 漏了某一边，用户的配置会在界面上彻底消失、连删都删不掉。
+   */
+  const GATEWAY_DEF: CustomProviderDefinition = {
+    id: "company-gw",
+    json: JSON.stringify({
+      name: "公司网关",
+      baseUrl: "http://gw.example.cn/v1",
+      api: "openai-completions",
+      models: [
+        {
+          id: "gw-model",
+          name: "GW Model",
+          api: "openai-completions",
+          input: ["text"],
+          reasoning: false,
+          contextWindow: 128000,
+          maxTokens: 16384,
+          // 只有网关向导的生成器会写这个字段 —— 它就是分区归属的来源指纹。
+          capabilitySource: "openai/gpt-4o",
+        },
+      ],
+    }),
+    secretRefs: [],
+    updatedAt: 1,
+  };
+  const HANDWRITTEN_DEF: CustomProviderDefinition = {
+    id: "my-ollama",
+    json: JSON.stringify({
+      name: "本地 Ollama",
+      baseUrl: "http://localhost:11434/v1",
+      api: "openai-completions",
+      models: [
+        {
+          id: "llama4",
+          name: "Llama 4",
+          api: "openai-completions",
+          input: ["text"],
+          reasoning: false,
+          contextWindow: 32000,
+          maxTokens: 4096,
+        },
+      ],
+    }),
+    secretRefs: [],
+    updatedAt: 1,
+  };
+
+  /** 按分区标题定位整个分区容器（两区的行结构一模一样，断言必须限定作用域）。 */
+  function sectionOf(title: string): HTMLElement {
+    const el = screen.getByText(title).closest(".pw-pip-sec");
+    if (!el) throw new Error(`section ${title} not found`);
+    return el as HTMLElement;
+  }
+
+  it("向导生成的定义归「聚合网关」区，不出现在自定义供应商区", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF, HANDWRITTEN_DEF] }));
+    expect(await screen.findByText("公司网关")).toBeInTheDocument();
+    expect(within(sectionOf("聚合网关")).getByText("公司网关")).toBeInTheDocument();
+    expect(within(sectionOf("自定义供应商")).queryByText("公司网关")).toBeNull();
+  });
+
+  it("手写 JSON 的定义相反：留在自定义供应商区，不出现在网关区", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF, HANDWRITTEN_DEF] }));
+    expect(await screen.findByText("本地 Ollama")).toBeInTheDocument();
+    expect(within(sectionOf("自定义供应商")).getByText("本地 Ollama")).toBeInTheDocument();
+    expect(within(sectionOf("聚合网关")).queryByText("本地 Ollama")).toBeNull();
+  });
+
+  it("网关区的「＋ 接入网关」直接开向导（不必先进别的分区）", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF] }));
+    await screen.findByText("公司网关");
+    fireEvent.click(within(sectionOf("聚合网关")).getByRole("button", { name: "＋ 接入网关" }));
+    expect(await screen.findByText("接入聚合网关")).toBeInTheDocument();
+  });
+
+  it("网关行的「编辑」开的是向导，不是整段 JSON 编辑器", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF] }));
+    const row = (await screen.findByText("公司网关")).closest(".pw-pip-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+    // 向导编辑态：直接进第二步，已保存的模型预勾选。
+    expect(await screen.findByText("编辑聚合网关")).toBeInTheDocument();
+    expect(screen.getByText("gw-model")).toBeInTheDocument();
+    expect(screen.queryByText("Provider JSON")).toBeNull();
   });
 });
 

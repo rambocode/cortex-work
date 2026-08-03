@@ -29,23 +29,41 @@ export function extractSecretRefs(json: string): string[] {
 /**
  * 扫描疑似内嵌的明文密钥。逐行做，才拿得到行号——JSON.parse 后的对象树已经丢了位置信息。
  * 判定：这一行的 key 命中敏感字段名，且这一行**不含** `${secret:` 引用，且值非空。
- * 刻意宽松地按行匹配而不做完整解析：误报的代价是用户改成引用（本来就该这么写），
- * 漏报的代价是明文密钥落盘。
+ *
+ * ⚠️ `compat` 子树整棵跳过，与主进程 `checkInlineSecrets` 保持同一口径。
+ * 它是 pi 的**协议行为开关**（`maxTokensField` / `supportsToolSearch` 等），永远不含凭据，
+ * 但 `maxTokensField` 归一后会命中 `token` 这条子串规则。这里的误报格外致命：
+ * 本函数原注释说「误报的代价是用户改成引用（本来就该这么写）」—— 对 compat **不成立**，
+ * 它根本不能写成 `${secret:}`，用户会被彻底卡死、无路可走（实测：网关向导生成的合法配置
+ * 粘进 JSON 编辑器后连报 5 行，无法保存）。
+ *
+ * 两处判定必须一致：同一份 JSON 在「向导保存」与「JSON 编辑器保存」两条路径上给出不同结论，
+ * 是最难查的一类问题。
  */
 export function findInlineSecrets(json: string): CustomProviderIssue[] {
   const issues: CustomProviderIssue[] = [];
   const lines = json.split("\n");
+  // compat 块的进入深度；非 null 表示当前行位于某个 compat 对象内部。
+  // 按花括号计数跟踪，够用且不需要引入 CST 解析器（本函数本就是启发式预检）。
+  let depth = 0;
+  let compatDepth: number | null = null;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (line.includes("${secret:")) continue;
-    const m = line.match(/"([^"]+)"\s*:\s*"([^"]*)"/);
-    if (!m) continue;
-    const key = m[1]!.toLowerCase().replace(/[^a-z_]/g, "");
-    const value = m[2]!;
-    if (!value.trim()) continue;
-    if (SENSITIVE_FIELDS.some((f) => key.includes(f.replace("_", "")))) {
-      issues.push({ line: i + 1, message: m[1]! });
+    if (compatDepth === null && /"compat"\s*:\s*\{/.test(line)) compatDepth = depth;
+
+    if (compatDepth === null && !line.includes("${secret:")) {
+      const m = line.match(/"([^"]+)"\s*:\s*"([^"]*)"/);
+      const key = m?.[1]?.toLowerCase().replace(/[^a-z_]/g, "");
+      const value = m?.[2];
+      if (key && value?.trim() && SENSITIVE_FIELDS.some((f) => key.includes(f.replace("_", "")))) {
+        issues.push({ line: i + 1, message: m![1]! });
+      }
     }
+
+    depth += (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0);
+    // 单行写法 `"compat": { "a": 1 }` 也能正确退出：本行净增为 0，depth 回到进入深度。
+    if (compatDepth !== null && depth <= compatDepth) compatDepth = null;
   }
   return issues;
 }

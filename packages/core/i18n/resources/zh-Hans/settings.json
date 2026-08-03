@@ -448,6 +448,9 @@
       "keysDesc": "粘贴即用 · 保存后不再回显明文",
       "cloudTitle": "云平台",
       "cloudDesc": "凭据多来自环境变量或云 SDK(Region / Account / ADC…),Cortex 只代管 API Key",
+      "gatewayTitle": "聚合网关",
+      "gatewayDesc": "new-api / one-api 等 OpenAI 兼容网关:一个地址接入整批模型,能力由系统解析",
+      "gatewayAdd": "＋ 接入网关",
       "customTitle": "自定义供应商",
       "customDesc": "Ollama / LM Studio / vLLM 或任意兼容端点,粘贴完整 Pi Provider JSON",
       "addCustom": "＋ 添加自定义供应商(写入 provider-custom.json)",
@@ -468,7 +471,9 @@
       "chatUnusableModels": "配置不完整：没有一条模型通过校验，模型不会出现在聊天的模型选择器中。每个模型都要显式写全 input / reasoning / contextWindow / maxTokens。",
       "unset": "未设置",
       "defaultModelHint": "仅列出已配置供应商的模型,当前 {{count}} 个供应商可用;供应商在下方本页直接接入。",
-      "addGateway": "＋ 接入聚合网关(new-api / one-api)"
+      "addGateway": "＋ 接入聚合网关(new-api / one-api)",
+      "baseUrlToggle": "自定义地址",
+      "baseUrlSet": "已设自定义地址"
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -509,6 +514,11 @@
     "gateway": {
       "title": "接入聚合网关",
       "desc": "new-api / one-api 等 OpenAI 兼容网关:填地址即自动拉取模型,能力由系统解析,全程无需手填",
+      "editTitle": "编辑聚合网关",
+      "editDesc": "改名称/地址/Key,或增删启用的模型。能力仍由系统解析,无需手填",
+      "editSeedHint": "以下是这份配置里已保存的模型。网关新增或下线了模型时,点「刷新模型列表」重新探测。",
+      "keyKeep": "已保存,留空即沿用",
+      "keyKeepPh": "留空沿用已保存的 Key,填写则覆盖",
       "unsupported": "当前环境不支持聚合网关接入(Web 端或旧版本外壳)。",
       "name": "名称",
       "namePh": "例:公司网关",

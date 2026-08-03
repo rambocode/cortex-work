@@ -6,6 +6,11 @@
 //   · unknown **不可直接启用**：没选参照模型的未识别模型 checkbox 必须禁用（不猜能力红线）；
 //   · 刷新**不静默移除**：已启用但网关这次没返回的模型仍在列表里，并带警示。
 // 另加一条顺序断言：Key 必须先进金库、再发探测（顺序反了会把 401 误报成不可达）。
+//
+// 编辑态（`initial`）另有三条同级别的红线，全是「静默破坏用户配置」：
+//   · 供应商 id **不随改名漂移**：漂了就等于新存一个 Provider，原来那条沦为孤儿残留；
+//   · Secret 名 **不随改名漂移**：漂了就引用到一个金库里不存在的 Secret，运行期 401 且不报错；
+//   · 已保存的「参照」来源要原样带回主进程：不带的话能力会被悄悄降级成保守兜底。
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -63,6 +68,57 @@ const CUSTOM_DEF: CustomProviderDefinition = {
   updatedAt: 1,
 };
 
+/** 编辑态用的原有 Secret 名。刻意与「按当前名称派生」的结果不同，改名测试才有区分力。 */
+const SAVED_SECRET = "CUSTOM_GONGSI_WANGGUAN_API_KEY";
+
+/**
+ * 一条**向导生成**的已保存定义（三条模型覆盖三种 capabilitySource 形态）。
+ * 编辑态的全部断言都建立在它之上：id 与 Secret 名必须原样保住，来源标注必须按形态分流。
+ */
+const SAVED_GATEWAY: CustomProviderDefinition = {
+  id: "gongsi-wangguan",
+  json: JSON.stringify({
+    name: "公司网关",
+    baseUrl: "http://openai.example.cn/v1",
+    api: "openai-completions",
+    apiKey: `\${secret:${SAVED_SECRET}}`,
+    models: [
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        api: "openai-completions",
+        input: ["text", "image"],
+        reasoning: true,
+        contextWindow: 272000,
+        maxTokens: 128000,
+        capabilitySource: "openai/gpt-4o",
+      },
+      {
+        id: "kimi-k2",
+        name: "kimi-k2",
+        api: "openai-completions",
+        input: ["text", "image"],
+        reasoning: true,
+        contextWindow: 272000,
+        maxTokens: 128000,
+        capabilitySource: "reference:openai/gpt-4o",
+      },
+      {
+        id: "mystery-1",
+        name: "mystery-1",
+        api: "openai-completions",
+        input: ["text"],
+        reasoning: false,
+        contextWindow: 128000,
+        maxTokens: 16384,
+        capabilitySource: "fallback",
+      },
+    ],
+  }),
+  secretRefs: [SAVED_SECRET],
+  updatedAt: 1,
+};
+
 interface Opts {
   discover?: DesktopBridge["providerGatewayDiscover"];
   build?: DesktopBridge["providerGatewayBuild"];
@@ -94,9 +150,14 @@ function makeBridge(o: Opts = {}): DesktopBridge {
   } as unknown as DesktopBridge;
 }
 
-function renderWizard(bridge: DesktopBridge, onClose = vi.fn()): { onClose: () => void } {
+function renderWizard(
+  bridge: DesktopBridge,
+  onClose = vi.fn(),
+  /** 传入即编辑态（向导反解这份定义后直接进第二步）。 */
+  initial?: CustomProviderDefinition,
+): { onClose: () => void } {
   const ui: ReactElement = (
-    <GatewayWizard storageAvailable onClose={onClose} onSwitchToJson={vi.fn()} />
+    <GatewayWizard storageAvailable initial={initial} onClose={onClose} onSwitchToJson={vi.fn()} />
   );
   render(
     <CoreProvider wsId="ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
@@ -280,6 +341,111 @@ describe("聚合网关向导", () => {
     expect(screen.getByText("gpt-4o")).toBeInTheDocument();
     expect(within(rowOf("gpt-4o")).getByText(/最近一次刷新时网关没有返回这个模型/)).toBeInTheDocument();
     expect(screen.getByText(/以下已启用的模型在最近一次刷新中没有出现/)).toBeInTheDocument();
+  });
+
+  it("编辑态：直接进第二步，已保存模型全部预勾选，且**不需要先联网**", async () => {
+    const discover = vi.fn(async () => ({ ok: true, models: [KNOWN, UNKNOWN] }));
+    renderWizard(
+      makeBridge({ discover: discover as unknown as DesktopBridge["providerGatewayDiscover"] }),
+      vi.fn(),
+      SAVED_GATEWAY,
+    );
+
+    // 网关临时不可达也要能改配置，所以打开编辑器**不许**发探测。
+    expect(discover).not.toHaveBeenCalled();
+    expect(await screen.findByText("mystery-1")).toBeInTheDocument();
+    for (const id of ["gpt-4o", "kimi-k2", "mystery-1"]) {
+      expect(within(rowOf(id)).getByRole("checkbox")).toBeChecked();
+    }
+    expect(screen.getByRole("button", { name: "启用 3 个模型并保存" })).toBeInTheDocument();
+    // fallback 来源的行按「未识别」渲染：那几个数字是保守默认，摆成徽标会让它看起来像事实。
+    expect(within(rowOf("mystery-1")).getByText(/已按保守默认启用/)).toBeInTheDocument();
+    expect(within(rowOf("mystery-1")).queryByText(/上下文/)).toBeNull();
+  });
+
+  it("编辑态：capabilitySource 为 reference:… 的行显示「参照」，不是「目录」", async () => {
+    renderWizard(makeBridge(), vi.fn(), SAVED_GATEWAY);
+    await screen.findByText("kimi-k2");
+    const row = rowOf("kimi-k2");
+    // 参照是**用户当初做的判断**，标成「目录」等于把它说成系统查到的事实。
+    expect(within(row).getByText("能力来源:参照 openai/gpt-4o")).toBeInTheDocument();
+    expect(within(row).queryByText(/能力来源:目录/)).toBeNull();
+    // 目录命中的行仍然显示「目录」。
+    expect(within(rowOf("gpt-4o")).getByText("能力来源:目录 openai/gpt-4o")).toBeInTheDocument();
+  });
+
+  it("编辑态：不重填 Key 也能保存，沿用金库里已有的 Secret", async () => {
+    const build = vi.fn(async (_req: GatewayBuildRequest) => ({ ok: true, json: '{"name":"公司网关"}' }));
+    const save = vi.fn(async (_def: CustomProviderDefinition) => ({ ok: true }));
+    const onClose = vi.fn();
+    renderWizard(
+      makeBridge({
+        build: build as DesktopBridge["providerGatewayBuild"],
+        save: save as DesktopBridge["providerCustomSave"],
+      }),
+      onClose,
+      SAVED_GATEWAY,
+    );
+    await screen.findByText("gpt-4o");
+    fireEvent.click(screen.getByRole("button", { name: "启用 3 个模型并保存" }));
+
+    await waitFor(() => expect(build).toHaveBeenCalled());
+    expect(build.mock.calls[0]![0].secretName).toBe(SAVED_SECRET);
+    // 已保存的「参照」来源必须原样带回主进程：不带的话目录照样认不出 kimi-k2，
+    // 主进程会退回保守兜底 —— 用户什么都没改，能力却被悄悄改小了。
+    expect(build.mock.calls[0]![0].models).toContainEqual({
+      id: "kimi-k2",
+      referenceProviderId: "openai",
+      referenceModelId: "gpt-4o",
+    });
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]![0].secretRefs).toEqual([SAVED_SECRET]);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("编辑态改名：id 与 Secret 名都不跟着漂移（防孤儿化 / 防引用到不存在的 Secret）", async () => {
+    const build = vi.fn(async (_req: GatewayBuildRequest) => ({ ok: true, json: '{"name":"新名字"}' }));
+    const save = vi.fn(async (_def: CustomProviderDefinition) => ({ ok: true }));
+    renderWizard(
+      makeBridge({
+        build: build as DesktopBridge["providerGatewayBuild"],
+        save: save as DesktopBridge["providerCustomSave"],
+      }),
+      vi.fn(),
+      SAVED_GATEWAY,
+    );
+    await screen.findByText("gpt-4o");
+
+    // 回第一步改名 → 重新连接 → 保存。
+    fireEvent.click(screen.getByRole("button", { name: "返回修改" }));
+    fireEvent.change(screen.getByPlaceholderText("例:公司网关"), { target: { value: "新名字" } });
+    fireEvent.click(screen.getByRole("button", { name: "连接" }));
+    await screen.findByText("gpt-5.6-luna");
+    fireEvent.click(screen.getByRole("button", { name: /启用 .* 个模型并保存/ }));
+
+    await waitFor(() => expect(build).toHaveBeenCalled());
+    // 新建态下 id = slugifyProviderId(name)，「新名字」会 slug 成 custom-provider —— 那正是
+    // 事故形态：保存出一个**新**供应商，原来那条变成谁也管不着的孤儿。
+    expect(build.mock.calls[0]![0].id).toBe(SAVED_GATEWAY.id);
+    expect(build.mock.calls[0]![0].name).toBe("新名字");
+    // Secret 名同理由名称派生，漂移后会引用到一个金库里根本不存在的 Secret（运行期 401，且不报错）。
+    expect(build.mock.calls[0]![0].secretName).toBe(SAVED_SECRET);
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]![0].id).toBe(SAVED_GATEWAY.id);
+    expect(save.mock.calls[0]![0].secretRefs).toEqual([SAVED_SECRET]);
+  });
+
+  it("编辑态重新连接：网关这次没返回的已保存模型不被静默移除", async () => {
+    // 默认 discover 只返回 gpt-4o / gpt-5.6-luna，已保存的 kimi-k2 与 mystery-1 都不在其中。
+    renderWizard(makeBridge(), vi.fn(), SAVED_GATEWAY);
+    await screen.findByText("kimi-k2");
+    fireEvent.click(screen.getByRole("button", { name: "返回修改" }));
+    fireEvent.click(screen.getByRole("button", { name: "连接" }));
+
+    await screen.findByText("gpt-5.6-luna");
+    expect(screen.getByText("kimi-k2")).toBeInTheDocument();
+    expect(within(rowOf("kimi-k2")).getByText(/最近一次刷新时网关没有返回这个模型/)).toBeInTheDocument();
   });
 
   it("桥不支持（Web 端 / 旧壳）→ 降级提示，不白屏", async () => {

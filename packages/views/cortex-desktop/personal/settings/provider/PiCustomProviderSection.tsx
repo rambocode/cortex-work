@@ -1,5 +1,10 @@
 // 「自定义供应商」分区：已保存条目的行式列表 + 虚线「添加」入口。
 //
+// ⚠️ 本区**只列非网关来源**的定义（手写 JSON / 预制表单那些）。聚合网关生成的条目搬去了
+// 顶层的 `PiGatewaySection` —— 存储仍是同一份 `provider-custom.json`，分区归属按
+// `isGatewayGenerated` 运行期算出来，不落盘（详见 PiGatewaySection 文件头的存储说明）。
+// 两区的过滤条件必须互补：任何一边写漏，用户的某条配置就会在界面上彻底消失、连删都删不掉。
+//
 // 添加走预制表单（CustomProviderForm，对齐原型：预设 chips + 名称/协议/Base URL/Key/模型 ID
 // + 显式能力声明），编辑已有条目走完整 JSON 编辑器（CustomProviderEditor）；表单里也可以
 // 一键切到 JSON 模式（带草稿）。列表行展示的是 parseCustomProvider 解析后的形状
@@ -13,20 +18,15 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type { CatalogProvider, CustomProviderDefinition } from "@cortex-work/core/desktop/provider-catalog";
 import { CustomProviderEditor } from "./CustomProviderPanel";
 import { CustomProviderForm } from "./CustomProviderForm";
-import { GatewayWizard } from "./GatewayWizard";
+import { isGatewayGenerated } from "./gatewayDefinition";
 import { ProviderTestControl } from "./ProviderTestControl";
 import { parseCustomProvider, useCustomProviderActions, useCustomProviders } from "./useProviderData";
 
 /**
- * 分区的编辑态：收起 / 预制表单（新增） / 聚合网关向导 / JSON 编辑器（编辑已有条目或从前两者切过来）。
- * 三条新增路径最终都落到同一份 provider-custom.json —— 网关向导只是「生成器前端」，
- * 存储与运行时零新概念（方案 §B3.4）。
+ * 分区的编辑态：收起 / 预制表单（新增） / JSON 编辑器（编辑已有条目或从表单切过来）。
+ * 两条路径都落到同一份 provider-custom.json。
  */
-type EditingState =
-  | null
-  | { mode: "form" }
-  | { mode: "gateway" }
-  | { mode: "json"; def?: CustomProviderDefinition };
+type EditingState = null | { mode: "form" } | { mode: "json"; def?: CustomProviderDefinition };
 
 export function PiCustomProviderSection({
   storageAvailable,
@@ -43,7 +43,9 @@ export function PiCustomProviderSection({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const q = query.trim().toLowerCase();
+  // 网关来源的条目归 PiGatewaySection 管，这里排除掉（两区的过滤条件互补，不能有缝）。
   const rows = items
+    .filter((def) => !isGatewayGenerated(def))
     .map((def) => ({ def, parsed: parseCustomProvider(def) }))
     .filter(
       (r) => !q || r.def.id.toLowerCase().includes(q) || (r.parsed?.name ?? "").toLowerCase().includes(q),
@@ -106,15 +108,6 @@ export function PiCustomProviderSection({
             onSwitchToJson={(draft) => setEditing({ mode: "json", def: draft })}
           />
         </div>
-      ) : editing?.mode === "gateway" ? (
-        <div className="pw-pip-editor">
-          <GatewayWizard
-            storageAvailable={storageAvailable}
-            onClose={() => setEditing(null)}
-            // 网关向导的「高级」出口：不带草稿(能力必须由主进程解析,渲染端没有可预填的内容)。
-            onSwitchToJson={() => setEditing({ mode: "json" })}
-          />
-        </div>
       ) : editing?.mode === "json" ? (
         <div className="pw-pip-editor">
           <CustomProviderEditor
@@ -127,9 +120,6 @@ export function PiCustomProviderSection({
         <div className="pw-pip-addrow">
           <button type="button" className="pw-pip-add" onClick={() => setEditing({ mode: "form" })}>
             {t("providers.inline.addCustom")}
-          </button>
-          <button type="button" className="pw-pip-add" onClick={() => setEditing({ mode: "gateway" })}>
-            {t("providers.inline.addGateway")}
           </button>
         </div>
       )}
@@ -146,8 +136,10 @@ export function PiCustomProviderSection({
  *
  * 两种不可用分开提示：JSON 压根解析不了（parsed === undefined）vs 解析成功但模型全被能力
  * 校验丢弃（models 为空）——两者的排查方向完全不同，合并成一句会让用户白折腾。
+ *
+ * 导出给 PiGatewaySection 复用：网关行有完全相同的断层，判据必须是同一份（各写一份必然漂移）。
  */
-function CustomProviderChatAvailability({ parsed }: { parsed: CatalogProvider | undefined }) {
+export function CustomProviderChatAvailability({ parsed }: { parsed: CatalogProvider | undefined }) {
   const { t } = useTranslation("settings");
 
   if (parsed && parsed.models.length > 0) {

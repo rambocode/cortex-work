@@ -13,16 +13,23 @@
 //      连不通的 Provider 进 provider-custom.json，聊天里再炸一次。
 //
 // 明文 Key 只存在于 React state：写进金库后不回显、保存成功即清空，任何时刻都不进 JSON。
+//
+// 编辑态（传入 `initial`）复用同一套 UI，但有三条**不可让步**的固定项，全部是「静默破坏用户
+// 配置」级别的：供应商 id、Secret 名都锁死为原值（两者原本由名称派生，改名即漂移 →
+// 落出一个新供应商 + 一个不存在的 Secret 引用，旧条目沦为孤儿），已保存的「参照」来源要原样
+// 带回主进程重新生成（否则重新生成时目录仍认不出该模型，能力会被悄悄降级成保守兜底）。
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type {
+  CustomProviderDefinition,
   GatewayDiscoveredModel,
   GatewayModelSelection,
 } from "@cortex-work/core/desktop/provider-catalog";
 import { CapabilityBadges } from "./capabilityFormat";
 import { GatewayReferencePicker, type ReferenceOption } from "./GatewayReferencePicker";
 import { secretNameFor, slugifyProviderId } from "./customProviderRules";
+import { parseReferenceSource, seedFromDefinition } from "./gatewayDefinition";
 import { useCustomProviderActions, useGatewayActions, useProviderAuthActions } from "./useProviderData";
 
 /**
@@ -43,13 +50,23 @@ interface RowChoice {
   reference?: ReferenceOption;
 }
 
+/** 编辑态的初始勾选：已保存的模型**全部**预勾选——它们本来就是用户已经在用的。 */
+function makeSeedChoices(seeded: GatewayDiscoveredModel[] | undefined): Record<string, RowChoice> {
+  const out: Record<string, RowChoice> = {};
+  for (const m of seeded ?? []) out[m.id] = { enabled: true };
+  return out;
+}
+
 export function GatewayWizard({
   storageAvailable,
+  /** 编辑已有的向导生成配置。缺省即新建态。 */
+  initial,
   onClose,
   /** 「改用 JSON 粘贴」：极端网关（连参照都不适用）仍能走整段 JSON 的高级入口。 */
   onSwitchToJson: onAdvanced,
 }: {
   storageAvailable: boolean;
+  initial?: CustomProviderDefinition;
   onClose: () => void;
   onSwitchToJson: () => void;
 }) {
@@ -58,28 +75,45 @@ export function GatewayWizard({
   const { save } = useCustomProviderActions();
   const { setSecrets } = useProviderAuthActions();
 
-  const [step, setStep] = useState<Step>("connect");
-  const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [api, setApi] = useState<string>(API_OPTIONS[0].id);
+  // 编辑种子只在挂载时用于初始化下面的 state（`initial` 在一次编辑会话里是稳定的）。
+  // 它同时也是「返回修改」的还原点，故除了初值之外还要在渲染期一直拿得到。
+  const seed = useMemo(() => (initial ? seedFromDefinition(initial) : undefined), [initial]);
+  const seedChoices = useMemo(() => makeSeedChoices(seed?.models), [seed]);
+
+  // 有种子就直接进第二步：已保存的模型自己就是完整的候选集，不该为了「编辑一下名字」
+  // 先逼用户联网探测一次（网关临时不可达时那等于把人锁在配置外面）。
+  const [step, setStep] = useState<Step>(seed ? "select" : "connect");
+  const [name, setName] = useState(seed?.name ?? "");
+  const [baseUrl, setBaseUrl] = useState(seed?.baseUrl ?? "");
+  const [api, setApi] = useState<string>(seed?.api || API_OPTIONS[0].id);
   const [key, setKey] = useState("");
-  /** 本次探测确实把 Key 写进了金库 —— 决定保存时要不要带 secretRefs。 */
-  const [keyStored, setKeyStored] = useState(false);
+  /**
+   * Key 已在金库里 —— 决定保存时要不要带 secretRefs、探测要不要带 secretName。
+   * 编辑态初值取决于原配置**是否引用过** Secret：引用过就说明金库里已有，不该逼用户重填。
+   */
+  const [keyStored, setKeyStored] = useState(!!seed?.secretName);
 
   // 候选模型是**累积**的：刷新时新结果覆盖同 id 的能力数据，已启用但本次没返回的条目
   // 保留在列表里并标警示（方案 §B3.5：不静默移除）。
-  const [models, setModels] = useState<GatewayDiscoveredModel[]>([]);
-  /** 最近一次探测实际返回的 id 集合，用来把「本次没返回」的条目标出来。 */
-  const [presentIds, setPresentIds] = useState<string[]>([]);
-  const [choices, setChoices] = useState<Record<string, RowChoice>>({});
+  const [models, setModels] = useState<GatewayDiscoveredModel[]>(seed?.models ?? []);
+  /**
+   * 最近一次探测实际返回的 id 集合，用来把「本次没返回」的条目标出来。
+   * 编辑态用已保存的 id 种子化：还没探测过就不该给所有行挂「网关没返回」的警示。
+   */
+  const [presentIds, setPresentIds] = useState<string[]>(() => (seed?.models ?? []).map((m) => m.id));
+  const [choices, setChoices] = useState<Record<string, RowChoice>>(seedChoices);
   /** 正在为哪条未识别模型挑参照（同一时刻只展开一个，避免整页被面板撑爆）。 */
   const [pickingFor, setPickingFor] = useState<string | null>(null);
+  /** 本次会话是否真的向网关探测过 —— 编辑态据此提示「当前列表来自已保存配置」。 */
+  const [probed, setProbed] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const slug = slugifyProviderId(name);
-  const secretName = secretNameFor(slug);
+  // ⚠️ 编辑态锁死 id 与 Secret 名（两者原本都由名称派生）：改名不得改动它们，
+  // 否则保存会落出一个**新**供应商、并引用一个金库里不存在的 Secret，旧条目变成孤儿残留。
+  const providerId = initial ? initial.id : slugifyProviderId(name);
+  const secretName = initial ? (seed?.secretName ?? secretNameFor(initial.id)) : secretNameFor(providerId);
   const canConnect = !!name.trim() && /^https?:\/\//i.test(baseUrl.trim()) && !busy;
 
   const present = useMemo(() => new Set(presentIds), [presentIds]);
@@ -131,9 +165,16 @@ export function GatewayWizard({
         setError(t("providers.gateway.discoverFailed", { error: res.error ?? "unknown" }));
         return;
       }
-      setModels(res.models);
-      setPresentIds(res.models.map((m) => m.id));
-      setChoices({});
+      // 编辑态的「连接」等同于刷新：合并而非替换，已启用但这次没返回的模型保留并标警示。
+      // 直接替换会把用户已经在用的模型静默从配置里抹掉——那正是 §B3.5 禁止的形态。
+      if (initial) {
+        mergeDiscovered(res.models);
+      } else {
+        setModels(res.models);
+        setPresentIds(res.models.map((m) => m.id));
+        setChoices({});
+      }
+      setProbed(true);
       setStep("select");
     } finally {
       setBusy(false);
@@ -155,6 +196,7 @@ export function GatewayWizard({
         return;
       }
       mergeDiscovered(res.models);
+      setProbed(true);
     } finally {
       setBusy(false);
     }
@@ -168,14 +210,14 @@ export function GatewayWizard({
     try {
       const selections: GatewayModelSelection[] = enabledIds.map((id) => {
         const ref = choices[id]?.reference;
-        return {
-          id,
-          referenceProviderId: ref?.providerId,
-          referenceModelId: ref?.modelId,
-        };
+        if (ref) return { id, referenceProviderId: ref.providerId, referenceModelId: ref.modelId };
+        // 编辑态：已保存的「参照」来源必须原样带回主进程。不带的话，重新生成时目录照样认不出
+        // 这个模型 id，主进程会退到保守兜底——用户什么都没改，能力却被悄悄改小了。
+        const saved = parseReferenceSource(models.find((m) => m.id === id)?.capabilitySource);
+        return { id, referenceProviderId: saved?.providerId, referenceModelId: saved?.modelId };
       });
       const built = await build.mutateAsync({
-        id: slug,
+        id: providerId,
         name: name.trim(),
         baseUrl: baseUrl.trim(),
         api,
@@ -187,7 +229,7 @@ export function GatewayWizard({
         return;
       }
       const saved = await save.mutateAsync({
-        id: slug,
+        id: providerId,
         json: built.json,
         secretRefs: keyStored ? [secretName] : [],
         updatedAt: Date.now(),
@@ -203,12 +245,15 @@ export function GatewayWizard({
     }
   };
 
-  /** 「返回修改」：连接参数一旦变了，探测结果与 Secret 名都可能失配，故整体作废重来。 */
+  /**
+   * 「返回修改」：连接参数一旦变了，探测结果与 Secret 名都可能失配，故整体作废重来。
+   * 编辑态还原到**已保存的种子**而不是清空：用户点了返回又改主意时，原有的模型勾选不该凭空消失。
+   */
   const backToConnect = () => {
     setStep("connect");
-    setModels([]);
-    setPresentIds([]);
-    setChoices({});
+    setModels(seed?.models ?? []);
+    setPresentIds((seed?.models ?? []).map((m) => m.id));
+    setChoices(seedChoices);
     setPickingFor(null);
     setError(null);
   };
@@ -216,9 +261,13 @@ export function GatewayWizard({
   return (
     <div className="pw-pip-form">
       <div className="pw-pip-form-head">
-        <span className="pw-pip-form-title">{t("providers.gateway.title")}</span>
+        <span className="pw-pip-form-title">
+          {initial ? t("providers.gateway.editTitle") : t("providers.gateway.title")}
+        </span>
         <span className="pw-pip-spacer" />
-        <span className="pw-pip-caps-d">{t("providers.gateway.desc")}</span>
+        <span className="pw-pip-caps-d">
+          {initial ? t("providers.gateway.editDesc") : t("providers.gateway.desc")}
+        </span>
       </div>
 
       {!supported ? <div className="pw-set-hint">{t("providers.gateway.unsupported")}</div> : null}
@@ -229,6 +278,8 @@ export function GatewayWizard({
           baseUrl={baseUrl}
           api={api}
           apiKey={key}
+          editing={!!initial}
+          keyOnFile={keyStored}
           storageAvailable={storageAvailable}
           onName={setName}
           onBaseUrl={setBaseUrl}
@@ -251,6 +302,11 @@ export function GatewayWizard({
             <span className="pw-pip-caps-t">{t("providers.gateway.modelsTitle", { count: models.length })}</span>
             <span className="pw-pip-caps-d">{t("providers.gateway.capsReadonly")}</span>
           </div>
+
+          {/* 编辑态且尚未探测：明说列表来自已保存配置，否则用户会以为这就是网关当前的真实清单。 */}
+          {initial && !probed ? (
+            <div className="pw-set-hint">{t("providers.gateway.editSeedHint")}</div>
+          ) : null}
 
           {missingIds.length > 0 ? (
             <div className="pw-prov-alert is-warn">
@@ -324,6 +380,8 @@ function GatewayConnectStep({
   baseUrl,
   api,
   apiKey,
+  editing,
+  keyOnFile,
   storageAvailable,
   onName,
   onBaseUrl,
@@ -334,6 +392,10 @@ function GatewayConnectStep({
   baseUrl: string;
   api: string;
   apiKey: string;
+  /** 编辑已有配置：名称只影响显示名，id 与 Secret 名都已锁死（见组件头部说明）。 */
+  editing: boolean;
+  /** 金库里已经有这个供应商的 Key —— 留空即沿用，不必重填。 */
+  keyOnFile: boolean;
   storageAvailable: boolean;
   onName: (v: string) => void;
   onBaseUrl: (v: string) => void;
@@ -341,6 +403,9 @@ function GatewayConnectStep({
   onKey: (v: string) => void;
 }) {
   const { t } = useTranslation("settings");
+  // 定义里的协议可能不在向导的两个选项里（比如被 JSON 编辑器改过）。补一个同值 option，
+  // 免得 select 渲染成空白后被 onChange 静默改写成 openai-completions。
+  const apiKnown = API_OPTIONS.some((a) => a.id === api);
   return (
     <>
       <div className="pw-pip-form-grid">
@@ -357,6 +422,7 @@ function GatewayConnectStep({
         <label className="pw-set-field">
           <span className="pw-set-lbl">{t("providers.gateway.api")}</span>
           <select className="pw-set-input" value={api} onChange={(e) => onApi(e.target.value)}>
+            {apiKnown ? null : <option value={api}>{api}</option>}
             {API_OPTIONS.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.label}
@@ -379,13 +445,16 @@ function GatewayConnectStep({
 
       <label className="pw-set-field">
         <span className="pw-set-lbl">
-          {t("providers.apiKey")} <span className="pw-pip-optional">{t("providers.gateway.keyOptional")}</span>
+          {t("providers.apiKey")}{" "}
+          <span className="pw-pip-optional">
+            {editing && keyOnFile ? t("providers.gateway.keyKeep") : t("providers.gateway.keyOptional")}
+          </span>
         </span>
         <input
           className="pw-set-input"
           type="password"
           value={apiKey}
-          placeholder={t("providers.gateway.keyPh")}
+          placeholder={editing && keyOnFile ? t("providers.gateway.keyKeepPh") : t("providers.gateway.keyPh")}
           autoComplete="off"
           spellCheck={false}
           disabled={!storageAvailable}
@@ -451,11 +520,7 @@ function GatewayModelRow({
 
       <div className="pw-gw-row-meta">
         {known ? (
-          <span className="pw-gw-source">
-            {model.capabilitySource
-              ? t("providers.gateway.sourceCatalog", { ref: model.capabilitySource })
-              : t("providers.gateway.sourceCatalogPlain")}
-          </span>
+          <CapabilitySourceLabel source={model.capabilitySource} />
         ) : reference ? (
           <span className="pw-gw-source">
             {t("providers.gateway.sourceReference", {
@@ -475,5 +540,31 @@ function GatewayModelRow({
       {missing ? <div className="pw-prov-alert is-warn">{t("providers.gateway.missingRow")}</div> : null}
       {picking ? <GatewayReferencePicker onPick={onPick} onCancel={onCancelPick} /> : null}
     </div>
+  );
+}
+
+/**
+ * 一条已确定能力的来源标注。
+ *
+ * 必须按 `reference:` 前缀分流：编辑态回显的 `capabilitySource` 来自已保存的定义，其中
+ * 「用户当初指认的参照模型」写作 `reference:<provider>/<model>`。不分流的话它会被当成
+ * 「随包目录命中」显示，等于把用户自己做的判断说成是系统查到的事实——来源标注唯一的价值
+ * 就是可追溯，标错类别比不标更糟。
+ * （`fallback` 不会走到这里：种子化时它已被降级成未识别行，见 gatewayDefinition.seedFromDefinition。）
+ */
+function CapabilitySourceLabel({ source }: { source: string | undefined }) {
+  const { t } = useTranslation("settings");
+  const reference = parseReferenceSource(source);
+  if (reference) {
+    return (
+      <span className="pw-gw-source">
+        {t("providers.gateway.sourceReference", { ref: `${reference.providerId}/${reference.modelId}` })}
+      </span>
+    );
+  }
+  return (
+    <span className="pw-gw-source">
+      {source ? t("providers.gateway.sourceCatalog", { ref: source }) : t("providers.gateway.sourceCatalogPlain")}
+    </span>
   );
 }

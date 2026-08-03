@@ -28,6 +28,7 @@ import type {
 
 import { createLogger } from "../log";
 import { createSafeStorageCredentialStore } from "./credentials";
+import { syncCustomProvidersInto } from "./custom-provider-registry";
 import { safeErrorMessage } from "./secrets";
 
 const log = createLogger("provider-pi-runtime");
@@ -88,7 +89,13 @@ async function getModels(): Promise<MutableModels> {
     log.error("pi-ai 运行时加载失败:", safeErrorMessage(err));
     throw new Error("模型运行时不可用（pi-ai 加载失败）");
   });
-  return modelsPromise;
+  const models = await modelsPromise;
+  // 主进程这份注册表默认只有内建供应商;把用户的自定义供应商也补进来,否则连接测试与
+  // Model Gateway（Reply / Research / 日报 / Writing）对自定义模型全都报「模型不存在」。
+  // 幂等且廉价,每次取都同步一遍 —— 用户刚改完的定义立刻生效,不必重启。
+  // 同步失败不影响内建供应商可用性（内部已吞错）。
+  await syncCustomProvidersInto(models);
+  return models;
 }
 
 /** 从 AssistantMessage 里取纯文本（连接测试只需确认「有响应」，不解析工具调用）。 */
