@@ -14,6 +14,7 @@ import { McpCard } from "./McpSection";
 import { McpServerForm } from "./McpServerForm";
 import { ExtensionPanel } from "./ExtensionPanel";
 import { ComputerUseSection } from "./ComputerUseSection";
+import { AutomationToolsSection } from "./AutomationToolsSection";
 import { SkillPanel } from "../skills/SkillPanel";
 import { MarketplaceList } from "./MarketplaceList";
 import { PluginRow } from "./PluginRow";
@@ -144,6 +145,8 @@ export function PluginManagePage({
               自带「独属 Cortex」标记与非 mac 隐藏,故不并入下面那条共用提示。
               （"pi" 是技术标识符,面向用户显示为内置的 Cortex Agent。） */}
           <ComputerUseSection />
+          {/* 会话内管理定时任务:同属「只在 Cortex（pi）会话生效」的一类,与上面两个并列。 */}
+          <AutomationToolsSection />
           <div className="pw-plugins-hint pw-plugins-scope-note" role="note">
             <b>Cortex 原生扩展</b> 仅在 <b>Cortex</b> 会话中加载，对 <b>Claude Code</b> / <b>Codex</b> 无效。
           </div>

@@ -698,6 +698,21 @@ export interface GeneralSettings {
   // Computer Use（pi 操作真实桌面 GUI）。主进程读它做注入门控,**进** main 镜像。
   // 缺省 = 启用（只有显式 false 才关）——这是产品决策:默认开箱即用。
   computerUse?: ComputerUseSettings;
+  // 自动化工具（Agent 在会话中管理定时任务）。主进程读它做注入门控,**进** main 镜像。
+  automationTools?: AutomationToolsSettings;
+}
+
+// 让 Agent 在会话中管理定时任务的总开关（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
+//
+// 缺省视为**开启**——同 Computer Use 的口径:默认开箱即用,安全由「写工具强制审批」兜底
+// (见 personal/permissionMode.ts 的 ALWAYS_APPROVE_TOOLS),好过默认关闭而用户永远发现不了。
+// 与 Computer Use 同样只在 pi RPC 聊天路径生效:单发路径与定时任务自身的执行路径都没有审批
+// UI,在那里给 Agent 建/删定时任务的权限等于无监督自增殖。
+//
+// 注意系统日历能力**没有**对应开关:它的门控就是 macOS 授权本身(未授权即不注入)。
+export interface AutomationToolsSettings {
+  // 总开关。缺省（undefined）视为启用,只有显式 false 才关。
+  enabled?: boolean;
 }
 
 // Computer Use 设置（与 apps/desktop/src/main/ipc/types.ts 逐字镜像,改一处必改两处）。

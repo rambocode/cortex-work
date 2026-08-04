@@ -400,6 +400,16 @@ export interface GeneralSettings {
   knowledgeBase?: KnowledgeBaseSettings;
   // Computer Use（与 core 镜像）。主进程读它做注入门控（capabilities/computer-use/inject.ts）。
   computerUse?: ComputerUseSettings;
+  // 自动化工具（与 core 镜像）。主进程读它做注入门控（capabilities/automation/server.ts）。
+  automationTools?: AutomationToolsSettings;
+}
+
+// 让 Agent 在会话中管理定时任务的总开关（与 core/desktop/types.ts 逐字镜像）。
+// 缺省视为**开启**——同 Computer Use 的口径：默认开箱即用，安全由「写工具强制审批」兜底，
+// 好过默认关闭而用户永远发现不了这个能力。
+// 注意日历能力**没有**对应开关：它的门控就是系统授权本身（未授权即不注入）。
+export interface AutomationToolsSettings {
+  enabled?: boolean;
 }
 
 // 公司知识库接入配置（与 packages/core/desktop/types.ts 逐字镜像）。

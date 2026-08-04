@@ -183,6 +183,13 @@ export function AutomationList({
               <div className="pw-auto-item-main">
                 <div className="pw-auto-item-title">
                   {a.name || "未命名自动化"}
+                  {/* AI 代建标记：这条任务是用户在会话里让 Cortex 建的（经 MCP 工具）。
+                      纯审计用途,不参与任何准入判断——用户需要能一眼分辨「哪些是我自己建的」。 */}
+                  {a.createdBy === "agent" ? (
+                    <span className="pw-auto-badge" title="由 Cortex 在会话中创建">
+                      AI 创建
+                    </span>
+                  ) : null}
                   {!a.enabled ? <span className="pw-auto-badge is-warn">已暂停</span> : null}
                   {a.lastStatus ? (
                     <span className={`pw-auto-badge ${STATUS_CLASS[a.lastStatus]}`}>{STATUS_LABEL[a.lastStatus]}</span>
