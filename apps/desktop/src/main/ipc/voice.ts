@@ -22,6 +22,8 @@ import {
   sendVoiceChatCommand,
 } from "../voice/voice-chat-window";
 import { loadChat, saveChat } from "./chat";
+import { updatePersistedState } from "./store";
+import type { PersistedState, SessionMeta } from "./types";
 
 export const VOICE_HOTKEY_INPUT_INVALID_TOAST = "语音快捷键输入无效";
 export const VOICE_HOTKEY_OCCUPIED_TOAST = "语音快捷键已被系统占用";
@@ -44,8 +46,10 @@ export interface VoiceHotkeyCallbacks {
   onVoiceHotkeysChanged?: (hotkeys: VoiceHotkeyInput) => void;
 }
 
-/** 听写栏仅回传最终文本；真实粘贴仍由 main 侧 controller 经 helper 完成。 */
-export type DictationResultPayload = { ok: true; text: string } | { ok: false; reason?: string };
+/** 听写栏仅回传某个录音 token 的最终文本；真实粘贴仍由 main 侧 controller 经 helper 完成。 */
+export type DictationResultPayload =
+  | { ok: true; text: string; token: number }
+  | { ok: false; token: number; reason?: string };
 
 let registered: RegisteredVoiceHotkeys = { chatHotkey: "", dictationToggleHotkey: "" };
 let callbacks: Required<VoiceHotkeyCallbacks> = {
@@ -55,6 +59,9 @@ let callbacks: Required<VoiceHotkeyCallbacks> = {
 };
 let dictationResultHandler: ((result: DictationResultPayload) => Promise<void> | void) | null = null;
 let screenshotProvider: (() => Promise<Record<string, unknown>>) | null = null;
+// 全局热键唤起前由 main 捕获的前台应用 pid；浮层 focus 后 frontmost 会变成 Cortex，
+// 因而截图必须使用这个快照而不是在 renderer 提交时重新猜测。
+let voiceChatScreenContextPid: number | null = null;
 
 const GLOBAL_FIELDS: readonly GlobalVoiceHotkeyField[] = ["chatHotkey", "dictationToggleHotkey"];
 
@@ -69,6 +76,8 @@ export function registerVoiceHandlers(nextCallbacks: VoiceHotkeyCallbacks = {}):
     return applyVoiceHotkeys(input);
   });
   ipcMain.handle("voice:openChat", (): void => {
+    // 非全局热键入口没有「打开前的原应用」快照，宁可让截图显式失败也不能复用上一轮 pid。
+    voiceChatScreenContextPid = null;
     openVoiceChatWindow();
     sendVoiceChatCommand("focus");
   });
@@ -98,7 +107,40 @@ export function registerVoiceHandlers(nextCallbacks: VoiceHotkeyCallbacks = {}):
     assertVoiceChatSessionId(sessionId);
     if (!Array.isArray(messages)) throw new Error("语音聊天消息列表必须是数组");
     await saveChat(VOICE_CHAT_SESSION_ID, messages);
+    // 语音浮层没有全量 store:save 权限；因此主进程在权威态上维护这条固定会话的列表元数据，
+    // 主窗口下次 hydrate 时即可用通常的 SessionMeta 路径加载历史，而不会出现孤立 chat 文件。
+    await updatePersistedState((state) => upsertVoiceChatSession(state));
   });
+}
+
+/**
+ * 为专用 `voice-chat` 消息文件维护主窗口会话列表所需的最小 SessionMeta。
+ * 已有记录只刷新活跃时间，保留用户可能编辑过的标题、归档状态和既有 agent 元数据；新记录则
+ * 沿用最后选择的 agent/model，缺省回退合法内置 agent `codex`，与普通 SessionMeta 结构兼容。
+ */
+export function upsertVoiceChatSession(state: PersistedState, now = Date.now()): PersistedState {
+  const existing = state.sessions.find((session) => session.id === VOICE_CHAT_SESSION_ID);
+  if (existing) {
+    return {
+      ...state,
+      sessions: state.sessions.map((session) =>
+        session.id === VOICE_CHAT_SESSION_ID ? { ...session, updatedAt: now } : session,
+      ),
+    };
+  }
+
+  const session: SessionMeta = {
+    id: VOICE_CHAT_SESSION_ID,
+    title: "语音聊天",
+    agent: state.lastAgent ?? "codex",
+    model: state.lastModel,
+    providerId: state.lastProviderId,
+    // 与主窗口 createSession 的默认值保持一致，避免复用固定会话时意外关闭 agent 自带 skills。
+    useOwnSkills: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  return { ...state, sessions: [...state.sessions, session] };
 }
 
 /**
@@ -123,6 +165,14 @@ export function setDictationResultHandler(
 /** 屏幕截图由唯一 Cortex_Helper 实例提供；未装配时 IPC 明确失败而不退化成错误的整屏抓取。 */
 export function setVoiceScreenshotProvider(provider: (() => Promise<Record<string, unknown>>) | null): void {
   screenshotProvider = provider;
+}
+
+export function setVoiceChatScreenContextPid(pid: number | null): void {
+  voiceChatScreenContextPid = pid;
+}
+
+export function getVoiceChatScreenContextPid(): number | null {
+  return voiceChatScreenContextPid;
 }
 
 /** 全局聊天键第一次打开并录音；浮层可见时再次按下即要求 renderer 停录并提交。 */
@@ -262,10 +312,14 @@ function allSucceeded(results: VoiceHotkeyResults): boolean {
 
 function parseDictationResult(value: unknown): DictationResultPayload | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { ok?: unknown; text?: unknown; reason?: unknown };
-  if (candidate.ok === true && typeof candidate.text === "string") return { ok: true, text: candidate.text };
+  const candidate = value as { ok?: unknown; text?: unknown; reason?: unknown; token?: unknown };
+  // token 是跨进程隔离边界：没有它的旧/伪造消息不能被 controller 误当作当前轮结果。
+  if (!Number.isSafeInteger(candidate.token) || (candidate.token as number) < 1) return null;
+  if (candidate.ok === true && typeof candidate.text === "string") {
+    return { ok: true, text: candidate.text, token: candidate.token as number };
+  }
   if (candidate.ok === false && (candidate.reason == null || typeof candidate.reason === "string")) {
-    return { ok: false, reason: candidate.reason as string | undefined };
+    return { ok: false, token: candidate.token as number, reason: candidate.reason as string | undefined };
   }
   return null;
 }

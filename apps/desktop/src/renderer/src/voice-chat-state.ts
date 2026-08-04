@@ -14,6 +14,7 @@ export type VoiceChatEvent =
   | { type: "transcribed" }
   | { type: "responseComplete" }
   | { type: "speechFinished" }
+  | { type: "closed" }
   | { type: "failed"; message: string };
 
 export const initialVoiceChatState: VoiceChatState = { phase: "idle" };
@@ -23,6 +24,8 @@ export const initialVoiceChatState: VoiceChatState = { phase: "idle" };
  * 失败总是回 idle，确保用户不需要重开窗口即可再次录音。
  */
 export function transitionVoiceChat(state: VoiceChatState, event: VoiceChatEvent): VoiceChatState {
+  // 隐藏窗口并不卸载 renderer；关闭必须无条件清掉旧阶段/错误，下一次全局快捷键才能立即新建录音。
+  if (event.type === "closed") return initialVoiceChatState;
   if (event.type === "failed") return { phase: "idle", error: event.message };
 
   switch (state.phase) {

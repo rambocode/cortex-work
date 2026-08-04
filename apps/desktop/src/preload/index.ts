@@ -1194,15 +1194,18 @@ const voiceChat = {
 // 听写栏专用窄桥：不抢焦 renderer 只能读取转写所需配置、接收主进程状态并提交最终文本；
 // 文本注入始终留在 main + Cortex_Helper，不能把 paste 或任意文件访问暴露给浮层。
 const dictation = {
-  onState: (cb: (state: "idle" | "recording" | "transcribing") => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, state: "idle" | "recording" | "transcribing") => cb(state);
+  onState: (cb: (state: { phase: "idle" | "recording" | "transcribing"; token: number }) => void): (() => void) => {
+    const listener = (
+      _e: IpcRendererEvent,
+      state: { phase: "idle" | "recording" | "transcribing"; token: number },
+    ) => cb(state);
     ipcRenderer.on("dictation:state", listener);
     return () => ipcRenderer.removeListener("dictation:state", listener);
   },
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   transcribe: (req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse> =>
     ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
-  submitResult: (result: { ok: boolean; text?: string; reason?: string }): Promise<void> =>
+  submitResult: (result: { ok: boolean; token: number; text?: string; reason?: string }): Promise<void> =>
     ipcRenderer.invoke("dictation:result", result),
 };
 

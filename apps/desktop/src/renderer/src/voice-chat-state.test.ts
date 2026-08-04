@@ -27,4 +27,9 @@ describe("voice chat state machine", () => {
       error: "麦克风不可用",
     });
   });
+
+  it("关闭浮层无论处于哪个阶段都复位到干净 idle，下一次快捷键可立即录音", () => {
+    expect(transitionVoiceChat({ phase: "recording" }, { type: "closed" })).toEqual(initialVoiceChatState);
+    expect(transitionVoiceChat({ phase: "speaking", error: "旧错误" }, { type: "closed" })).toEqual(initialVoiceChatState);
+  });
 });

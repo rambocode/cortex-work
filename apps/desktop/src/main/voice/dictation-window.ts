@@ -19,6 +19,12 @@ export interface DictationWindowBounds {
 
 export type DictationBarState = "idle" | "recording" | "transcribing";
 
+/** 状态与录音世代必须同帧下发，renderer 才能把异步转写结果绑定到正确的主进程会话。 */
+export interface DictationBarStatePayload {
+  phase: DictationBarState;
+  token: number;
+}
+
 let win: BrowserWindow | null = null;
 let shouldStayVisible = false;
 
@@ -72,10 +78,11 @@ function createDictationWindow(): BrowserWindow {
 }
 
 /** 下发听写状态。录音/转写时强制显示；idle 仅在用户选了常驻提醒时显示。 */
-export function pushDictationBarState(state: DictationBarState, alwaysVisible: boolean): void {
+export function pushDictationBarState(state: DictationBarState, alwaysVisible: boolean, token = 0): void {
   shouldStayVisible = alwaysVisible;
   const window = win && !win.isDestroyed() ? win : createDictationWindow();
-  const send = (): void => window.webContents.send("dictation:state", state);
+  const payload: DictationBarStatePayload = { phase: state, token };
+  const send = (): void => window.webContents.send("dictation:state", payload);
   if (window.webContents.isLoading()) window.webContents.once("did-finish-load", send);
   else send();
 

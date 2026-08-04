@@ -84,7 +84,7 @@ sequenceDiagram
 
 ### 语音聊天
 
-语音聊天使用独立浮层、半双工状态机：`idle → recording → transcribing → sending → speaking → idle`。浮层仅读取已保存设置，不能写 `personal-workspace.json`，防止与主窗口的全量保存竞争。可选屏幕上下文通过 helper 截取前台窗口；屏幕录制和麦克风权限失败时要保留无截图/无录音的明确降级提示。
+语音聊天使用独立浮层、半双工状态机：`idle → recording → transcribing → sending → speaking → idle`。浮层仅读取已保存设置，不能写 `personal-workspace.json`，防止与主窗口的全量保存竞争。可选屏幕上下文会在浮层抢焦前冻结原前台应用的 pid，并由 helper 截取该窗口，不能在提交时重新读取前台应用而误截 Cortex 浮层；屏幕录制和麦克风权限失败时要保留无截图/无录音的明确降级提示。
 
 ### 权限与平台
 

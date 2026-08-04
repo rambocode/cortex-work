@@ -35,6 +35,11 @@ function phaseLabel(state: VoiceChatState): string {
   }
 }
 
+/** 保持在函数边界检查，避免异步 getUserMedia 前的 idle 窄化掩盖状态已经转换。 */
+function isRecordingState(state: VoiceChatState): boolean {
+  return state.phase === "recording";
+}
+
 /** chat:load 兼容 v1 数组与 v2 对象；语音浮层不创建分支，只保留既有消息顺序。 */
 function messagesFromLoadedChat(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
@@ -70,11 +75,16 @@ function VoiceChat(): React.ReactElement {
   const runIdRef = useRef<string | null>(null);
   const responseRef = useRef("");
   const completedRunRef = useRef<string | null>(null);
+  // 窗口关闭时递增；getUserMedia 的晚到 resolve 依此自我释放，不能占住下一次录音的麦克风。
+  const recordingAttemptRef = useRef(0);
   const stateRef = useRef(state);
 
   useEffect(() => { stateRef.current = state; }, [state]);
   const advance = useCallback((event: VoiceChatEvent): void => {
-    setState((current) => transitionVoiceChat(current, event));
+    // 全局快捷键可能紧跟在 React effect 之前到达；ref 与可见 state 同步推进，避免重复启录。
+    const next = transitionVoiceChat(stateRef.current, event);
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   const loadConfig = useCallback(async (): Promise<PersistedState> => {
@@ -138,11 +148,17 @@ function VoiceChat(): React.ReactElement {
     setResponse("");
     responseRef.current = "";
     completedRunRef.current = null;
+    const recordingAttempt = recordingAttemptRef.current + 1;
+    recordingAttemptRef.current = recordingAttempt;
     advance({ type: "startListening" });
     try {
       const config = configRef.current ?? await loadConfig();
       const capture = new VoiceCapture();
       await capture.start(config.voiceSettings?.micDeviceId || undefined);
+      if (recordingAttempt !== recordingAttemptRef.current || !isRecordingState(stateRef.current)) {
+        capture.dispose();
+        return;
+      }
       captureRef.current = capture;
     } catch (err) {
       captureRef.current = null;
@@ -233,12 +249,21 @@ function VoiceChat(): React.ReactElement {
     else if (state.phase === "recording") void stopAndSubmit();
   };
   const onClose = (): void => {
+    // 隐藏窗口后 renderer 仍常驻。先作废在途 getUserMedia，再同步复位 ref，避免下一次快捷键
+    // 早于 React effect 时仍把旧的 recording/sending 阶段误判为活动状态。
+    recordingAttemptRef.current += 1;
     captureRef.current?.dispose();
     captureRef.current = null;
     const runId = runIdRef.current;
     if (runId) void api?.killCli(runId);
     runIdRef.current = null;
     stopSpeaking();
+    responseRef.current = "";
+    completedRunRef.current = null;
+    setTranscript("");
+    setResponse("");
+    stateRef.current = initialVoiceChatState;
+    advance({ type: "closed" });
     void api?.close();
   };
 

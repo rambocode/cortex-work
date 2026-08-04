@@ -9,11 +9,14 @@ import { VoiceCapture, transcribeRecording } from "@cortex-work/views/cortex-des
 import "./dictation-bar.css";
 
 type DictationPhase = "idle" | "recording" | "transcribing";
-type DictationResult = { ok: true; text: string } | { ok: false; reason?: string };
+type DictationState = { phase: DictationPhase; token: number };
+type DictationResult =
+  | { ok: true; text: string; token: number }
+  | { ok: false; token: number; reason?: string };
 
 /** 听写栏只拥有录音、转写和回传能力，不能读写主窗口的完整 personal 状态。 */
 interface DictationBridge {
-  onState(callback: (state: DictationPhase) => void): () => void;
+  onState(callback: (state: DictationState) => void): () => void;
   loadState(): Promise<PersistedState>;
   transcribe: NonNullable<DesktopBridge["transcribeSpeech"]>;
   submitResult(result: DictationResult): Promise<void> | void;
@@ -102,6 +105,8 @@ function DictationBar(): ReactElement {
   const captureRef = useRef<VoiceCapture | null>(null);
   const meterRef = useRef<AudioMeter | null>(null);
   const runTokenRef = useRef(0);
+  // 这是主进程 DictationSession 的 token，不等同 renderer 自己用于作废 getUserMedia 回调的 runToken。
+  const dictationTokenRef = useRef(0);
   const stopRequestedTokenRef = useRef<number | null>(null);
   const finalizingTokenRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
@@ -122,18 +127,18 @@ function DictationBar(): ReactElement {
     stopMeter();
   }, [stopMeter]);
 
-  const submitFailure = useCallback(async (token: number, reason: string): Promise<void> => {
+  const submitFailure = useCallback(async (token: number, dictationToken: number, reason: string): Promise<void> => {
     // idle 代表主进程已取消本轮；此时不能把旧失败结果再送回去覆盖新状态。
     if (!api || !mountedRef.current || token !== runTokenRef.current || phaseRef.current === "idle") return;
     setError(reason);
     try {
-      await api.submitResult({ ok: false, reason });
+      await api.submitResult({ ok: false, reason, token: dictationToken });
     } catch {
       // 主进程窗口销毁时 IPC 可能拒绝；此处没有安全的重试目标，静默结束这轮 renderer 工作。
     }
   }, [api]);
 
-  const stopAndTranscribe = useCallback(async (token: number): Promise<void> => {
+  const stopAndTranscribe = useCallback(async (token: number, dictationToken: number): Promise<void> => {
     if (!api || token !== runTokenRef.current) return;
     const capture = captureRef.current;
     // 快捷键可能在 getUserMedia 尚未 resolve 时再次触发；start 完成后会读取此标记并继续停录。
@@ -159,15 +164,15 @@ function DictationBar(): ReactElement {
       if (!text) throw new Error("没有识别到语音内容");
       // 取消会让 token 递增；晚到的转写绝不能写回已切换的前台应用。
       if (!mountedRef.current || token !== runTokenRef.current || phaseRef.current !== "transcribing") return;
-      await api.submitResult({ ok: true, text });
+      await api.submitResult({ ok: true, text, token: dictationToken });
     } catch (err) {
-      await submitFailure(token, errorMessage(err));
+      await submitFailure(token, dictationToken, errorMessage(err));
     } finally {
       capture.dispose();
     }
   }, [api, stopMeter, submitFailure]);
 
-  const startRecording = useCallback(async (): Promise<void> => {
+  const startRecording = useCallback(async (dictationToken: number): Promise<void> => {
     if (!api) return;
     const token = runTokenRef.current + 1;
     runTokenRef.current = token;
@@ -187,23 +192,28 @@ function DictationBar(): ReactElement {
       const stream = capture.mediaStream;
       if (stream) meterRef.current = startAudioMeter(stream, setLevel);
       if (stopRequestedTokenRef.current === token || phaseRef.current !== "recording") {
-        void stopAndTranscribe(token);
+        void stopAndTranscribe(token, dictationToken);
       }
     } catch (err) {
-      await submitFailure(token, errorMessage(err));
+      await submitFailure(token, dictationToken, errorMessage(err));
     }
   }, [api, stopAndTranscribe, submitFailure]);
 
   useEffect(() => {
     if (!api) return;
-    const offState = api.onState((nextPhase) => {
+    const offState = api.onState((nextState) => {
+      // Electron IPC 正常按序投递，但窗口重载/旧 did-finish-load 回调仍可能送来上一轮状态。
+      // token 单调递增时丢弃它，避免旧 recording 命令再次打开麦克风。
+      if (nextState.token < dictationTokenRef.current) return;
+      dictationTokenRef.current = nextState.token;
+      const nextPhase = nextState.phase;
       const previousPhase = phaseRef.current;
       phaseRef.current = nextPhase;
       setPhase(nextPhase);
       if (nextPhase === "recording" && previousPhase !== "recording") {
-        void startRecording();
+        void startRecording(nextState.token);
       } else if (nextPhase === "transcribing" && previousPhase === "recording") {
-        void stopAndTranscribe(runTokenRef.current);
+        void stopAndTranscribe(runTokenRef.current, nextState.token);
       } else if (nextPhase === "idle" && previousPhase !== "idle") {
         // 主进程取消或完成后由它驱动 idle；renderer 只做本地资源回收，绝不主动夺焦或写回剪贴板。
         abandonActiveCapture();
