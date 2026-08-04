@@ -19,8 +19,6 @@ import {
   profileInitial,
   resolveAvatar,
   resolveDefaultAgent,
-  speakText,
-  stopSpeaking,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalProfile,
@@ -39,8 +37,6 @@ import type {
   InternalNotifyConfig,
   PromptNode,
   SummaryModelConfig,
-  TtsEngineConfig,
-  TtsVoiceOption,
   UpdateState,
   WecomPushConfig,
 } from "@cortex-work/core";
@@ -50,11 +46,8 @@ import { PET_DESIGNS, PET_KIND_KEY, PET_SIZE_KEY, PET_SIZE_MAX, PET_SIZE_MIN } f
 import { PET_SPRITES } from "../../pet/sprites";
 import { savePetEnabled } from "../../pet/behavior";
 import { PluginManager } from "../plugins/PluginManager";
-import { BrowserSettingsSection } from "./BrowserSettingsSection";
 import { ArchivedSessionsSection } from "../sessions/ArchivedSessionsSection";
-import { MediaGenSettingsSection } from "./MediaGenSettingsSection";
-import { SttSettingsSection } from "./SttSettingsSection";
-import { ReplySettingsSection } from "./ReplySettingsSection";
+import { SpeechSettingsSection } from "./SpeechSettingsSection";
 import { RolesSection } from "./RolesSettingsSection";
 import { DesignSettingsSection } from "./DesignSettingsSection";
 import { WritingSettingsSection } from "./WritingSettingsSection";
@@ -67,12 +60,10 @@ import { ModelRefField } from "./provider/ModelRefField";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
-
+import { BrowserSection, isSettingsTypingTarget, MediaGenSection, ReplySection } from "./SettingsViewSupport";
 const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
-
 // 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
-
 type SettingsTab =
   | "profile"
   | "general"
@@ -86,15 +77,13 @@ type SettingsTab =
   | "pet"
   | "timeline"
   | "push"
-  | "voice"
-  | "stt"
+  | "speech"
   | "reply"
   | "roles"
   | "design"
   | "writing"
   | "research"
   | "knowledge";
-
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
 const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> = {
@@ -109,15 +98,14 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
   plugins: { tabKey: "tabs.plugins", icon: <Icon.Workflow size={14} /> },
   browser: { tabKey: "tabs.browser", icon: <Icon.Globe size={14} /> },
-  // 媒体生成 / 语音转文字（U2 新增,U3/U6 填充真实表单）
+  // 媒体生成 / 统一语音设置
   mediaGen: { tabKey: "tabs.mediaGen", icon: <Icon.Image size={14} /> },
-  stt: { tabKey: "tabs.stt", icon: <Icon.Mic size={14} /> },
+  speech: { tabKey: "tabs.speech", icon: <Icon.Mic size={14} /> },
   // 快捷回复助手（U9，macOS-only；非 mac / Web 端由 replyAvailable 过滤隐藏）
   reply: { tabKey: "tabs.reply", icon: <Icon.Send size={14} /> },
   pet: { tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
   timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
   push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
-  voice: { tabKey: "tabs.voice", icon: <Icon.Mic size={14} /> },
   roles: { tabKey: "tabs.roles", icon: <Icon.Users size={14} /> },
   // 设计工作台（AI 设计画布,desktop-only）
   design: { tabKey: "tabs.design", icon: <Icon.Palette size={14} /> },
@@ -128,22 +116,19 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   // 公司知识库（远端 MCP server，desktop-only；旧壳/Web 无 bridge.knowledge → 由 knowledgeAvailable 过滤隐藏）
   knowledge: { tabKey: "tabs.knowledge", icon: <Icon.Archive size={14} /> },
 };
-
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "memory", "archivedSessions"] },
   { groupKey: "tabGroups.models", items: ["pi", "agent", "roles"] },
-  // 媒体生成挂「应用」组,语音转文字挂「个性化」组（同 pet/voice 并列,U2 新增）
+  // 媒体生成挂「应用」组，统一语音设置与个性化能力并列。
   {
     groupKey: "tabGroups.apps",
     items: ["plugins", "knowledge", "browser", "mediaGen", "design", "writing", "research"],
   },
-  { groupKey: "tabGroups.personalization", items: ["pet", "voice", "stt", "reply"] },
+  { groupKey: "tabGroups.personalization", items: ["pet", "speech", "reply"] },
   { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
 ];
-
-
 // 个人资料:昵称 + 头像(背景色 + 图标两模式:用户名首字符 / Emoji,参考 Notion 头像编辑器)。
 // 写入 personal store 的 profile 切片(随工作区落盘);会话中 who="me" 的气泡经
 // whoMeta → resolveAvatar 据此渲染(见 ChatArea MessageAvatar),此处预览与其同源。
@@ -1062,297 +1047,6 @@ function PushSection() {
   );
 }
 
-// ── 语音 TTS ──────────────────────────────────────────────────────────────
-
-// 1× 档展示带「默认」后缀,走 i18n（settings:voice.speechRateDefault）,其余纯符号无需翻译。
-const SPEECH_RATE_VALUES = ["0.8", "1", "1.2", "1.5"];
-
-const FALLBACK_TTS_VOICES: TtsVoiceOption[] = [
-  { id: "alloy" },
-  { id: "ash" },
-  { id: "ballad" },
-  { id: "coral" },
-  { id: "echo" },
-  { id: "fable" },
-  { id: "nova" },
-  { id: "onyx" },
-  { id: "sage" },
-  { id: "shimmer" },
-];
-
-// 语言项标签是「原生语言名 + BCP47 码」,各语言通用,无需随界面语言翻译。
-const TTS_LANGUAGES = [
-  { label: "中文 zh", value: "zh" },
-  { label: "中文 zh-CN", value: "zh-CN" },
-  { label: "English en", value: "en" },
-  { label: "日本語 ja", value: "ja" },
-  { label: "한국어 ko", value: "ko" },
-];
-
-function VoiceSection() {
-  const { t } = useTranslation("settings");
-  const bridge = useDesktopBridge();
-  const tts = usePersonalStore((s) => s.ttsSettings);
-  const setTts = usePersonalStore((s) => s.setTtsSettings);
-  const engine = tts.engine;
-  const setEngine = (e: TtsEngineConfig) => setTts({ engine: e });
-  const [testing, setTesting] = useState(false);
-  const [customVoices, setCustomVoices] = useState<TtsVoiceOption[]>([]);
-  const [loadingVoices, setLoadingVoices] = useState(false);
-
-  // 系统语音列表（speechSynthesis 异步加载,中文音色排前）。
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  useEffect(() => {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    const load = () => {
-      const list = [...synth.getVoices()];
-      list.sort((a, b) => Number(b.lang.startsWith("zh")) - Number(a.lang.startsWith("zh")));
-      setVoices(list);
-    };
-    load();
-    synth.addEventListener("voiceschanged", load);
-    return () => synth.removeEventListener("voiceschanged", load);
-  }, []);
-  const voiceOptions = useMemo(
-    () => [
-      { label: t("voice.voiceSystemDefault"), value: "" },
-      ...voices.map((v) => ({ label: `${v.name}（${v.lang}）`, value: v.name })),
-    ],
-    [voices, t],
-  );
-
-  useEffect(() => {
-    if (engine.kind !== "openai" || !bridge || !engine.baseUrl || !engine.model) {
-      setCustomVoices([]);
-      setLoadingVoices(false);
-      return;
-    }
-    let alive = true;
-    setLoadingVoices(true);
-    bridge
-      .listTtsVoices({ baseUrl: engine.baseUrl, apiKey: engine.apiKey, model: engine.model })
-      .then((list) => {
-        if (alive) setCustomVoices(list);
-      })
-      .catch(() => {
-        if (alive) setCustomVoices([]);
-      })
-      .finally(() => {
-        if (alive) setLoadingVoices(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [bridge, engine]);
-
-  const customVoiceOptions = useMemo(() => {
-    if (engine.kind !== "openai") return [];
-    const source = customVoices.length > 0 ? customVoices : FALLBACK_TTS_VOICES;
-    const seen = new Set<string>();
-    const options: { label: string; value: string }[] = [];
-    for (const v of source) {
-      if (!v.id || seen.has(v.id)) continue;
-      seen.add(v.id);
-      const suffix = v.locale ? ` · ${v.locale}` : "";
-      options.push({ value: v.id, label: `${v.label ?? v.id}${suffix}` });
-    }
-    if (engine.voice && !seen.has(engine.voice)) options.unshift({ value: engine.voice, label: t("voice.voiceCurrent", { voice: engine.voice }) });
-    return options;
-  }, [customVoices, engine, t]);
-
-  const test = async () => {
-    if (testing) return;
-    setTesting(true);
-    try {
-      await speakText(bridge, tts, t("voice.testText"));
-    } catch {
-      // 端点不可用等,静默（按钮恢复即提示完成）
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="pw-dlg-title">{t("voice.title")}</div>
-      <div className="pw-dlg-desc">{t("voice.desc")}</div>
-
-      <SettingCard title={t("voice.readCard")}>
-        <SwitchRow
-          label={t("voice.autoSpeak")}
-          desc={t("voice.autoSpeakDesc")}
-          value={tts.autoSpeak}
-          onChange={(v) => setTts({ autoSpeak: v })}
-        />
-        <SRow label={t("voice.engine")}>
-          <SegmentedRadio
-            value={engine.kind === "system" ? t("voice.engineSystem") : t("voice.engineCustom")}
-            options={[t("voice.engineSystem"), t("voice.engineCustom")]}
-            onChange={(v) =>
-              setEngine(
-                v === t("voice.engineSystem")
-                  ? { kind: "system" }
-                  : { kind: "openai", baseUrl: "http://localhost:8880", apiKey: "", model: "tts-1", voice: "alloy", language: "zh" },
-              )
-            }
-          />
-        </SRow>
-        {engine.kind === "system" ? (
-          <>
-            <SRow label={t("voice.voiceLabel")} desc={t("voice.voiceSystemDesc")}>
-              <BareSelect
-                value={engine.voice ?? ""}
-                options={voiceOptions}
-                onChange={(v) => setEngine({ ...engine, voice: v || undefined })}
-              />
-            </SRow>
-            <SRow label={t("voice.rate")}>
-              <BareSelect
-                value={String(engine.rate ?? 1)}
-                options={SPEECH_RATE_VALUES.map((v) => ({ label: v === "1" ? t("voice.speechRateDefault") : `${v}×`, value: v }))}
-                onChange={(v) => setEngine({ ...engine, rate: Number(v) })}
-              />
-            </SRow>
-          </>
-        ) : (
-          <>
-            <SRow label={t("voice.baseUrl")} desc={t("voice.baseUrlDesc")}>
-              <input
-                className="pw-set-input"
-                value={engine.baseUrl}
-                placeholder="http://localhost:8880"
-                spellCheck={false}
-                onChange={(e) => setEngine({ ...engine, baseUrl: e.target.value })}
-              />
-            </SRow>
-            <SRow label={t("voice.modelName")}>
-              <input
-                className="pw-set-input"
-                value={engine.model}
-                placeholder="tts-1"
-                spellCheck={false}
-                onChange={(e) => setEngine({ ...engine, model: e.target.value })}
-              />
-            </SRow>
-            <SRow
-              label={t("voice.voiceLabel")}
-              desc={loadingVoices ? t("voice.voiceLoading") : customVoices.length > 0 ? t("voice.voiceFromModel") : t("voice.voiceCommon")}
-            >
-              <BareSelect value={engine.voice} options={customVoiceOptions} onChange={(v) => setEngine({ ...engine, voice: v })} />
-            </SRow>
-            <SRow label={t("voice.customVoice")}>
-              <input
-                className="pw-set-input"
-                value={engine.voice}
-                placeholder="alloy"
-                spellCheck={false}
-                onChange={(e) => setEngine({ ...engine, voice: e.target.value })}
-              />
-            </SRow>
-            <SRow label={t("voice.apiKey")} desc={t("voice.apiKeyOptional")}>
-              <input
-                className="pw-set-input"
-                type="password"
-                value={engine.apiKey ?? ""}
-                onChange={(e) => setEngine({ ...engine, apiKey: e.target.value })}
-              />
-            </SRow>
-            <SRow label={t("voice.language")}>
-              <BareSelect value={engine.language ?? "zh"} options={TTS_LANGUAGES} onChange={(v) => setEngine({ ...engine, language: v })} />
-            </SRow>
-            <SRow label={t("voice.customLanguage")}>
-              <input
-                className="pw-set-input"
-                value={engine.language ?? "zh"}
-                placeholder="zh"
-                spellCheck={false}
-                onChange={(e) => setEngine({ ...engine, language: e.target.value || undefined })}
-              />
-            </SRow>
-            <SRow label={t("voice.rate")}>
-              <BareSelect
-                value={String(engine.speed ?? 1)}
-                options={SPEECH_RATE_VALUES.map((v) => ({ label: v === "1" ? t("voice.speechRateDefault") : `${v}×`, value: v }))}
-                onChange={(v) => setEngine({ ...engine, speed: Number(v) })}
-              />
-            </SRow>
-          </>
-        )}
-        <SRow label={t("voice.test")} end>
-          <span style={{ display: "flex", gap: 8 }}>
-            <button className="pw-tl-gen" disabled={testing} onClick={() => void test()}>
-              <Icon.Mic size={12} />
-              {testing ? t("voice.testPlaying") : t("voice.test")}
-            </button>
-            <button className="pw-tl-gen" onClick={() => stopSpeaking()}>
-              <Icon.Stop size={12} />
-              {t("voice.stop")}
-            </button>
-          </span>
-        </SRow>
-      </SettingCard>
-    </>
-  );
-}
-
-// ESC 守卫：录制态（HotkeyCapture 的 .is-recording 按钮）或可编辑控件聚焦时,ESC 有其
-// 局部语义（取消录制 / 不丢输入）,不应连带关闭整页设置——故这些焦点下 ESC 不触发返回。
-function isTypingTarget(el: Element | null): boolean {
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  if ((el as HTMLElement).isContentEditable) return true;
-  if (el.classList.contains("is-recording")) return true;
-  return false;
-}
-
-// 「浏览器」分区（应用组）：内置浏览器与 agent 浏览器控制权限。整页落于 BrowserSettingsSection,
-// 此处仅渲染标题/描述 + 该组件,避免继续撑大本文件(单文件 1200 行上限)。
-function BrowserSection() {
-  const { t } = useTranslation("settings");
-  return (
-    <>
-      <div className="pw-dlg-title">{t("browser.title")}</div>
-      <div className="pw-dlg-desc">{t("browser.desc")}</div>
-      <BrowserSettingsSection />
-    </>
-  );
-}
-
-// 媒体生成分区薄壳：标题行左标题右「修改会自动生效」角标（对齐 Kun 头部），正文四 tab 分页。
-function MediaGenSection() {
-  const { t } = useTranslation("settings");
-  return (
-    <>
-      <div className="pw-mediagen-head">
-        <div className="pw-dlg-title">{t("mediaGen.title")}</div>
-        <span className="pw-mediagen-autofx">{t("mediaGen.autoEffectBadge")}</span>
-      </div>
-      <div className="pw-dlg-desc">{t("mediaGen.desc")}</div>
-      <MediaGenSettingsSection />
-    </>
-  );
-}
-
-// 语音转文字分区薄壳 — 真实表单由 U6 填充,此处只保证 switch case 不白屏。
-function SttSection() {
-  const { t } = useTranslation("settings");
-  return (
-    <>
-      <div className="pw-dlg-title">{t("stt.title")}</div>
-      <div className="pw-dlg-desc">{t("stt.desc")}</div>
-      <SttSettingsSection />
-    </>
-  );
-}
-
-// 快捷回复分区薄壳（U9）：真实表单在 ReplySettingsSection，自带非 mac / Web 守卫返回 null。
-// 标题/说明由 ReplySettingsSection 的 sticky 头承载（分段导航滚动 spy），此处不再重复渲染。
-function ReplySection() {
-  return <ReplySettingsSection />;
-}
-
 export function PersonalSettingsView() {
   const { t } = useTranslation("settings");
   const closeSettings = usePersonalStore((s) => s.closeSettings);
@@ -1379,9 +1073,10 @@ export function PersonalSettingsView() {
     if (settingsTab === "memory" && !memoryAvailable) return;
     if (settingsTab === "research" && !researchAvailable) return;
     if (settingsTab === "knowledge" && !knowledgeAvailable) return;
-    if (settingsTab in TAB_META) setTab(settingsTab as SettingsTab);
+    // 旧调用方可能仍传 "voice" / "stt"；两者统一进入 speech，避免升级后落到默认分区。
+    if (settingsTab === "voice" || settingsTab === "stt") setTab("speech");
+    else if (settingsTab in TAB_META) setTab(settingsTab as SettingsTab);
   }, [settingsTab, replyAvailable, memoryAvailable, researchAvailable, knowledgeAvailable]);
-
   // 挂载时把焦点移入覆盖层（返回按钮）,避免键盘焦点停在被遮挡但仍在 DOM 的底层控件上。
   useEffect(() => {
     backRef.current?.focus();
@@ -1392,7 +1087,7 @@ export function PersonalSettingsView() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (isTypingTarget(document.activeElement)) return;
+      if (isSettingsTypingTarget(document.activeElement)) return;
       closeSettings();
     };
     window.addEventListener("keydown", onKey);
@@ -1456,8 +1151,8 @@ export function PersonalSettingsView() {
             <BrowserSection />
           ) : tab === "mediaGen" ? (
             <MediaGenSection />
-          ) : tab === "stt" ? (
-            <SttSection />
+          ) : tab === "speech" ? (
+            <SpeechSettingsSection />
           ) : tab === "reply" ? (
             <ReplySection />
           ) : tab === "roles" ? (
@@ -1470,9 +1165,7 @@ export function PersonalSettingsView() {
             <ResearchSettingsSection />
           ) : tab === "knowledge" ? (
             <KnowledgeSettingsSection />
-          ) : (
-            <VoiceSection />
-          )}
+          ) : null}
         </div>
       </div>
     </div>

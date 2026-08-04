@@ -182,6 +182,7 @@ export {
   type TtsSynthesizeRequest,
   type TtsListVoicesRequest,
   type TtsVoiceOption,
+  type VoiceSettings,
   type UpdatePhase,
   type UpdateState,
   type TaskFileInfo,

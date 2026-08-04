@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersistedState, ProjectMeta, PushSettings, SessionMeta } from "../desktop/types";
-import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings, MAX_TIMEOUT_MS_BY_MODALITY } from "../desktop/types";
+import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings, defaultVoiceSettings, MAX_TIMEOUT_MS_BY_MODALITY } from "../desktop/types";
 import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
@@ -1436,6 +1436,19 @@ describe("语音识别设置（asrSettings）", () => {
     usePersonalStore.getState().hydrate(base);
     const s = usePersonalStore.getState();
     expect(toPersistedState(s).asrSettings).toBe(s.asrSettings);
+  });
+});
+
+describe("统一语音交互设置（voiceSettings）", () => {
+  it("hydrate 旧档时补默认值，并在全量持久化快照中保留用户修改", () => {
+    const expected = { ...defaultVoiceSettings(), micDeviceId: "built-in-mic", dictationDictionary: ["Cortex"] };
+    usePersonalStore.getState().hydrate({ ...base, voiceSettings: expected });
+
+    const state = usePersonalStore.getState() as typeof usePersonalStore extends { getState: () => infer T }
+      ? T & { voiceSettings?: typeof expected }
+      : never;
+    expect(state.voiceSettings).toEqual(expected);
+    expect(toPersistedState(state).voiceSettings).toEqual(expected);
   });
 });
 

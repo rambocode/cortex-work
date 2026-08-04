@@ -79,8 +79,7 @@
 | 内嵌终端 | `personal/terminal/TerminalPanel.tsx` | — | `ipc/pty.ts` |
 | 文件树 / 文件预览 / Git 信息条 | `personal/files/`（`FilesView.tsx` + `MonacoViewer`/`PdfViewer`/`DocxViewer`/`PptxViewer`/`sheet/`；Markdown 渲染栈独立在 `personal/markdown/`） | `personal/filePaths.ts` | `ipc/fs.ts`、`ipc/watch.ts`、`ipc/git-info.ts` |
 | 图片 / 文档上传 | `personal/chat/composer/PersonalComposer.tsx` | — | `ipc/image.ts`、`ipc/doc.ts`、`capabilities/doc-extract/` |
-| 语音输入 / 语音转文字（STT） | `personal/chat/composer/useComposerVoice.ts`、`settings/SttLocalWhisperPanel.tsx` | `whisper/models.ts` | `ipc/stt.ts`、`capabilities/whisper/` |
-| 语音播报（TTS） | 设置「语音」分区 | `personal/tts.ts` | — |
+| 语音（麦克风 / TTS / 语音聊天 / 系统级听写 / STT） | `personal/settings/SpeechSettingsSection.tsx`（统一分区）、`SpeechTtsPanel.tsx`、`SpeechDictationDictionary.tsx`、`SttSettingsSection.tsx`、`personal/chat/composer/useComposerVoice.ts` | `store/personal.ts` 的 `voiceSettings`、`personal/tts.ts`、`whisper/models.ts` | `ipc/voice.ts`（快捷键注册）、`ipc/stt.ts`、`capabilities/whisper/` |
 | 媒体生成（图像/语音/音乐/视频） | `personal/settings/MediaGenSettingsSection.tsx`（壳：总览 + 四卡组装）、`personal/settings/media-gen/`（`useMediaGenProviders.ts` 目录×认证快照数据层、`MediaGenRows.tsx` 共享行与协议 i18n 查表、`MediaSecretKeyField.tsx` 密钥金库控件（store 只落 `${secret:NAME}` 引用）、`ImageGenCard/SpeechGenCard/MusicGenCard/VideoGenCard.tsx` 各模态卡） | `desktop/media-gen-types.ts`（类型/默认工厂/`normalizeMediaGenSettings`/`MAX_TIMEOUT_MS_BY_MODALITY`，与 main `ipc/types.ts` 双镜像）、`desktop/media-provider-directory.ts`（媒体供应商目录，core 单份、main 直接 import 不镜像） | `capabilities/media-gen/`（`server.ts` 四工具按协议动态 schema；`client.ts` 含 `assertRealWithinWorkspace` symlink 防护与参考图/帧图收集；`protocols/` 按协议拆文件：`shared.ts` 公共工具、`minimax-image/-audio/-video.ts`、`openai-images.ts`） |
 | 插件 / 扩展市场 | `personal/plugins/`（`PluginManager.tsx`、`PluginsHome.tsx`、`ExtensionPanel.tsx`） | `personal/extensions.ts` | `ipc/plugins.ts`、`plugins/` |
 | 技能（Skill） | `personal/skills/SkillPanel.tsx` | `personal/skill-injection.ts`、`piSkills.ts` | `ipc/skills.ts`、`skills/` |
@@ -119,7 +118,7 @@
 
 **内容与文件**：`fs.ts` / `fs-binary.ts`（读写）、`watch.ts` + `watch-noise.ts`（目录监听）、`git-info.ts`、`image.ts`（图片上传）、`doc.ts`（文档附件）、`editors.ts`（在编辑器打开）、`pty.ts`（终端）、`browser.ts`（内嵌浏览器）。
 
-**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
+**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`voice.ts`（语音聊天 / 听写快捷键）、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
 
 **写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）。
 
