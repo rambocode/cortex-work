@@ -30,8 +30,14 @@ files:
   - package.json
   # 防私有源码结构经 sourcemap 泄入公开产物（生产构建默认不出 .map,这里再加一道防御,见计划 F6）。
   - "!**/*.map"
-  # pi 改用 resources/pi 下的 bun 自包含二进制（extraResources）,npm 包不必进 asar,排除省体积。
-  - "!**/node_modules/@earendil-works/**"
+  # pi 聊天会话走 resources/pi 下的 bun 自包含二进制（extraResources）,故 pi-coding-agent 及其
+  # TUI/agent-core 不必进 asar。⚠️ 但 @earendil-works/pi-ai **必须保留**:主进程的连接测试与
+  # Model Gateway（providers/pi-runtime.ts、custom-provider-registry.ts）在运行时用 @vite-ignore
+  # 动态 import 加载它——bundler 刻意不打包,只能靠 asar 里的 node_modules 解析。曾经的作用域
+  # 整体排除(!@earendil-works/**)让 0.1.52/0.1.53 正式包的连接测试全数报「模型运行时不可用」。
+  - "!**/node_modules/@earendil-works/pi-coding-agent/**"
+  - "!**/node_modules/@earendil-works/pi-agent-core/**"
+  - "!**/node_modules/@earendil-works/pi-tui/**"
   # agent-browser 通过 extraResources 仅携带目标平台二进制；npm 包含的其它平台二进制全部排除。
   - "!**/node_modules/agent-browser/**"
   # node-pty 自带 prebuilds/<platform-arch> 全架构预编译二进制,运行时按 platform/arch 自动选择;
@@ -55,17 +61,13 @@ files:
   - "!**/node_modules/highlight.js/**"         # 1.6MB  代码高亮
   - "!**/node_modules/marked/**"               # markdown 渲染
   - "!**/node_modules/tailwind-merge/**"
-  # LLM SDK 及其传递依赖（core 引入,全部随 renderer bundle）:
-  - "!**/node_modules/@google/genai/**"        # 11.8MB
-  - "!**/node_modules/web-streams-polyfill/**" # 8.5MB
-  - "!**/node_modules/@mistralai/**"           # 6.5MB
-  - "!**/node_modules/openai/**"               # 5.6MB
-  - "!**/node_modules/@anthropic-ai/**"        # 3.1MB
-  - "!**/node_modules/protobufjs/**"           # 2.8MB
-  - "!**/node_modules/@smithy/**"
-  - "!**/node_modules/fast-xml-parser/**"
-  - "!**/node_modules/gaxios/**"
-  - "!**/node_modules/@silvia-odwyer/**"       # 2.1MB photon 图像（pi 二进制自带,asar 这份冗余）
+  # ⚠️ LLM SDK 不再排除（曾以「core 引入,全部随 renderer bundle」为由排除过）:
+  # 它们同时是 @earendil-works/pi-ai 的**运行时依赖**——主进程 pi-ai 的 api 实现按需
+  # lazy-import 各家 SDK(openai / @anthropic-ai/sdk / @google/genai / @mistralai /
+  # @aws-sdk+@smithy...),排除任何一个都会让对应供应商的连接测试/Model Gateway 在正式包里
+  # 首次使用时 ERR_MODULE_NOT_FOUND。名单以 pi-ai 依赖闭包为准,升级 pi 后如需再做体积
+  # 优化,必须先重新求一遍闭包再动排除项。
+  - "!**/node_modules/@silvia-odwyer/**"       # 2.1MB photon 图像（pi 二进制自带,不在 pi-ai 闭包内）
   # 注意:zod 不能排除!主进程的 @modelcontextprotocol/sdk(浏览器控制 MCP server)走
   # externalizeDepsPlugin、运行时从 asar node_modules require zod(且 require('zod/v3')),
   # 排除会导致打包后启动崩溃 "Cannot find module 'zod/v3'"。renderer 那份 zod 仍随 out/ bundle,

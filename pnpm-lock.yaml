@@ -91,6 +91,9 @@ importers:
       '@cortex-work/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@earendil-works/pi-ai':
+        specifier: 0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: 0.82.1
         version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
