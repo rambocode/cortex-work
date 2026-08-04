@@ -378,3 +378,31 @@ Date 构造函数对越界分量既不抛错也不产生 NaN，必须显式判�
 **跨进程边界一律传 epoch 毫秒**。ISO8601 在边界上有「有无 offset / 有无小数秒 / 是否 date-only」
 三重歧义，两侧各写一遍解析器必然漂移。本仓 `native/Cortex_Helper` 没有 test target，
 所以解析责任全部收在 TS 侧（有 vitest 覆盖），Swift 只做 `Date(timeIntervalSince1970:)`。
+
+## `extendInfo` 只在打包时生效：dev 下验不了日历/语音识别这类需要用途描述的授权
+
+**症状**：`pnpm dev:desktop` 下点权限中心的「去授权」，日历既不弹窗、也不出现在
+系统设置 › 隐私与安全性 › 日历 的列表里，只是直接跳到了那个空列表。看起来像代码坏了。
+
+**成因**：`electron-builder.yml` 的 `extendInfo`（`NSCalendarsUsageDescription` 等）是
+**打包步骤**写进 `Cortex.app/Contents/Info.plist` 的。dev 模式的宿主是
+`node_modules/electron/dist/Electron.app`，它自带的 plist 只有摄像头、麦克风、蓝牙那几条，
+**没有**日历与语音识别。macOS TCC 的硬规则是缺用途描述就不弹窗，请求会被直接拒掉或抛错，
+应用也不会被注册进授权列表。于是 `requestReplyPermissionAccess` 返回 false，
+`openReplyPermissionSettings` 按设计回退去开设置面板 —— 全链路都"正常工作"，只是验不了。
+
+**注意这与辅助功能/屏幕录制不同**。那两项在 dev 下能授权（会记在 Electron.app 名下），
+因为它们走的是 `AXIsProcessTrustedWithOptions` / `CGRequestScreenCaptureAccess`，
+不依赖 Info.plist 的用途描述。所以「dev 下授权会记在 Electron 名下」这句话对它们成立、
+对日历不成立 —— 别把两者混为一谈。
+
+**还有一层坑：`dist:dir` 也验不了。** 该脚本带 `-c.mac.identity=null`，产出的包是 adhoc 签名、
+`Identifier=Electron`、TeamIdentifier 为空。TCC 按代码签名标识认应用，这个包在系统眼里
+跟正式版 `ai.cortex.work` 不是同一个应用，授权记录不可靠。
+
+**判据**：要验的权限是否依赖 `NS*UsageDescription`？
+- 是（日历 / 语音识别 / 麦克风）→ 必须用**签名包**（`pnpm release:ui` 或 `local-release-mac.sh`），
+  `dev` 与 `dist:dir` 都不行；
+- 否（辅助功能 / 屏幕录制）→ dev 下可验，但授权归属 Electron.app，与正式版互相独立。
+
+顺带：`dist:dir` 仍然能验「未授权时能力是否正确地完全不注入」这类门控行为 —— 那与签名无关。
