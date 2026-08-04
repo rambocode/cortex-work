@@ -130,6 +130,8 @@ export function registerSttHandlers(): void {
           audio: audioReq.audio,
           mimeType: audioReq.mimeType,
           language: asrSettings.language ?? "",
+          // prompt 由听写词典等 renderer 输入携带；主进程只透传，不在此处拼接或持久化口述内容。
+          prompt: audioReq.prompt,
           modelPath: status.path,
         });
         return { text: result.text };

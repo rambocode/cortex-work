@@ -475,6 +475,8 @@ export interface AsrTranscribeRequest {
   apiKey?: string;
   model: string;
   language?: string;
+  /** 听写词典等上下文偏置；仅影响解码倾向，不替代音频内容。*/
+  prompt?: string;
   fileName: string;
   mimeType: string;
   audio: ArrayBuffer;
@@ -1031,6 +1033,35 @@ import type { WritingUiState } from "./writing-types";
 export * from "./writing-llm-types";
 import type { WritingLlmSettings } from "./writing-llm-types";
 
+// ── 语音功能设置（与 apps/desktop/src/main/ipc/types.ts 镜像） ──────────────
+
+/**
+ * 语音聊天与系统级听写的交互配置；TTS / ASR 引擎参数仍分别归属 ttsSettings / asrSettings。
+ * 空快捷键表示关闭，空 micDeviceId 表示跟随系统默认设备，避免设备拔出后阻断录音。
+ */
+export interface VoiceSettings {
+  micDeviceId: string;
+  chatHotkey: string;
+  chatScreenContext: boolean;
+  dictationHoldHotkey: string;
+  dictationToggleHotkey: string;
+  dictationBarAlwaysVisible: boolean;
+  dictationDictionary: string[];
+}
+
+/** 返回新的默认对象，防止词典数组在调用方之间共享并被意外修改。*/
+export function defaultVoiceSettings(): VoiceSettings {
+  return {
+    micDeviceId: "",
+    chatHotkey: "",
+    chatScreenContext: false,
+    dictationHoldHotkey: "",
+    dictationToggleHotkey: "",
+    dictationBarAlwaysVisible: false,
+    dictationDictionary: [],
+  };
+}
+
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
   version: 1;
@@ -1063,6 +1094,8 @@ export interface PersistedState {
   mediaGenSettings?: MediaGenSettings;
   // 语音识别设置（旧 JSON 无此字段时 hydrate 回落工厂默认）。
   asrSettings?: AsrSettings;
+  // 语音聊天/听写交互配置（旧 JSON 无此字段时 hydrate 回落 defaultVoiceSettings）。
+  voiceSettings?: VoiceSettings;
   // 快捷回复助手分片（U5/KTD6）：旧档无此字段时 hydrate 回落空默认。
   //   replySettings — 触发键 / 学习与历史开关 / 用户档案；
   //   replyMemory   — 【遗留只读】KTD6 修订后记忆已迁 main-owned ~/.cortex-desktop/reply/

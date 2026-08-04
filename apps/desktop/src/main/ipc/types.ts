@@ -663,6 +663,35 @@ export interface AsrSettings {
   timeoutMs: number;
 }
 
+// ── 语音功能设置（与 packages/core/desktop/types.ts 镜像） ────────────────
+
+/**
+ * 语音聊天与系统级听写的交互配置；TTS / ASR 引擎参数仍分别归属 ttsSettings / asrSettings。
+ * 空快捷键表示关闭，空 micDeviceId 表示跟随系统默认设备，避免设备拔出后阻断录音。
+ */
+export interface VoiceSettings {
+  micDeviceId: string;
+  chatHotkey: string;
+  chatScreenContext: boolean;
+  dictationHoldHotkey: string;
+  dictationToggleHotkey: string;
+  dictationBarAlwaysVisible: boolean;
+  dictationDictionary: string[];
+}
+
+/** 返回新的默认对象，防止词典数组在调用方之间共享并被意外修改。*/
+export function defaultVoiceSettings(): VoiceSettings {
+  return {
+    micDeviceId: "",
+    chatHotkey: "",
+    chatScreenContext: false,
+    dictationHoldHotkey: "",
+    dictationToggleHotkey: "",
+    dictationBarAlwaysVisible: false,
+    dictationDictionary: [],
+  };
+}
+
 export interface PersistedState {
   version: 1;
   projects: ProjectMeta[];
@@ -691,6 +720,8 @@ export interface PersistedState {
   // 媒体生成/ASR 设置（renderer 全量写入;主进程透传持久化;U4/U7/U9 读取路由）。
   mediaGenSettings?: MediaGenSettings;
   asrSettings?: AsrSettings;
+  // 语音聊天/听写交互配置（旧档缺失时由 renderer hydrate 回落 defaultVoiceSettings）。
+  voiceSettings?: VoiceSettings;
   // 快捷回复助手分片（U5/KTD6）：renderer 全量写入，主进程透明落盘（U7/U9 消费）。
   // replyMemory 为【遗留只读】：KTD6 修订后记忆已迁 main-owned memory.json（reply/memory-store.ts），
   // 本字段仅作首启迁移源保留，渲染端不再写入。与 packages/core/desktop/types.ts 镜像。
@@ -1109,6 +1140,8 @@ export interface AsrTranscribeRequest {
   apiKey?: string;
   model: string;
   language?: string;
+  /** 听写词典等上下文偏置；仅影响解码倾向，不替代音频内容。*/
+  prompt?: string;
   fileName: string;
   mimeType: string;
   audio: ArrayBuffer;

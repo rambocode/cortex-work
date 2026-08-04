@@ -31,6 +31,8 @@ export interface TranscribeLocalOptions {
   mimeType: string;
   /** BCP-47 语言代码（如 "zh"/"en"）；空串或 "auto" → 省略 -l，让 whisper 自动检测。*/
   language: string;
+  /** 可选词典/上下文偏置；非空时作为 whisper-cli 的 initial prompt 传入，不替代真实语音。*/
+  prompt?: string;
   /** GGML 模型文件绝对路径。*/
   modelPath: string;
 }
@@ -60,7 +62,7 @@ function extFromMime(mimeType: string): string {
  * 函数返回前（无论成功/失败）均清理该目录。
  */
 export async function transcribeLocal(opts: TranscribeLocalOptions): Promise<TranscribeLocalResult> {
-  const { audio, mimeType, language, modelPath } = opts;
+  const { audio, mimeType, language, prompt, modelPath } = opts;
 
   // 临时工作目录（隔离多并发调用）
   const tmpId = randomBytes(6).toString("hex");
@@ -95,6 +97,10 @@ export async function transcribeLocal(opts: TranscribeLocalOptions): Promise<Tra
     const needLang = language && language.trim() !== "" && language.trim() !== "auto";
     if (needLang) {
       spawnArgs.push("-l", language.trim());
+    }
+    // prompt 只做解码偏置，不是待转写文本；空白字符串没有有效语义，避免把它传给 runner。
+    if (prompt?.trim()) {
+      spawnArgs.push("--prompt", prompt);
     }
 
     // ── spawn whisper-cli ────────────────────────────────────────────────────

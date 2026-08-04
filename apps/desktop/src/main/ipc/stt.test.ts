@@ -112,6 +112,17 @@ describe("stt:transcribe handler", () => {
       expect(mockTranscribeLocal).not.toHaveBeenCalled();
       expect(result).toEqual({ text: "hello world" });
     });
+
+    it("将请求 prompt 透传给在线转写", async () => {
+      mockTranscribeOnline.mockResolvedValue({ text: "Cortex" });
+      const req = makeReq({ prompt: "Cortex, Whisper" });
+
+      await handlers["stt:transcribe"]?.({}, req);
+
+      expect(mockTranscribeOnline).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: "Cortex, Whisper" }),
+      );
+    });
   });
 
   describe("mimo-asr 路由", () => {
@@ -177,6 +188,29 @@ describe("stt:transcribe handler", () => {
           modelPath,
           language: "zh",
         }),
+      );
+    });
+
+    it("将请求 prompt 透传给本地 Whisper", async () => {
+      mockGetModelStatus.mockResolvedValue({
+        id: "whisper-small-q5_1",
+        state: "ready",
+        path: "/models/ggml-small.bin",
+      });
+      mockTranscribeLocal.mockResolvedValue({ text: "Cortex" });
+      const req = makeReq({
+        prompt: "Cortex, Whisper",
+        asrSettings: {
+          ...makeReq().asrSettings,
+          protocol: "local-whisper",
+          model: "whisper-small-q5_1",
+        },
+      });
+
+      await handlers["stt:transcribe"]?.({}, req);
+
+      expect(mockTranscribeLocal).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: "Cortex, Whisper" }),
       );
     });
 
