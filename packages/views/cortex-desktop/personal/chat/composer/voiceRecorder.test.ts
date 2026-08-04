@@ -73,7 +73,9 @@ describe("VoiceCapture.start", () => {
     });
     expect(getUserMedia).toHaveBeenNthCalledWith(2, { audio: true });
     expect(capture.active).toBe(true);
+    expect(capture.mediaStream).toBe(stream);
     capture.dispose();
+    expect(capture.mediaStream).toBeNull();
   });
 });
 

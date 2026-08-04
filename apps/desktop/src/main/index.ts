@@ -64,7 +64,16 @@ import {
   REPLY_HOTKEY_ACCELERATOR,
   type HotkeyRegistration,
 } from "./hotkey";
-import { applyVoiceHotkeys } from "./ipc/voice";
+import {
+  applyVoiceHotkeys,
+  setDictationResultHandler,
+  setVoiceHotkeyCallbacks,
+  setVoiceScreenshotProvider,
+  toggleVoiceChatFromHotkey,
+} from "./ipc/voice";
+import { DictationController } from "./voice/dictation-controller";
+import { destroyDictationWindow, pushDictationBarState } from "./voice/dictation-window";
+import { mapAcceleratorToMacKeyCode } from "./voice/accelerator-keycode";
 // 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
 import { ReplyHelperClient } from "./reply/helper-client";
 import { resolveReplyHelperBinary } from "./reply/helper-locate";
@@ -154,6 +163,7 @@ function registerNotesHotkey(accelerator: string): HotkeyRegistration {
 // 仅 macOS：非 mac 平台完全不 spawn helper、不注册任何 reply 入口（守卫在 initReply 调用处）。
 let replyHelper: ReplyHelperClient | null = null;
 let replyFallbackRegistered = false;
+let dictationController: DictationController | null = null;
 
 // 注册 reply 兜底 accelerator（KTD7）：辅助功能未授权 / helper 降级时以此组合键手动触发起草。幂等。
 function registerReplyFallbackHotkey(): void {
@@ -258,12 +268,43 @@ async function initReply(): Promise<void> {
   replyHelper = new ReplyHelperClient({
     binaryPath: resolveReplyHelperBinary(),
     logger: createLogger("Cortex_Helper"),
-    onEvent: (event) => getReplyController()?.handleEvent(event),
+    onEvent: (event) => {
+      if (event.event === "dictation-start") void dictationController?.toggle();
+      else if (event.event === "dictation-end") void dictationController?.toggle();
+      else getReplyController()?.handleEvent(event);
+    },
     // tap 不可用 / events 连续崩溃超上限 → 兜底 accelerator 接管（helper-client 内部触发）。
     onDegrade: () => registerReplyFallbackHotkey(),
   });
   // 权限中心 IPC（reply:getPermissions）的 helper 兜底源：与 syncReplyInputMode 用同一 one-shot 命令。
   const helperForPerms = replyHelper;
+  // 听写与快捷回复共用唯一 events helper。controller 固定录音开始时的前台 pid，
+  // 结果回来再复查后才通过 helper.paste 写入，防止用户切窗时口述内容泄露到错误应用。
+  dictationController = new DictationController({
+    helper: helperForPerms,
+    settings: async () => ({
+      dictationBarAlwaysVisible: (await getPersistedState()).voiceSettings?.dictationBarAlwaysVisible ?? false,
+    }),
+    pushState: pushDictationBarState,
+  });
+  setDictationResultHandler((result) => dictationController?.handleResult(result));
+  setVoiceScreenshotProvider(() => helperForPerms.screenshot());
+  const syncDictationHoldHotkey = (holdHotkey: string): void => {
+    const mapped = holdHotkey ? mapAcceleratorToMacKeyCode(holdHotkey) : null;
+    // 传空 modifiers 是 Swift 协议中明确的「禁用」配置，不能只省略字段；省略会让 events
+    // 进程继续保留上一组按住键，造成设置页已清除但仍暗中吞键的危险裂脑。
+    helperForPerms.sendConfig({
+      dictation: mapped?.ok ? mapped.config : { modifiers: [], keyCode: null },
+    });
+  };
+  setVoiceHotkeyCallbacks({
+    onDictationToggleHotkey: () => void dictationController?.toggle(),
+    onVoiceHotkeysChanged: (hotkeys) => syncDictationHoldHotkey(hotkeys.dictationHoldHotkey),
+  });
+  const voiceSettings = (await getPersistedState()).voiceSettings;
+  syncDictationHoldHotkey(voiceSettings?.dictationHoldHotkey ?? "");
+  // 「始终显示」是持久化承诺，不能等用户下一次触发快捷键才出现；showInactive 保持原 app 焦点。
+  if (voiceSettings?.dictationBarAlwaysVisible) pushDictationBarState("idle", true);
   setReplyHelperPermissionsSource(() => helperForPerms.permissions());
   // 日历 MCP 能力（capabilities/calendar）共用同一个 helper 二进制。
   // 注入放在这里（而非 whenReady）本身就是门控：initReply 只在 darwin 上调用，
@@ -545,6 +586,9 @@ if (!app.requestSingleInstanceLock()) {
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
     });
+    // 阶段 4 接上聊天键；dictationToggle 回调仍由阶段 5 另行安装。setter 只替换给定字段，
+    // 不会重复 ipcMain.handle 或短暂解除本阶段已生效的 globalShortcut。
+    setVoiceHotkeyCallbacks({ onChatHotkey: toggleVoiceChatFromHotkey });
     registerAgentTraceWindowHandlers({ devMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"] });
     registerDesktopHandlers();
     registerLogHandlers();
@@ -776,6 +820,10 @@ if (!app.requestSingleInstanceLock()) {
     disposeReplyController();
     replyHelper?.stopEvents();
     replyHelper = null;
+    dictationController = null;
+    setDictationResultHandler(null);
+    setVoiceScreenshotProvider(null);
+    destroyDictationWindow();
     unregisterReplyFallbackHotkey();
     globalShortcut.unregisterAll();
   };

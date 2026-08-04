@@ -2,9 +2,10 @@
 //
 // 两种运行形态(见 native/Cortex_Helper/Sources/Cortex_Helper/main.swift):
 //   1) events 长驻模式:`Cortex_Helper events` 常驻进程,stdout 逐行推 draft-gesture /
-//      voice-start / voice-end / key-event 等高层事件;stdin 收 intercept / config / quit 命令。
+//      voice-start / voice-end / dictation-start / dictation-end / key-event 等高层事件;stdin 收
+//      intercept / config / quit 命令。
 //      进程崩溃 → 指数退避重启;连续失败超上限 → 置降级标志(供 KTD7 兜底 accelerator 接管)。
-//   2) one-shot 命令:`Cortex_Helper ax-capture | ax-activate <pid> | paste <text> | ocr | calendar |
+//   2) one-shot 命令:`Cortex_Helper ax-capture | ax-activate <pid> | paste | ocr | calendar |
 //      permissions`,每命令独立 spawn、带超时,读单行 JSON 响应后进程自然退出。
 //
 // 设计约束(务必遵守):本文件**不 import electron**——协议编解码、NDJSON 缓冲、退避序列
@@ -22,11 +23,26 @@ export type HelperEvent =
   | { event: "draft-gesture" }
   | { event: "voice-start" }
   | { event: "voice-end" }
+  | { event: "dictation-start" }
+  | { event: "dictation-end" }
   | { event: "key-event"; key: string }
   | { event: string; [k: string]: unknown };
 
-/** 修饰键语义名,与 Swift 侧 EventsMode.flag(for:) 的 config 字符串对齐。 */
+/** 修饰键语义名,与 Swift 侧 EventsMode.modifierFlag(for:) 的 config 字符串对齐。 */
 export type ModifierName = "command" | "option" | "control" | "shift" | "function";
+
+/** 按住听写键配置：keyCode 为 null 时由 helper 以纯修饰键 flagsChanged 判定。 */
+export interface DictationConfig {
+  modifiers: ModifierName[];
+  keyCode: number | null;
+}
+
+/** events 长驻模式的可持久化配置；进程重启后必须整体重放，避免听写退回默认状态。 */
+export interface HelperEventsConfig {
+  draft?: ModifierName;
+  voice?: ModifierName;
+  dictation?: DictationConfig;
+}
 
 /** 注入用的最小子进程形状(child_process.ChildProcess 的可测子集)。 */
 export interface SpawnedProcess {
@@ -174,8 +190,8 @@ export class ReplyHelperClient {
   private stopped = false;
   // 降级标志:events 进程连续崩溃超上限 / tap 不可用后置位,供调用方查询走兜底 accelerator。
   private degraded = false;
-  // 最近一次下发给 helper 的修饰键配置,重启后重放(否则重启进程回退默认 ⌘/Fn)。
-  private lastConfig: { draft?: ModifierName; voice?: ModifierName } | null = null;
+  // 最近一次下发给 helper 的手势/听写配置,重启后重放(否则重启进程会丢失用户键位)。
+  private lastConfig: HelperEventsConfig | null = null;
   private interceptOn = false;
 
   constructor(opts: ReplyHelperClientOptions) {
@@ -293,8 +309,8 @@ export class ReplyHelperClient {
     this.onDegrade?.();
   }
 
-  /** 下发修饰键配置(起草键 / 语音键);记住以便重启后重放。 */
-  sendConfig(config: { draft?: ModifierName; voice?: ModifierName }): void {
+  /** 下发起草、语音和按住听写配置；记住以便 events 进程重启后原样重放。 */
+  sendConfig(config: HelperEventsConfig): void {
     this.lastConfig = { ...this.lastConfig, ...config };
     this.writeCommand({ cmd: "config", ...config });
   }
@@ -420,14 +436,20 @@ export class ReplyHelperClient {
     return this.runCommand(["ax-activate", String(pid)], timeoutMs);
   }
 
-  /** paste <text>:把草稿写回目标输入框(内部备份/恢复剪贴板)。 */
+  /** paste:把草稿写回目标输入框(内部备份/恢复剪贴板)，正文走 stdin 以避免 ps 泄露。 */
   paste(text: string, timeoutMs?: number): Promise<Record<string, unknown>> {
-    return this.runCommand(["paste", text], timeoutMs);
+    return this.runCommand(["paste"], timeoutMs, { stdin: text });
   }
 
   /** ocr [pid]:截屏 + Vision OCR,输出归一化坐标文本块。OCR 较慢,默认给更长超时。 */
   ocr(pid?: number, timeoutMs = 15_000): Promise<Record<string, unknown>> {
     const args = pid != null ? ["ocr", String(pid)] : ["ocr"];
+    return this.runCommand(args, timeoutMs);
+  }
+
+  /** screenshot [pid]:截取指定或前台窗口，返回 PNG base64；主进程调用方负责落受控临时文件。 */
+  screenshot(pid?: number, timeoutMs = 15_000): Promise<Record<string, unknown>> {
+    const args = pid != null ? ["screenshot", String(pid)] : ["screenshot"];
     return this.runCommand(args, timeoutMs);
   }
 

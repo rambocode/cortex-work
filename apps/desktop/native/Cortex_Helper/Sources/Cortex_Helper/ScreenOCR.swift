@@ -8,8 +8,9 @@ import Vision
 // 对话版面重建(剔侧栏 / 分说话人 / 合并)由 packages/core/reply 的纯逻辑(U1)在 JS 侧完成。
 // 坐标契约:Vision 原生归一化坐标系(0~1,原点左下),原样透传,换算责任在消费侧。
 
-/// 找到指定 pid 的前台可见窗口(layer 0、alpha>0)并截图为 CGImage
-private func captureFrontmostWindow(pid: pid_t) -> CGImage? {
+/// 找到指定 pid 的前台可见窗口(layer 0、alpha>0)并截图为 CGImage。
+/// OCR 与语音聊天截图必须复用完全相同的窗口挑选/去阴影规则，避免两处看到不同画面。
+func captureFrontmostWindow(pid: pid_t) -> CGImage? {
     guard let info = CGWindowListCopyWindowInfo(
         [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
     ) as? [[String: Any]] else {

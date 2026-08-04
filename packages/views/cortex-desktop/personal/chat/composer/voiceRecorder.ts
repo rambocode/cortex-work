@@ -39,6 +39,14 @@ export class VoiceCapture {
   }
 
   /**
+   * 当前录音使用的同一条麦克风流（只读）。听写栏可据此接 AnalyserNode 画真实电平，
+   * 不得为电平表另起 getUserMedia，否则会重复申请设备并可能与实际录音争抢独占麦克风。
+   */
+  get mediaStream(): MediaStream | null {
+    return this.stream;
+  }
+
+  /**
    * 申请指定麦克风（未传则系统默认）并开始录音。若已选设备不再满足约束则自动回退默认设备；
    * 其余失败（无 getUserMedia / 无 MediaRecorder / 用户拒绝）原样抛出，由宿主转成 toast。
    */

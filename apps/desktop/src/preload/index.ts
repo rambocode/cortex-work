@@ -1157,6 +1157,55 @@ const replyBubble = {
     ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
 };
 
+// 语音聊天浮层专用桥：独立 renderer 不挂 CoreProvider，也不持有 personal 的整面写入能力。
+// store 仅允许 loadState 读取当前麦克风/ASR/TTS/默认 agent 设置；聊天只经受限的固定 session
+// 通道读写，绝不暴露 store:save 或任意 chat session ID，避免陈旧全量快照覆盖主窗口设置。
+const VOICE_CHAT_SESSION_ID = "voice-chat";
+const voiceChat = {
+  onCommand: (cb: (command: "startListening" | "stopAndSubmit" | "focus") => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, command: "startListening" | "stopAndSubmit" | "focus") => cb(command);
+    ipcRenderer.on("voice-chat:command", listener);
+    return () => ipcRenderer.removeListener("voice-chat:command", listener);
+  },
+  close: (): Promise<void> => ipcRenderer.invoke("voice:closeChat"),
+  loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
+  loadChat: (): Promise<unknown> => ipcRenderer.invoke("voice-chat:load", VOICE_CHAT_SESSION_ID),
+  saveChat: (messages: unknown[]): Promise<void> => ipcRenderer.invoke("voice-chat:save", VOICE_CHAT_SESSION_ID, messages),
+  captureScreen: (): Promise<{ path: string; mimeType: "image/png" }> => ipcRenderer.invoke("voice-chat:captureScreen"),
+  transcribe: (req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse> =>
+    ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
+  startCli: (req: CliStartRequest): Promise<void> => ipcRenderer.invoke("cli:start", req),
+  killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
+  onCliEvent: (cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string; event: CliStreamEvent }) =>
+      cb(payload.runId, payload.event, payload.sessionId);
+    ipcRenderer.on("cli:event", listener);
+    return () => ipcRenderer.removeListener("cli:event", listener);
+  },
+  onCliExit: (cb: (exit: CliExitEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, exit: CliExitEvent) => cb(exit);
+    ipcRenderer.on("cli:exit", listener);
+    return () => ipcRenderer.removeListener("cli:exit", listener);
+  },
+  // speakText 的 OpenAI 分支只需要这条窄能力；系统语音完全在 renderer 内完成。
+  ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
+};
+
+// 听写栏专用窄桥：不抢焦 renderer 只能读取转写所需配置、接收主进程状态并提交最终文本；
+// 文本注入始终留在 main + Cortex_Helper，不能把 paste 或任意文件访问暴露给浮层。
+const dictation = {
+  onState: (cb: (state: "idle" | "recording" | "transcribing") => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, state: "idle" | "recording" | "transcribing") => cb(state);
+    ipcRenderer.on("dictation:state", listener);
+    return () => ipcRenderer.removeListener("dictation:state", listener);
+  },
+  loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
+  transcribe: (req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse> =>
+    ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
+  submitResult: (result: { ok: boolean; text?: string; reason?: string }): Promise<void> =>
+    ipcRenderer.invoke("dictation:result", result),
+};
+
 const desktopAPI = {
   appInfo: fetchAppInfo(),
   runtimeConfig: {
@@ -1170,6 +1219,8 @@ const desktopAPI = {
   notesOverlay,
   notification,
   replyBubble,
+  voiceChat,
+  dictation,
   projectsWindow,
   consumeNotesHotkeyDegraded,
 };

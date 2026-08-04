@@ -5,6 +5,12 @@ const mocks = vi.hoisted(() => ({
   register: vi.fn<(accelerator: string, callback: () => void) => boolean>(() => true),
   unregister: vi.fn<(accelerator: string) => void>(),
   unregisterAll: vi.fn(),
+  openVoiceChatWindow: vi.fn(),
+  closeVoiceChatWindow: vi.fn(),
+  getVoiceChatWindow: vi.fn(() => null),
+  sendVoiceChatCommand: vi.fn(),
+  loadChat: vi.fn(async () => []),
+  saveChat: vi.fn(async () => {}),
 }));
 
 vi.mock("electron", () => ({
@@ -16,6 +22,16 @@ vi.mock("electron", () => ({
     unregister: mocks.unregister,
     unregisterAll: mocks.unregisterAll,
   },
+}));
+vi.mock("../voice/voice-chat-window", () => ({
+  openVoiceChatWindow: mocks.openVoiceChatWindow,
+  closeVoiceChatWindow: mocks.closeVoiceChatWindow,
+  getVoiceChatWindow: mocks.getVoiceChatWindow,
+  sendVoiceChatCommand: mocks.sendVoiceChatCommand,
+}));
+vi.mock("./chat", () => ({
+  loadChat: mocks.loadChat,
+  saveChat: mocks.saveChat,
 }));
 
 import { registerVoiceHandlers, setVoiceHotkeyCallbacks } from "./voice";
@@ -34,6 +50,12 @@ describe("voice:setHotkeys", () => {
     mocks.register.mockReset().mockReturnValue(true);
     mocks.unregister.mockReset();
     mocks.unregisterAll.mockReset();
+    mocks.openVoiceChatWindow.mockReset();
+    mocks.closeVoiceChatWindow.mockReset();
+    mocks.getVoiceChatWindow.mockReset().mockReturnValue(null);
+    mocks.sendVoiceChatCommand.mockReset();
+    mocks.loadChat.mockReset().mockResolvedValue([]);
+    mocks.saveChat.mockReset().mockResolvedValue(undefined);
     registerVoiceHandlers();
     // registerVoiceHandlers 在真实主进程只会调用一次；测试复用模块实例前先通过正式
     // IPC 路径解除上例留下的状态，再清空 spy，避免引入仅供测试的生产重置入口。
@@ -66,6 +88,7 @@ describe("voice:setHotkeys", () => {
     handler({}, hotkeys());
     const chatCallback = mocks.register.mock.calls[0]![1];
     const toggleCallback = mocks.register.mock.calls[1]![1];
+    const handlerCountBefore = mocks.handlers.size;
 
     setVoiceHotkeyCallbacks({ onChatHotkey, onDictationToggleHotkey });
     chatCallback?.();
@@ -73,7 +96,32 @@ describe("voice:setHotkeys", () => {
 
     expect(onChatHotkey).toHaveBeenCalledOnce();
     expect(onDictationToggleHotkey).toHaveBeenCalledOnce();
-    expect(mocks.handlers.size).toBe(1);
+    expect(mocks.handlers.size).toBe(handlerCountBefore);
+  });
+
+  it("语音聊天窗的打开、关闭与全局键切换均经专用 IPC 域处理", () => {
+    const open = mocks.handlers.get("voice:openChat");
+    const close = mocks.handlers.get("voice:closeChat");
+
+    open?.({});
+    close?.({});
+
+    expect(mocks.openVoiceChatWindow).toHaveBeenCalledOnce();
+    expect(mocks.closeVoiceChatWindow).toHaveBeenCalledOnce();
+  });
+
+  it("语音聊天历史 IPC 只能读写固定 voice-chat 会话", async () => {
+    const load = mocks.handlers.get("voice-chat:load")!;
+    const save = mocks.handlers.get("voice-chat:save")!;
+    const messages = [{ kind: "text", who: "me", time: "10:30", text: "你好" }];
+
+    await expect(load({}, "other-session")).rejects.toThrow("voice-chat");
+    await expect(save({}, "voice-chat", { not: "an array" })).rejects.toThrow("消息列表");
+    await expect(load({}, "voice-chat")).resolves.toEqual([]);
+    await expect(save({}, "voice-chat", messages)).resolves.toBeUndefined();
+
+    expect(mocks.loadChat).toHaveBeenCalledWith("voice-chat");
+    expect(mocks.saveChat).toHaveBeenCalledWith("voice-chat", messages);
   });
 
   it("下一次设置前只精确注销上一组语音键，不调用 unregisterAll", () => {

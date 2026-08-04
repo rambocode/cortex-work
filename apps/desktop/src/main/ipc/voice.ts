@@ -5,16 +5,28 @@
 // 一次 IPC 中整体校验，保证未来启用按住听写时不会接手一组已冲突的用户设置。
 
 import { globalShortcut, ipcMain } from "electron";
+import { randomUUID } from "node:crypto";
+import { promises as fsp } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   validateVoiceHotkeys,
   type VoiceHotkeyInput,
   type VoiceHotkeyResults,
   type VoiceHotkeyField,
 } from "../voice/hotkeys";
+import {
+  closeVoiceChatWindow,
+  getVoiceChatWindow,
+  openVoiceChatWindow,
+  sendVoiceChatCommand,
+} from "../voice/voice-chat-window";
+import { loadChat, saveChat } from "./chat";
 
 export const VOICE_HOTKEY_INPUT_INVALID_TOAST = "语音快捷键输入无效";
 export const VOICE_HOTKEY_OCCUPIED_TOAST = "语音快捷键已被系统占用";
 export const VOICE_HOTKEY_RESTORED_TOAST = "语音快捷键未生效，已恢复原设置";
+export const VOICE_CHAT_SESSION_ID = "voice-chat";
 
 type GlobalVoiceHotkeyField = "chatHotkey" | "dictationToggleHotkey";
 
@@ -28,13 +40,21 @@ export interface VoiceHotkeyCallbacks {
   onChatHotkey?: () => void;
   /** 听写 controller 在阶段 5 接线前故意为 no-op。 */
   onDictationToggleHotkey?: () => void;
+  /** 一组键位通过校验并成功重绑后通知 helper 配置（按住听写不走 globalShortcut）。 */
+  onVoiceHotkeysChanged?: (hotkeys: VoiceHotkeyInput) => void;
 }
+
+/** 听写栏仅回传最终文本；真实粘贴仍由 main 侧 controller 经 helper 完成。 */
+export type DictationResultPayload = { ok: true; text: string } | { ok: false; reason?: string };
 
 let registered: RegisteredVoiceHotkeys = { chatHotkey: "", dictationToggleHotkey: "" };
 let callbacks: Required<VoiceHotkeyCallbacks> = {
   onChatHotkey: () => {},
   onDictationToggleHotkey: () => {},
+  onVoiceHotkeysChanged: () => {},
 };
+let dictationResultHandler: ((result: DictationResultPayload) => Promise<void> | void) | null = null;
+let screenshotProvider: (() => Promise<Record<string, unknown>>) | null = null;
 
 const GLOBAL_FIELDS: readonly GlobalVoiceHotkeyField[] = ["chatHotkey", "dictationToggleHotkey"];
 
@@ -48,6 +68,37 @@ export function registerVoiceHandlers(nextCallbacks: VoiceHotkeyCallbacks = {}):
     if (!isVoiceHotkeyInput(input)) return invalidInputResults();
     return applyVoiceHotkeys(input);
   });
+  ipcMain.handle("voice:openChat", (): void => {
+    openVoiceChatWindow();
+    sendVoiceChatCommand("focus");
+  });
+  ipcMain.handle("voice:closeChat", (): void => closeVoiceChatWindow());
+  ipcMain.handle("voice-chat:captureScreen", async (): Promise<{ path: string; mimeType: "image/png" }> => {
+    if (!screenshotProvider) throw new Error("屏幕上下文暂不可用");
+    const screenshot = await screenshotProvider();
+    if (screenshot.ok !== true || screenshot.mimeType !== "image/png" || typeof screenshot.pngBase64 !== "string") {
+      throw new Error(typeof screenshot.error === "string" ? screenshot.error : "屏幕截图失败");
+    }
+    const path = join(tmpdir(), `cortex-voice-${randomUUID()}.png`);
+    await fsp.writeFile(path, Buffer.from(screenshot.pngBase64, "base64"), { mode: 0o600 });
+    // CLI 已在启动时读取附件；延迟清理避免临时图长期保留潜在敏感屏幕内容。
+    setTimeout(() => void fsp.unlink(path).catch(() => undefined), 10 * 60_000).unref?.();
+    return { path, mimeType: "image/png" };
+  });
+  ipcMain.handle("dictation:result", async (_event, payload: unknown): Promise<void> => {
+    const result = parseDictationResult(payload);
+    if (result) await dictationResultHandler?.(result);
+  });
+  // 浮层只可接触固定语音会话，不能借 preload 读取或覆盖任意个人聊天记录。
+  ipcMain.handle("voice-chat:load", async (_event, sessionId: unknown): Promise<unknown> => {
+    assertVoiceChatSessionId(sessionId);
+    return loadChat(VOICE_CHAT_SESSION_ID);
+  });
+  ipcMain.handle("voice-chat:save", async (_event, sessionId: unknown, messages: unknown): Promise<void> => {
+    assertVoiceChatSessionId(sessionId);
+    if (!Array.isArray(messages)) throw new Error("语音聊天消息列表必须是数组");
+    await saveChat(VOICE_CHAT_SESSION_ID, messages);
+  });
 }
 
 /**
@@ -58,7 +109,36 @@ export function setVoiceHotkeyCallbacks(nextCallbacks: VoiceHotkeyCallbacks): vo
   callbacks = {
     onChatHotkey: nextCallbacks.onChatHotkey ?? callbacks.onChatHotkey,
     onDictationToggleHotkey: nextCallbacks.onDictationToggleHotkey ?? callbacks.onDictationToggleHotkey,
+    onVoiceHotkeysChanged: nextCallbacks.onVoiceHotkeysChanged ?? callbacks.onVoiceHotkeysChanged,
   };
+}
+
+/** 安装听写栏结果处理器，不重复注册 IPC；未安装时安全忽略渲染端迟到结果。 */
+export function setDictationResultHandler(
+  handler: ((result: DictationResultPayload) => Promise<void> | void) | null,
+): void {
+  dictationResultHandler = handler;
+}
+
+/** 屏幕截图由唯一 Cortex_Helper 实例提供；未装配时 IPC 明确失败而不退化成错误的整屏抓取。 */
+export function setVoiceScreenshotProvider(provider: (() => Promise<Record<string, unknown>>) | null): void {
+  screenshotProvider = provider;
+}
+
+/** 全局聊天键第一次打开并录音；浮层可见时再次按下即要求 renderer 停录并提交。 */
+export function toggleVoiceChatFromHotkey(): void {
+  const active = getVoiceChatWindow();
+  if (active?.isVisible()) {
+    sendVoiceChatCommand("stopAndSubmit");
+    return;
+  }
+  openVoiceChatWindow();
+  sendVoiceChatCommand("startListening");
+}
+
+/** 专用 bridge 仍传入固定 ID；主进程二次验证，防止隔离窗口构造任意聊天文件访问。 */
+function assertVoiceChatSessionId(sessionId: unknown): asserts sessionId is typeof VOICE_CHAT_SESSION_ID {
+  if (sessionId !== VOICE_CHAT_SESSION_ID) throw new Error("语音聊天只能访问 voice-chat 会话");
 }
 
 /**
@@ -96,6 +176,7 @@ export function applyVoiceHotkeys(input: VoiceHotkeyInput): VoiceHotkeyResults {
   }
 
   registered = newlyRegistered;
+  callbacks.onVoiceHotkeysChanged(input);
   return validation;
 }
 
@@ -177,4 +258,14 @@ function invalidInputResults(): VoiceHotkeyResults {
 
 function allSucceeded(results: VoiceHotkeyResults): boolean {
   return Object.values(results).every((result) => result.ok);
+}
+
+function parseDictationResult(value: unknown): DictationResultPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as { ok?: unknown; text?: unknown; reason?: unknown };
+  if (candidate.ok === true && typeof candidate.text === "string") return { ok: true, text: candidate.text };
+  if (candidate.ok === false && (candidate.reason == null || typeof candidate.reason === "string")) {
+    return { ok: false, reason: candidate.reason as string | undefined };
+  }
+  return null;
 }

@@ -1,0 +1,121 @@
+/* 无焦点的听写栏：pointer-events:none 防止透明 panel 在任意平台意外接收鼠标或键盘交互。 */
+:root {
+  color: #25221d;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+}
+
+.db-shell {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  pointer-events: none;
+}
+
+.db-card {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  gap: 11px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(242, 239, 232, 0.91));
+  box-shadow: 0 12px 32px rgba(28, 24, 17, 0.23), 0 2px 7px rgba(28, 24, 17, 0.11);
+  backdrop-filter: blur(22px) saturate(1.08);
+}
+
+.db-indicator {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #8a8276;
+}
+
+.is-recording .db-indicator {
+  background: #d92d20;
+  box-shadow: 0 0 0 6px rgba(217, 45, 32, 0.16);
+  animation: db-pulse 1.1s ease-in-out infinite;
+}
+
+.is-transcribing .db-indicator {
+  background: #7c3aed;
+  animation: db-pulse 1.1s ease-in-out infinite;
+}
+
+.db-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.db-copy strong {
+  color: #302b24;
+  font-size: 13px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.db-copy span {
+  overflow: hidden;
+  color: #756e63;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-meter {
+  display: flex;
+  width: 5px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(72, 62, 49, 0.12);
+}
+
+.db-meter-fill {
+  width: 100%;
+  min-height: 8px;
+  border-radius: inherit;
+  background: linear-gradient(#fd8a7d, #d92d20);
+  transition: height 55ms linear;
+}
+
+.is-idle .db-meter-fill,
+.is-transcribing .db-meter-fill {
+  background: #a29a8e;
+}
+
+@keyframes db-pulse {
+  50% { transform: scale(0.78); opacity: 0.72; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { color: #f2eee7; }
+  .db-card { border-color: rgba(255, 255, 255, 0.1); background: linear-gradient(145deg, rgba(49, 45, 39, 0.96), rgba(31, 29, 25, 0.92)); }
+  .db-copy strong { color: #f1ece3; }
+  .db-copy span { color: #beb6aa; }
+  .db-meter { background: rgba(255, 255, 255, 0.14); }
+}
