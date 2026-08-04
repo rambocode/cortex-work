@@ -33,6 +33,8 @@ import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
+import { buildAutomationMcpServerConfig, unregisterAutomationSession } from "../capabilities/automation/server";
+import { buildCalendarMcpServerConfig, unregisterCalendarSession } from "../capabilities/calendar/server";
 import { loadWorkflows } from "../workflow/store";
 import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
@@ -274,6 +276,34 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     // loop 工作流:同上必须在此并入;loadWorkflows 失败降级不注入(不阻断 pi 启动)。
     const workflowsForMcp = await loadWorkflows().catch(() => []);
     const loopServer = buildLoopWorkflowsMcpServerConfig(workflowsForMcp, prepared.uiSessionId, prepared.cwd);
+    // 自动化（会话内管理定时任务）与系统日历:**只在这条 pi RPC 聊天路径注入**。
+    //
+    // 它们的写工具（create_automation / delete_automation / create_calendar_event 等）必须逐次
+    // 经用户确认,而真审批回路只有这里有——claude 在 full-auto 下走 --dangerously-skip-permissions、
+    // codex 的内置 server 被强制 default_tools_approval_mode="approve"、pi 单发路径不写审批
+    // extension 且 ctx.hasUI 为 false。所以刻意**不**并进 cli.ts 的 builtinServers / piBridgeCfgs,
+    // 与 capabilities/computer-use/inject.ts 的既定判例同源。
+    //
+    // 定时任务自身的执行路径（automation/runner.ts）同样拿不到:它自己拼 CliStartRequest 直接
+    // spawn,根本不经过本函数;两个 server 内部还有 sessionStateMap 未登记即不注册工具的守卫兜底。
+    //
+    // 执行上下文（cwd/model/providerId）从本会话继承,自动化建出来的任务即「跟当前对话一样地跑」。
+    const automationServer = buildAutomationMcpServerConfig(
+      prepared.uiSessionId,
+      {
+        cwd: prepared.cwd,
+        agent: "pi",
+        model: prepared.model,
+        // 刻意不带 effort：pi RPC 会话用的是 thinkingLevel（--thinking），与自动化落盘的
+        // ReasoningEffort 不是同一个刻度，硬映射只会得到一个看似合理实则随意的值。
+        // 留空即用默认强度，用户要调可以去自动化界面改。
+        providerId: prepared.providerId,
+      },
+      gs?.automationTools,
+    );
+    // 日历门控自带四道（非 macOS / helper 缺失 / 授权非 full / host 不可用）,故无独立开关。
+    // allowWrite 只在这条路径为 true。探测失败降级不注入,不阻断 pi 启动。
+    const calendarServer = await buildCalendarMcpServerConfig(prepared.uiSessionId, true).catch(() => null);
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
@@ -282,6 +312,8 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
       ...(knowledgeServer ? [knowledgeServer] : []),
       ...(mediaGenServer ? [mediaGenServer] : []),
       ...(loopServer ? [loopServer] : []),
+      ...(automationServer ? [automationServer] : []),
+      ...(calendarServer ? [calendarServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
@@ -477,11 +509,14 @@ export function registerPiSessionHandlers(): void {
     if (entry) {
       entry.session.stop();
       sessions.delete(uiSessionId);
-      // 清理研究/媒体生成/loop 工作流 MCP 的 session 映射（下一次 pi:open 会重新 register）。
-      // pi 是长驻会话,不清的话映射会随开合累积。
+      // 清理研究/媒体生成/loop 工作流/自动化/日历 MCP 的 session 映射（下一次 pi:open 会重新
+      // register）。pi 是长驻会话,不清的话映射会随开合累积;对自动化与日历还多一层意义——
+      // 那两个 server 靠「sessionStateMap 里有没有」授权工具,留着等于留了一条权限尾巴。
       unregisterResearchSession(uiSessionId);
       unregisterMediaGenSession(uiSessionId);
       unregisterLoopWorkflowsSession(uiSessionId);
+      unregisterAutomationSession(uiSessionId);
+      unregisterCalendarSession(uiSessionId);
     }
   });
 }
@@ -494,6 +529,8 @@ export function killAllPiSessions(): void {
     unregisterResearchSession(uiSessionId);
     unregisterMediaGenSession(uiSessionId);
     unregisterLoopWorkflowsSession(uiSessionId);
+    unregisterAutomationSession(uiSessionId);
+    unregisterCalendarSession(uiSessionId);
   }
   sessions.clear();
 }

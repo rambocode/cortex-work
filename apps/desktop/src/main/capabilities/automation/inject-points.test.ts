@@ -1,0 +1,49 @@
+// 注入点守卫（读源码断言，手法同 reply/helper-build-script.test.ts）。
+//
+// 自动化与日历的写工具**只能**在 pi RPC 聊天路径注入 —— 那是全仓唯一存在真审批回路的地方：
+//   · claude 在 full-auto 下走 --dangerously-skip-permissions（agents/claude.ts），全放行；
+//   · codex 的内置 server 被强制 default_tools_approval_mode="approve"（ipc/mcp-config.ts）；
+//   · pi 单发路径不写审批 extension，且 extension 里的 ctx.hasUI 为 false。
+// 一旦有人「顺手」把这两个 server 并进 cli.ts 的 builtinServers 或 piBridgeCfgs，
+// 「用户确认才生效」这条承诺就在那些路径上无声失效 —— 不报错、不崩溃，只是不再问。
+//
+// 这类跨文件的架构约束没有类型系统能表达，只能靠一条测试守住。
+// 本仓对「漏改/误改注入点」有前科（cli.ts 里 knowledge server 的 TODO 就是活证据）。
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+
+const BUILDERS = ["buildAutomationMcpServerConfig", "buildCalendarMcpServerConfig"];
+
+describe("自动化 / 日历的注入点只有 pi RPC 一处", () => {
+  const piSession = read("../../ipc/pi-session.ts");
+  const cli = read("../../ipc/cli.ts");
+  const runner = read("../../automation/runner.ts");
+
+  it.each(BUILDERS)("%s 在 pi-session.ts 里被调用", (fn) => {
+    expect(piSession).toContain(fn);
+  });
+
+  it.each(BUILDERS)("%s **不得**出现在 cli.ts（claude/codex 与 pi 单发路径无审批回路）", (fn) => {
+    expect(cli).not.toContain(fn);
+  });
+
+  it.each(BUILDERS)("%s **不得**出现在 automation/runner.ts（无人值守路径）", (fn) => {
+    expect(runner).not.toContain(fn);
+  });
+
+  it("两个 server 的 session 映射在 pi:close 与 killAllPiSessions 都被清理", () => {
+    for (const fn of ["unregisterAutomationSession", "unregisterCalendarSession"]) {
+      // 出现两次 = 两处清理点各一次（import 那行不算，故用 >= 3 判定：import + 2 处调用）。
+      const count = piSession.split(fn).length - 1;
+      expect(count).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("日历的 allowWrite 在 pi RPC 路径为 true", () => {
+    expect(piSession).toMatch(/buildCalendarMcpServerConfig\(\s*prepared\.uiSessionId,\s*true\s*\)/);
+  });
+});

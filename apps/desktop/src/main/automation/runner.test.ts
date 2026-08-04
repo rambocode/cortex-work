@@ -105,6 +105,61 @@ describe("runAutomation agent availability", () => {
   });
 });
 
+// 【安全红线回归】定时任务是无人值守、无审批 UI 的路径。在那里给 Agent 建/删定时任务或写日历
+// 的权限，等于让它无监督地自增殖、改用户的日历。结构上 runner 自己拼 CliStartRequest 直接
+// spawn，不经过 pi-session.ts 的注入块；本组用例把这个事实钉死，防止后来者「好心」补上。
+// 注意每个用例用独立 automationId：runner 的 runningAutomations 是模块级 Map，
+// 复用同一个 id 会被并发去重判成 skipped，后续用例连 spawn 都不会发生。
+describe("runAutomation 不给 Agent 任何自动化/日历工具", () => {
+  it("spawn 的请求里没有内置 MCP server、也没有额外 extension", async () => {
+    mocks.detectAgents.mockResolvedValue({ claude: true, codex: true, pi: true });
+    let capturedReq: Record<string, unknown> | undefined;
+    mocks.getAgentDef.mockReturnValue({
+      buildArgs: (req: Record<string, unknown>) => {
+        capturedReq = req;
+        return { cmd: "claude", args: ["-p"], stdin: undefined };
+      },
+    });
+    mocks.startAgentProcess.mockReturnValue({
+      stdout: { setEncoding: vi.fn(), on: vi.fn() },
+      stderr: { setEncoding: vi.fn(), on: vi.fn() },
+      onError: vi.fn(),
+      onExit: vi.fn(),
+      kill: vi.fn(),
+    });
+
+    await runAutomation({ ...meta, id: "auto-noinject" }, "schedule");
+
+    expect(capturedReq).toBeDefined();
+    // builtinMcpServers 是 cli.ts 注入内置 server 后回填的字段；runner 不走那条路。
+    expect(capturedReq!.builtinMcpServers).toBeUndefined();
+    // extraExtensionPaths 是 pi 桥接扩展的载体；runner 只可能有 provider 用的 piExtensionPath。
+    expect(capturedReq!.extraExtensionPaths).toBeUndefined();
+  });
+
+  it("codex 分支拿到 MCP 清空参数（结构上不继承任何 server）", async () => {
+    mocks.detectAgents.mockResolvedValue({ claude: true, codex: true, pi: true });
+    let capturedExtra: unknown;
+    mocks.getAgentDef.mockReturnValue({
+      buildArgs: (_req: unknown, extra: unknown) => {
+        capturedExtra = extra;
+        return { cmd: "codex", args: [], stdin: undefined };
+      },
+    });
+    mocks.startAgentProcess.mockReturnValue({
+      stdout: { setEncoding: vi.fn(), on: vi.fn() },
+      stderr: { setEncoding: vi.fn(), on: vi.fn() },
+      onError: vi.fn(),
+      onExit: vi.fn(),
+      kill: vi.fn(),
+    });
+
+    await runAutomation({ ...meta, id: "auto-codex", agent: "codex" }, "schedule");
+
+    expect(capturedExtra).toEqual(["-c", "mcp_servers={}"]);
+  });
+});
+
 describe("runAutomation 超时埋点", () => {
   it("看门狗超时 → log.warn 记 timeout,finalize 状态为 timeout", async () => {
     vi.useFakeTimers();

@@ -23,7 +23,9 @@ export function renderApprovalExtension(tools: string[] = DEFAULT_APPROVAL_TOOLS
     "  pi.on(\"tool_call\", async (event, ctx) => {",
     "    if (!NEEDS.has(event.toolName)) return;",
     "    if (!ctx.hasUI) return;",
-    "    const detail = (() => { try { return JSON.stringify(event.input).slice(0, 200); } catch { return \"\"; } })();",
+    // 截断长度 600（原 200）:审批弹窗上用户看到的就是这段。像 create_calendar_event 这种参数
+    // 里有长 notes 的工具,200 字很容易在用户看到起止时间之前就被截掉——那等于让人盲签。
+    "    const detail = (() => { try { return JSON.stringify(event.input).slice(0, 600); } catch { return \"\"; } })();",
     "    const ok = await ctx.ui.confirm(\"允许执行工具 \" + event.toolName + \"?\", detail);",
     "    if (!ok) return { block: true, reason: \"用户拒绝执行\" };",
     "  });",
