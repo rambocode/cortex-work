@@ -341,8 +341,16 @@ export class ReplyHelperClient {
   /**
    * 执行一次 one-shot 命令并解析单行 JSON 响应。每命令独立 spawn、带超时:
    * 进程正常退出后取首个解析出的对象 resolve;超时则 kill 并 reject。
+   *
+   * opts.stdin:把载荷经标准输入送进去（helper 侧 readLine 一行）。用于载荷含用户私密内容的
+   * 命令（calendar-create 的事件标题/备注）—— argv 对同机任意进程经 `ps` 可见。
+   * 不传 stdin 时完全不碰 proc.stdin，既有 5 个调用点行为不变。
    */
-  runCommand(args: string[], timeoutMs = 5_000): Promise<Record<string, unknown>> {
+  runCommand(
+    args: string[],
+    timeoutMs = 5_000,
+    opts?: { stdin?: string },
+  ): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
       let proc: SpawnedProcess;
       try {
@@ -350,6 +358,16 @@ export class ReplyHelperClient {
       } catch (err) {
         reject(err instanceof Error ? err : new Error(String(err)));
         return;
+      }
+
+      if (opts?.stdin != null) {
+        // EPIPE 不致命：子进程可能已因参数错误退出，那条错误会经下面的 exit 分支正常报出来。
+        try {
+          proc.stdin?.write(`${opts.stdin}\n`);
+          proc.stdin?.end();
+        } catch {
+          /* 忽略：让超时/退出分支给出真正的失败原因 */
+        }
       }
 
       const buffer = new NdjsonBuffer();
@@ -416,6 +434,19 @@ export class ReplyHelperClient {
   /** calendar:未来 3 天非全天事件忙碌区间。 */
   calendar(timeoutMs?: number): Promise<Record<string, unknown>> {
     return this.runCommand(["calendar"], timeoutMs);
+  }
+
+  // ── 日历（capabilities/calendar 的 MCP 工具用；上面的 calendar 仍归快捷回复专用）────────
+  // 超时给 10s：默认 5s 对 EventKit 首次唤醒 CalendarAgent 偏紧（OCR 已有 15s 先例）。
+
+  /** calendar-events <startMs> <endMs>:时间窗内全部事件（含全天）。需 full access。 */
+  calendarEvents(startMs: number, endMs: number, timeoutMs = 10_000): Promise<Record<string, unknown>> {
+    return this.runCommand(["calendar-events", String(startMs), String(endMs)], timeoutMs);
+  }
+
+  /** calendar-create:创建日程。载荷经 stdin（避免标题/备注经 argv 被 ps 看见）。 */
+  calendarCreate(payload: Record<string, unknown>, timeoutMs = 10_000): Promise<Record<string, unknown>> {
+    return this.runCommand(["calendar-create"], timeoutMs, { stdin: JSON.stringify(payload) });
   }
 
   /** permissions:五项 TCC 权限状态(node-mac-permissions 加载失败时的兜底源)。 */

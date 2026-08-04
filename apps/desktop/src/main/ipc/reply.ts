@@ -46,6 +46,7 @@ import {
   type HelperPermissionsFn,
 } from "../reply/permissions";
 import { openReplyPermissionSettings } from "../reply/permission-settings";
+import { invalidateCalendarAccessCache } from "../capabilities/calendar/helper";
 import {
   resizeReplyBubble,
   dispatchReplyBubbleAction,
@@ -212,10 +213,16 @@ export function registerReplyHandlers(): void {
         .then((res) => normalizeCalendarAccess(res.calendarAccess))
         .catch(() => undefined);
     }
-    return openReplyPermissionSettings(kind, {
-      requestAccess: (k) => requestReplyPermissionAccess(k, process.platform, undefined, log, calendarAccess),
-      openExternal: (url) => shell.openExternal(url),
-    });
+    try {
+      return await openReplyPermissionSettings(kind, {
+        requestAccess: (k) => requestReplyPermissionAccess(k, process.platform, undefined, log, calendarAccess),
+        openExternal: (url) => shell.openExternal(url),
+      });
+    } finally {
+      // 用户刚被引到授权弹窗/设置面板，授权档随时可能变 —— 失效缓存，
+      // 免得下一次 pi:open 还拿着 15s 内的旧结论决定不注入日历工具。
+      if (kind === "calendar") invalidateCalendarAccessCache();
+    }
   });
 
   // 渠道凭据校验：core 纯函数构造请求/解析响应，main fetch + safeStorage 加密 token。

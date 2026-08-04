@@ -28,6 +28,9 @@ import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extr
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { startResearchHost, stopResearchHost } from "./capabilities/research/server";
+import { startAutomationHost, stopAutomationHost } from "./capabilities/automation/server";
+import { startCalendarHost, stopCalendarHost } from "./capabilities/calendar/server";
+import { setCalendarHelper, invalidateCalendarAccessCache } from "./capabilities/calendar/helper";
 import { startDelegateHost, stopDelegateHost, killAllDelegates } from "./capabilities/delegate/server";
 import { startDesignDelegateHost, stopDesignDelegateHost, killAllDesignDelegates } from "./capabilities/design-delegate/server";
 import { stopSlidesHost } from "./capabilities/slides/server";
@@ -261,6 +264,11 @@ async function initReply(): Promise<void> {
   // 权限中心 IPC（reply:getPermissions）的 helper 兜底源：与 syncReplyInputMode 用同一 one-shot 命令。
   const helperForPerms = replyHelper;
   setReplyHelperPermissionsSource(() => helperForPerms.permissions());
+  // 日历 MCP 能力（capabilities/calendar）共用同一个 helper 二进制。
+  // 注入放在这里（而非 whenReady）本身就是门控：initReply 只在 darwin 上调用，
+  // 非 mac 上 helper 恒为 null → buildCalendarMcpServerConfig 自然返回 null，
+  // 不必把平台判断散落到两处。
+  setCalendarHelper(helperForPerms);
   // reply 生成模型解析（KTD3）：每次唤起/蒸馏时现解析——最新 reply 设置（快照）+ 全局默认模型
   // 走回退链（专属 → 全局默认 → null）。现解析保证设置变更即时生效，无需快照同步机制。
   const resolveModel = async () =>
@@ -660,6 +668,10 @@ if (!app.requestSingleInstanceLock()) {
     // 研究 MCP host:给 agent 提供 web_search / web_read（+ 开了深度研究时的 deep_research）。
     // 常驻;研究引擎未开启或搜索后端未配置时,注入侧返回 null 不连接。
     void startResearchHost();
+    // 自动化 MCP host:让 agent 在会话中管理定时任务。常驻;总开关关闭时注入侧返回 null。
+    void startAutomationHost();
+    // 系统日历 MCP host:常驻;非 macOS / 未取得「完全访问」授权时注入侧返回 null。
+    void startCalendarHost();
     // 安装自定义主菜单(去除 macOS View 菜单重复的全屏项),须在建窗前就位。
     installAppMenu();
     createWindow();
@@ -690,6 +702,8 @@ if (!app.requestSingleInstanceLock()) {
       void rescheduleAll();
       // 唤醒后重估 reply 输入模式：睡眠期间用户可能刚授权辅助功能 → 自动切回手势（KTD7）。
       if (process.platform === "darwin") void syncReplyInputMode();
+      // 同理失效日历授权缓存：睡眠期间用户可能刚在系统设置里改过日历权限。
+      invalidateCalendarAccessCache();
     });
   });
 
@@ -724,6 +738,8 @@ if (!app.requestSingleInstanceLock()) {
     stopDelegateHost();
     stopDesignDelegateHost();
     stopResearchHost();
+    stopAutomationHost();
+    stopCalendarHost();
     stopSlidesHost();
     clearAllSlidesSessions();
     killAllAutomations();

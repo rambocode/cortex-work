@@ -114,7 +114,8 @@ class FakeProc implements SpawnedProcess {
 
   stdout = { on: (_ev: "data", cb: (c: Buffer | string) => void) => { this.stdoutCb = cb as (c: string) => void; } };
   stderr = { on: (_ev: "data", cb: (c: Buffer | string) => void) => { this.stderrCb = cb as (c: string) => void; } };
-  stdin = { write: (d: string) => { this.written.push(d); }, end: () => {} };
+  stdinEndCalls = 0;
+  stdin = { write: (d: string) => { this.written.push(d); }, end: () => { this.stdinEndCalls += 1; } };
 
   on(ev: "exit", cb: (code: number | null, signal: NodeJS.Signals | null) => void): void;
   on(ev: "error", cb: (err: Error) => void): void;
@@ -340,6 +341,71 @@ describe("ReplyHelperClient one-shot", () => {
       },
     });
     await expect(client.axCapture()).rejects.toThrow("ENOENT");
+  });
+
+  // ── 日历命令（capabilities/calendar 用）──────────────────────────────────
+
+  // 回归锁：reply/controller.ts 的 calendarContext() 逐字段依赖 calendar 子命令的输出，
+  // 新增日历命令时绝不能顺手把它参数化。
+  it("calendar 仍且只发 [\"calendar\"]（快捷回复路径不受影响）", async () => {
+    let gotArgs: string[] = [];
+    const p = new FakeProc();
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: (_bin, args) => {
+        gotArgs = args;
+        return p;
+      },
+    });
+    const promise = client.calendar();
+    p.emitStdout('{"ok":true,"busy":[]}\n');
+    p.emitExit(0);
+    await promise;
+    expect(gotArgs).toEqual(["calendar"]);
+    // 不传 stdin 的命令完全不碰 proc.stdin。
+    expect(p.written).toEqual([]);
+    expect(p.stdinEndCalls).toBe(0);
+  });
+
+  it("calendarEvents 把时间窗以 epoch 毫秒经 argv 传入", async () => {
+    let gotArgs: string[] = [];
+    const p = new FakeProc();
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: (_bin, args) => {
+        gotArgs = args;
+        return p;
+      },
+    });
+    const promise = client.calendarEvents(1786000000000, 1786600000000);
+    p.emitStdout('{"ok":true,"events":[]}\n');
+    p.emitExit(0);
+    await promise;
+    expect(gotArgs).toEqual(["calendar-events", "1786000000000", "1786600000000"]);
+  });
+
+  // 载荷走 stdin 而非 argv：事件标题/备注是私密内容，argv 对同机任意进程经 ps 可见。
+  it("calendarCreate 的载荷经 stdin 而非 argv，且 end 恰好调一次", async () => {
+    let gotArgs: string[] = [];
+    const p = new FakeProc();
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: (_bin, args) => {
+        gotArgs = args;
+        return p;
+      },
+    });
+    const promise = client.calendarCreate({ title: "私密会议", startMs: 1, endMs: 2 });
+    p.emitStdout('{"ok":true,"id":"evt-1"}\n');
+    p.emitExit(0);
+    await promise;
+
+    expect(gotArgs).toEqual(["calendar-create"]);
+    expect(gotArgs.join(" ")).not.toContain("私密会议");
+    expect(p.written).toHaveLength(1);
+    expect(JSON.parse(p.written[0])).toEqual({ title: "私密会议", startMs: 1, endMs: 2 });
+    expect(p.written[0].endsWith("\n")).toBe(true); // helper 侧 readLine 需要换行收尾
+    expect(p.stdinEndCalls).toBe(1);
   });
 
   it("进程 error 事件 → reject", async () => {
