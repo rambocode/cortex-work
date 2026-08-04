@@ -333,3 +333,48 @@ it("必须注入 agentBrowserBinary，否则 Browser 兜底是死代码", () => 
 类型、zod schema、DB 列（本例加了迁移 v2 `DROP COLUMN`，**不改已发布的 v1**）、
 死掉的 prompt 构造函数、UI 标签表、barrel 导出，一并清掉；spec 里那条 KTD 不是删除而是
 **标注修订并写清为什么**——否则下一个读 spec 的人会照着原设计再实现一遍。
+
+## macOS 日历的 write-only 授权档：读返回空数组而非报错，且第三方库看不见它
+
+**症状分两层，两层都是静默的。**
+
+第一层：用户在系统设置里把日历权限给成「仅添加」（`EKAuthorizationStatusWriteOnly`，macOS 14 起），
+应用调 `store.events(matching:)` 拿到的是**空数组，不是错误**。若代码把 write-only 判成「已授权」
+（`status == .fullAccess || status == .writeOnly`，这是本仓 `CalendarBusy.swift` / `Permissions.swift`
+的原始写法），用户会得到一句自信的「你这周没有任何日程」。**读路径必须硬判 `.fullAccess`。**
+
+第二层：`node-mac-permissions@2.5.0` 的 `EventAuthStatus`（`permissions.mm`）只 switch 了
+`Authorized / Denied / Restricted`，把 `WriteOnly(4)` 落进 `default:` 返回 `"not determined"`。
+后果是「去授权」按钮**点了完全没反应**——`needsSettingsFallback` 只认 denied/restricted 故不命中，
+于是走 `askForCalendarAccess("full")`，而 macOS 对已决策过的应用会立即 resolve 且不弹窗，
+返回 `true` 让调用方以为已经弹过窗，连设置面板都不会打开。
+
+**判据**：凡是要区分「能不能读日历」的地方，真源只能是 helper 侧的
+`EKEventStore.authorizationStatus`（本仓经 `permissions` 命令的 `calendarAccess` 五态字段出），
+不能用 node-mac-permissions，也不能用归一化后的三态。
+
+**顺带的一条通用教训**：给能力做门控时，「未授权也注入、调用时报错引导」是错的。
+Agent 会反复重试把整轮对话烧掉，而用户只看到「日历坏了」。授权引导是 UI 的职责，
+门控就该是「不满足条件整包不注入」（同 `capabilities/computer-use/inject.ts` 的五门控）。
+write-only 也要挡：只给写工具而没有读工具的日历 Agent 会盲写重复日程，比完全不给更糟。
+
+## `Date.parse` 对「纯日期」和「日期时间」用两种时区基准
+
+ES 规范里 `Date.parse("2026-08-04")` 按 **UTC** 解释，而 `Date.parse("2026-08-04T00:00")` 按
+**本地时区**解释 —— 同一个函数两种基准，差值恰好是本机 UTC 偏移。
+
+在 UTC+8 下，「查 8 月 4 日的日程」用 `Date.parse` 实现，实际查的是 8 月 3 日 08:00 起的窗口。
+**它不报错**，只是让模型自信地报出错误答案，这类 bug 要等用户对着日历核对才会发现。
+
+还有一条同源的坑：`new Date(2026, 12, 4)` 会**静默滚到 2027 年 1 月**，`new Date(2026, 1, 31)`
+滚到 3 月。模型偶尔会给出 `"2026-13-04"` 这种月份，滚过去之后查到的是一整年后的时段。
+Date 构造函数对越界分量既不抛错也不产生 NaN，必须显式判域（本仓 `capabilities/calendar/time.ts`
+的 `partsInRange`：判范围 + 构造后回读比对，捕获 2 月 30 日这类「格式合法但不存在」的日期）。
+
+**做法**：手写解析，并对每种形态显式定义语义（带偏移 → 按偏移；无偏移日期时间 → 本地；
+纯日期 → 本地当日边界，start 取 00:00、end 取 23:59:59.999），配回归测试锁住
+「纯日期 ≡ 显式写 T00:00」这条等式 —— 那条断言的唯一目的就是防止有人改回 `Date.parse`。
+
+**跨进程边界一律传 epoch 毫秒**。ISO8601 在边界上有「有无 offset / 有无小数秒 / 是否 date-only」
+三重歧义，两侧各写一遍解析器必然漂移。本仓 `native/Cortex_Helper` 没有 test target，
+所以解析责任全部收在 TS 侧（有 vitest 覆盖），Swift 只做 `Date(timeIntervalSince1970:)`。
