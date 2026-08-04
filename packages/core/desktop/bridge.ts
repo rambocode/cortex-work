@@ -71,6 +71,7 @@ import type {
   Member,
   OpenAiCompleteRequest,
   PersistedState,
+  VoiceSettings,
   PiOpenRequest,
   PiOpenResult,
   PiSessionEvent,
@@ -445,6 +446,13 @@ export interface DesktopBridge {
   // 渲染端改闪记全局热键 → 主进程即时校验 + 重注册（仿 setDesktopBehavior 的即时通路）。
   // ok=true 表示新键已生效;ok=false 表示格式无效或被占用（已回退旧键,toast 含原因）。可选。
   setNotesHotkey?(accelerator: string): Promise<{ ok: boolean; toast?: string }>;
+  // 同步语音聊天 / 听写的三项快捷键。空串解除对应绑定；主进程会原子地恢复上一组注册，
+  // 因此任一返回 ok=false 时设置 UI 应回滚完整 pick3，保持显示值与系统实际绑定一致。
+  setVoiceHotkeys?(
+    hotkeys: Pick<VoiceSettings, "chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey">,
+  ): Promise<
+    Record<"chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey", { ok: boolean; toast?: string }>
+  >;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）

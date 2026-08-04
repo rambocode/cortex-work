@@ -66,6 +66,7 @@ import type {
   Member,
   NoteStatus,
   PersistedState,
+  VoiceSettings,
   PushSettings,
   PiOpenRequest,
   PiOpenResult,
@@ -507,6 +508,12 @@ const personal = {
     };
     return { ok: r.registered && !r.degraded, toast: r.toast };
   },
+  // 语音三键需作为一个配置整体交给 main 校验与重绑，避免单键更新时暂时与另外两键冲突。
+  setVoiceHotkeys: (
+    hotkeys: Pick<VoiceSettings, "chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey">,
+  ): Promise<
+    Record<"chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey", { ok: boolean; toast?: string }>
+  > => ipcRenderer.invoke("voice:setHotkeys", hotkeys),
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),

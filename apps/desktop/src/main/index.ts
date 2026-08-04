@@ -64,6 +64,7 @@ import {
   REPLY_HOTKEY_ACCELERATOR,
   type HotkeyRegistration,
 } from "./hotkey";
+import { applyVoiceHotkeys } from "./ipc/voice";
 // 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
 import { ReplyHelperClient } from "./reply/helper-client";
 import { resolveReplyHelperBinary } from "./reply/helper-locate";
@@ -582,6 +583,17 @@ if (!app.requestSingleInstanceLock()) {
     if (hotkey.degraded && hotkey.toast) {
       log.warn(`[notes] 全局热键注册失败: ${hotkey.toast}`);
       notesHotkeyToast = hotkey.toast;
+    }
+    // 语音快捷键默认全关；若用户已在设置中启用，则启动时经与 IPC 相同的事务恢复绑定。
+    // 回调暂为 no-op（语音聊天浮层 / 听写 controller 分别在后续阶段接线），这样本阶段先
+    // 完整兑现「设置即生效、重启仍生效」而不提前创建窗口或录音资源。
+    const voiceHotkeyResults = applyVoiceHotkeys((await getPersistedState()).voiceSettings ?? {
+      chatHotkey: "",
+      dictationHoldHotkey: "",
+      dictationToggleHotkey: "",
+    });
+    if (Object.values(voiceHotkeyResults).some((result) => !result.ok)) {
+      log.warn("[voice] 启动恢复全局快捷键失败", voiceHotkeyResults);
     }
     // 启动恢复桌面行为（登录项 + 供 ready-to-show 读 startMinimized）,须在建窗前。
     await initDesktopBehavior();
