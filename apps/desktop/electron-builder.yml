@@ -172,8 +172,11 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "Cortex 需要访问麦克风以使用语音转文字功能，将您的语音实时转为文字输入。"
     NSSpeechRecognitionUsageDescription: "Cortex 需要访问语音识别权限，以便在快捷回复中将语音输入转换为文字。"
-    NSCalendarsUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
-    NSCalendarsFullAccessUsageDescription: "Cortex 需要读取日历忙碌时间，用于在快捷回复中生成更合适的日程回复建议。"
+    # 日历用途描述：产品现在既读也写，两条文案必须如实覆盖两种用途。
+    # 只写「读取忙碌时间」而实际会创建日程，是审核与用户信任问题；反过来，用户看到一个
+    # 「只读忙碌时间」的请求却被要求完全访问，也更可能直接拒绝。
+    NSCalendarsUsageDescription: "Cortex 需要访问日历，以便在快捷回复中生成合适的日程建议、在对话中回答你的日程安排，并在你确认后为你创建日程。"
+    NSCalendarsFullAccessUsageDescription: "Cortex 需要完全访问日历，以便读取你的日程来回答安排类问题，并在你逐次确认后创建日程。"
     # NSAccessibilityUsageDescription：辅助功能授权（快捷回复的输入框定位/粘贴，以及
     # Computer Use 的鼠标键盘操作都依赖它）。此前留空，系统授权弹窗与「隐私与安全性」
     # 列表里就只有一个没有理由说明的条目，用户无从判断该不该给——尤其 Computer Use 要的是

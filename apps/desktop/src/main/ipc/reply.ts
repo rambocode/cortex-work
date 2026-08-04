@@ -38,7 +38,13 @@ import { getPersistedState } from "./store";
 import type { MemoryFile, MemoryScope, MemoryState } from "./reply-types";
 import { createLogger } from "../log";
 // 权限真实查询（node-mac-permissions → helper 兜底 → 全未决），U9 权限中心消费。
-import { queryReplyPermissions, requestReplyPermissionAccess, type HelperPermissionsFn } from "../reply/permissions";
+import {
+  normalizeCalendarAccess,
+  queryReplyPermissions,
+  requestReplyPermissionAccess,
+  type CalendarAccessState,
+  type HelperPermissionsFn,
+} from "../reply/permissions";
 import { openReplyPermissionSettings } from "../reply/permission-settings";
 import {
   resizeReplyBubble,
@@ -196,8 +202,18 @@ export function registerReplyHandlers(): void {
 
   // 打开系统权限设置面板：直达对应隐私子页（授权引导）。
   ipcMain.handle("reply:openPermissionSettings", async (_e, kind: ReplyPermissionKind): Promise<void> => {
+    // 日历要先向 helper 取一次五态授权档。node-mac-permissions 看不见 writeOnly（把它报成
+    // notDetermined），不喂这个值的话「仅添加」授权下点「去授权」会完全没反应——既不弹窗
+    // 也不开设置面板。详见 reply/permissions.ts 的 case "calendar"。
+    // 取失败不阻断：退回原有行为（undefined 即不特判）。
+    let calendarAccess: CalendarAccessState | undefined;
+    if (kind === "calendar" && helperPermissionsSource) {
+      calendarAccess = await helperPermissionsSource()
+        .then((res) => normalizeCalendarAccess(res.calendarAccess))
+        .catch(() => undefined);
+    }
     return openReplyPermissionSettings(kind, {
-      requestAccess: (k) => requestReplyPermissionAccess(k, process.platform, undefined, log),
+      requestAccess: (k) => requestReplyPermissionAccess(k, process.platform, undefined, log, calendarAccess),
       openExternal: (url) => shell.openExternal(url),
     });
   });

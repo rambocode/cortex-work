@@ -6,7 +6,19 @@ import {
   queryReplyPermissions,
   requestAccessibilityAccess,
   requestReplyPermissionAccess,
+  normalizeCalendarAccess,
 } from "./permissions";
+
+describe("normalizeCalendarAccess（日历五态，writeOnly 必须能被表达）", () => {
+  it.each(["full", "writeOnly", "denied", "restricted", "notDetermined"] as const)("%s 原样透传", (s) => {
+    expect(normalizeCalendarAccess(s)).toBe(s);
+  });
+
+  it("缺字段（旧 helper 二进制）或未知值 → notDetermined", () => {
+    expect(normalizeCalendarAccess(undefined)).toBe("notDetermined");
+    expect(normalizeCalendarAccess("granted")).toBe("notDetermined");
+  });
+});
 
 describe("mapAuthStatus", () => {
   it("authorized / limited → granted", () => {
@@ -159,6 +171,35 @@ describe("requestReplyPermissionAccess", () => {
 
     expect(ok).toBe(true);
     expect(askCalendar).toHaveBeenCalledWith("full");
+  });
+
+  // 回归：write-only（系统设置里的「仅添加」）下点「去授权」曾经完全没反应。
+  // 成因是 node-mac-permissions@2.5.0 把 EKAuthorizationStatusWriteOnly(4) 报成
+  // "not determined" → needsSettingsFallback 不命中 → askForCalendarAccess 对已决策的应用
+  // 立即 resolve 且不弹窗 → 返回 true → 调用方连设置面板都不打开。
+  it("日历为 writeOnly 时返回 false（回退去开系统设置面板），不调 askForCalendarAccess", async () => {
+    const askCalendar = vi.fn().mockResolvedValue("authorized");
+    const loader = () =>
+      Promise.resolve({
+        // 刻意复现 NMP 的错误上报：write-only 在它眼里就是 "not determined"。
+        getAuthStatus: () => "not determined",
+        askForCalendarAccess: askCalendar,
+      });
+
+    const ok = await requestReplyPermissionAccess("calendar", "darwin", loader, undefined, "writeOnly");
+
+    expect(ok).toBe(false);
+    expect(askCalendar).not.toHaveBeenCalled();
+  });
+
+  it("日历为 full / notDetermined 时不受影响（只特判 writeOnly）", async () => {
+    const askCalendar = vi.fn().mockResolvedValue("authorized");
+    const loader = () =>
+      Promise.resolve({ getAuthStatus: () => "not determined", askForCalendarAccess: askCalendar });
+
+    expect(await requestReplyPermissionAccess("calendar", "darwin", loader, undefined, "notDetermined")).toBe(true);
+    expect(await requestReplyPermissionAccess("calendar", "darwin", loader, undefined, "full")).toBe(true);
+    expect(askCalendar).toHaveBeenCalledTimes(2);
   });
 
   it("语音识别授权由主应用触发 SFSpeechRecognizer 请求", async () => {

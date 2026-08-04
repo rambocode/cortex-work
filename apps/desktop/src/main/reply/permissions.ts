@@ -17,6 +17,23 @@ import type { HelperLogger } from "./helper-client";
 export type PermissionState = "granted" | "denied" | "notDetermined";
 
 /**
+ * 日历授权五态（helper permissions 的 calendarAccess 字段，源自 EKEventStore.authorizationStatus）。
+ *
+ * 比上面的三态多出 writeOnly（系统设置里的「仅添加」）。这一档必须单独表达，因为它的两个
+ * 特性都会咬人：读事件返回**空数组而非报错**（静默假成功），且 node-mac-permissions 看不见它
+ * （把 4 落进 default 报 "not determined"）。凡是要区分「能不能读日历」的地方都必须用本类型，
+ * 不能用 ReplyPermissions.calendar 的三态。
+ */
+export type CalendarAccessState = "notDetermined" | "restricted" | "denied" | "writeOnly" | "full";
+
+/** helper 的 calendarAccess 原始值 → 五态；缺字段（旧 helper 二进制）退回 notDetermined。 */
+export function normalizeCalendarAccess(raw: unknown): CalendarAccessState {
+  return raw === "full" || raw === "writeOnly" || raw === "denied" || raw === "restricted"
+    ? raw
+    : "notDetermined";
+}
+
+/**
  * 五项权限状态快照。
  *
  * 键名契约(重要):字段名对齐 IPC/UI 契约 `ReplyPermissionKind`
@@ -184,6 +201,9 @@ export async function requestReplyPermissionAccess(
   platform: NodeJS.Platform = process.platform,
   nativeLoader: NativeModuleLoader = defaultNativeLoader,
   logger?: HelperLogger,
+  // 日历当前授权档（来自 helper 的 calendarAccess，见下方 case "calendar" 的说明）。
+  // 其它 kind 不需要，故只此一项且可选。
+  currentCalendarAccess?: CalendarAccessState,
 ): Promise<boolean> {
   if (platform !== "darwin") return false;
   try {
@@ -195,6 +215,14 @@ export async function requestReplyPermissionAccess(
         return true;
       case "calendar":
         if (typeof perms.askForCalendarAccess !== "function") return false;
+        // write-only（系统设置里的「仅添加」）必须直接回退到打开设置面板。
+        //
+        // 不特判的话会「点了完全没反应」：node-mac-permissions@2.5.0 的 EventAuthStatus 把
+        // EKAuthorizationStatusWriteOnly(4) 落进 default 分支报 "not determined"，于是
+        // needsSettingsFallback 不命中 → 走 askForCalendarAccess → 系统对已决策的应用立即
+        // resolve 且不弹窗 → 返回 true → 调用方以为已弹窗，连设置面板都不会打开。
+        // 授权档的真源只能是 helper 的 EKEventStore.authorizationStatus。
+        if (currentCalendarAccess === "writeOnly") return false;
         if (needsSettingsFallback(safeGetAuthStatus(perms, NMP_TYPES.calendar))) return false;
         await perms.askForCalendarAccess("full");
         return true;

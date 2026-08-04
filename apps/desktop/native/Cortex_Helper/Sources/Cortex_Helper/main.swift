@@ -7,7 +7,8 @@ import Foundation
 let args = CommandLine.arguments
 guard args.count >= 2 else {
     emitJSON(["ok": false, "error": "missing-command",
-              "usage": "ax-capture | ax-activate <pid> | paste <text> | ocr [pid] | calendar | permissions | events"])
+              "usage": "ax-capture | ax-activate <pid> | paste <text> | ocr [pid] | calendar"
+                     + " | calendar-events <startMs> <endMs> | calendar-create | permissions | events"])
     exit(2)
 }
 
@@ -31,6 +32,15 @@ case "ocr":
     runOCR(pid: pid)
 case "calendar":
     runCalendar()
+case "calendar-events":
+    // 时间窗经 argv 传 epoch 毫秒（解析在 TS 侧,见 CalendarEvents.swift 文件头说明）。
+    guard args.count >= 4, let startMs = Int(args[2]), let endMs = Int(args[3]) else {
+        emitJSON(["ok": false, "error": "bad-args"])
+        exit(2)
+    }
+    runCalendarEvents(startMs: startMs, endMs: endMs)
+case "calendar-create":
+    runCalendarCreate() // 载荷经 stdin 读一行 JSON（避免标题/备注经 argv 被 ps 看见）
 case "permissions":
     runPermissions()
 case "events":

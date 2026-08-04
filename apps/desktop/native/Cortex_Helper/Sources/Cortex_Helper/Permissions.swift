@@ -50,6 +50,14 @@ func runPermissions() {
         "accessibility": stateString(granted: accessibility),
         "screen": stateString(granted: screen),
         "calendar": stateString(granted: calendarGranted, determined: calendarDetermined),
+        // calendarAccess:日历五态细分（notDetermined/restricted/denied/writeOnly/full）。
+        // 只加键、不改上面的 calendar 三态,parseHelperPermissions 忽略未知键,旧调用方零影响。
+        //
+        // 为什么必须由 helper 出这个值:node-mac-permissions@2.5.0 的 EventAuthStatus 只 switch 了
+        // Authorized/Denied/Restricted,把 EKAuthorizationStatusWriteOnly(4) 落进 default 分支报
+        // "not determined"。日历三态若以它为准,write-only 会被误判成「还没问过」,导致
+        // 「去授权」按钮点了完全没反应（既不弹窗也不开设置面板）。
+        "calendarAccess": calendarAccessString(),
         "microphone": stateString(granted: micGranted, determined: micDetermined),
         "speech": stateString(granted: speechGranted, determined: speechDetermined)
     ])
