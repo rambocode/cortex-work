@@ -1347,6 +1347,9 @@ export interface AutomationMeta {
   providerId?: string;
   schedule: ScheduleSpec;
   timezone?: string;
+  // 来源标记：经 MCP 工具由 Agent 建的为 "agent"，UI 建的省略（旧档亦为 undefined，视为 user）。
+  // 仅用于列表角标审计，不参与任何准入判断。
+  createdBy?: "user" | "agent";
   createdAt: number;
   updatedAt: number;
   lastRunAt?: number;

@@ -1880,6 +1880,9 @@ export interface AutomationMeta {
   providerId?: string; // pi 自定义供应商:仅存 id,apiKey 运行时由 main 从 providerSettings 解析
   schedule: ScheduleSpec;
   timezone?: string; // IANA 时区,缺省 = 创建时本机时区
+  // 来源标记：经 MCP 工具由 Agent 建的为 "agent",UI 建的省略（旧档亦为 undefined,视为 user）。
+  // 仅用于列表角标审计,不参与任何准入判断。
+  createdBy?: "user" | "agent";
   createdAt: number;
   updatedAt: number;
   lastRunAt?: number; // 上次运行(开始)时间
