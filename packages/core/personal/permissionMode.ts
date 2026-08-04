@@ -14,6 +14,8 @@
 //     auto(自动执行) → 沿用用户 piCustomization 审批设置(历史默认行为)。
 
 import {
+  AUTOMATION_WRITE_TOOLS,
+  CALENDAR_WRITE_TOOLS,
   COMPUTER_USE_WRITE_TOOLS,
   DEFAULT_PI_APPROVAL_TOOLS,
   PI_PLAN_TOOL_WHITELIST,
@@ -22,6 +24,15 @@ import {
   type PermissionMode,
   type ExecPermission,
 } from "../desktop/types";
+
+// 自动化 / 日历的写工具:改定时任务、写系统日历,同属「无需再问就会改变用户世界」的一类,
+// 与 gui_* 同级红线,故**无条件**进审批集(不看任何开关)。
+//
+// 为什么可以无条件加:审批集只是 renderApprovalExtension 编出的一个 NEEDS 名字集合,工具没被
+// 注入时这些名字永不命中。这样 renderer 不必知道主进程那边的门控结论(自动化的全局开关、日历的
+// 四道门),把「要不要真给工具」与「给了要不要审批」解耦,避免两侧判断漂移出「注入了但不审批」
+// 这个最坏组合 —— 与下方 gui_* 的处理同构。
+const ALWAYS_APPROVE_TOOLS = [...AUTOMATION_WRITE_TOOLS, ...CALENDAR_WRITE_TOOLS];
 
 // 【UI 单轴 → 线格式】发送边界唯一派生点。塞进 CliStartRequest/编排/pi 请求前调用。
 export function toAdapterPermissions(
@@ -86,7 +97,7 @@ export function derivePiCapabilities(
   if (approval === "ask") {
     const base = prefs?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
     // 安全底线:审批集至少覆盖 write/edit/bash(否则空集经 pi-extensions 会放行全部工具)。
-    const need = ["write", "edit", "bash", ...guiNeeds];
+    const need = ["write", "edit", "bash", ...guiNeeds, ...ALWAYS_APPROVE_TOOLS];
     const approvalTools = [...new Set([...base, ...need])];
     return { toolWhitelist: undefined, enableToolApproval: true, approvalTools };
   }
@@ -95,12 +106,19 @@ export function derivePiCapabilities(
   // ⚠️ 例外:Computer Use 开启时,即使用户没开「工具执行审批」,也强制打开审批并把 gui_* 写工具
   // 塞进审批集。否则 auto 档下 gui_click / gui_type 会**无任何确认**直接操作用户电脑——
   // 这是本功能唯一不可让步的行为。用户原有的审批集（若配了）一并保留,不覆盖其选择。
-  if (guiNeeds.length) {
+  //
+  // 自动化 / 日历写工具（ALWAYS_APPROVE_TOOLS）同理并入。注意这里**不能**再写
+  // `if (guiNeeds.length)` —— 用户关掉 Computer Use 时 guiNeeds 为空,整个强制块会被跳过,
+  // create_automation / create_calendar_event 在 auto 档就无确认直接落地。
+  // forcedNeeds 恒非空,故 auto 档现在恒有审批 extension;但 NEEDS 集只含这些强制工具名,
+  // 其余工具一律不命中,对未开审批开关的用户行为等价(不会平白多出审批弹窗)。
+  const forcedNeeds = [...guiNeeds, ...ALWAYS_APPROVE_TOOLS];
+  if (forcedNeeds.length) {
     const base = prefs?.toolApproval ? (prefs.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS) : [];
     return {
       toolWhitelist: undefined,
       enableToolApproval: true,
-      approvalTools: [...new Set([...base, ...guiNeeds])],
+      approvalTools: [...new Set([...base, ...forcedNeeds])],
     };
   }
   return {

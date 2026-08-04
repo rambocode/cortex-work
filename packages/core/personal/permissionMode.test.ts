@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { derivePiCapabilities, toAdapterPermissions, fromAdapterPermissions } from "./permissionMode";
 import {
+  AUTOMATION_READONLY_TOOLS,
+  AUTOMATION_WRITE_TOOLS,
+  CALENDAR_READONLY_TOOLS,
+  CALENDAR_WRITE_TOOLS,
   COMPUTER_USE_READONLY_TOOLS,
   COMPUTER_USE_WRITE_TOOLS,
   PI_PLAN_TOOL_WHITELIST,
   EXEC_PERMISSIONS,
   type ExecPermission,
 } from "../desktop/types";
+
+// 与 permissionMode.ts 内部的 ALWAYS_APPROVE_TOOLS 同构（该常量不导出，此处复现一份用于断言）。
+const ALWAYS_APPROVE_TOOLS = [...AUTOMATION_WRITE_TOOLS, ...CALENDAR_WRITE_TOOLS];
 
 describe("derivePiCapabilities(线格式 → pi 能力)", () => {
   it("plan(只读):只读白名单(含浏览器控制工具)+ 关审批", () => {
@@ -37,12 +44,13 @@ describe("derivePiCapabilities(线格式 → pi 能力)", () => {
     expect(caps.approvalTools!.filter((t) => t === "bash")).toHaveLength(1);
   });
 
-  it("auto(自动执行)+ Computer Use 关:不收窄工具,审批沿用 piCustom(历史默认)", () => {
-    expect(derivePiCapabilities("full-auto", "auto", undefined, false)).toEqual({
-      toolWhitelist: undefined,
-      enableToolApproval: undefined,
-      approvalTools: undefined,
-    });
+  it("auto(自动执行)+ Computer Use 关:不收窄工具,用户原有审批集原样保留", () => {
+    // 注意:自动化/日历写工具恒进审批集(见下方红线用例),故 auto 档现在恒有审批 extension。
+    // 但 NEEDS 集只含这些强制工具名,普通工具一律不命中 —— 对未开审批开关的用户行为等价。
+    const bare = derivePiCapabilities("full-auto", "auto", undefined, false);
+    expect(bare.toolWhitelist).toBeUndefined();
+    expect(bare.approvalTools).toEqual(ALWAYS_APPROVE_TOOLS);
+
     const withApproval = derivePiCapabilities(
       "full-auto",
       "auto",
@@ -50,7 +58,46 @@ describe("derivePiCapabilities(线格式 → pi 能力)", () => {
       false,
     );
     expect(withApproval.enableToolApproval).toBe(true);
-    expect(withApproval.approvalTools).toEqual(["bash"]);
+    expect(withApproval.approvalTools).toEqual(["bash", ...ALWAYS_APPROVE_TOOLS]);
+  });
+});
+
+// 【安全红线 2】自动化写工具能给用户排一个每天自动跑的 agent 任务(自增殖、无人值守),
+// 日历写工具会真写进系统日历。二者都属「无需再问就改变用户世界」,与 gui_* 同级,
+// 故**无条件**进审批集 —— 不看 Computer Use 开关、不看用户的「工具执行审批」开关。
+describe("derivePiCapabilities:自动化 / 日历写工具强制审批", () => {
+  it("auto 档 + 用户没开审批 + Computer Use 也关 → 仍强制开审批(最容易漏的一档)", () => {
+    const caps = derivePiCapabilities("full-auto", "auto", undefined, false);
+    expect(caps.enableToolApproval).toBe(true);
+    for (const tool of ALWAYS_APPROVE_TOOLS) expect(caps.approvalTools).toContain(tool);
+  });
+
+  it("ask 档:与 write/edit/bash 一并进审批集", () => {
+    const caps = derivePiCapabilities("full-auto", "ask");
+    expect(caps.approvalTools).toEqual(expect.arrayContaining(["write", "edit", "bash", ...ALWAYS_APPROVE_TOOLS]));
+  });
+
+  it("每个写工具都在审批集里(重命名工具时漏改常量 = 审批静默失效)", () => {
+    const caps = derivePiCapabilities("full-auto", "auto");
+    for (const tool of [...AUTOMATION_WRITE_TOOLS, ...CALENDAR_WRITE_TOOLS]) {
+      expect(caps.approvalTools).toContain(tool);
+    }
+  });
+
+  it("plan 档:写工具靠 --tools 物理拦下(不在白名单),只读工具放行", () => {
+    const caps = derivePiCapabilities("plan", "auto");
+    for (const tool of ALWAYS_APPROVE_TOOLS) expect(caps.toolWhitelist).not.toContain(tool);
+    expect(caps.toolWhitelist).toEqual(
+      expect.arrayContaining([...AUTOMATION_READONLY_TOOLS, ...CALENDAR_READONLY_TOOLS]),
+    );
+  });
+
+  it("审批集去重:用户已勾同名工具时不重复出现", () => {
+    const caps = derivePiCapabilities("full-auto", "ask", {
+      toolApproval: true,
+      approvalTools: ["create_automation"],
+    });
+    expect(caps.approvalTools!.filter((x) => x === "create_automation")).toHaveLength(1);
   });
 });
 

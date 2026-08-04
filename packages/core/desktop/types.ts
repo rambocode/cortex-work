@@ -1837,6 +1837,24 @@ export const COMPUTER_USE_WRITE_TOOLS = [
   "gui_batch",
 ];
 
+// ── 自动化 / 系统日历 MCP 工具名（capabilities/automation、capabilities/calendar）──────
+// 工具名须与两个 server.ts 里 registerTool 的名字**逐字一致**:审批 extension 是按
+// event.toolName 精确匹配的(agents/pi-extensions.ts),匹配不上就是**静默放行**——重命名工具
+// 却忘了改这里,审批会无声失效。两个 server.test.ts 各有一条断言钉住这一点。
+//
+// 只读工具并入 plan 白名单:计划档下「我有哪些定时任务」「下周三有空吗」是纯查询,应当能答。
+// 写工具**不**进白名单,plan 档由 pi 的 --tools 物理拦下,无需再走审批兜底(同 gui_* 的处理)。
+export const AUTOMATION_READONLY_TOOLS = ["list_automations", "get_automation_runs"];
+export const AUTOMATION_WRITE_TOOLS = [
+  "create_automation",
+  "update_automation",
+  "set_automation_enabled",
+  "delete_automation",
+  "run_automation_now",
+];
+export const CALENDAR_READONLY_TOOLS = ["list_calendar_events"];
+export const CALENDAR_WRITE_TOOLS = ["create_calendar_event"];
+
 // pi plan 档只读工具白名单(pi 官方钦定的 read-only 配方,物理上无 write/edit/bash)。并入浏览器控制
 // 工具:否则「新会话默认 plan」会让浏览器控制开箱即用不了(pi 用 --tools 硬限工具集,白名单外即被拦)。
 // 同理并入 Computer Use 只读工具:让计划档能看屏幕取证,而写操作被 --tools 物理拦下。
@@ -1847,6 +1865,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "ls",
   ...BROWSER_MCP_PLAN_TOOLS,
   ...COMPUTER_USE_READONLY_TOOLS,
+  ...AUTOMATION_READONLY_TOOLS,
+  ...CALENDAR_READONLY_TOOLS,
 ];
 
 // 定时规则。weekday: 0=周日 .. 6=周六（与 JS Date.getDay() / croner 一致）。

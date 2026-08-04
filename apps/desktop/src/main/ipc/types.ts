@@ -1270,9 +1270,24 @@ export const COMPUTER_USE_WRITE_TOOLS = [
   "gui_batch",
 ];
 
+// ── 自动化 / 系统日历 MCP 工具名,与 core/desktop/types.ts 逐字镜像（改一处必改两处）──────
+// 主进程侧的用途:capabilities/{automation,calendar}/server.ts 的工具名一致性断言。
+// 审批 extension 按 event.toolName 精确匹配,匹配不上即**静默放行**,故两侧必须逐字相同。
+export const AUTOMATION_READONLY_TOOLS = ["list_automations", "get_automation_runs"];
+export const AUTOMATION_WRITE_TOOLS = [
+  "create_automation",
+  "update_automation",
+  "set_automation_enabled",
+  "delete_automation",
+  "run_automation_now",
+];
+export const CALENDAR_READONLY_TOOLS = ["list_calendar_events"];
+export const CALENDAR_WRITE_TOOLS = ["create_calendar_event"];
+
 // pi plan 档只读工具白名单,与 core/desktop/types.ts 的 PI_PLAN_TOOL_WHITELIST 镜像。
 // 主进程 pi.ts 单发路径无法 import core barrel,故此处镜像一份供 adapter 引用(避免硬编码漂移)。
-// 浏览器控制工具(browser_*,沙箱 + URL 闸)与 Computer Use 只读工具并入,须与 core 镜像逐字一致。
+// 浏览器控制工具(browser_*,沙箱 + URL 闸)、Computer Use 只读工具与自动化/日历只读工具并入,
+// 须与 core 镜像逐字一致。
 export const PI_PLAN_TOOL_WHITELIST = [
   "read",
   "grep",
@@ -1287,6 +1302,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "browser_network",
   "browser_accessibility",
   ...COMPUTER_USE_READONLY_TOOLS,
+  ...AUTOMATION_READONLY_TOOLS,
+  ...CALENDAR_READONLY_TOOLS,
 ];
 
 // Computer Use 设置,与 core/desktop/types.ts 的 ComputerUseSettings 逐字镜像。
