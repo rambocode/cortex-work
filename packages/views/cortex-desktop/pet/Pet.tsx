@@ -17,7 +17,17 @@ import { hasSprites } from "./sprites";
 import { SpriteLayer } from "./SpriteLayer";
 import { loadPetEnabled, savePetEnabled } from "./behavior";
 
-const PET_STATES = ["idle", "typing", "thinking", "working", "replying", "sleeping", "happy"] as const;
+const PET_STATES = [
+  "idle",
+  "typing",
+  "thinking",
+  "working",
+  "replying",
+  "waiting",
+  "sleeping",
+  "happy",
+  "failed",
+] as const;
 
 const POS_KEY = "cortex_pet_pos";
 const PET_W = 110;

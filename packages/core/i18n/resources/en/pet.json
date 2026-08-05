@@ -5,8 +5,10 @@
     "thinking": "{{name}} is thinking…",
     "working": "{{name}} is hard at work",
     "replying": "{{name}} is replying",
+    "waiting": "{{name}} is waiting for you",
     "sleeping": "{{name}} fell asleep, click to wake up",
-    "happy": "{{name}} is happy!"
+    "happy": "{{name}} is happy!",
+    "failed": "{{name}} noticed something failed"
   },
   "hideTitle": "Hide pet (reopen it in Settings → Pet)",
   "hideAria": "Hide pet",

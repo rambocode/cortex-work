@@ -1546,12 +1546,14 @@ export default interface Resources {
       }
     },
     "state": {
+      "failed": "{{name}}发现出错了",
       "happy": "{{name}}很开心!",
       "idle": "{{name}}在待命",
       "replying": "{{name}}在回话",
       "sleeping": "{{name}}睡着了,点我叫醒",
       "thinking": "{{name}}在思考…",
       "typing": "{{name}}在看你打字",
+      "waiting": "{{name}}在等你确认",
       "working": "{{name}}在埋头干活"
     }
   },

@@ -9,8 +9,10 @@ export type PetState =
   | "thinking" // 已发送,等待 LLM 首个输出
   | "working" // LLM 正在调用工具
   | "replying" // LLM 正在流式回复
+  | "waiting" // 有挂起的审批/确认,等用户点一下
   | "sleeping" // 长时间无活动
-  | "happy"; // 被点击/任务完成的瞬时开心
+  | "happy" // 被点击/任务完成的瞬时开心
+  | "failed"; // 本轮运行失败的瞬时反馈
 
 // 宠物造型（设置菜单中选择;持久化由 views 层 localStorage 负责）。
 export type PetKind = "cat" | "dog" | "mint";

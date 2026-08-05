@@ -1573,7 +1573,16 @@ export * from "../workflow/types";
 
 // 桌面宠物脱离主窗体(独立 overlay 窗口)状态快照。与 packages/core/desktop/types.ts 镜像同步
 // (core 不能依赖 app 包,两侧各持一份;联合类型字面量须与 packages/core/store/pet.ts 保持一致)。
-export type PetState = "idle" | "typing" | "thinking" | "working" | "replying" | "sleeping" | "happy";
+export type PetState =
+  | "idle"
+  | "typing"
+  | "thinking"
+  | "working"
+  | "replying"
+  | "waiting"
+  | "sleeping"
+  | "happy"
+  | "failed";
 export type PetKind = "cat" | "dog" | "mint";
 export interface PetStateSnapshot {
   state: PetState;
