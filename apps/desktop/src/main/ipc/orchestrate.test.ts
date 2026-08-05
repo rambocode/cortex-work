@@ -11,6 +11,14 @@
 //   - 子进程不出现在 cli.ts running Map（通过验证 startAgentProcess mock 参数而非真实 Map）
 //   - killAllOrchestrations 终止全部在途编排子进程
 //   - 分段超时触发：该段 kill 并按失败降级处理
+//
+// U6（pi in-process 迁移）新增覆盖 —— 这条链路并发起多个 pi 会话，是「进程隔离消失」这条
+// 风险最集中的地方，故并发与资源释放是本文件的重点：
+//   - 引擎选路：开关开走 openPiInProcSession（不 spawn），关走 spawnPiRpc（行为逐字不变）
+//   - 释放顺序：in-process abort→stop；binary 只 stop
+//   - 构造期竞态：openPiInProcSession 未决时取消/超时 → 会话建好后立即被释放，绝不留无主会话
+//   - 并发隔离：一条链路的会话构造失败 / provider 静默失败（KTD5）不影响同批其它链路
+//   - killAllOrchestrations：某会话 stop() 抛错，其余仍被释放
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -124,6 +132,73 @@ vi.mock("./pi-session", () => ({
   preparePiOpenRequest: (...args: unknown[]) => preparePiOpenRequestMock(...args),
   registerTransientPiUiRequest: (...args: unknown[]) => registerTransientPiUiRequestMock(...args),
   clearTransientPiUiRequestsForSession: (...args: unknown[]) => clearTransientPiUiRequestsForSessionMock(...args),
+}));
+
+vi.mock("../log", () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  isDevEnv: () => true,
+}));
+
+// ── in-process 引擎替身（U6）────────────────────────────────────────────────────
+// 只替掉 barrel 的两个符号（选路 + 构造）；session-pool.ts 用**真实实现**跑，
+// 因为并发与资源释放正是本轮要验证的行为，替掉它等于把被测对象替没了。
+const inprocMocks = vi.hoisted(() => {
+  /** in-process 会话替身。记录 abort/stop 顺序，便于断言释放次序与幂等。 */
+  class FakeInProcSession {
+    static instances: FakeInProcSession[] = [];
+    /** 全局释放调用序列（跨会话），断言「一个会话炸了其余仍被释放」。 */
+    static trace: string[] = [];
+
+    readonly label: string;
+    ready = vi.fn(async () => ({ sessionId: "inproc-ready", sessionFile: "/tmp/inproc.jsonl" }));
+    prompt: ReturnType<typeof vi.fn>;
+    abort = vi.fn(async () => {
+      FakeInProcSession.trace.push(`${this.label}:abort`);
+      return { type: "response", command: "abort", success: true };
+    });
+    stop = vi.fn(() => {
+      FakeInProcSession.trace.push(`${this.label}:stop`);
+      if (this.stopThrows) throw new Error(`${this.label} stop failed`);
+    });
+    stopThrows = false;
+
+    constructor(
+      private readonly onEvent: (ev: unknown, runId?: string) => void,
+      private readonly onUiRequest?: (req: unknown) => void,
+    ) {
+      this.label = `inproc-${FakeInProcSession.instances.length}`;
+      this.prompt = vi.fn(async () => inprocMocks.promptResults.shift() ?? { type: "response", command: "prompt", success: true });
+      FakeInProcSession.instances.push(this);
+    }
+
+    emit(ev: unknown) {
+      this.onEvent(ev, "pi-stage-run");
+    }
+    ui(req: unknown) {
+      this.onUiRequest?.(req);
+    }
+  }
+
+  return {
+    FakeInProcSession,
+    promptResults: [] as Array<{ success: boolean; error?: string }>,
+    shouldUseInProcMock: vi.fn(() => false),
+    openInProcMock: vi.fn(),
+  };
+});
+
+const { FakeInProcSession } = inprocMocks;
+
+vi.mock("../agents/pi-inproc", () => ({
+  shouldUsePiInProcEngine: () => inprocMocks.shouldUseInProcMock(),
+  openPiInProcSession: (...args: unknown[]) => inprocMocks.openInProcMock(...args),
+}));
+
+const getPiInprocModelRuntimeMock = vi.fn(async () => ({ kind: "shared-runtime" }));
+const resolvePiInprocModelMock = vi.fn(async () => ({ modelRuntime: { kind: "resolved" }, model: { id: "m" } }));
+vi.mock("../providers/pi-inproc-models", () => ({
+  getPiInprocModelRuntime: (...args: unknown[]) => getPiInprocModelRuntimeMock(...(args as [])),
+  resolvePiInprocModel: (...args: unknown[]) => resolvePiInprocModelMock(...(args as [])),
 }));
 
 // ── 测试工具类 ────────────────────────────────────────────────────────────────
@@ -255,6 +330,20 @@ beforeEach(() => {
   buildRpcArgsMock.mockImplementation((req: { uiSessionId?: string }) => ["--mode", "rpc", req.uiSessionId ?? ""]);
   spawnPiRpcMock.mockReturnValue({});
   preparePiOpenRequestMock.mockImplementation(async (req: unknown) => req);
+  // in-process 引擎替身复位。默认**关闭**开关 —— 保证既有用例仍走二进制路径，
+  // 从而持续充当「开关关闭时行为逐字不变」的回归网。
+  FakeInProcSession.instances.length = 0;
+  FakeInProcSession.trace.length = 0;
+  inprocMocks.promptResults.length = 0;
+  inprocMocks.shouldUseInProcMock.mockReset();
+  inprocMocks.shouldUseInProcMock.mockReturnValue(false);
+  inprocMocks.openInProcMock.mockReset();
+  inprocMocks.openInProcMock.mockImplementation(
+    async (opts: { onEvent: (ev: unknown, runId?: string) => void; onUiRequest?: (req: unknown) => void }) =>
+      new FakeInProcSession(opts.onEvent, opts.onUiRequest),
+  );
+  getPiInprocModelRuntimeMock.mockClear();
+  resolvePiInprocModelMock.mockClear();
   // 注册 handler（每个 beforeEach 都重新注册，避免状态污染）
   registerOrchestrateHandlers();
 });
@@ -1205,5 +1294,359 @@ describe("stageLabel 段切换通知（R9）", () => {
     expect(labels).toContain("理解意图中…");
     expect(labels).toContain("子 agent 执行中…");
     expect(labels).toContain("整理回复中…");
+  });
+});
+
+// ══ U6：pi in-process 引擎选路、并发隔离与资源释放 ═════════════════════════════════
+//
+// 这一整块是 U6 的重点。旧路径每段子 agent 是独立子进程，一个崩了不影响其它、忘了清理也会
+// 自己退出；in-process 后它们全跑在主进程同一个事件循环上，漏释放 = 挂起的 UI 对话框 /
+// 未解订阅 / 未结算 Promise 永久驻留，且**没有任何症状**。故释放路径必须逐条断言。
+
+/** 驱动一段 in-process pi：等它建好会话，然后按给定事件收尾。 */
+async function driveInProcStage(index: number, events: unknown[]) {
+  await flushAsync(20);
+  const s = FakeInProcSession.instances[index];
+  expect(s, `第 ${index} 段 in-process 会话应已建立`).toBeDefined();
+  for (const ev of events) s!.emit(ev);
+  return s!;
+}
+
+/** 完整跑通三段 in-process 编排（每段各发一条 text + result）。 */
+async function runThreeInProcStages(handlerP: Promise<void>, texts = ["优化后的提示词", "子执行结果", "最终回答"]) {
+  for (let i = 0; i < 3; i++) {
+    await driveInProcStage(i, [{ type: "text", delta: texts[i] }, { type: "result", willRetry: false }]);
+  }
+  await handlerP;
+}
+
+function startPiOrchestration(overrides: Record<string, unknown> = {}) {
+  const sender = makeSender();
+  const handlerP = (ipcHandlers.get("orchestrate:start")!)(makeEvent(sender), {
+    ...baseReq,
+    agent: "pi",
+    piOpen: {},
+    ...overrides,
+  }) as Promise<void>;
+  return { sender, handlerP };
+}
+
+describe("U6 引擎选路（单一灰度开关）", () => {
+  it("开关打开 → 三段全走 openPiInProcSession，不 spawn、不 buildRpcArgs", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { sender, handlerP } = startPiOrchestration();
+
+    await runThreeInProcStages(handlerP);
+
+    expect(inprocMocks.openInProcMock).toHaveBeenCalledTimes(3);
+    // 进程边界彻底消失：既不 spawn pi 子进程，也不构造 CLI 参数
+    expect(spawnPiRpcMock).not.toHaveBeenCalled();
+    expect(buildRpcArgsMock).not.toHaveBeenCalled();
+    expect(startAgentProcessMock).not.toHaveBeenCalled();
+    // 事件映射/合成终态与二进制路径一致
+    expect(cliEvents(sender.calls)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", delta: "优化后的提示词", stage: "intent" }),
+        expect.objectContaining({ type: "text", delta: "最终回答", stage: "refine" }),
+        expect.objectContaining({ type: "result", ok: true, stage: "refine" }),
+      ]),
+    );
+    expect(cliExits(sender.calls)).toHaveLength(1);
+  });
+
+  it("开关关闭 → 逐字沿用二进制路径（buildRpcArgs + spawnPiRpc + PiRpcSession），不碰 in-process", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(false);
+    const { handlerP } = startPiOrchestration();
+
+    await flushAsync(20);
+    for (let i = 0; i < 3; i++) {
+      fakePiSessions[i]!.emit({ type: "text", delta: `s${i}` });
+      fakePiSessions[i]!.emit({ type: "result", willRetry: false });
+      await flushAsync(20);
+    }
+    await handlerP;
+
+    expect(inprocMocks.openInProcMock).not.toHaveBeenCalled();
+    expect(buildRpcArgsMock).toHaveBeenCalledTimes(3);
+    expect(spawnPiRpcMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("in-process 会话拿到与二进制路径同源的 prepared request（preparePiOpenRequest 是共用前置）", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { handlerP } = startPiOrchestration({
+      model: "pi-model",
+      piOpen: { model: "pi-model", thinkingLevel: "high", toolWhitelist: ["read", "grep"], appendSystemPrompt: "持久人设" },
+    });
+
+    await runThreeInProcStages(handlerP);
+
+    const openArgs = inprocMocks.openInProcMock.mock.calls.map((c) => c[0] as { request: Record<string, unknown> });
+    expect(openArgs[0]!.request).toMatchObject({ cwd: "/proj", model: "pi-model", thinkingLevel: "high" });
+    // 仅段2带持久 appendSystemPrompt —— 与二进制路径同一条规则
+    expect(openArgs[0]!.request.appendSystemPrompt).toBeUndefined();
+    expect(openArgs[1]!.request.appendSystemPrompt).toBe("持久人设");
+    expect(openArgs[2]!.request.appendSystemPrompt).toBeUndefined();
+  });
+
+  it("模型解析注入：无 providerId 用共享 ModelRuntime，有则按 provider+model 解析", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { handlerP } = startPiOrchestration();
+    await runThreeInProcStages(handlerP);
+
+    const resolveModel = (inprocMocks.openInProcMock.mock.calls[0]![0] as {
+      deps: { resolveModel: (req: unknown) => Promise<unknown> };
+    }).deps.resolveModel;
+
+    await resolveModel({ providerId: "  " });
+    expect(getPiInprocModelRuntimeMock).toHaveBeenCalled();
+    await resolveModel({ providerId: "custom-x", model: "gpt-9" });
+    expect(resolvePiInprocModelMock).toHaveBeenCalledWith({ providerId: "custom-x", modelId: "gpt-9" });
+  });
+});
+
+describe("U6 资源释放（in-process 没有「杀进程」这层兜底）", () => {
+  it("每段正常收尾 → abort 先于 stop，且各恰好一次；UI 路由同步摘除", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { handlerP } = startPiOrchestration();
+    await runThreeInProcStages(handlerP);
+
+    expect(FakeInProcSession.instances).toHaveLength(3);
+    for (const s of FakeInProcSession.instances) {
+      expect(s.stop).toHaveBeenCalledTimes(1);
+      // stop() 只解订阅 + dispose,不打断在跑的轮次 —— 必须先 abort,否则子 agent 会在后台继续跑
+      expect(s.abort).toHaveBeenCalledTimes(1);
+    }
+    expect(FakeInProcSession.trace).toEqual([
+      "inproc-0:abort", "inproc-0:stop",
+      "inproc-1:abort", "inproc-1:stop",
+      "inproc-2:abort", "inproc-2:stop",
+    ]);
+    expect(clearTransientPiUiRequestsForSessionMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("二进制路径不额外发 abort（开关关闭时释放行为逐字不变）", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(false);
+    const { handlerP } = startPiOrchestration();
+    await flushAsync(20);
+    for (let i = 0; i < 3; i++) {
+      fakePiSessions[i]!.emit({ type: "result", willRetry: false });
+      await flushAsync(20);
+    }
+    await handlerP;
+
+    expect(fakePiSessions.every((s) => s.stop.mock.calls.length === 1)).toBe(true);
+    // 二进制会话替身根本没有 abort 方法：租约表若误发 abort 会直接抛，这条断言即是护栏
+    expect(fakePiSessions.every((s) => s.abort === undefined)).toBe(true);
+  });
+
+  it("构造期竞态：openPiInProcSession 未决时取消 → 会话建好后立即被释放，不留无主会话", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    let finishOpen!: () => void;
+    inprocMocks.openInProcMock.mockImplementationOnce(
+      (opts: { onEvent: (ev: unknown) => void; onUiRequest?: (r: unknown) => void }) =>
+        new Promise((resolve) => {
+          finishOpen = () => resolve(new FakeInProcSession(opts.onEvent, opts.onUiRequest));
+        }),
+    );
+
+    const { sender, handlerP } = startPiOrchestration();
+    await flushAsync(5);
+    expect(FakeInProcSession.instances).toHaveLength(0);
+
+    // 会话仍在构造中就取消整条链路
+    (ipcOnHandlers.get("orchestrate:kill")!)({} as unknown, baseReq.orchestrationRunId);
+    finishOpen();
+    await handlerP;
+    await flushAsync(5);
+
+    // 会话最终建好了 —— 它必须被立刻释放，否则再没有任何引用能停它（永久驻留主进程）
+    expect(FakeInProcSession.instances).toHaveLength(1);
+    const orphan = FakeInProcSession.instances[0]!;
+    expect(orphan.stop).toHaveBeenCalledTimes(1);
+    expect(orphan.abort).toHaveBeenCalledTimes(1);
+    // 该会话从未被使用：prompt 未发出，也不推终态
+    expect(orphan.prompt).not.toHaveBeenCalled();
+    expect(cliExits(sender.calls)).toHaveLength(0);
+  });
+
+  it("段执行中取消 → 在途会话被 abort+stop，后续段不再建会话", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { sender, handlerP } = startPiOrchestration();
+
+    await driveInProcStage(0, [{ type: "text", delta: "优化" }, { type: "result", willRetry: false }]);
+    await flushAsync(20);
+    expect(FakeInProcSession.instances).toHaveLength(2);
+
+    (ipcOnHandlers.get("orchestrate:kill")!)({} as unknown, baseReq.orchestrationRunId);
+    await handlerP;
+
+    expect(FakeInProcSession.instances[1]!.stop).toHaveBeenCalledTimes(1);
+    expect(FakeInProcSession.instances[1]!.abort).toHaveBeenCalledTimes(1);
+    // 段3从未启动
+    expect(FakeInProcSession.instances).toHaveLength(2);
+    expect(cliExits(sender.calls)).toHaveLength(0);
+  });
+
+  it("会话释放后到达的迟到事件不再转发（stop 后事件流必须彻底静默）", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { sender, handlerP } = startPiOrchestration();
+    const s0 = await driveInProcStage(0, [{ type: "text", delta: "优化" }, { type: "result", willRetry: false }]);
+    await flushAsync(20);
+
+    const before = cliEvents(sender.calls).length;
+    s0.emit({ type: "text", delta: "迟到的尾巴" });
+    expect(cliEvents(sender.calls)).toHaveLength(before);
+
+    (ipcOnHandlers.get("orchestrate:kill")!)({} as unknown, baseReq.orchestrationRunId);
+    await handlerP;
+  });
+
+  it("killAllOrchestrations：一个会话 stop() 抛错，同批其余会话仍被释放", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const senderA = makeSender();
+    const senderB = makeSender();
+    const start = ipcHandlers.get("orchestrate:start")!;
+    const pA = start(makeEvent(senderA), { ...baseReq, orchestrationRunId: "orch-A", agent: "pi", piOpen: {} }) as Promise<void>;
+    const pB = start(makeEvent(senderB), { ...baseReq, orchestrationRunId: "orch-B", agent: "pi", piOpen: {} }) as Promise<void>;
+
+    await flushAsync(20);
+    expect(FakeInProcSession.instances).toHaveLength(2);
+    FakeInProcSession.instances[0]!.stopThrows = true;
+
+    expect(() => killAllOrchestrations()).not.toThrow();
+
+    // 抛错的那个也被调用过 stop；关键是**后一个没被漏掉**
+    expect(FakeInProcSession.instances[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(FakeInProcSession.instances[1]!.stop).toHaveBeenCalledTimes(1);
+    expect(FakeInProcSession.instances[1]!.abort).toHaveBeenCalledTimes(1);
+
+    await Promise.all([pA, pB]);
+  });
+});
+
+describe("U6 并发隔离（一个会话的异常不能拖垮其它会话）", () => {
+  it("两条并发链路：A 的会话构造失败，B 仍完整跑完三段并出终态", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    // 第一次 open（A 的段1）直接抛，其余走默认替身
+    inprocMocks.openInProcMock.mockImplementationOnce(async () => {
+      throw new Error("provider 初始化失败");
+    });
+
+    const senderA = makeSender();
+    const senderB = makeSender();
+    const start = ipcHandlers.get("orchestrate:start")!;
+    const pA = start(makeEvent(senderA), { ...baseReq, orchestrationRunId: "orch-A", agent: "pi", piOpen: {} }) as Promise<void>;
+    await flushAsync(20); // 让 A 先吃掉那次失败的 open
+    const pB = start(makeEvent(senderB), { ...baseReq, orchestrationRunId: "orch-B", agent: "pi", piOpen: {} }) as Promise<void>;
+
+    // 两条链路的剩余段交错推进：每轮把新建出来、已发过 prompt 且尚未释放的会话统一收尾
+    for (let round = 0; round < 10; round++) {
+      await flushAsync(10);
+      for (const s of FakeInProcSession.instances) {
+        if (s.prompt.mock.calls.length > 0 && s.stop.mock.calls.length === 0) {
+          s.emit({ type: "text", delta: "ok" });
+          s.emit({ type: "result", willRetry: false });
+        }
+      }
+    }
+    await Promise.all([pA, pB]);
+
+    // A 的段1构造失败 → 静默降级（意图段是增强层），链路继续并正常收尾
+    expect(cliEvents(senderA.calls).filter((e: any) => e.type === "result" && e.ok)).toHaveLength(1);
+    // B 完全不受影响
+    expect(cliEvents(senderB.calls).filter((e: any) => e.type === "result" && e.ok)).toHaveLength(1);
+    expect(cliExits(senderB.calls)).toHaveLength(1);
+  });
+
+  it("provider 静默失败（KTD5：只有 error 事件、不抛异常）→ 该段降级，链路继续到段3", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { sender, handlerP } = startPiOrchestration();
+
+    await driveInProcStage(0, [{ type: "text", delta: "优化后的提示词" }, { type: "result", willRetry: false }]);
+    // 段2：模型/provider 失败在 in-process 下只体现为事件流里的 error，没有退出码可依赖
+    await driveInProcStage(1, [{ type: "text", delta: "部分输出" }, { type: "error", error: "provider 不可用" }]);
+    const s2 = await driveInProcStage(2, []);
+
+    // 段3 prompt 应带上段2的部分输出与错误信息（KTD7-2 降级）
+    const refinePrompt = s2.prompt.mock.calls[0]?.[0] as string;
+    expect(refinePrompt).toContain("部分输出");
+    expect(refinePrompt).toContain("provider 不可用");
+
+    s2.emit({ type: "text", delta: "最终回答" });
+    s2.emit({ type: "result", willRetry: false });
+    await handlerP;
+
+    expect(cliEvents(sender.calls).filter((e: any) => e.type === "result")).toHaveLength(1);
+    // 失败段同样被完整释放
+    expect(FakeInProcSession.instances[1]!.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("prompt 受理即失败（success:false）→ 该段立即失败并释放，不等 30min 超时", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    inprocMocks.promptResults.push({ success: false, error: "prompt rejected" });
+    const { handlerP } = startPiOrchestration();
+
+    await flushAsync(20);
+    // 段1 立刻失败 → 已进段2
+    expect(FakeInProcSession.instances).toHaveLength(2);
+    expect(FakeInProcSession.instances[0]!.stop).toHaveBeenCalledTimes(1);
+
+    await driveInProcStage(1, [{ type: "text", delta: "子执行结果" }, { type: "result", willRetry: false }]);
+    await driveInProcStage(2, [{ type: "text", delta: "最终回答" }, { type: "result", willRetry: false }]);
+    await handlerP;
+  });
+
+  it("prompt 的 Promise reject（fire-and-forget 之后没人接）→ 转成段失败，不挂起、不 unhandledRejection", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const rejections: unknown[] = [];
+    const onUnhandled = (err: unknown) => rejections.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      inprocMocks.openInProcMock.mockImplementationOnce(
+        async (opts: { onEvent: (ev: unknown) => void; onUiRequest?: (r: unknown) => void }) => {
+          const s = new FakeInProcSession(opts.onEvent, opts.onUiRequest);
+          s.prompt = vi.fn(async () => {
+            throw new Error("轮次在受理后炸了");
+          });
+          return s;
+        },
+      );
+
+      const { handlerP } = startPiOrchestration();
+      await flushAsync(20);
+      // 段1 已失败并释放，链路已进段2
+      expect(FakeInProcSession.instances[0]!.stop).toHaveBeenCalledTimes(1);
+      expect(FakeInProcSession.instances).toHaveLength(2);
+
+      await driveInProcStage(1, [{ type: "text", delta: "子执行结果" }, { type: "result", willRetry: false }]);
+      await driveInProcStage(2, [{ type: "text", delta: "最终回答" }, { type: "result", willRetry: false }]);
+      await handlerP;
+
+      await flushAsync(3);
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("in-process 的 UI 请求同样归属真实 chat session 并登记 response 路由", async () => {
+    inprocMocks.shouldUseInProcMock.mockReturnValue(true);
+    const { sender, handlerP } = startPiOrchestration();
+
+    await driveInProcStage(0, [{ type: "text", delta: "优化" }, { type: "result", willRetry: false }]);
+    const s1 = await driveInProcStage(1, []);
+    const uiReq = { type: "extension_ui_request", id: "confirm-1", method: "confirm", title: "T", message: "M" };
+    s1.ui(uiReq);
+    s1.emit({ type: "text", delta: "子执行结果" });
+    s1.emit({ type: "result", willRetry: false });
+    await driveInProcStage(2, [{ type: "text", delta: "最终回答" }, { type: "result", willRetry: false }]);
+    await handlerP;
+
+    expect(sender.calls).toContainEqual({
+      channel: "pi:uiRequest",
+      payload: { uiSessionId: baseReq.sessionId, request: uiReq },
+    });
+    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(baseReq.sessionId, "confirm-1", s1);
+    expect(clearTransientPiUiRequestsForSessionMock).toHaveBeenCalledWith(s1);
   });
 });
