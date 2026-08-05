@@ -22,6 +22,13 @@
 // ⚠️ 陷阱：provider 失败时进程仍 exit 0,错误只体现在 message_end 的 stopReason:"error"
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
+//
+// ── in-process 单发（迁移计划 U5，灰度开关打开时）─────────────────────────────────────
+// `agents/pi-inproc/oneshot.ts` 在主进程内直接跑 `createAgentSession`,并把
+// `AgentSession.subscribe()` 的事件 `JSON.stringify` 成**与上面完全同形**的 JSONL 行,
+// 交给下面这个 `parseLine` 原样解析 —— 所以 `CliStreamEvent` 契约与那条 ⚠️ 陷阱的处理
+// （result 只由最后一条 assistant message_end 发出）在两条路上是同一份代码，不会漂移。
+// 本文件里被那条路复用的两个纯函数是 `validatePiImages`（图片校验）与 `planToolWhitelist`。
 
 import { closeSync, openSync, readSync, statSync } from "fs";
 
@@ -103,7 +110,12 @@ function safeDelegateToolId(id: string): string {
   return s || "role";
 }
 
-function planToolWhitelist(req: CliStartRequest): string[] {
+/**
+ * plan 只读档的工具白名单 = pi 官方只读配方 + 本轮委派协作者的 `ask_<id>` 工具。
+ * 导出供 in-process 单发路径（`pi-inproc/oneshot.ts`）复用：两条路的白名单必须同源，
+ * 否则切开关后「plan 档能用哪些工具」会悄悄不一致。
+ */
+export function planToolWhitelist(req: CliStartRequest): string[] {
   const delegateTools = (req.delegateRoles ?? []).map((role) => `ask_${safeDelegateToolId(role.id)}`);
   return [...PI_PLAN_TOOL_WHITELIST, ...delegateTools];
 }
@@ -234,15 +246,27 @@ function normalizeDeclaredMime(mime: string | undefined): string | undefined {
   return m === "image/jpg" ? "image/jpeg" : m;
 }
 
+/** 通过校验的一张图:绝对路径 + **魔数嗅探出的真实** MIME（不是调用方声明的那个）。 */
+export interface ValidatedPiImage {
+  path: string;
+  mimeType: string;
+}
+
 /**
- * 把 req.images 校验并转成 pi 的 `@<path>` 参数。任何一张图有问题都整体抛错,**绝不静默丢图**
+ * 校验 req.images 并解析出真实 MIME。任何一张图有问题都整体抛错,**绝不静默丢图**
  * ——静默丢图正是本次事故里 pi 侧 `(image omitted…)` 让用户误以为模型看过图的同款failure mode。
  *
  * 这里做真实 fs 读取（buildArgs 因此不再是严格纯函数）:pi 的 file-processor.js 在文件缺失时
  * 直接 `process.exit(1)`、在非图片文件上会当文本读进 prompt,两种都发生在子进程里、错误信息
  * 拿不回来,只能在 spawn 之前拦。
+ *
+ * 抽成独立函数是为了让**两条投递通道共用同一套校验**（迁移计划 U5）：
+ *   · 二进制路径 → `buildPiImageArgs()` 拼 `@<path>` 参数，由 pi 子进程自己读文件；
+ *   · in-process 路径 → `agents/pi-inproc/oneshot.ts` 按这里给出的 path/mimeType 读字节转
+ *     base64，喂 SDK 的 `prompt(msg, { images })`。
+ * 两条路的**错误码与文案必须逐字相同**，否则灰度开关一切换，同一张坏图给出的提示就变了。
  */
-export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
+export function validatePiImages(images: CliImageRef[] | undefined): ValidatedPiImage[] {
   if (!images?.length) return [];
   if (images.length > MAX_PI_IMAGES) {
     throw new PiImageArgError("too-many", `单轮最多发送 ${MAX_PI_IMAGES} 张图片，当前 ${images.length} 张`);
@@ -288,8 +312,15 @@ export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
         path,
       );
     }
-    return `@${path}`;
+    return { path, mimeType: detected };
   });
+}
+
+/**
+ * 把 req.images 转成 pi 的 `@<path>` 参数（二进制单发路径）。校验语义见 `validatePiImages`。
+ */
+export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
+  return validatePiImages(images).map((img) => `@${img.path}`);
 }
 
 // 以 `@` 开头的 prompt 会被 pi 的 args.js 当成文件参数吞掉（`arg.startsWith("@")` 分支在

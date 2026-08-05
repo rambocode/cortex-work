@@ -15,6 +15,10 @@ import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
 import { assertOneShotProviderSupported, CUSTOM_SECRET_ENV_PREFIX } from "../providers/custom-provider-runtime";
 import { writeTodoExtension } from "../agents/pi-extensions";
+// pi 单发的 in-process 引擎(U5)。它伪装成 AgentProcess,stdout 逐行吐出与 `pi --mode json`
+// 同形的 JSONL,故本文件的流式管线(parseLineEvents / 看门狗 / 安全重试 / trace / 委派清理)
+// 对两条引擎路径完全一致 —— 选路只是「拿哪个 AgentProcess」。灰度开关与长驻会话路径共用,默认关。
+import { maybeStartPiInProcOneShot } from "../agents/pi-inproc/oneshot";
 import { mcpServerToBridge, writeMcpBridgeExtension, type BridgeServer } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
@@ -508,7 +512,11 @@ function runDelegateSubAgent(
   // 加载）写到 stderr——所有终端复现均成功，唯 Electron 主进程失败，需 codex 自身日志定位。
   const subEnv = spawnEnvForDef(req, adapter);
   if (roleBaseAgent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
-  const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
+  // pi 协作者的 in-process 选路(U5;开关关闭 / 非 pi → null,原样 spawn)。buildArgs 仍照常先跑
+  // 一遍(上面那行):它顺带做图片校验,两条路都要,且开关关闭时行为逐字节不变。
+  const proc =
+    maybeStartPiInProcOneShot(roleBaseAgent, req, { cwd: parent.cwd }) ??
+    startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
 
   return new Promise((resolve) => {
     let out = "";
@@ -1126,7 +1134,9 @@ export function registerCliHandlers(): void {
           promptPreview: promptPreview(req.prompt),
         },
       });
-      const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
+      const proc = // pi 单发 in-process 选路(U5);开关关闭 / 非 pi → null,原样 spawn
+        maybeStartPiInProcOneShot(baseAgentKindOf(req.agent), req, { cwd: req.cwd }) ??
+        startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
       running.set(req.runId, proc);
 
       // 本 attempt 的副作用/失败追踪(重试决策输入)。
@@ -1377,17 +1387,20 @@ export function registerCliHandlers(): void {
       const provider =
         agent === "pi" && req.providerId ? await resolvePiProviderInput(req.providerId) : undefined;
       const piExtensionPath = provider ? writePiExtension(provider) : undefined;
+      // 提成具名变量:in-process 选路(U5)也要读它（providerId/model/prompt）,两条路必须同一份请求。
+      const oneshotReq: CliStartRequest = {
+        runId: "oneshot",
+        sessionId: "oneshot",
+        agent,
+        cwd,
+        prompt: req.prompt,
+        model: req.model,
+        providerId: req.providerId,
+        provider,
+        piExtensionPath,
+      };
       const { cmd, args, stdin } = adapter.buildArgs(
-        {
-          runId: "oneshot",
-          sessionId: "oneshot",
-          agent,
-          cwd,
-          prompt: req.prompt,
-          model: req.model,
-          provider,
-          piExtensionPath,
-        },
+        oneshotReq,
         CODEX_MCP_CLEAR, // 轻量任务:codex 清空 MCP(沿用 M1,避免加载用户重 MCP);claude/pi 忽略
       );
       assertSpawnCwd(cwd);
@@ -1401,11 +1414,9 @@ export function registerCliHandlers(): void {
         data: { cmd, cwd, model: req.model ?? "(默认)", argCount: args.length, promptPreview: promptPreview(req.prompt) },
       });
       return new Promise<string>((resolve, reject) => {
-        const proc = startAgentProcess(cmd, args, {
-          cwd,
-          env: spawnEnvForDef({ agent, provider }, adapter),
-          stdin,
-        });
+        const proc = // pi 单发 in-process 选路(U5);开关关闭 / 非 pi → null,原样 spawn
+          maybeStartPiInProcOneShot(baseAgentKindOf(agent), oneshotReq, { cwd }) ??
+          startAgentProcess(cmd, args, { cwd, env: spawnEnvForDef({ agent, provider }, adapter), stdin });
         let out = "";
         let resultText = "";
         let failed: string | null = null;

@@ -64,3 +64,7 @@ export {
 } from "./events";
 
 export { createPiUiBridge, type PiUiBridge, type PiUiBridgeOptions } from "./ui-context";
+
+// 单发路径（U5）。`cli.ts` 直接从 `./oneshot` 子路径引它，避免为一个选路函数把整条会话层
+// （session.ts → pi-rpc.ts）拖进 cli.ts 的模块图；这里导出只为对外可发现性。
+export { filterOneShotExtensionPaths, maybeStartPiInProcOneShot } from "./oneshot";

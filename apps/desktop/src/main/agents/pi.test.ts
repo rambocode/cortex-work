@@ -14,7 +14,7 @@ vi.mock("./pi-locate", () => ({
 // pi.ts 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
 vi.mock("electron", () => ({ app: {} }));
 
-import { piDef, PiImageArgError } from "./pi";
+import { buildPiImageArgs, piDef, PiImageArgError, validatePiImages } from "./pi";
 import type { CliStartRequest } from "../ipc/types";
 
 const BIN = "/fake/resources/pi/pi";
@@ -287,6 +287,38 @@ describe("piDef.buildArgs 图片投递（pi 原生 @<path> 文件参数）", () 
     } catch (e) {
       expect((e as PiImageArgError).code).toBe("too-many");
     }
+  });
+});
+
+// 两条投递通道（二进制 `@<path>` 与 in-process 的 SDK `images` 入参）共用同一套校验,
+// 故校验器单独有一组断言:它返回的是**魔数嗅探出的真实 MIME**,不是调用方声明的那个。
+describe("validatePiImages（两条投递通道共用的校验器,U5）", () => {
+  it("返回真实 MIME 而非声明值（image/jpg 别名归一为 image/jpeg）", () => {
+    const jpg = writeBytes("v-alias.jpg", [0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+    expect(validatePiImages([{ path: jpg, mimeType: "image/jpg" }])).toEqual([
+      { path: jpg, mimeType: "image/jpeg" },
+    ]);
+  });
+
+  it("与 buildPiImageArgs 同源:后者只是把前者的 path 拼成 @<path>", () => {
+    const png = writePng("v-same.png");
+    const images = [{ path: png, mimeType: "image/png" }];
+    expect(buildPiImageArgs(images)).toEqual(validatePiImages(images).map((i) => `@${i.path}`));
+  });
+
+  it("坏图的错误码与 buildPiImageArgs 逐字相同（切开关不改变用户看到的提示）", () => {
+    const bad = writeBytes("v-bad.png", [1, 2, 3, 4]);
+    const images = [{ path: bad, mimeType: "image/png" }];
+    const codeOf = (fn: () => unknown): string | undefined => {
+      try {
+        fn();
+        return undefined;
+      } catch (e) {
+        return (e as PiImageArgError).code;
+      }
+    };
+    expect(codeOf(() => validatePiImages(images))).toBe("unsupported");
+    expect(codeOf(() => buildPiImageArgs(images))).toBe("unsupported");
   });
 });
 
