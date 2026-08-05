@@ -71,7 +71,7 @@
 | Loop 工作流 | `personal/workflow/`（`WorkflowView.tsx`、`WorkflowCanvas.tsx`、节点表单 `node-config/`） | `personal/workflow.ts` | `workflow/`（DSL/scheduler/webhook）、`capabilities/loop-workflows/` |
 | 推送（企微/钉钉/飞书/邮件） | 设置分区 | `personal/push.ts` | `ipc/push.ts` |
 | **消息中心 / 消息提醒 / 侧栏铃铛**（持久化历史，60 天过期 + 500 条上限） | `personal/layout/NotificationBell.tsx`（铃铛 + 列表 popover）、`personal/layout/SidebarUserBar.tsx`（承载它的底部用户行） | `desktop/types.ts` 的 `NotificationRecord`（与 main 逐字镜像）、`desktop/bridge.ts` 的 `notificationCenter*` | `ipc/notification-center.ts`（IPC + 广播 + 内部写入口 `recordNotification`）、`ipc/notification-center-store.ts`（存储核心，可单测）。**埋点方**：`automation/runner.ts`（收尾，无条件记录，不受 opt-in 推送渠道约束）、`workflow/events.ts`（广播 end 时统一记）、`ipc/tasks.ts`（提醒投递）、`ipc/update.ts`（进入 available，按版本 dedupe） |
-| 桌面宠物 | `pet/`（状态机 + sprite） | `store/pet.ts` | `ipc/pet.ts`、`pet-overlay-window.ts` |
+| 桌面宠物 / 宠物图鉴（petdex） | `pet/`（`Pet.tsx` 纯展示 + 拖拽、`PetCanvas.tsx` canvas 逐帧、`source.ts` 内置↔petdex 唯一分叉、`rows.ts` 姿态→sheet 行降级链、`prefs.ts` **唯一偏好写入端口**、`petdexSource.ts` Desktop↔Web 分叉、`pet/petdex/` 图鉴 UI）、`personal/settings/PetSettingsSection.tsx` | `pet/`（活动位 + `derivePetState` 优先级链 + 去抖引擎 + `grid.ts` 网格探测）、`store/pet.ts`（纯展示镜像）、`desktop/petdex-types.ts` | `ipc/pet.ts`（状态镜像广播，全单向 send）、`ipc/petdex.ts`（图鉴拉取 + 磁盘缓存 + `cortex-petdex://` 协议）、`ipc/petdex-security.ts`（host 白名单 / slug 防穿越 / WebP 只读头部）、`ipc/petdex-cache.ts`、`pet-overlay-window.ts`。**协议特权注册在 `index.ts` 模块顶层，必须早于 `app.ready`** |
 | 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/settings/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts`。原生 helper `native/Cortex_Helper` 同时承载日历 MCP 的 `calendar-events` / `calendar-create`；其 `calendar` 子命令（未来 3 天忙碌区间）是快捷回复专用，`reply/controller.ts` 逐字段依赖它，**不要参数化** |
 | Spotlight 浮动框 / 全局热键 | renderer `src/spotlight.tsx` | `personal/spotlightHandoff.ts` | `ipc/spotlight.ts`、`hotkey.ts` |
 | 记忆 / 做梦 | `personal/settings/MemorySettingsSection.tsx`、`settings/ResearchMemoryCandidates.tsx` | `memory/` | `ipc/memory.ts`、`memory/`（dreamer/scheduler） |
@@ -118,7 +118,7 @@
 
 **内容与文件**：`fs.ts` / `fs-binary.ts`（读写）、`watch.ts` + `watch-noise.ts`（目录监听）、`git-info.ts`、`image.ts`（图片上传）、`doc.ts`（文档附件）、`editors.ts`（在编辑器打开）、`pty.ts`（终端）、`browser.ts`（内嵌浏览器）。
 
-**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`voice.ts`（语音聊天 / 听写快捷键）、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
+**用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`voice.ts`（语音聊天 / 听写快捷键）、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`petdex.ts`（公共宠物图鉴：manifest 缓存 + sprite 落盘 + LRU 淘汰 + 只读协议）、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
 
 **写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）。
 
@@ -137,14 +137,15 @@
 | `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client |
 | `store/` | 全部 Zustand 客户端态：`ui.ts`（Tweaks）、`personal.ts`（视图开关总店）、`pet.ts`、`memory.ts`、`reply.ts`、`archivedSessions.ts` |
 | `desktop/` | 桥接层：`bridge.ts`（`DesktopBridge` 契约）+ 各 `*-types.ts` 类型镜像 + 持久化 wiring hooks |
+| `pet/` | 桌面宠物状态机：活动位模型 / `derivePetState` 优先级链 / 去抖引擎 / petdex 网格探测（两端共享） |
 | `memory/`、`reply/`、`retrieval/`、`whisper/` | 记忆分层模型 / 快捷回复纯逻辑 / BM25 检索原语（写作与 CRE 共用）/ 语音模型清单 |
 | `i18n/`、`types/` | 多语言单例与资源 / `Tweaks`、`Contact` 等共享类型 |
 
-> 新增 core 对外模块时，须同步更新 `packages/core/package.json` 的 `exports` 子路径（现有约 59 个）。
+> 新增 core 对外模块时，须同步更新 `packages/core/package.json` 的 `exports` 子路径（现有约 66 个）。
 
 ## 定位技巧与陷阱
 
-- **镜像契约**：`main/ipc/` 与 `core/desktop/` 下的同名 `*-types.ts` 是逐字镜像（`types.ts` / `design-types.ts` / `tasks-types.ts` / `reply-types.ts` / `plugin-types.ts` / `slides-ipc-types.ts` / `writing-*-types.ts`），改一处必须改两处。
+- **镜像契约**：`main/ipc/` 与 `core/desktop/` 下的同名 `*-types.ts` 是逐字镜像（`types.ts` / `design-types.ts` / `tasks-types.ts` / `reply-types.ts` / `plugin-types.ts` / `slides-ipc-types.ts` / `writing-*-types.ts` / `petdex-types.ts`↔`types-petdex.ts`），改一处必须改两处。
 - **i18n 覆盖不全**：只有团队工作区外壳、设计工作台、设置页走 i18n（`core/i18n/resources/zh-Hans/` 共 10 个 namespace）；个人工作区（会话/写作/研究/任务/自动化）大量中文文案硬编码在组件里。按界面中文词定位时，直接 grep 源码比查 i18n JSON 更可靠。
 - **「Tweaks」不在 ui 包**：外观设置在 `core/store/ui.ts` + `views/useTweaksPersistence.ts`；`packages/ui/` 只有图标（`icons/index.tsx`）、4 个基础控件（`controls/`）和 `lib/utils.ts`。
 - 目录职责与包边界硬规则见 `docs/floder.md`；可复发问题的排查套路见 `docs/lessons.md`。
