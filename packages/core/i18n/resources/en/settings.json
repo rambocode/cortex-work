@@ -694,6 +694,8 @@
     "voiceLabel": "Voice",
     "voiceSystemDesc": "Uses the local system voice library; no network or configuration needed.",
     "voiceEdgeDesc": "Provided by Microsoft and requires a network connection; falls back to the system voice when unavailable.",
+    "showAllLocales": "Show all languages",
+    "showAllLocalesDesc": "Only Chinese voices are listed by default; turn this on to show every language Microsoft offers.",
     "voiceSystemDefault": "System default",
     "rate": "Speed",
     "baseUrl": "Base URL",

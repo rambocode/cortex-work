@@ -2663,6 +2663,8 @@ export default interface Resources {
       "modelName": "模型名",
       "rate": "语速",
       "readCard": "朗读",
+      "showAllLocales": "显示全部语言",
+      "showAllLocalesDesc": "默认只列出中文音色；打开后显示微软提供的全部语言音色。",
       "speechRateDefault": "1×（默认）",
       "stop": "停止",
       "test": "试听",

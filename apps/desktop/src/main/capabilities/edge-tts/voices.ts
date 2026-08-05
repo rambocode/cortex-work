@@ -12,8 +12,10 @@ export async function listEdgeTtsVoices(): Promise<TtsVoiceOption[]> {
   const data = await res.json() as Array<{ ShortName?: unknown; FriendlyName?: unknown; Locale?: unknown }>;
   const voices = data.flatMap((item) => {
     if (typeof item.ShortName !== "string" || !item.ShortName) return [];
+    // FriendlyName 形如「Microsoft Xiaobei Online (Natural) - Chinese (Northeastern Mandarin)」，
+    // "Online (Natural)" 在中间而非结尾，剥离用的正则不能带 $ 锚定，否则整条替换是空操作。
     const label = typeof item.FriendlyName === "string"
-      ? item.FriendlyName.replace(/^Microsoft\s+/i, "").replace(/\s+Online \(Natural\)\s*$/i, "").trim()
+      ? item.FriendlyName.replace(/^Microsoft\s+/i, "").replace(/\s+Online \(Natural\)/i, "").trim()
       : undefined;
     return [{ id: item.ShortName, ...(label ? { label } : {}), ...(typeof item.Locale === "string" ? { locale: item.Locale } : {}) }];
   });

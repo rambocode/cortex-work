@@ -451,8 +451,13 @@ async function playCleanText(
     speakWithSystem(seq, text, engine.voice, engine.rate);
     return;
   }
-  if (!bridge) return;
+  // Edge 合成必须经主进程 WSS：Web 壳（bridge 为 null）与旧桌面版本没有这条通道，
+  // 但浏览器自带 speechSynthesis 可用——按能力降级到系统语音，不能静默无声。
   if (engine.kind === "edge") {
+    if (!bridge?.ttsSynthesizeEdge) {
+      speakWithSystem(seq, text);
+      return;
+    }
     try {
       await speakWithEdge(seq, bridge, engine, text);
     } catch (error) {
@@ -463,7 +468,7 @@ async function playCleanText(
     }
     return;
   }
-  if (!engine.baseUrl || !engine.model) return;
+  if (!bridge || !engine.baseUrl || !engine.model) return;
   await speakWithOpenai(seq, bridge, engine, text);
 }
 

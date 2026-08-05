@@ -55,6 +55,7 @@ export function SpeechTtsPanel() {
   const [customVoices, setCustomVoices] = useState<TtsVoiceOption[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [edgeVoices, setEdgeVoices] = useState<TtsVoiceOption[]>([]);
+  const [showAllEdgeLocales, setShowAllEdgeLocales] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
   const engineLabels = ENGINE_OPTIONS.map((option) => t(option.labelKey));
 
@@ -126,13 +127,16 @@ export function SpeechTtsPanel() {
     return options;
   }, [customVoices, engine, t]);
 
+  // 微软返回 300+ 个音色，铺进原生 <select> 会把中文音色淹掉；默认只列中文，
+  // 需要外语音色时由「显示全部语言」放开（当前已选中的音色永远保留在列表里）。
   const edgeVoiceOptions = useMemo(() => {
     if (engine.kind !== "edge") return [];
-    const source = edgeVoices.length > 0 ? edgeVoices : FALLBACK_EDGE_VOICES;
+    const all = edgeVoices.length > 0 ? edgeVoices : FALLBACK_EDGE_VOICES;
+    const source = showAllEdgeLocales ? all : all.filter((voice) => voice.locale?.startsWith("zh"));
     const options = source.map((voice) => ({ value: voice.id, label: `${voice.label ?? voice.id}${voice.locale ? ` · ${voice.locale}` : ""}` }));
     if (!options.some((option) => option.value === engine.voice)) options.unshift({ value: engine.voice, label: t("voice.voiceCurrent", { voice: engine.voice }) });
     return options;
-  }, [edgeVoices, engine, t]);
+  }, [edgeVoices, engine, showAllEdgeLocales, t]);
 
   const test = async () => {
     if (testing) return;
@@ -141,7 +145,9 @@ export function SpeechTtsPanel() {
     try {
       await speakText(bridge, tts, t("voice.testText"));
     } catch (error) {
-      setTestError(error instanceof Error ? error.message : t("voice.testFailed"));
+      // 只给用户一句可行动的话；端点地址、HTTP 码、微软的英文提示等只进控制台。
+      console.warn("[tts] 试听失败", error);
+      setTestError(t("voice.testFailed"));
     } finally {
       setTesting(false);
     }
@@ -181,6 +187,7 @@ export function SpeechTtsPanel() {
           <SRow label={t("voice.voiceLabel")} desc={t("voice.voiceEdgeDesc")}>
             <BareSelect value={engine.voice} options={edgeVoiceOptions} onChange={(value) => setEngine({ ...engine, voice: value })} />
           </SRow>
+          <SwitchRow label={t("voice.showAllLocales")} desc={t("voice.showAllLocalesDesc")} value={showAllEdgeLocales} onChange={setShowAllEdgeLocales} />
           <SRow label={t("voice.rate")}>
             <BareSelect value={String(engine.rate ?? 1)} options={SPEECH_RATE_VALUES.map((value) => ({ label: value === "1" ? t("voice.speechRateDefault") : `${value}×`, value }))} onChange={(value) => setEngine({ ...engine, rate: Number(value) })} />
           </SRow>

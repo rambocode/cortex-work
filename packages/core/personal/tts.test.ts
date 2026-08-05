@@ -124,6 +124,17 @@ describe("TTS 播放控制", () => {
     expect(speak).toHaveBeenCalledTimes(1);
   });
 
+  // edge 是新用户默认引擎，Web 壳没有桌面桥；这里退化成静默会让整个朗读功能看起来是坏的。
+  it("edge 引擎在没有桌面桥的 Web 壳上降级到系统语音而非静默", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak, getVoices: () => [] });
+    vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(_text: string) {} });
+
+    await speakText(null, edgeSettings(), "网页端朗读");
+
+    expect(speak).toHaveBeenCalledTimes(1);
+  });
+
   it("speakText 记录最近朗读,供重听使用", async () => {
     const b = bridge();
     await speakText(b, openaiSettings("alloy"), "第一条回复");

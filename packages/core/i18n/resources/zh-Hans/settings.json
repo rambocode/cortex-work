@@ -694,6 +694,8 @@
     "voiceLabel": "音色",
     "voiceSystemDesc": "使用本机系统语音库,无需联网与配置。",
     "voiceEdgeDesc": "由微软提供，需联网；不可用时自动改用系统语音。",
+    "showAllLocales": "显示全部语言",
+    "showAllLocalesDesc": "默认只列出中文音色；打开后显示微软提供的全部语言音色。",
     "voiceSystemDefault": "系统默认",
     "rate": "语速",
     "baseUrl": "Base URL",
