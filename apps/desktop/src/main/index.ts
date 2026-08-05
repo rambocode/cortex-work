@@ -54,6 +54,7 @@ import {
 } from "./agent-trace-window";
 import { ensurePetOverlayWindow, destroyPetOverlayWindow, getPetOverlayWindow } from "./pet-overlay-window";
 import { registerPetHandlers } from "./ipc/pet";
+import { registerPetdexHandlers, registerPetdexScheme } from "./ipc/petdex";
 import {
   resolveHotkeyRegistration,
   rebindCandidates,
@@ -128,6 +129,10 @@ const log = createLogger("main");
 // → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
 // 不杀进程(ipcMain.handle 链内的 reject 由 Electron 转发渲染端,不会到这里)。
 installGlobalCrashGuards();
+
+// petdex 图鉴的 cortex-petdex:// 只读协议:特权注册必须发生在 app.ready 之前,
+// 故放在模块顶层而非 whenReady 回调里(晚了 Electron 会拒绝注册)。
+registerPetdexScheme();
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -649,6 +654,7 @@ if (!app.requestSingleInstanceLock()) {
     registerNotesOverlayHandlers();
     registerNotificationWindowHandlers();
     registerPetHandlers();
+    registerPetdexHandlers(); // 公共宠物图鉴:拉取 + 磁盘缓存 + cortex-petdex:// 协议
     // 内置 agent-browser 默认启用。Chrome 检测/下载在后台进行，不阻塞主窗口和 agent 启动。
     void getPersistedState().then((state) => {
       syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);

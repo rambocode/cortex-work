@@ -12,4 +12,11 @@ export {
   STATE_SETTLE_MS,
   __isPetEngineRunning,
 } from "./engine";
+export {
+  PETDEX_CELL_H,
+  PETDEX_CELL_W,
+  PETDEX_FRAMES,
+  detectPetdexGrid,
+  type PetdexGrid,
+} from "./grid";
 export { FLASH_MS, IDLE_ACTIVITY, type PetActivity, type PetFlashKind, type PetPhase } from "./types";

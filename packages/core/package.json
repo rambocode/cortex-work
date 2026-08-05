@@ -72,7 +72,8 @@
     "./research/*": "./research/*.ts",
     "./retrieval/*": "./retrieval/*.ts",
     "./store/memory": "./store/memory.ts",
-    "./pet": "./pet/index.ts"
+    "./pet": "./pet/index.ts",
+    "./pet/grid": "./pet/grid.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
