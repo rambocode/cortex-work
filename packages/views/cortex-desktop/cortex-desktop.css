@@ -7911,6 +7911,108 @@ button.sb-row {
   .pw-design-field:nth-child(odd) { grid-column: auto; padding-right: 0; padding-left: 0; }
 }
 
+/* ── 语音设置：克制版视觉升级（参考 Dimension 风格：单一强调色 + 胶囊按钮 +
+   细描边 + 大圆角）。作用域限定 .pw-speech-settings，不影响其它设置分区。
+   全部颜色走既有主题变量（--accent/--border/--bg-card-2 等），不引入硬编码
+   深色调，浅色/深色主题都能正确呈现——不做 backdrop-filter 磨砂，因为设置页
+   背景是纯色平面，模糊了也看不出玻璃质感，纯属摆设。 */
+.pw-speech-heading { display: flex; align-items: center; gap: 8px; margin: 22px 0 4px; }
+.pw-speech-card-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pw-speech-card-title { display: flex; align-items: center; gap: 8px; }
+/* 卡片圆角略放大，呼应 Dimension 的大圆角基调，但克制在列表密度可接受的范围
+   （不做到规范里 24px 那么夸张，避免和设置页其它分区的方角卡片割裂太重）。 */
+.pw-speech-settings .pw-scard { border-radius: 16px; }
+/* 语音聊天卡:卡头叠一层极淡紫色光晕,呼应「全局仅一个强调色」,而非满屏渐变。 */
+.pw-speech-card--chat {
+  background-image: radial-gradient(140px 70px at 30px 0px, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
+  background-repeat: no-repeat;
+}
+/* 操作类按钮统一改胶囊形(Dimension 招牌轮廓)。 */
+.pw-speech-settings .pw-tl-gen,
+.pw-speech-settings .btn.pw-pi-add-btn { border-radius: 9999px; }
+/* 开关「开」态改主题紫色强调色(全局 .twk-toggle 默认硬编码绿色 #34c759),
+   仅此页作用域生效,不影响其它设置分区仍用的通用绿色开关。 */
+.pw-speech-settings .twk-toggle[data-on="1"] { background: var(--accent); }
+
+/* ── 本地 Whisper 模型卡片(pw-stt-*):连带修复的历史缺口 ─────────────────
+   SttLocalWhisperPanel.tsx 用到的 .pw-stt-* 类名此前在全局样式表里一条都
+   没有定义,模型卡片就是一个裸 <button>——标题/状态徽标/四项元数据/操作按钮
+   全部塌成一行文字挤在一起(反馈截图所见)。这里补齐。用 grid 而非纵向堆叠：
+   标题行与操作按钮同处第 1 行(按钮靠右、不再单独占一整行)，元数据/进度条
+   各自占满宽度的第 2/3 行——grid-column/row 按类名显式定位，与四个子元素在
+   JSX 里的实际先后顺序(header/meta/progress?/actions)无关。 */
+.pw-stt-model-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.pw-stt-model-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card-2, var(--bg-soft));
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pw-stt-model-card:hover { border-color: var(--border-strong); }
+.pw-stt-model-card-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pw-stt-model-card-header {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pw-stt-model-label { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pw-stt-model-meta { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--text-3); }
+
+.pw-stt-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--bg-chip); color: var(--text-2); }
+.pw-stt-badge-ready { background: var(--green-soft); color: var(--green); }
+.pw-stt-badge-downloading { background: var(--accent-soft); color: var(--accent); }
+.pw-stt-badge-error { background: var(--red-soft); color: var(--red); }
+.pw-stt-badge-missing { background: var(--bg-chip); color: var(--text-3); }
+.pw-stt-badge-recommended { background: var(--accent-soft); color: var(--accent); }
+
+.pw-stt-progress-row { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 10px; }
+.pw-stt-progress-bar { flex: 1 1 auto; height: 4px; border-radius: 999px; background: var(--bg-chip); overflow: hidden; }
+.pw-stt-progress-fill { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+.pw-stt-progress-label { flex: none; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.pw-stt-error-msg { font-size: 12px; color: var(--red); }
+
+/* 按钮本身也改小一号(而非通栏大按钮的 11px/18px 内边距、14px 字号)，
+   贴合它在标题行末尾做行内操作而非独立大 CTA 的定位。 */
+.pw-stt-model-actions { grid-column: 2; grid-row: 1; align-self: center; display: flex; align-items: center; gap: 8px; cursor: default; }
+.pw-stt-action-btn,
+.pw-stt-action-btn-delete { padding: 6px 14px; font-size: 12.5px; border-radius: 9999px; }
+.pw-stt-action-btn-delete { color: var(--red); }
+
+.pw-stt-source-check { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.pw-stt-source-list { display: flex; flex-direction: column; gap: 4px; }
+.pw-stt-source-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.pw-stt-source-item-active { color: var(--text-1); font-weight: 500; }
+.pw-stt-source-fail { color: var(--red); }
+.pw-stt-source-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--text-4); }
+.pw-stt-source-dot-ok { background: var(--green); }
+.pw-stt-source-dot-fail { background: var(--red); }
+.pw-stt-retry-btn { align-self: flex-start; border-radius: 9999px; }
+
 /* C. 深色模式:.twk-* 控件(分段/快捷键/色卡)源自浮层浅色面板(.twk-panel)设计,硬编码了
    白滑块/黑描边/深字;复用到深色设置页时白滑块+继承的浅色文字会糊成一片。这里仅在
    深色设置页作用域重配色(不影响浮层 .twk-panel 自身的浅色玻璃外观),并避开录制/非法

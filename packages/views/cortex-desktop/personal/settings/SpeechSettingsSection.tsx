@@ -2,13 +2,15 @@
 // 此处只承载麦克风、语音聊天和系统级听写的交互设置。
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { Icon } from "@cortex-work/ui/icons";
 import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
 import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { VoiceSettings } from "@cortex-work/core";
 import { DEFAULT_POLISH_PROMPT, DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { detectIsMac } from "../shared/platform";
-import { SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
+import { SBlock, SRow, SwitchRow } from "./settingsControls";
 import { ModelRefField } from "./provider/ModelRefField";
 import { SpeechDictationDictionary } from "./SpeechDictationDictionary";
 import { SpeechTtsPanel } from "./SpeechTtsPanel";
@@ -17,6 +19,32 @@ import { SttSettingsSection } from "./SttSettingsSection";
 interface MicrophoneOption {
   label: string;
   value: string;
+}
+
+// 语音分区专属卡片：在通用 .pw-scard 基础上加标题图标 chip，
+// 呼应 Dimension 风格参考（克制版，见 SpeechSettingsSection 顶部改动说明）。
+function SpeechCard({
+  title,
+  icon,
+  className = "",
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`pw-scard pw-speech-card ${className}`.trim()}>
+      <h2 className="pw-scard-t pw-speech-card-title">
+        <span className="pw-speech-card-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <span>{title}</span>
+      </h2>
+      <div className="pw-speech-card-body">{children}</div>
+    </section>
+  );
 }
 
 /**
@@ -98,11 +126,11 @@ export function SpeechSettingsSection() {
   };
 
   return (
-    <>
+    <div className="pw-speech-settings">
       <div className="pw-dlg-title">{t("speech.title")}</div>
       <div className="pw-dlg-desc">{t("speech.desc")}</div>
 
-      <SettingCard title={t("speech.generalCard")}>
+      <SpeechCard title={t("speech.generalCard")} icon={<Icon.Mic size={15} />}>
         <SRow label={t("speech.microphone")} desc={t("speech.microphoneDesc")}>
           <select
             className="pw-set-input"
@@ -117,9 +145,9 @@ export function SpeechSettingsSection() {
             ))}
           </select>
         </SRow>
-      </SettingCard>
+      </SpeechCard>
 
-      <SettingCard title={t("speech.chatCard")}>
+      <SpeechCard title={t("speech.chatCard")} icon={<Icon.Comment size={15} />} className="pw-speech-card--chat">
         <SpeechTtsPanel />
         <ModelRefField
           label={t("speech.chatModel")}
@@ -170,10 +198,10 @@ export function SpeechSettingsSection() {
             <SwitchRow label={t("speech.chatScreenContext")} desc={t("speech.chatScreenContextDesc")} value={voice.chatScreenContext} onChange={(chatScreenContext) => setVoiceSettings({ chatScreenContext })} />
           </>
         ) : null}
-      </SettingCard>
+      </SpeechCard>
 
       {isMac ? (
-        <SettingCard title={t("speech.dictationCard")}>
+        <SpeechCard title={t("speech.dictationCard")} icon={<Icon.Type size={15} />}>
           <SRow label={t("speech.dictationHoldHotkey")} desc={t("speech.dictationHoldHotkeyDesc")}>
             <div className="pw-hotkey-control">
               <HotkeyCapture value={voice.dictationHoldHotkey} placeholder={t("speech.hotkeyUnset")} isMac onChange={(dictationHoldHotkey) => void applyHotkey("dictationHoldHotkey", dictationHoldHotkey)} />
@@ -198,10 +226,10 @@ export function SpeechSettingsSection() {
           <SRow label={t("speech.dictionary")} desc={t("speech.dictionaryRowDesc")}>
             <SpeechDictationDictionary entries={voice.dictationDictionary} onChange={(dictationDictionary) => setVoiceSettings({ dictationDictionary })} />
           </SRow>
-        </SettingCard>
+        </SpeechCard>
       ) : null}
 
-      <SettingCard title={t("speech.polishCard")}>
+      <SpeechCard title={t("speech.polishCard")} icon={<Icon.Sparkle size={15} />}>
         <SwitchRow
           label={t("speech.polishEnable")}
           desc={t("speech.polishEnableDesc")}
@@ -246,13 +274,20 @@ export function SpeechSettingsSection() {
             </SBlock>
           </>
         ) : null}
-      </SettingCard>
+      </SpeechCard>
 
       <section aria-label={t("speech.modelsCard")}>
-        <div className="pw-dlg-title">{t("speech.modelsCard")}</div>
-        <div className="pw-dlg-desc">{t("speech.modelsDesc")}</div>
+        <div className="pw-speech-heading">
+          <span className="pw-speech-card-icon" aria-hidden="true">
+            <Icon.Bot size={15} />
+          </span>
+          <div>
+            <div className="pw-dlg-title">{t("speech.modelsCard")}</div>
+            <div className="pw-dlg-desc">{t("speech.modelsDesc")}</div>
+          </div>
+        </div>
         <SttSettingsSection />
       </section>
-    </>
+    </div>
   );
 }
