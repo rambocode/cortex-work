@@ -14,7 +14,7 @@ import { petActivity } from "@cortex-work/core/pet";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { PetCanvas } from "./PetCanvas";
 import { BUILTIN_NAME } from "./sheets";
-import { loadPetSize, savePetEnabled } from "./prefs";
+import { loadPetPrefs, patchPetPrefs } from "./prefs";
 
 const PET_STATES = [
   "idle",
@@ -77,7 +77,6 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
   const sprite = usePetStore((s) => s.sprite);
   const enabled = usePetStore((s) => s.enabled);
   const size = usePetStore((s) => s.size);
-  const setEnabled = usePetStore((s) => s.setEnabled);
 
   const petW = PET_W * size;
   // 实际高度由 sprite 的格子宽高比决定(内置 110:100、petdex 192:208 不同),
@@ -93,7 +92,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
   // 记忆位置在拿到真实尺寸后才读:夹取需要宽高,提前读会按错误的盒子夹一次。
   useEffect(() => {
     if (windowFollowsPet) return;
-    setPos(loadPos(PET_W * loadPetSize(), petH));
+    setPos(loadPos(PET_W * loadPetPrefs().size, petH));
     // 仅在挂载时恢复一次;后续的尺寸变化由下面的 resize effect 负责夹回。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowFollowsPet]);
@@ -172,8 +171,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
   }, [windowFollowsPet, petW, petH]);
 
   const hide = () => {
-    setEnabled(false);
-    savePetEnabled(false);
+    patchPetPrefs({ enabled: false }); // 单一端口:改 store 与落盘由它一并完成
     onEnabledChange?.(false);
   };
 

@@ -13,7 +13,9 @@
 import { useEffect } from "react";
 import { usePetStore, usePersonalStore, useDesktopBridge, type PetStateSnapshot } from "@cortex-work/core";
 import { petActivity, startPetEngine } from "@cortex-work/core/pet";
-import { loadPetEnabled, loadPetKind, loadPetSize, savePetEnabled } from "./prefs";
+import { BUILTIN_KIND, cleanupLegacyPetKeys, loadPetPrefs, patchPetPrefs } from "./prefs";
+import { builtinSpriteSource } from "./sheets";
+import { createPetdexSource } from "./petdexSource";
 
 /** 审批挂起在活动注册表里的固定 key——整个应用同一时刻只需要一个「有没有人在等你点」的位。 */
 const PI_UI_AWAITING_KEY = "pi-ui";
@@ -24,7 +26,14 @@ export function PetBridge() {
   useEffect(() => {
     // 设置的唯一恢复点。overlay 里的 <Pet/> 刻意不读 localStorage——file:// 页面各自的
     // storage 不是同一份,让它自己读会在收到同步快照后又用默认值覆盖回去。
-    usePetStore.setState({ kind: loadPetKind(), enabled: loadPetEnabled(), size: loadPetSize() });
+    cleanupLegacyPetKeys();
+    const prefs = loadPetPrefs();
+    usePetStore.setState({
+      kind: BUILTIN_KIND,
+      enabled: prefs.enabled,
+      size: prefs.size,
+      sprite: builtinSpriteSource(),
+    });
 
     const stop = startPetEngine();
 
@@ -39,6 +48,28 @@ export function PetBridge() {
       stop();
     };
   }, []);
+
+  // 选中的 petdex 宠物:先只查本地(开机不该变成一次强制下载),本地没有再去拉。
+  // 解析不出来就保持内置角色 —— 宠物永远不会因为图鉴不可达而消失。
+  useEffect(() => {
+    const slug = loadPetPrefs().slug;
+    if (!slug) return;
+    const source = createPetdexSource(bridge);
+    let alive = true;
+    void (async () => {
+      const local = await source.peekSprite(slug);
+      if (!alive) return;
+      if (local) {
+        usePetStore.getState().setSprite(local);
+        return;
+      }
+      const fetched = await source.resolveSprite(slug);
+      if (alive && fetched) usePetStore.getState().setSprite(fetched);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
 
   useEffect(() => {
     if (!bridge?.reportPetState) return;
@@ -56,8 +87,7 @@ export function PetBridge() {
     bridge.reportPetState(snapshot(usePetStore.getState()));
     const offEnabledChange = bridge.onPetEnabledChange?.((enabled) => {
       if (usePetStore.getState().enabled === enabled) return;
-      savePetEnabled(enabled);
-      usePetStore.getState().setEnabled(enabled);
+      patchPetPrefs({ enabled });
     });
     const offStore = usePetStore.subscribe((s) => bridge.reportPetState?.(snapshot(s)));
     return () => {

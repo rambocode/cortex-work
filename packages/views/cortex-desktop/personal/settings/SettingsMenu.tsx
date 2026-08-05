@@ -41,7 +41,7 @@ import type {
 } from "@cortex-work/core";
 import type { Density, FontScale, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
-import { PET_SIZE_MAX, PET_SIZE_MIN, savePetEnabled, savePetSize } from "../../pet/prefs";
+import { PET_SIZE_MAX, PET_SIZE_MIN, patchPetPrefs } from "../../pet/prefs";
 import { PetCanvas } from "../../pet/PetCanvas";
 import { BUILTIN_KIND } from "../../pet/sheets";
 import { PluginManager } from "../plugins/PluginManager";
@@ -224,17 +224,10 @@ function PetSection() {
   const { t: tPet } = useTranslation("pet");
   const petSprite = usePetStore((s) => s.sprite);
   const petEnabled = usePetStore((s) => s.enabled);
-  const setPetEnabled = usePetStore((s) => s.setEnabled);
   const petSize = usePetStore((s) => s.size);
-  const setPetSize = usePetStore((s) => s.setSize);
-  const pickEnabled = (v: boolean) => {
-    setPetEnabled(v);
-    savePetEnabled(v);
-  };
-  const pickSize = (v: number) => {
-    setPetSize(v);
-    savePetSize(v);
-  };
+  // 单一端口:改运行时 store 与落盘由 patchPetPrefs 一并完成,调用方不需要配对。
+  const pickEnabled = (v: boolean) => patchPetPrefs({ enabled: v });
+  const pickSize = (v: number) => patchPetPrefs({ size: v });
   return (
     <>
       <div className="pw-dlg-title">{t("pet.title")}</div>

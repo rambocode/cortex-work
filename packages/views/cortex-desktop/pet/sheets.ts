@@ -11,6 +11,7 @@
 // 归一化,避免「Next 拿到对象当 URL」的坑。
 
 import type { PetKind, PetState } from "@cortex-work/core";
+import type { PetSpriteSource } from "@cortex-work/core/desktop/petdex-types";
 import catIdle from "./assets/cat/idle.webp";
 import catHappy from "./assets/cat/happy.webp";
 import catSleeping from "./assets/cat/sleeping.webp";
@@ -51,4 +52,14 @@ export function builtinAnimFor(state: PetState): BuiltinAnimKey {
   if (state === "happy") return "happy";
   if (state === "sleeping") return "sleeping";
   return "idle";
+}
+
+/**
+ * 内置角色的 sprite 描述符。
+ * url 为 null 是刻意的:内置资产由 views 侧的 ESM import 解析,跨打包器返回形状不同
+ * (Vite 给字符串、Next 给对象),不能穿过 IPC——渲染端按 origin 自己去查 BUILTIN_SHEETS。
+ * cols/rows 对内置资产没有意义(每个动作一张单行 sheet,列数各不相同),填 1×1 占位。
+ */
+export function builtinSpriteSource(): PetSpriteSource {
+  return { origin: "builtin", id: BUILTIN_KIND, url: null, cols: 1, rows: 1, displayName: BUILTIN_NAME };
 }
