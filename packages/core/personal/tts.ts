@@ -8,6 +8,14 @@ import type { TtsSettings } from "../desktop/types";
 
 const MAX_SPEECH_CHARS = 600;
 const STREAM_TEXT_CHARS = 160;
+// 非流式回退的分句流水线块长:借鉴 xiaozhi-esp32-server 的「LLM→TTS 按标点切句」策略
+// (core/utils/util.py is_segment,遇 ，。？！；： 即切一段送 TTS,首段最小化),块取子句级
+// 而非整段合并——本地推理实时率可能低于 1,块越短首包越快。30 字上限:短子句间仍可合并,
+// 避免两三个字的碎块;无标点长句才会被硬切。
+const PIPELINE_TEXT_CHARS = 30;
+// 流式合成的服务端推送间隔(秒)。实测本地 OMLX(M 系芯片):1.0 时首包 ~1.2s,0.3 时 ~0.28s;
+// 间隔越小首包越快、chunk 越碎(网络远端服务同样受益)。用户可在引擎配置里覆盖。
+const DEFAULT_STREAMING_INTERVAL = 0.3;
 
 export interface TtsPlaybackState {
   isSpeaking: boolean;
@@ -34,7 +42,8 @@ export function clipSpeechText(text: string, max = MAX_SPEECH_CHARS): string {
 export function splitSpeechChunks(text: string, max = STREAM_TEXT_CHARS): string[] {
   const clean = text.trim();
   if (!clean) return [];
-  const units = clean.match(/[^。！？!?；;，,]+[。！？!?；;，,]?/g) ?? [clean];
+  // 切分标点对齐 xiaozhi 的 is_segment(，。？！；：):冒号也是子句边界,利于首段尽早送出。
+  const units = clean.match(/[^。！？!?；;，,：:]+[。！？!?；;，,：:]?/g) ?? [clean];
   const chunks: string[] = [];
   let current = "";
   const pushCurrent = () => {
@@ -60,6 +69,8 @@ export function splitSpeechChunks(text: string, max = STREAM_TEXT_CHARS): string
 
 // 当前播放句柄（打断用）。
 let currentAudio: HTMLAudioElement | null = null;
+// 最近一次 openai 引擎朗读所用的桥:stopSpeaking 无参,靠它把「取消在途合成流」传导到主进程。
+let activeBridge: DesktopBridge | null = null;
 let currentAudioContext: AudioContext | null = null;
 let currentUrl: string | null = null;
 let playbackSeq = 0;
@@ -96,6 +107,9 @@ export function subscribeTtsPlayback(listener: TtsPlaybackListener): () => void 
 
 export function stopSpeaking(): void {
   playbackSeq += 1;
+  // 关声音只是表象:必须同时中止主进程在途的合成 fetch,否则本地 TTS 服务会继续
+  // 满负荷生成整段文本、堵塞后续请求(失败静默,取消本身不值得打扰用户)。
+  void activeBridge?.ttsCancelStreams?.().catch(() => {});
   const synth = (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
   synth?.cancel();
   if (currentAudio) {
@@ -274,6 +288,7 @@ async function speakWithOpenaiStream(
 ): Promise<boolean> {
   if (engine.stream === false || !bridge.ttsSynthesizeStream) return false;
 
+  activeBridge = bridge;
   setSpeaking(true);
 
   let streamError: string | null = null;
@@ -289,7 +304,7 @@ async function speakWithOpenaiStream(
         speed: engine.speed,
         language: engine.language ?? "zh",
         stream: true,
-        streamingInterval: engine.streamingInterval ?? 1.0,
+        streamingInterval: engine.streamingInterval ?? DEFAULT_STREAMING_INTERVAL,
         text: chunkText,
       },
       (event) => {
@@ -317,6 +332,33 @@ async function speakWithOpenaiStream(
   return true;
 }
 
+/** 播放一段完整音频字节。play() 的拒绝(自动播放策略等)向上抛;返回的 done 在自然播完、
+ * 解码出错或被外部 pause(stopSpeaking 打断)时 resolve——流水线靠它衔接下一块。
+ * done 不 reject,中断语义统一由调用方对 playbackSeq 判定。
+ * 注意用对象包裹 done:async 函数直接 return Promise 会被外层收养,调用方 await 就变成等播完。 */
+async function startBlobPlayback(buf: ArrayBuffer): Promise<{ done: Promise<void> }> {
+  const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+  currentUrl = url;
+  const audio = new Audio(url);
+  currentAudio = audio;
+  const done = new Promise<void>((resolve) => {
+    const settle = () => {
+      if (currentUrl === url) {
+        URL.revokeObjectURL(url);
+        currentUrl = null;
+        currentAudio = null;
+      }
+      resolve();
+    };
+    audio.onended = settle;
+    audio.onerror = settle;
+    // stopSpeaking 打断走 pause():立即放行流水线(seq 已失效,链路随即自然退出)。
+    audio.onpause = settle;
+  });
+  await audio.play();
+  return { done };
+}
+
 async function speakWithOpenai(
   seq: number,
   bridge: DesktopBridge,
@@ -324,40 +366,58 @@ async function speakWithOpenai(
   text: string,
 ): Promise<void> {
   if (await speakWithOpenaiStream(seq, bridge, engine, text)) return;
-  const buf = await bridge.ttsSynthesize({
-    baseUrl: engine.baseUrl,
-    apiKey: engine.apiKey,
-    model: engine.model,
-    voice: engine.voice,
-    speed: engine.speed,
-    language: engine.language ?? "zh",
-    stream: engine.stream ?? true,
-    streamingInterval: engine.streamingInterval ?? 1.0,
-    text,
-  });
+  // 非流式回退同样分句流水线:整段一次性送 TTS 要等全篇合成完才有第一声,
+  // 本地慢速推理下不可用。播第 i 块的同时预取第 i+1 块(深度 1,不打爆本地推理服务)。
+  const chunks = splitSpeechChunks(text, PIPELINE_TEXT_CHARS);
+  const firstChunk = chunks[0];
+  if (!firstChunk) return;
+  activeBridge = bridge;
+  const synth = (chunkText: string) =>
+    bridge.ttsSynthesize({
+      baseUrl: engine.baseUrl,
+      apiKey: engine.apiKey,
+      model: engine.model,
+      voice: engine.voice,
+      speed: engine.speed,
+      language: engine.language ?? "zh",
+      stream: engine.stream ?? true,
+      streamingInterval: engine.streamingInterval ?? DEFAULT_STREAMING_INTERVAL,
+      text: chunkText,
+    });
+  // 首块的合成失败(鉴权/音色配置错误)与 play() 拒绝按旧契约抛给调用方,保证配置错误可见。
+  const first = await synth(firstChunk);
   if (playbackSeq !== seq) return;
-  const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
-  currentUrl = url;
-  const audio = new Audio(url);
-  currentAudio = audio;
-  audio.onended = () => {
-    if (currentUrl === url) {
-      URL.revokeObjectURL(url);
-      currentUrl = null;
-      currentAudio = null;
-    }
-    if (playbackSeq === seq) setSpeaking(false);
-  };
-  audio.onerror = () => {
-    if (currentUrl === url) {
-      URL.revokeObjectURL(url);
-      currentUrl = null;
-      currentAudio = null;
-    }
-    if (playbackSeq === seq) setSpeaking(false);
-  };
   setSpeaking(true);
-  await audio.play();
+  const { done: firstDone } = await startBlobPlayback(first);
+  // 后续块在后台衔接:speakText 与旧行为一致在首块起播后即 resolve,
+  // 播放完成信号经 subscribeTtsPlayback(isSpeaking)对外暴露。
+  void (async () => {
+    let done = firstDone;
+    let nextIndex = 1;
+    let pending = nextIndex < chunks.length ? synth(chunks[nextIndex]!) : null;
+    while (pending) {
+      await done;
+      if (playbackSeq !== seq) return;
+      let buf: ArrayBuffer | null;
+      try {
+        buf = await pending;
+      } catch {
+        // 后续块失败:首块已验证配置可用,大概率是瞬时故障——播完已有内容安静收尾,不中断整轮。
+        buf = null;
+      }
+      if (playbackSeq !== seq) return;
+      if (!buf) break;
+      nextIndex += 1;
+      pending = nextIndex < chunks.length ? synth(chunks[nextIndex]!) : null;
+      try {
+        ({ done } = await startBlobPlayback(buf));
+      } catch {
+        break;
+      }
+    }
+    await done;
+    if (playbackSeq === seq) setSpeaking(false);
+  })();
 }
 
 async function playCleanText(bridge: DesktopBridge | null, settings: TtsSettings, text: string): Promise<void> {
