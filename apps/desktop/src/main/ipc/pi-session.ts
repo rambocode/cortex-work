@@ -1,6 +1,13 @@
-// pi RPC 长驻会话的 IPC 层。registry 维护 uiSessionId → PiRpcSession（= 一个 pi 子进程）,
+// pi 长驻会话的 IPC 层。registry 维护 uiSessionId → PiSessionEngine,
 // pi:open 建、pi:close 销;命令转发到会话方法,归一化事件经 pi:event 推回 renderer。
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
+//
+// ── 两条引擎路径（迁移期并存，见 docs/plans/2026-08-05-001-refactor-pi-inprocess-migration-plan.md）──
+//   · binary（默认）：spawn `resources/pi` 的 bun 二进制 + `--mode rpc` 手抄协议 —— `PiRpcSession`；
+//   · in-process：主进程内直接调 pi-coding-agent 的 `createAgentSession` —— `PiInProcSession`。
+// 二者都实现 `PiSessionEngine`，故本文件除 `pi:open` 的构造分支外**不含任何引擎分支**：
+// registry、命令转发、UI 回写、清理路径全部只依赖该契约。`PiRpcSession extends PiSessionEngine`
+// 有编译期断言守着（见 pi-inproc/session.ts），改签名会编译失败而非运行时静默失效。
 
 import { randomUUID } from "crypto";
 import { existsSync, promises as fsp } from "fs";
@@ -10,6 +17,13 @@ import { isAbsolute, join, resolve, sep } from "path";
 import { app, ipcMain, type WebContents } from "electron";
 
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
+import {
+  openPiInProcSession,
+  shouldUsePiInProcEngine,
+  type PiInProcModelSelection,
+  type PiSessionEngine,
+} from "../agents/pi-inproc";
+import { getPiInprocModelRuntime, resolvePiInprocModel } from "../providers/pi-inproc-models";
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
 import { writePiExtension } from "../agents/pi-providers";
@@ -44,12 +58,12 @@ import { createLogger } from "../log";
 const log = createLogger("pi-session");
 
 interface SessionEntry {
-  session: PiRpcSession;
+  session: PiSessionEngine; // 两条引擎路径的共同契约,registry 不关心底下是子进程还是 in-process
   sender: WebContents; // 发起 open 的 renderer,事件回推目标（销毁则丢弃）
 }
 
 const sessions = new Map<string, SessionEntry>();
-type TransientPiUiSession = Pick<PiRpcSession, "respondUi">;
+type TransientPiUiSession = Pick<PiSessionEngine, "respondUi">;
 
 const transientUiSessions = new Map<string, TransientPiUiSession>();
 
@@ -127,14 +141,14 @@ async function buildPiImages(imagePaths: string[] | undefined): Promise<PiImageC
 }
 
 // 取会话;不存在即抛错（renderer 的 invoke 会收到 rejection）。
-function getSession(uiSessionId: string): PiRpcSession {
+function getSession(uiSessionId: string): PiSessionEngine {
   const entry = sessions.get(uiSessionId);
   if (!entry) throw new Error(`pi 会话不存在: ${uiSessionId}`);
   return entry.session;
 }
 
 // 命令转发:取会话 → 执行 → 命令级失败（success:false）转成 rejection,成功回 data。
-async function command(uiSessionId: string, fn: (s: PiRpcSession) => Promise<RpcResponse>): Promise<unknown> {
+async function command(uiSessionId: string, fn: (s: PiSessionEngine) => Promise<RpcResponse>): Promise<unknown> {
   const resp = await fn(getSession(uiSessionId));
   if (!resp.success) throw new Error(resp.error ?? "pi 命令失败");
   return resp.data;
@@ -342,6 +356,42 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   return prepared;
 }
 
+/**
+ * `PiOpenRequest` → in-process 引擎的模型选择。这是引擎层与 Provider 模块之间的接缝：
+ * 引擎层刻意不做 provider 解析，而 `resolvePiInprocModel` 要求 providerId 必填，
+ * 偏偏 `PiOpenRequest.providerId` 是可选的（renderer 未显式选供应商时就没有）。
+ *
+ * 缺 providerId 时**不猜**具体模型（与 `providers/default-model.ts` 的「两段必须成套、
+ * 只有 providerId 没有 modelId 时不猜第一个模型」同源），但仍然要注入 modelRuntime——
+ * 它承载的是**整个注册表**（自定义 Provider + baseUrl 覆盖），不只是被选中的那一个。
+ * 漏注入会让自定义供应商与 endpoint 覆盖在 in-process 路径上静默失效，表现为
+ * 「设置里明明配好了却还是走官方地址」。与 binary 路径缺省 `--provider` 时的语义对齐。
+ */
+async function resolveInProcModel(req: PiOpenRequest): Promise<PiInProcModelSelection> {
+  const providerId = req.providerId?.trim();
+  if (!providerId) return { modelRuntime: await getPiInprocModelRuntime() };
+  return resolvePiInprocModel({ providerId, modelId: req.model });
+}
+
+/**
+ * in-process 路径下**尚未迁移**的能力做一次响亮告警（迁移计划 U3）。
+ *
+ * `preparePiOpenRequest` 仍会生成 provider / 审批 / MCP 桥 / computer-use 这些 extension 文件，
+ * 但 in-process 引擎不消费 `-e` 文件路径——它要的是原生 `customTools` / `extensionFactories`。
+ * 不告警的话，开关一开这些能力会**静默消失**：审批弹窗不再出现（等于绕过安全闸）、MCP 工具全失踪，
+ * 而日志里没有任何线索。宁可吵，也不能让审批闸无声失效。
+ */
+function warnUnmigratedCapabilities(prepared: PiOpenRequest): void {
+  const pending: string[] = [];
+  if (prepared.piExtensionPath) pending.push("自定义 Provider extension");
+  if (prepared.extraExtensionPaths?.length) pending.push(`审批/工具/命令 extension × ${prepared.extraExtensionPaths.length}`);
+  if (prepared.extensionPaths?.length) pending.push(`市场扩展 × ${prepared.extensionPaths.length}`);
+  if (prepared.computerUseEnv && Object.keys(prepared.computerUseEnv).length) pending.push("Computer Use");
+  if (pending.length) {
+    log.warn(`[in-process] 以下能力尚未迁移到原生注册,本会话不生效（迁移计划 U3）: ${pending.join("、")}`);
+  }
+}
+
 export function registerPiSessionHandlers(): void {
   ipcMain.handle("pi:open", async (event, req: PiOpenRequest): Promise<PiOpenResult> => {
     // 同 uiSessionId 重开（renderer 重挂载）:先停旧会话,避免泄漏一个孤儿子进程。
@@ -354,8 +404,12 @@ export function registerPiSessionHandlers(): void {
     // 扩展准备(provider / 审批 / cwd 路径闸 / askquestion / MCP 桥接 / 市场扩展)统一抽进
     // preparePiOpenRequest —— pi 主会话与三段编排子会话同走此函数,路径闸/审批等一处定义两处复用。
     const prepared = await preparePiOpenRequest(req);
-    const args = buildRpcArgs(prepared);
     assertSpawnCwd(prepared.cwd);
+
+    // 引擎选路。这是本文件**唯一**的引擎分支：构造出 PiSessionEngine 之后，下方所有
+    // 命令转发 / 事件回推 / 清理路径对两条路径完全一致。
+    const useInProc = shouldUsePiInProcEngine();
+    const args = useInProc ? [] : buildRpcArgs(prepared);
     recordAgentTrace({
       scope: "pi",
       phase: "open",
@@ -363,29 +417,49 @@ export function registerPiSessionHandlers(): void {
       sessionId: prepared.uiSessionId,
       agent: "pi",
       // model:调试跟踪需能直读会话启动模型(缺省 = pi 自身默认;运行时可经 pi:setModel 切换)。
-      data: { cwd: prepared.cwd, model: prepared.model ?? "(默认)", argCount: args.length, providerId: prepared.provider?.id },
-    });
-    const transport = spawnPiRpc(args, {
-      cwd: prepared.cwd,
-      // computerUseEnv 由 preparePiOpenRequest 填充（Computer Use 的 grounding 模型）;
-      // 后合并使其覆盖同名基础变量,缺省为空对象、不影响原行为。
-      // customProviderEnv 走 spawnEnvFor（而非在此后合并）:它与 CORTEX_PI_KEY 同属
-      // 「供应商密钥注入」职责,放一处便于日后统一审计。
-      env: {
-        ...spawnEnvFor({
-          agent: "pi",
-          provider: prepared.provider,
-          customProviderEnv: prepared.customProviderEnv,
-        }),
-        ...prepared.computerUseEnv,
+      // engine:灰度期两条路径并存,出问题时第一件事就是确认这次会话走的哪条。
+      data: {
+        cwd: prepared.cwd,
+        model: prepared.model ?? "(默认)",
+        engine: useInProc ? "in-process" : "binary",
+        argCount: args.length,
+        providerId: prepared.provider?.id,
       },
     });
-    const session = new PiRpcSession(
-      transport,
-      (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
-      (request) => emitUiRequest(prepared.uiSessionId, request),
-      prepared.askQuestionSentinel,
-    );
+
+    let session: PiSessionEngine;
+    if (useInProc) {
+      warnUnmigratedCapabilities(prepared);
+      session = await openPiInProcSession({
+        request: prepared,
+        onEvent: (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
+        onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
+        askQuestionSentinel: prepared.askQuestionSentinel,
+        deps: { resolveModel: resolveInProcModel },
+      });
+    } else {
+      const transport = spawnPiRpc(args, {
+        cwd: prepared.cwd,
+        // computerUseEnv 由 preparePiOpenRequest 填充（Computer Use 的 grounding 模型）;
+        // 后合并使其覆盖同名基础变量,缺省为空对象、不影响原行为。
+        // customProviderEnv 走 spawnEnvFor（而非在此后合并）:它与 CORTEX_PI_KEY 同属
+        // 「供应商密钥注入」职责,放一处便于日后统一审计。
+        env: {
+          ...spawnEnvFor({
+            agent: "pi",
+            provider: prepared.provider,
+            customProviderEnv: prepared.customProviderEnv,
+          }),
+          ...prepared.computerUseEnv,
+        },
+      });
+      session = new PiRpcSession(
+        transport,
+        (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
+        (request) => emitUiRequest(prepared.uiSessionId, request),
+        prepared.askQuestionSentinel,
+      );
+    }
     sessions.set(prepared.uiSessionId, { session, sender: event.sender });
 
     // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
