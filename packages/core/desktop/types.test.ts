@@ -36,7 +36,7 @@ describe("访问范围 + 执行审批 常量", () => {
 });
 
 describe("语音功能默认设置", () => {
-  it("默认关闭快捷键和浮层选项，并使用系统默认麦克风", () => {
+  it("默认关闭快捷键和浮层选项，并使用系统默认麦克风；转写纠错默认开、跟随全局默认模型", () => {
     expect(defaultVoiceSettings()).toEqual({
       micDeviceId: "",
       chatHotkey: "",
@@ -45,6 +45,13 @@ describe("语音功能默认设置", () => {
       dictationToggleHotkey: "",
       dictationBarAlwaysVisible: false,
       dictationDictionary: [],
+      chatProviderId: "",
+      chatModelId: "",
+      chatPrompt: "",
+      transcriptPolish: true,
+      polishProviderId: "",
+      polishModelId: "",
+      polishPrompt: "",
     });
   });
 });

@@ -906,7 +906,22 @@
     "dictionaryEmpty": "还没有词条。",
     "dictionaryRemove": "移除 {{entry}}",
     "modelsCard": "模型管理",
-    "modelsDesc": "配置本地 Whisper 或云端语音识别服务。"
+    "modelsDesc": "配置本地 Whisper 或云端语音识别服务。",
+    "polishCard": "转写纠错",
+    "polishEnable": "智能纠错",
+    "polishEnableDesc": "转写完成后用大模型修正同音字、错别字与标点；未配置可用模型时自动跳过",
+    "polishModel": "纠错模型",
+    "polishModelHint": "建议选择响应快的小模型；不选则跟随全局默认模型",
+    "polishModelFollowDefault": "恢复跟随全局默认",
+    "polishPrompt": "纠错指令",
+    "polishPromptDesc": "留空使用内置指令。听写词典与转写文本会自动追加在指令之后",
+    "polishPromptReset": "恢复默认指令",
+    "chatModel": "语音聊天模型",
+    "chatModelHint": "指定后语音聊天固定用该模型（走 pi 会话）；不选则跟随主聊天最近使用的 Agent 与模型",
+    "chatModelFollowLast": "恢复跟随最近使用",
+    "chatPrompt": "对话提示词",
+    "chatPromptDesc": "留空使用内置提示词（约束口语化、免 markdown，便于朗读）。语音转写文本会自动追加在提示词之后",
+    "chatPromptReset": "恢复默认提示词"
   },
   "roles": {
     "title": "角色管理",

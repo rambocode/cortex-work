@@ -696,8 +696,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       mediaGenSettings: normalizeMediaGenSettings(s.mediaGenSettings),
       // ASR：旧档无此字段时回落工厂默认（向后兼容）。
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
-      // 语音交互设置：旧档缺失时回落新的默认对象，词典数组不会跨 store 实例共享。
-      voiceSettings: s.voiceSettings ?? defaultVoiceSettings(),
+      // 语音交互设置：整体缺失回落默认;部分缺失(旧档没有后加的 transcriptPolish 等字段)
+      // 用默认对象打底逐字段补齐,避免 undefined 穿透成「永远关闭」。
+      voiceSettings: { ...defaultVoiceSettings(), ...s.voiceSettings },
       // 写作续写/改写模型配置：旧档缺字段（如 debounceMs/maxTokens）由默认补齐。
       writingLlmSettings: hydrateWritingLlmSettings(s.writingLlmSettings),
       // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。

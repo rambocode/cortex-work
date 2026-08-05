@@ -5,9 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { HotkeyCapture } from "@cortex-work/ui/controls/HotkeyCapture";
 import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { VoiceSettings } from "@cortex-work/core";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { detectIsMac } from "../shared/platform";
-import { SRow, SettingCard, SwitchRow } from "./settingsControls";
+import { SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
+import { ModelRefField } from "./provider/ModelRefField";
 import { SpeechDictationDictionary } from "./SpeechDictationDictionary";
 import { SpeechTtsPanel } from "./SpeechTtsPanel";
 import { SttSettingsSection } from "./SttSettingsSection";
@@ -119,6 +121,40 @@ export function SpeechSettingsSection() {
 
       <SettingCard title={t("speech.chatCard")}>
         <SpeechTtsPanel />
+        <ModelRefField
+          label={t("speech.chatModel")}
+          value={
+            voice.chatProviderId && voice.chatModelId
+              ? { providerId: voice.chatProviderId, modelId: voice.chatModelId }
+              : undefined
+          }
+          onChange={(ref) => setVoiceSettings({ chatProviderId: ref.providerId, chatModelId: ref.modelId })}
+          hint={t("speech.chatModelHint")}
+        />
+        {voice.chatProviderId && voice.chatModelId ? (
+          <button
+            className="btn pw-pi-add-btn"
+            type="button"
+            onClick={() => setVoiceSettings({ chatProviderId: "", chatModelId: "" })}
+          >
+            {t("speech.chatModelFollowLast")}
+          </button>
+        ) : null}
+        <SBlock label={t("speech.chatPrompt")} desc={t("speech.chatPromptDesc")}>
+          <textarea
+            className="pw-set-input"
+            rows={4}
+            value={voice.chatPrompt}
+            placeholder={DEFAULT_VOICE_CHAT_PROMPT}
+            spellCheck={false}
+            onChange={(event) => setVoiceSettings({ chatPrompt: event.target.value })}
+          />
+          {voice.chatPrompt.trim() ? (
+            <button className="btn pw-pi-add-btn" type="button" onClick={() => setVoiceSettings({ chatPrompt: "" })}>
+              {t("speech.chatPromptReset")}
+            </button>
+          ) : null}
+        </SBlock>
         {isMac ? (
           <>
             <SRow label={t("speech.chatHotkey")} desc={t("speech.chatHotkeyDesc")}>
@@ -164,6 +200,53 @@ export function SpeechSettingsSection() {
           </SRow>
         </SettingCard>
       ) : null}
+
+      <SettingCard title={t("speech.polishCard")}>
+        <SwitchRow
+          label={t("speech.polishEnable")}
+          desc={t("speech.polishEnableDesc")}
+          value={voice.transcriptPolish}
+          onChange={(transcriptPolish) => setVoiceSettings({ transcriptPolish })}
+        />
+        {voice.transcriptPolish ? (
+          <>
+            <ModelRefField
+              label={t("speech.polishModel")}
+              value={
+                voice.polishProviderId && voice.polishModelId
+                  ? { providerId: voice.polishProviderId, modelId: voice.polishModelId }
+                  : undefined
+              }
+              onChange={(ref) => setVoiceSettings({ polishProviderId: ref.providerId, polishModelId: ref.modelId })}
+              hint={t("speech.polishModelHint")}
+            />
+            {voice.polishProviderId && voice.polishModelId ? (
+              <button
+                className="btn pw-pi-add-btn"
+                type="button"
+                onClick={() => setVoiceSettings({ polishProviderId: "", polishModelId: "" })}
+              >
+                {t("speech.polishModelFollowDefault")}
+              </button>
+            ) : null}
+            <SBlock label={t("speech.polishPrompt")} desc={t("speech.polishPromptDesc")}>
+              <textarea
+                className="pw-set-input"
+                rows={4}
+                value={voice.polishPrompt}
+                placeholder={DEFAULT_POLISH_PROMPT}
+                spellCheck={false}
+                onChange={(event) => setVoiceSettings({ polishPrompt: event.target.value })}
+              />
+              {voice.polishPrompt.trim() ? (
+                <button className="btn pw-pi-add-btn" type="button" onClick={() => setVoiceSettings({ polishPrompt: "" })}>
+                  {t("speech.polishPromptReset")}
+                </button>
+              ) : null}
+            </SBlock>
+          </>
+        ) : null}
+      </SettingCard>
 
       <section aria-label={t("speech.modelsCard")}>
         <div className="pw-dlg-title">{t("speech.modelsCard")}</div>

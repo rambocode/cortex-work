@@ -906,7 +906,22 @@
     "dictionaryEmpty": "No entries yet.",
     "dictionaryRemove": "Remove {{entry}}",
     "modelsCard": "Model management",
-    "modelsDesc": "Configure local Whisper or a cloud speech-recognition service."
+    "modelsDesc": "Configure local Whisper or a cloud speech-recognition service.",
+    "polishCard": "Transcript correction",
+    "polishEnable": "Smart correction",
+    "polishEnableDesc": "After transcription, use an LLM to fix homophones, typos and punctuation; skipped automatically when no model is available",
+    "polishModel": "Correction model",
+    "polishModelHint": "Pick a fast, small model; leave unset to follow the global default model",
+    "polishModelFollowDefault": "Follow global default",
+    "polishPrompt": "Correction prompt",
+    "polishPromptDesc": "Leave empty to use the built-in prompt. The dictation dictionary and transcript are appended automatically",
+    "polishPromptReset": "Reset to default",
+    "chatModel": "Voice chat model",
+    "chatModelHint": "When set, voice chat always uses this model (via pi sessions); leave unset to follow the agent and model last used in the main chat",
+    "chatModelFollowLast": "Follow last used",
+    "chatPrompt": "Chat prompt",
+    "chatPromptDesc": "Leave empty to use the built-in prompt (conversational tone, no markdown, TTS-friendly). The transcript is appended automatically",
+    "chatPromptReset": "Reset to default"
   },
   "roles": {
     "title": "Role Management",
