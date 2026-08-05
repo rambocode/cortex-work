@@ -71,7 +71,8 @@
     "./memory/*": "./memory/*.ts",
     "./research/*": "./research/*.ts",
     "./retrieval/*": "./retrieval/*.ts",
-    "./store/memory": "./store/memory.ts"
+    "./store/memory": "./store/memory.ts",
+    "./pet": "./pet/index.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",
