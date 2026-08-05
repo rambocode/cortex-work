@@ -76,6 +76,8 @@ export interface DictationControllerDeps {
   settings(): { dictationBarAlwaysVisible: boolean } | Promise<{ dictationBarAlwaysVisible: boolean }>;
   /** 仅主进程能把状态下发给不抢焦的听写栏窗口。 */
   pushState(state: DictationPhase, alwaysVisible: boolean, token: number): void;
+  /** 可选的转写 LLM 纠错;实现方必须失败回退原文,绝不 reject(见 whisper/polish.ts)。 */
+  polish?(text: string): Promise<string>;
 }
 
 export type DictationResult =
@@ -213,6 +215,13 @@ export class DictationController {
       this.pushState("idle", visible);
       return;
     }
+    // LLM 纠错放在 pid 复查**之前**:修正耗时不能夹在「校验前台 → paste」之间,
+    // 否则用户切窗后口述内容仍会写进新前台应用。修正期间换轮由下方 token 守卫兜住。
+    let finalText = result.text.trim();
+    if (this.deps.polish) {
+      finalText = (await this.deps.polish(finalText)).trim() || finalText;
+      if (!this.session.isTranscribing(result.token)) return;
+    }
     let now: Record<string, unknown> = {};
     try {
       now = await this.deps.helper.axCapture();
@@ -222,7 +231,7 @@ export class DictationController {
       // canCommit 已同步结束当前轮；先下发 idle，再等待可能较慢的 helper.paste，避免晚到的
       // paste Promise 在用户开始下一轮后覆盖其 renderer 状态。
       this.pushState("idle", visible);
-      if (accepted) await this.deps.helper.paste(result.text.trim());
+      if (accepted) await this.deps.helper.paste(finalText);
     } catch {
       // 仅当前结果有资格到这里；若 await 期间已换轮，canCommit 的同 token 守卫会保留新状态。
       if (!this.session.isTranscribing(result.token)) return;

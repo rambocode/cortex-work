@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
@@ -85,6 +86,10 @@ export function useComposerVoice({
 
   // 进行中的录音会话（VoiceCapture 封装 MediaRecorder/MediaStream 生命周期）。
   const captureRef = useRef<VoiceCapture | null>(null);
+  // 语音交互设置(纠错开关/词典)直接读 store,转写回调经 ref 取最新值。
+  const voiceSettings = usePersonalStore((s) => s.voiceSettings);
+  const voiceSettingsRef = useRef(voiceSettings);
+  useEffect(() => { voiceSettingsRef.current = voiceSettings; }, [voiceSettings]);
   // 使用 ref 镜像 asrSettings 与 callbacks，避免异步回调闭包捕获旧值
   const asrSettingsRef = useRef(asrSettings);
   const onTranscriptRef = useRef(onTranscript);
@@ -164,7 +169,16 @@ export function useComposerVoice({
       const asr = asrSettingsRef.current;
       setTranscribing(true);
       try {
-        onTranscriptRef.current(await transcribeRecording(bridge, asr, blob));
+        const voice = voiceSettingsRef.current;
+        // 词典偏置与浮层/听写路径对齐;空词典不传 prompt。
+        let text = await transcribeRecording(bridge, asr, blob, {
+          prompt: voice.dictationDictionary.join("，") || undefined,
+        });
+        // LLM 纠错完成后才回填输入框(界面上不出现未纠错的原始转写);失败原文返回。
+        if (voice.transcriptPolish && bridge.polishTranscript) {
+          text = (await bridge.polishTranscript(text)).trim() || text;
+        }
+        onTranscriptRef.current(text);
       } catch (err) {
         // 区分本地运行器退出码与网络/配置错误：
         // - 退出码错误通常含 "exit code" 字样（由主进程 whisper-cli runner 抛出）

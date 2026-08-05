@@ -74,6 +74,7 @@ import {
   toggleVoiceChatFromHotkey,
 } from "./ipc/voice";
 import { DictationController } from "./voice/dictation-controller";
+import { polishTranscriptIfEnabled } from "./capabilities/whisper/polish";
 import { destroyDictationWindow, pushDictationBarState } from "./voice/dictation-window";
 import { mapAcceleratorToMacKeyCode } from "./voice/accelerator-keycode";
 import { getVoiceChatWindow } from "./voice/voice-chat-window";
@@ -329,6 +330,8 @@ async function initReply(): Promise<void> {
       dictationBarAlwaysVisible: (await getPersistedState()).voiceSettings?.dictationBarAlwaysVisible ?? false,
     }),
     pushState: pushDictationBarState,
+    // 转写 LLM 纠错(voiceSettings.transcriptPolish 门控;失败/未配模型静默回退原文)。
+    polish: polishTranscriptIfEnabled,
   });
   setDictationResultHandler((result) => dictationController?.handleResult(result));
   setVoiceScreenshotProvider(() => {
