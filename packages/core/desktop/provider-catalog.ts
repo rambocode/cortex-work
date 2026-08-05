@@ -148,12 +148,44 @@ export type ProviderAuthEvent =
   | { type: "done"; providerId: string; status: ProviderAuthStatus }
   | { type: "error"; providerId: string; message: string };
 
+/**
+ * 连接测试的一步。UI 据此逐条点亮「测试过程」，失败时用户能看出卡在哪一步。
+ *
+ * **脱敏红线**：`detail` 里绝不能出现 API Key 明文或 Authorization 头——凭据只标来源标签
+ *（safeStorage / 环境变量名 / OAuth）。主进程侧一律先过 `safeErrorMessage` 再填进来。
+ */
+export interface ProviderConnectionTestStep {
+  /** 稳定的步骤 id，UI 按它取 i18n 标题：runtime | resolve | auth | request | response。 */
+  id: string;
+  state: "running" | "ok" | "error";
+  /** 该步的关键参数/结果摘要（已脱敏）。 */
+  detail?: string;
+  /** 该步耗时；running 态缺省。 */
+  ms?: number;
+}
+
+/**
+ * `providerConnection:testEvent` 推给 renderer 的实时步骤流。
+ *
+ * `traceId` 由渲染端生成并随 invoke 传入、主进程原样回带：多行同时点「测试」时，
+ * 每个面板只认自己的 traceId，事件不会串场。
+ */
+export interface ProviderConnectionTestEvent {
+  traceId: string;
+  step: ProviderConnectionTestStep;
+}
+
 /** `providerConnection.test` 的结果。显式触发（会产生少量费用），保存配置不自动测试。 */
 export interface ProviderConnectionTestResult {
   ok: boolean;
   modelId?: string;
   latencyMs?: number;
   error?: string;
+  /**
+   * 全量步骤轨迹。与实时事件是同一份数据的两种投递方式——事件用于「边跑边看」，
+   * 这里用于兜底（订阅晚了/事件丢了）与「复制诊断信息」。旧外壳缺省，UI 须容忍 undefined。
+   */
+  steps?: ProviderConnectionTestStep[];
 }
 
 // ── 自定义 Provider（用户提供完整 Pi Provider/Model JSON） ─────────────────────

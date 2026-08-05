@@ -11,7 +11,8 @@ import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { ProviderTestControl } from "./ProviderTestControl";
-import { BaseUrlOverride } from "./BaseUrlOverride";
+import { BaseUrlOverride, useBaseUrlDraft } from "./BaseUrlOverride";
+import { useProviderRowSave } from "./useProviderRowSave";
 import { HiddenToggle, ModelsPopover, authResetKey, useArmedConfirm } from "./PiProvidersSection";
 import {
   authStatusKey,
@@ -64,22 +65,18 @@ function CloudRow({
 }) {
   const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
-  const { setApiKey, logout } = useProviderAuthActions();
-  const [draft, setDraft] = useState("");
+  const { logout } = useProviderAuthActions();
 
   const { provider, status } = view;
   const on = providerUsable(view);
   const statusKey = authStatusKey(status);
   const deletable = credentialDeletable(status);
-  const confirmReplace = useArmedConfirm(authResetKey(status));
+  const confirmClearKey = useArmedConfirm(authResetKey(status));
   const expiry = status.expiresAt ? t("providers.expiresAt", { time: new Date(status.expiresAt).toLocaleString() }) : "";
-
-  const saveKey = () => {
-    const key = draft.trim();
-    if (!key) return;
-    // 保存即清空草稿：明文不在 renderer 内存里多留一秒。
-    setApiKey.mutate({ providerId: provider.id, apiKey: key }, { onSuccess: () => setDraft("") });
-  };
+  // 密钥与 Base URL 覆盖共用一个保存按钮（见 useProviderRowSave）：
+  // 云平台展开体里两者恒同屏，各带一个「保存」时用户无从判断哪个提交了什么。
+  const baseUrl = useBaseUrlDraft(provider.id, status.baseUrlOverride);
+  const rowSave = useProviderRowSave(provider.id, baseUrl);
 
   return (
     <div className={`pw-pip-cloud ${open ? "is-open" : ""}`}>
@@ -106,50 +103,35 @@ function CloudRow({
             <div className="pw-prov-alert is-warn">{t("providers.authError", { error: status.error })}</div>
           ) : null}
 
+          {/* 已配置时也照样给输入框（留空即不改动），与 API Key 行的「配置」面板同一套规则：
+              此前已配置分支只给一个「更换」，想换个 Key 得先删再填，多一道无谓的破坏性操作。 */}
           {provider.auth.includes("api-key") ? (
-            <div className="pw-pip-cloud-keyrow">
+            <>
               {status.configured ? (
-                <>
-                  <span className={`pw-prov-status is-${statusKey}`}>{t(`providers.status.${statusKey}`)}</span>
-                  <button
-                    type="button"
-                    className={`pw-pip-linkbtn ${confirmReplace.armed ? "is-confirming" : ""}`}
-                    // env / ambient 凭据由宿主环境提供，Cortex 只能读不能删。
-                    disabled={!deletable || logout.isPending}
-                    title={deletable ? undefined : t("providers.ambientReadOnly", { source: status.source })}
-                    onBlur={confirmReplace.disarm}
-                    onClick={() => (confirmReplace.armed ? logout.mutate(provider.id) : confirmReplace.arm())}
-                  >
-                    {confirmReplace.armed ? t("providers.inline.replaceConfirm") : t("providers.inline.replace")}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <input
-                    className="pw-set-input pw-pip-keyinput"
-                    type="password"
-                    value={draft}
-                    placeholder={provider.envVars?.[0] ?? t("providers.apiKeyPlaceholder")}
-                    aria-label={`${provider.name} ${t("providers.apiKey")}`}
-                    spellCheck={false}
-                    autoComplete="off"
-                    disabled={!storageAvailable}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveKey();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="pw-pip-primary"
-                    disabled={!storageAvailable || !draft.trim() || setApiKey.isPending}
-                    onClick={saveKey}
-                  >
-                    {t("providers.inline.save")}
-                  </button>
-                </>
-              )}
-            </div>
+                <span className={`pw-prov-status is-${statusKey}`}>{t(`providers.status.${statusKey}`)}</span>
+              ) : null}
+              <label className="pw-set-field">
+                <span className="pw-set-lbl">{t("providers.apiKey")}</span>
+                <input
+                  className="pw-set-input"
+                  type="password"
+                  value={rowSave.keyDraft}
+                  placeholder={
+                    status.configured
+                      ? t("providers.apiKeyKeepPlaceholder")
+                      : (provider.envVars?.[0] ?? t("providers.apiKeyPlaceholder"))
+                  }
+                  aria-label={`${provider.name} ${t("providers.apiKey")}`}
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={!storageAvailable}
+                  onChange={(e) => rowSave.setKeyDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && rowSave.canSave) rowSave.save();
+                  }}
+                />
+              </label>
+            </>
           ) : null}
           {status.configured && !deletable ? (
             <div className="pw-set-hint">{t("providers.ambientReadOnly", { source: status.source })}</div>
@@ -157,14 +139,55 @@ function CloudRow({
 
           {/* Azure resource / 自建网关端点走 Base URL 覆盖（落 provider-prefs.json，真实生效）。 */}
           <BaseUrlOverride
-            providerId={provider.id}
             catalogBaseUrl={provider.baseUrl}
-            override={status.baseUrlOverride}
             supported={!!bridge?.providerAuthSetBaseUrl}
+            draft={baseUrl}
           />
 
+          {/* 本行唯一的保存按钮：一次提交密钥与地址两处脏改动；销毁类动作靠右另放。 */}
+          <div className="pw-pip-row-expand-foot">
+            <button
+              type="button"
+              className={`pw-pip-primary ${rowSave.canSave ? "" : "is-idle"}`}
+              disabled={!rowSave.canSave}
+              onClick={rowSave.save}
+            >
+              {t("providers.inline.save")}
+            </button>
+            <span className="pw-pip-spacer" />
+            {status.baseUrlOverride && bridge?.providerAuthSetBaseUrl ? (
+              <button type="button" className="pw-pip-linkbtn" disabled={baseUrl.pending} onClick={baseUrl.clear}>
+                {t("providers.baseUrlOverrideClear")}
+              </button>
+            ) : null}
+            {status.configured ? (
+              <button
+                type="button"
+                className={`pw-pip-linkbtn is-danger ${confirmClearKey.armed ? "is-confirming" : ""}`}
+                // env / ambient 凭据由宿主环境提供，Cortex 只能读不能删。
+                disabled={!deletable || logout.isPending}
+                title={deletable ? undefined : t("providers.ambientReadOnly", { source: status.source })}
+                onBlur={confirmClearKey.disarm}
+                onClick={() => (confirmClearKey.armed ? logout.mutate(provider.id) : confirmClearKey.arm())}
+              >
+                {confirmClearKey.armed ? t("providers.inline.clearKeyConfirm") : t("providers.inline.clearKey")}
+              </button>
+            ) : null}
+            {rowSave.error ? <span className="pw-pip-row-error">{rowSave.error}</span> : null}
+          </div>
+
           <div className="pw-pip-cloud-foot">
-            <ProviderTestControl providerId={provider.id} modelId={provider.models[0]?.id ?? ""} />
+            <ProviderTestControl
+              providerId={provider.id}
+              modelId={provider.models[0]?.id ?? ""}
+              context={{
+                providerName: provider.name,
+                baseUrl: provider.baseUrl,
+                baseUrlOverride: status.baseUrlOverride,
+                authSource: status.source,
+                authType: status.type,
+              }}
+            />
             <span className="pw-pip-spacer" />
             <ModelsPopover view={view} />
             <HiddenToggle view={view} hiddenIds={hiddenIds} />

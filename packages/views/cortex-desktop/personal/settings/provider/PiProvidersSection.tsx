@@ -18,14 +18,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
-import { BaseUrlOverride } from "./BaseUrlOverride";
+import { usePersonalStore } from "@cortex-work/core";
+import { ApiKeyRow } from "./PiApiKeyRows";
 import { ProviderModelList } from "./ProviderModelList";
 import { ProviderAuthDialog } from "./ProviderAuthDialog";
 import { ProviderTestControl } from "./ProviderTestControl";
 import { PiProviderCloudRows } from "./PiProviderCloudRows";
 import { PiCustomProviderSection } from "./PiCustomProviderSection";
 import { PiGatewaySection } from "./PiGatewaySection";
+import { isGatewayGenerated } from "./gatewayDefinition";
 import { useOverflowSafePlacement } from "../../shared/useOverflowSafePlacement";
 import { readCapabilitySources } from "@cortex-work/core/desktop/provider-catalog";
 import {
@@ -54,10 +55,16 @@ const CLOUD_PROVIDER_IDS = new Set([
 /** 未搜索、未展开时 API Key 分区默认露出的行数（已配置的行始终露出）。 */
 const KEY_ROWS_COLLAPSED = 6;
 
+/** 五类接入形态各占一个 tab；顺序即用户的选择顺序（订阅最省事 → 自定义最费事）。 */
+type ProviderTab = "subs" | "keys" | "clouds" | "gateway" | "custom";
+const TABS: ProviderTab[] = ["subs", "keys", "clouds", "gateway", "custom"];
+
 export function PiProvidersSection() {
   const { t } = useTranslation("settings");
   const { views, loading, catalogError, catalogUnsupported, snapshot } = useProviderViews();
+  const { items: customItems } = useCustomProviders();
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<ProviderTab>("subs");
   const [showAllKeys, setShowAllKeys] = useState(false);
   const legacyCleared = usePersonalStore((s) => s.legacyProviderSettingsCleared);
   const acknowledgeLegacy = usePersonalStore((s) => s.acknowledgeLegacyProviderNotice);
@@ -67,31 +74,52 @@ export function PiProvidersSection() {
 
   // 四区拆分 + 搜索过滤。分区之间互斥：oauth 优先（订阅），再云平台，剩下全归 API Key
   // （含 auth 为空的免认证本地端点与 ambient-only —— 行内按状态渲染差异）。
+  //
+  // API Key 区再按「已接入 / 可接入」二次分组：26 行混排时，用户要在一屏噪音里逐行找
+  // 哪几个是自己配过的。分组后已接入的恒置顶且不参与折叠。
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const match = (v: ProviderView) =>
       !q || v.provider.name.toLowerCase().includes(q) || v.provider.id.toLowerCase().includes(q);
     const builtin = views.filter((v) => !v.custom);
+    const keys = builtin
+      .filter((v) => !v.provider.auth.includes("oauth") && !CLOUD_PROVIDER_IDS.has(v.provider.id))
+      .filter(match);
     return {
       subs: builtin.filter((v) => v.provider.auth.includes("oauth")).filter(match),
       clouds: builtin
         .filter((v) => !v.provider.auth.includes("oauth") && CLOUD_PROVIDER_IDS.has(v.provider.id))
         .filter(match),
-      keys: builtin
-        .filter((v) => !v.provider.auth.includes("oauth") && !CLOUD_PROVIDER_IDS.has(v.provider.id))
-        .filter(match),
+      keysOn: keys.filter(providerUsable),
+      keysOff: keys.filter((v) => !providerUsable(v)),
+      keysTotal: keys.length,
       configured: views.filter(providerUsable).length,
       total: views.length,
     };
   }, [views, query]);
 
-  // API Key 分区折叠规则（对齐原型）：已配置的行始终露出，其余只露前几行，尾部「展开全部」。
+  // 折叠只作用于「可接入」组：已接入组恒展开（分组本身已经承担了「配过的始终可见」）。
   const searching = !!query.trim();
-  const keysVisible =
-    searching || showAllKeys
-      ? groups.keys
-      : groups.keys.filter((v, i) => providerUsable(v) || i < KEY_ROWS_COLLAPSED);
-  const keysHiddenCount = groups.keys.length - keysVisible.length;
+  const keysOffVisible =
+    searching || showAllKeys ? groups.keysOff : groups.keysOff.slice(0, KEY_ROWS_COLLAPSED);
+  const keysHiddenCount = groups.keysOff.length - keysOffVisible.length;
+
+  // tab 上的计数。网关 / 自定义只按 isGatewayGenerated 分流（与两个分区组件同一个判据，
+  // 不重复各自的搜索过滤——那才是会漂移的部分）。
+  const tabCounts: Record<ProviderTab, number> = {
+    subs: groups.subs.length,
+    keys: groups.keysTotal,
+    clouds: groups.clouds.length,
+    gateway: customItems.filter(isGatewayGenerated).length,
+    custom: customItems.filter((d) => !isGatewayGenerated(d)).length,
+  };
+
+  // 搜索时**退回全量平铺**、tab 栏隐藏。
+  // tab 是「浏览」用的（我要去配某一类），搜索是「查找」用的（在哪类都行，找到就好）——
+  // 搜索还要求用户先猜对分类才看得见结果，是本末倒置。这也省掉了「给每个 tab 算命中数」
+  // 那套要在三处重复搜索谓词的逻辑（分区组件各自持有自己的过滤条件，重复必漂移）。
+  const showTabs = !searching;
+  const visible = (key: ProviderTab) => searching || tab === key;
 
   return (
     <div className="pw-pip">
@@ -138,12 +166,31 @@ export function PiProvidersSection() {
       ) : null}
       {loading && !catalogUnsupported ? <div className="pw-set-hint">{t("providers.catalogLoading")}</div> : null}
 
-      {searching && groups.subs.length + groups.clouds.length + groups.keys.length === 0 ? (
+      {/* 五类接入形态的 tab。搜索时整条隐藏——见上面 showTabs 的说明。 */}
+      {showTabs ? (
+        <div className="pw-pip-tabs" role="tablist" aria-label={t("providers.title")}>
+          {TABS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={`pw-pip-tab ${tab === key ? "is-on" : ""}`}
+              onClick={() => setTab(key)}
+            >
+              {t(`providers.inline.tab.${key}`)}
+              <span className="pw-pip-tab-n">{tabCounts[key]}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {searching && groups.subs.length + groups.clouds.length + groups.keysTotal === 0 ? (
         <div className="pw-set-hint">{t("providers.searchNoResult")}</div>
       ) : null}
 
       {/* 订阅登录（OAuth） */}
-      {groups.subs.length > 0 ? (
+      {visible("subs") && groups.subs.length > 0 ? (
         <div className="pw-pip-sec">
           <div className="pw-pip-sec-h">
             <span className="pw-pip-sec-t">{t("providers.inline.subsTitle")}</span>
@@ -157,30 +204,47 @@ export function PiProvidersSection() {
         </div>
       ) : null}
 
-      {/* API Key */}
-      {groups.keys.length > 0 ? (
+      {/* API Key：已接入置顶，可接入在下并按需折叠 */}
+      {visible("keys") && groups.keysTotal > 0 ? (
         <div className="pw-pip-sec">
           <div className="pw-pip-sec-h">
             <span className="pw-pip-sec-t">{t("providers.inline.keysTitle")}</span>
             <span className="pw-pip-sec-d">{t("providers.inline.keysDesc")}</span>
           </div>
-          <div className="pw-pip-table">
-            {keysVisible.map((v) => (
-              <ApiKeyRow key={v.provider.id} view={v} hiddenIds={hiddenIds} storageAvailable={storageAvailable} />
-            ))}
-            {!searching && (keysHiddenCount > 0 || showAllKeys) ? (
-              <button type="button" className="pw-pip-more" onClick={() => setShowAllKeys((s) => !s)}>
-                {showAllKeys
-                  ? t("providers.inline.collapse")
-                  : t("providers.inline.expandAll", { count: groups.keys.length })}
-              </button>
-            ) : null}
-          </div>
+
+          {groups.keysOn.length > 0 ? (
+            <>
+              <div className="pw-pip-grouplbl">{t("providers.inline.groupOn", { count: groups.keysOn.length })}</div>
+              <div className="pw-pip-table">
+                {groups.keysOn.map((v) => (
+                  <ApiKeyRow key={v.provider.id} view={v} hiddenIds={hiddenIds} storageAvailable={storageAvailable} />
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {groups.keysOff.length > 0 ? (
+            <>
+              <div className="pw-pip-grouplbl">{t("providers.inline.groupOff", { count: groups.keysOff.length })}</div>
+              <div className="pw-pip-table">
+                {keysOffVisible.map((v) => (
+                  <ApiKeyRow key={v.provider.id} view={v} hiddenIds={hiddenIds} storageAvailable={storageAvailable} />
+                ))}
+                {!searching && (keysHiddenCount > 0 || showAllKeys) ? (
+                  <button type="button" className="pw-pip-more" onClick={() => setShowAllKeys((s) => !s)}>
+                    {showAllKeys
+                      ? t("providers.inline.collapse")
+                      : t("providers.inline.expandAll", { count: groups.keysOff.length })}
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
 
       {/* 云平台 */}
-      {groups.clouds.length > 0 ? (
+      {visible("clouds") && groups.clouds.length > 0 ? (
         <div className="pw-pip-sec">
           <div className="pw-pip-sec-h">
             <span className="pw-pip-sec-t">{t("providers.inline.cloudTitle")}</span>
@@ -192,10 +256,10 @@ export function PiProvidersSection() {
 
       {/* 聚合网关（new-api / one-api…）。存储上仍是自定义 Provider，这里只是呈现层单列一区 ——
           它的配置形态与云平台同构（填地址 + Key → 拉模型），不该埋在「自定义」里。 */}
-      <PiGatewaySection storageAvailable={storageAvailable} query={query} />
+      {visible("gateway") ? <PiGatewaySection storageAvailable={storageAvailable} query={query} /> : null}
 
       {/* 自定义供应商（含内联 JSON 编辑器；搜索由分区内部自理，因为它的数据源是自定义列表） */}
-      <PiCustomProviderSection storageAvailable={storageAvailable} query={query} />
+      {visible("custom") ? <PiCustomProviderSection storageAvailable={storageAvailable} query={query} /> : null}
     </div>
   );
 }
@@ -364,7 +428,17 @@ function SubscriptionCard({
         <span className="pw-pip-spacer" />
         {on ? (
           <>
-            <ProviderTestControl providerId={provider.id} modelId={provider.models[0]?.id ?? ""} />
+            <ProviderTestControl
+              providerId={provider.id}
+              modelId={provider.models[0]?.id ?? ""}
+              context={{
+                providerName: provider.name,
+                baseUrl: provider.baseUrl,
+                baseUrlOverride: status.baseUrlOverride,
+                authSource: status.source,
+                authType: status.type,
+              }}
+            />
             <button
               type="button"
               className={`pw-pip-linkbtn ${confirmLogout.armed ? "is-confirming" : ""}`}
@@ -426,128 +500,3 @@ function SubscriptionCard({
   );
 }
 
-/**
- * API Key 行。三种形态按状态互斥：
- *   未配置（有 api-key 认证）→ 密码输入 + 保存；
- *   已配置              → 状态徽标 + 测试 + 更换（env/ambient 来源不可删，禁用并说明）；
- *   免认证（auth 为空）  → 「本地端点」说明 + 测试。
- */
-function ApiKeyRow({
-  view,
-  hiddenIds,
-  storageAvailable,
-}: {
-  view: ProviderView;
-  hiddenIds: string[];
-  storageAvailable: boolean;
-}) {
-  const { t } = useTranslation("settings");
-  const bridge = useDesktopBridge();
-  const { setApiKey, logout } = useProviderAuthActions();
-  const [draft, setDraft] = useState("");
-
-  const { provider, status } = view;
-  // 自建网关 / 代理端点:此前只有「云平台」折叠行有这个入口,普通 API Key 供应商填不了,
-  // 用户只能去写整段自定义 Provider JSON —— 而 baseUrl 覆盖机制本身早就是通的。
-  // 默认收起(26 个供应商各摆一个地址框会淹没主操作),**已设过覆盖的默认展开** ——
-  // 否则「这个供应商没走官方端点」这件事在界面上完全不可见。
-  const [showBaseUrl, setShowBaseUrl] = useState(!!status.baseUrlOverride);
-  const on = providerUsable(view);
-  const noAuth = provider.auth.length === 0;
-  const statusKey = authStatusKey(status);
-  const deletable = credentialDeletable(status);
-  const confirmReplace = useArmedConfirm(authResetKey(status));
-
-  const saveKey = () => {
-    const key = draft.trim();
-    if (!key) return;
-    // 保存即清空草稿：明文不在 renderer 内存里多留一秒。
-    setApiKey.mutate({ providerId: provider.id, apiKey: key }, { onSuccess: () => setDraft("") });
-  };
-
-  return (
-    <div className={`pw-pip-row ${on ? "is-on" : ""}`}>
-      <div className="pw-pip-row-main">
-        <span className={`pw-pip-dot ${on ? "is-on" : ""}`} />
-        <div className="pw-pip-row-info">
-          <span className="pw-pip-row-name">{provider.name}</span>
-          <ModelsPopover view={view} />
-        </div>
-
-        {status.configured || noAuth ? (
-          <>
-            {noAuth && !status.configured ? (
-              <span className="pw-pip-row-hint">{t("providers.authNoMethod")}</span>
-            ) : (
-              <span className={`pw-prov-status is-${statusKey}`}>{t(`providers.status.${statusKey}`)}</span>
-            )}
-            <span className="pw-pip-spacer" />
-            <ProviderTestControl providerId={provider.id} modelId={provider.models[0]?.id ?? ""} />
-            {status.configured ? (
-              <button
-                type="button"
-                className={`pw-pip-linkbtn ${confirmReplace.armed ? "is-confirming" : ""}`}
-                // env / ambient 凭据由宿主环境提供，Cortex 只能读不能删——禁用并在 title 说明。
-                disabled={!deletable || logout.isPending}
-                title={deletable ? undefined : t("providers.ambientReadOnly", { source: status.source })}
-                onBlur={confirmReplace.disarm}
-                onClick={() => (confirmReplace.armed ? logout.mutate(provider.id) : confirmReplace.arm())}
-              >
-                {confirmReplace.armed ? t("providers.inline.replaceConfirm") : t("providers.inline.replace")}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <input
-              className="pw-set-input pw-pip-keyinput"
-              type="password"
-              value={draft}
-              placeholder={t("providers.apiKeyPlaceholder")}
-              aria-label={`${provider.name} ${t("providers.apiKey")}`}
-              spellCheck={false}
-              autoComplete="off"
-              disabled={!storageAvailable}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveKey();
-              }}
-            />
-            <button
-              type="button"
-              className="pw-pip-primary"
-              disabled={!storageAvailable || !draft.trim() || setApiKey.isPending}
-              onClick={saveKey}
-            >
-              {t("providers.inline.save")}
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          className={`pw-pip-linkbtn ${showBaseUrl ? "is-on" : ""}`}
-          aria-expanded={showBaseUrl}
-          title={status.baseUrlOverride || t("providers.baseUrlOverride")}
-          onClick={() => setShowBaseUrl((v) => !v)}
-        >
-          {status.baseUrlOverride
-            ? t("providers.inline.baseUrlSet")
-            : t("providers.inline.baseUrlToggle")}
-        </button>
-        <HiddenToggle view={view} hiddenIds={hiddenIds} />
-      </div>
-      {showBaseUrl ? (
-        <BaseUrlOverride
-          providerId={provider.id}
-          catalogBaseUrl={provider.baseUrl}
-          override={status.baseUrlOverride}
-          supported={!!bridge?.providerAuthSetBaseUrl}
-        />
-      ) : null}
-      {status.error ? <div className="pw-prov-alert is-warn">{t("providers.authError", { error: status.error })}</div> : null}
-      {!deletable && status.configured ? (
-        <div className="pw-set-hint">{t("providers.ambientReadOnly", { source: status.source })}</div>
-      ) : null}
-    </div>
-  );
-}

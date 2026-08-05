@@ -26,9 +26,11 @@ import type {
   MutableModels,
 } from "@earendil-works/pi-ai";
 
+import type { ProviderConnectionTestStep } from "./contract";
 import { createLogger } from "../log";
 import { createSafeStorageCredentialStore } from "./credentials";
 import { syncCustomProvidersInto } from "./custom-provider-registry";
+import { getBaseUrlOverride } from "./prefs";
 import { safeErrorMessage } from "./secrets";
 
 const log = createLogger("provider-pi-runtime");
@@ -64,7 +66,17 @@ export interface PiAuthRuntime {
   /** 登出。pi **没有** provider 级 logout 钩子，落到 `Models.logout` → `CredentialStore.delete`。 */
   logout(providerId: string): Promise<void>;
   /** 用指定或首个模型发一次最小文本请求。返回实际使用的模型 id。 */
-  probe(providerId: string, modelId: string | undefined, signal?: AbortSignal): Promise<{ modelId: string }>;
+  probe(providerId: string, modelId: string | undefined, options?: ProbeOptions): Promise<{ modelId: string }>;
+}
+
+/**
+ * probe 的可选项。`onStep` 是「测试过程可视化」的唯一出口——**每一步都要先发 running 再发终态**，
+ * 否则 UI 上首测最慢的那步（pi-ai 冷加载）会长时间空白，用户以为卡死。
+ * 失败时也必须已经把前面成功的步骤推出去了，调用方据此判断「卡在哪一步」。
+ */
+export interface ProbeOptions {
+  signal?: AbortSignal;
+  onStep?: (step: ProviderConnectionTestStep) => void;
 }
 
 // ── 真实实现（懒加载 pi-ai） ─────────────────────────────────────────────────
@@ -106,6 +118,53 @@ function assistantText(message: AssistantMessage): string {
     .join("");
 }
 
+/**
+ * 把 `provider-prefs.json` 里的 baseUrl 覆盖贴到模型上。
+ *
+ * 为什么必须在这里做：主进程这份 pi 注册表由 `builtinModels()` 建起，带的是 pi 内置官方端点，
+ * **不认** Cortex 的覆盖偏好（CLI 会话那条路是 pi-provider-input.ts 单独贴的）。不贴的话
+ * 连接测试会绕开用户填的自建网关去打官方端点——「测试通过但聊天不通」，正是最难查的那种假象。
+ * 浅拷贝改 baseUrl 是 pi 自己也在用的手法（models.js 里 `{...model, baseUrl: auth.baseUrl}`）。
+ */
+function withBaseUrlOverride<T extends Model<Api>>(model: T): T {
+  const override = getBaseUrlOverride(model.provider);
+  return override ? { ...model, baseUrl: override } : model;
+}
+
+/**
+ * 包一段异步工作并上报「running → ok/error」两条步骤事件（含耗时）。
+ *
+ * 失败时**先推 error 步骤再抛**：调用方（连接测试面板）靠这条判断「卡在哪一步」，
+ * 若先抛异常，前面已完成的步骤就永远送不到 UI 了。
+ */
+async function runStep<T>(
+  onStep: ProbeOptions["onStep"],
+  id: string,
+  work: () => Promise<T>,
+  options?: { detail?: string; describe?: (value: T) => string | undefined },
+): Promise<T> {
+  onStep?.({ id, state: "running", ...(options?.detail ? { detail: options.detail } : {}) });
+  const startedAt = Date.now();
+  try {
+    const value = await work();
+    const detail = options?.describe?.(value) ?? options?.detail;
+    onStep?.({ id, state: "ok", ms: Date.now() - startedAt, ...(detail ? { detail } : {}) });
+    return value;
+  } catch (err) {
+    // safeErrorMessage 负责脱敏：错误里可能带上游回显的鉴权片段，绝不能原样送进 UI。
+    onStep?.({ id, state: "error", ms: Date.now() - startedAt, detail: safeErrorMessage(err, "失败") });
+    throw err;
+  }
+}
+
+/** 响应步的摘要：停止原因 + token 用量 + 文本预览（截断，避免把整段回答塞进步骤条）。 */
+function describeResponse(message: AssistantMessage): string {
+  const text = assistantText(message).replace(/\s+/g, " ").trim();
+  const preview = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+  const usage = `in ${message.usage.input} · out ${message.usage.output} tokens`;
+  return [`stopReason=${message.stopReason}`, usage, preview ? `“${preview}”` : ""].filter(Boolean).join(" · ");
+}
+
 function createRealRuntime(): PiAuthRuntime {
   return {
     capabilities: async () => {
@@ -129,26 +188,63 @@ function createRealRuntime(): PiAuthRuntime {
       const models = await getModels();
       await models.logout(providerId);
     },
-    probe: async (providerId, modelId, signal) => {
-      const models = await getModels();
-      const model: Model<Api> | undefined = modelId
-        ? models.getModel(providerId, modelId)
-        : models.getModels(providerId)[0];
-      if (!model) {
-        throw new Error(modelId ? `模型不存在：${providerId}/${modelId}` : `该 Provider 没有可用模型：${providerId}`);
-      }
-      const message = await models.completeSimple(
-        model,
-        { messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
-        { maxTokens: TEST_MAX_TOKENS, timeoutMs: TEST_TIMEOUT_MS, ...(signal ? { signal } : {}) },
+    // 五步埋点(runtime / resolve / auth / request / response)全程经 onStep 实时上报,
+    // 让「测试」从黑盒变成可观察的过程 —— 首测最慢的是 runtime(pi-ai 冷加载 ESM)。
+    probe: async (providerId, modelId, options) => {
+      const onStep = options?.onStep;
+      const signal = options?.signal;
+
+      const models = await runStep(onStep, "runtime", getModels);
+
+      const model = await runStep(
+        onStep,
+        "resolve",
+        async () => {
+          const found: Model<Api> | undefined = modelId
+            ? models.getModel(providerId, modelId)
+            : models.getModels(providerId)[0];
+          if (!found) {
+            throw new Error(modelId ? `模型不存在：${providerId}/${modelId}` : `该 Provider 没有可用模型：${providerId}`);
+          }
+          return withBaseUrlOverride(found);
+        },
+        { describe: (m) => `${m.id} · ${m.api} · ${m.baseUrl}` },
       );
-      if (message.stopReason === "error") {
-        throw new Error(message.errorMessage ?? "模型返回错误");
-      }
-      // 空响应也算失败：拿到 200 但没有任何内容说明链路配置有问题（常见于网关拦截）。
-      if (!assistantText(message).trim() && message.content.length === 0) {
-        throw new Error("模型返回了空响应");
-      }
+
+      // 凭据只报「类型 + 来源标签」——明文永不出金库,更不进步骤流。
+      // 查不到凭据不当失败处理:免认证的本地端点本来就没有,真不行会由 request 步如实报错。
+      await runStep(onStep, "auth", () => models.checkAuth(providerId), {
+        describe: (check) => (check ? `${check.type}${check.source ? ` · ${check.source}` : ""}` : "未检测到凭据"),
+      });
+
+      const message = await runStep(
+        onStep,
+        "request",
+        () =>
+          models.completeSimple(
+            model,
+            { messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
+            { maxTokens: TEST_MAX_TOKENS, timeoutMs: TEST_TIMEOUT_MS, ...(signal ? { signal } : {}) },
+          ),
+        { detail: `maxTokens ${TEST_MAX_TOKENS} · timeout ${TEST_TIMEOUT_MS / 1000}s · prompt "ping"` },
+      );
+
+      await runStep(
+        onStep,
+        "response",
+        async () => {
+          if (message.stopReason === "error") {
+            throw new Error(message.errorMessage ?? "模型返回错误");
+          }
+          // 空响应也算失败：拿到 200 但没有任何内容说明链路配置有问题（常见于网关拦截）。
+          if (!assistantText(message).trim() && message.content.length === 0) {
+            throw new Error("模型返回了空响应");
+          }
+          return message;
+        },
+        { describe: describeResponse },
+      );
+
       return { modelId: model.id };
     },
   };
@@ -194,7 +290,12 @@ export interface PiEventStream extends AsyncIterable<AssistantMessageEvent> {
 
 function createRealGatewayRuntime(): PiGatewayRuntime {
   return {
-    getModel: async (providerId, modelId) => (await getModels()).getModel(providerId, modelId),
+    // 同样贴 baseUrl 覆盖（见 withBaseUrlOverride）：否则 Reply / Research / 日报 / Writing
+    // 会绕开用户配的自建网关去打官方端点，而连接测试与 CLI 会话都是走覆盖的——三条路必须一致。
+    getModel: async (providerId, modelId) => {
+      const model = (await getModels()).getModel(providerId, modelId);
+      return model ? withBaseUrlOverride(model) : undefined;
+    },
     isAuthenticated: async (providerId) => Boolean(await (await getModels()).checkAuth(providerId)),
     completeSimple: async (model, context, options) => (await getModels()).completeSimple(model, context, options),
     streamSimple: async (model, context, options) => (await getModels()).streamSimple(model, context, options),

@@ -338,6 +338,7 @@
     "logoutConfirm": "Confirm sign out?",
     "apiKey": "API key",
     "apiKeyPlaceholder": "Paste this provider's API key",
+    "apiKeyKeepPlaceholder": "Leave blank to keep the saved key",
     "apiKeySave": "Save key",
     "apiKeySaved": "Saved",
     "apiKeyNeverShown": "Keys are never echoed back — Cortex keeps only an encrypted copy, and the UI can never read the plaintext.",
@@ -352,6 +353,21 @@
     "connectionTestCancel": "Cancel",
     "connectionTestOk": "Connected · {{model}} · {{latency}}ms",
     "connectionTestFailed": "Connection failed: {{error}}",
+    "connectionTestChipOk": "OK · {{latency}}ms",
+    "connectionTestChipFailed": "Failed",
+    "connectionTestClose": "Close",
+    "connectionTestRetry": "Test again",
+    "connectionTestCopy": "Copy diagnostics",
+    "connectionTestCopied": "Copied",
+    "connectionTestStepsTitle": "Test steps",
+    "connectionTestParamModel": "Model",
+    "connectionTestParamEndpoint": "Endpoint",
+    "connectionTestParamCredential": "Credential",
+    "connectionTestParamLimit": "Limits",
+    "connectionTestEndpointOfficial": "official endpoint",
+    "connectionTestEndpointOverride": "custom override",
+    "connectionTestCredentialNone": "No credential detected",
+    "connectionTestLimitValue": "16 tokens · 60s timeout · prompt “ping”",
     "advanced": "Advanced",
     "baseUrlOverride": "Base URL override",
     "baseUrlOverridePlaceholder": "Leave empty to use the official endpoint",
@@ -438,7 +454,6 @@
     "confirmDelete": "Confirm delete?",
     "secretShow": "Show",
     "secretHide": "Hide",
-    "baseUrlOverrideSave": "Save",
     "baseUrlOverrideClear": "Clear override",
     "inline": {
       "counts": "{{configured}} configured · {{total}} total",
@@ -473,7 +488,20 @@
       "defaultModelHint": "Only models from configured providers are listed — {{count}} providers available. Connect providers right below on this page.",
       "addGateway": "＋ Connect an aggregation gateway (new-api / one-api)",
       "baseUrlToggle": "Custom endpoint",
-      "baseUrlSet": "Custom endpoint set"
+      "baseUrlSet": "Custom endpoint set",
+      "configure": "Configure",
+      "groupOn": "Connected · {{count}}",
+      "groupOff": "Available · {{count}}",
+      "clearKey": "Clear key",
+      "clearKeyConfirm": "Confirm clear?",
+      "cancel": "Cancel",
+      "tab": {
+        "subs": "Subscriptions",
+        "keys": "API Key",
+        "clouds": "Cloud",
+        "gateway": "Gateways",
+        "custom": "Custom"
+      }
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -554,6 +582,13 @@
       "advanced": "Paste JSON instead (advanced)",
       "fallbackHint": "Not in the bundled catalog — using conservative defaults (text-only). Usable as is.",
       "refineReference": "Pick a reference model for exact capabilities"
+    },
+    "connectionTestStep": {
+      "runtime": "Load model runtime",
+      "resolve": "Resolve model and endpoint",
+      "auth": "Read credential",
+      "request": "Send minimal request",
+      "response": "Validate response"
     }
   },
   "agent": {

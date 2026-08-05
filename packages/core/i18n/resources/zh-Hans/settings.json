@@ -338,6 +338,7 @@
     "logoutConfirm": "确认注销？",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "粘贴该供应商的 API Key",
+    "apiKeyKeepPlaceholder": "留空则不修改已保存的密钥",
     "apiKeySave": "保存密钥",
     "apiKeySaved": "已保存",
     "apiKeyNeverShown": "密钥保存后不再回显——Cortex 只保留加密副本，界面永远拿不到明文。",
@@ -352,6 +353,21 @@
     "connectionTestCancel": "取消",
     "connectionTestOk": "连接正常 · {{model}} · {{latency}}ms",
     "connectionTestFailed": "连接失败：{{error}}",
+    "connectionTestChipOk": "正常 · {{latency}}ms",
+    "connectionTestChipFailed": "失败",
+    "connectionTestClose": "关闭",
+    "connectionTestRetry": "重新测试",
+    "connectionTestCopy": "复制诊断信息",
+    "connectionTestCopied": "已复制",
+    "connectionTestStepsTitle": "测试过程",
+    "connectionTestParamModel": "模型",
+    "connectionTestParamEndpoint": "端点",
+    "connectionTestParamCredential": "凭据",
+    "connectionTestParamLimit": "上限",
+    "connectionTestEndpointOfficial": "官方端点",
+    "connectionTestEndpointOverride": "自定义覆盖",
+    "connectionTestCredentialNone": "未检测到凭据",
+    "connectionTestLimitValue": "16 tokens · 60s 超时 · 请求内容 “ping”",
     "advanced": "高级",
     "baseUrlOverride": "Base URL 覆盖",
     "baseUrlOverridePlaceholder": "留空使用官方端点",
@@ -438,7 +454,6 @@
     "confirmDelete": "确认删除？",
     "secretShow": "显示",
     "secretHide": "隐藏",
-    "baseUrlOverrideSave": "保存",
     "baseUrlOverrideClear": "清除覆盖",
     "inline": {
       "counts": "已配置 {{configured}} · 共 {{total}}",
@@ -473,7 +488,20 @@
       "defaultModelHint": "仅列出已配置供应商的模型,当前 {{count}} 个供应商可用;供应商在下方本页直接接入。",
       "addGateway": "＋ 接入聚合网关(new-api / one-api)",
       "baseUrlToggle": "自定义地址",
-      "baseUrlSet": "已设自定义地址"
+      "baseUrlSet": "已设自定义地址",
+      "configure": "配置",
+      "groupOn": "已接入 {{count}}",
+      "groupOff": "可接入 {{count}}",
+      "clearKey": "清除密钥",
+      "clearKeyConfirm": "确认清除？",
+      "cancel": "取消",
+      "tab": {
+        "subs": "订阅登录",
+        "keys": "API Key",
+        "clouds": "云平台",
+        "gateway": "聚合网关",
+        "custom": "自定义"
+      }
     },
     "preset": {
       "deepseek": "DeepSeek",
@@ -554,6 +582,13 @@
       "advanced": "改用 JSON 粘贴(高级)",
       "fallbackHint": "内置目录未收录,已按保守默认启用(仅文本)。可直接使用",
       "refineReference": "选参照模型以获得准确能力"
+    },
+    "connectionTestStep": {
+      "runtime": "加载模型运行时",
+      "resolve": "解析模型与端点",
+      "auth": "读取凭据",
+      "request": "发送最小请求",
+      "response": "校验响应"
     }
   },
   "agent": {

@@ -12347,6 +12347,14 @@ button.sb-row {
 .pw-pip-title { font-size: 14px; font-weight: 650; color: var(--text-1); }
 .pw-pip-count { font-size: 12px; color: var(--text-3); }
 .pw-pip-search { margin-left: auto; width: 200px; flex: 0 0 auto; }
+/* 接入形态 tab（订阅登录 / API Key / 云平台 / 聚合网关 / 自定义）。
+   搜索时整条隐藏并退回全量平铺——tab 用于浏览，搜索用于查找，见 PiProvidersSection。 */
+.pw-pip-tabs { display: flex; align-items: center; gap: 2px; margin-top: 16px; padding-bottom: 2px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.pw-pip-tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; margin-bottom: -3px; font-size: 12.5px; color: var(--text-3); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.pw-pip-tab:hover { color: var(--text-1); }
+.pw-pip-tab.is-on { color: var(--accent, #7c3aed); font-weight: 600; border-bottom-color: var(--accent, #7c3aed); }
+.pw-pip-tab-n { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--border); color: var(--text-3); }
+.pw-pip-tab.is-on > .pw-pip-tab-n { background: color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent); color: var(--accent, #7c3aed); }
 /* 分区：小节标题 + 副说明 */
 .pw-pip-sec { margin-top: 18px; }
 .pw-pip-sec-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
@@ -12379,9 +12387,25 @@ button.sb-row {
 .pw-pip-table > .pw-pip-row:last-child, .pw-pip-table > .pw-pip-row:has(+ .pw-pip-more) { border-bottom-color: transparent; }
 .pw-pip-row.is-on { background: color-mix(in srgb, #16a34a 3%, transparent); }
 .pw-pip-row-main { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+/* API Key 行专用的三列骨架（名称 / 中间态 / 操作）。已配置与未配置行走同一套列宽,
+   右侧操作区因此在所有行里竖直对齐 —— 此前两种形态各自 flex,按钮左右漂移。
+   ⚠️ 只给 API Key 行用:网关 / 自定义分区的行子元素数量不同,套上会错列。 */
+.pw-pip-row-grid { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr) auto; }
 .pw-pip-row-info { display: flex; align-items: center; gap: 8px; width: 176px; flex: 0 0 auto; min-width: 0; }
+.pw-pip-row-grid > .pw-pip-row-info { width: auto; }
+.pw-pip-row-mid { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pw-pip-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+/* 图标组:自定义地址 + 隐藏。与文字按钮之间留一道更大的间距,读作「一组次要开关」。 */
+.pw-pip-iconset { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--border); }
 .pw-pip-row-name { font-size: 13px; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-pip-row-hint { font-size: 11.5px; color: var(--text-3); }
+/* 展开区（密钥输入 / 自定义地址 / 本行唯一的保存按钮） */
+.pw-pip-row-expand { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 2px; }
+.pw-pip-row-expand-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pw-pip-row-error { font-size: 11.5px; color: #dc2626; }
+/* 分组小标题（已接入 / 可接入） */
+.pw-pip-grouplbl { margin: 10px 0 6px; font-size: 11px; font-weight: 600; color: var(--text-4, var(--text-3)); }
+.pw-pip-grouplbl:first-of-type { margin-top: 0; }
 .pw-pip-keyinput { flex: 1 1 auto; min-width: 0; }
 .pw-pip-baseurl { flex: 1 1 auto; min-width: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-pip-more { padding: 10px 14px; font-size: 12.5px; color: var(--accent, #7c3aed); background: none; border: none; text-align: left; cursor: pointer; }
@@ -12413,6 +12437,15 @@ button.sb-row {
 .pw-pip-primary { height: 30px; padding: 0 14px; font-size: 12.5px; font-weight: 600; color: #fff; background: var(--accent, #7c3aed); border: none; border-radius: 8px; cursor: pointer; flex: 0 0 auto; }
 .pw-pip-primary:hover { background: #6a48f0; }
 .pw-pip-primary:disabled { opacity: 0.45; cursor: default; }
+/* 无待保存改动时退成描边态。此前空表单里也是一块实心紫,一列排下来全是高亮块,
+   主操作反而看不出在哪 —— 有内容才「亮起来」。 */
+.pw-pip-primary.is-idle { color: var(--text-3); background: transparent; border: 1px solid var(--border); }
+.pw-pip-primary.is-idle:hover { background: transparent; }
+/* 次要行动按钮（「配置」）：比 primary 弱、比纯文字链接强,适合每行都有一个的场景。 */
+.pw-pip-ghost { height: 26px; padding: 0 12px; font-size: 12px; color: var(--text-2); background: var(--bg-app); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
+.pw-pip-ghost:hover { border-color: var(--accent, #7c3aed); color: var(--accent, #7c3aed); }
+.pw-pip-ghost:disabled { opacity: 0.5; cursor: default; }
+.pw-pip-ghost.is-on { color: var(--accent, #7c3aed); border-color: color-mix(in srgb, var(--accent, #7c3aed) 45%, var(--border)); }
 .pw-pip-linkbtn { padding: 4px 6px; font-size: 12px; color: var(--text-3); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .pw-pip-linkbtn:hover { color: var(--text-1); }
 .pw-pip-linkbtn:disabled { opacity: 0.5; cursor: default; }
@@ -12420,15 +12453,51 @@ button.sb-row {
 .pw-pip-iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 7px; background: transparent; color: var(--text-4, var(--text-3)); cursor: pointer; flex: 0 0 auto; }
 .pw-pip-iconbtn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-pip-iconbtn.is-off { color: var(--text-3); }
-/* 紧凑连接测试：按钮 + 结果文案 + 费用确认浮层 */
-.pw-pip-test { position: relative; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* is-active = 该开关背后已有配置（如已设自定义地址）；is-on = 面板当前展开。 */
+.pw-pip-iconbtn.is-active { color: var(--accent, #7c3aed); }
+.pw-pip-iconbtn.is-on { background: var(--bg-hover); }
+/* 紧凑连接测试：按钮 + 短结果 chip（完整过程/参数在 .pw-pip-testpanel 浮层里） */
+.pw-pip-test { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .pw-pip-testbtn { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; font-size: 11.5px; color: var(--text-2); background: var(--bg-app); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; white-space: nowrap; }
 .pw-pip-testbtn:hover { border-color: var(--text-3); }
 .pw-pip-testbtn:disabled { opacity: 0.5; cursor: default; }
-.pw-pip-test-result { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+/* 行内只放短 chip（「正常 · 1602ms」/「失败」），故不再需要 max-width 截断——
+   长文案曾被截成「连接正常 · deepseek-v4-flash · 2…」，等于没显示。 */
+.pw-pip-test-result { font-size: 11.5px; white-space: nowrap; }
 .pw-pip-test-result.is-ok { color: #16a34a; }
 .pw-pip-test-result.is-error { color: #dc2626; }
-.pw-pip-test-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 280px; margin: 0; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+
+/* ── 连接测试面板（portal 到 body + position:fixed，坐标由 useAnchoredLayer 算） ────
+   ⚠️ 不要退回 absolute：设置页躺在 .pw-dlg-body（overflow-y:auto）里，absolute 浮层会被
+   滚动容器整块裁掉，翻转与钳制都救不回来。z-index 须高于 .pw-dlg-overlay(200)。 */
+.pw-pip-testpanel { z-index: 300; display: flex; flex-direction: column; gap: 9px; width: 360px; max-width: calc(100vw - 16px); max-height: 70vh; overflow-y: auto; padding: 12px 14px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22); }
+.pw-pip-testpanel-h { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.pw-pip-testpanel-t { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 650; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-pip-testpanel-sub { font-size: 11px; font-weight: 600; color: var(--text-3); }
+/* 参数区：标签定宽 + 值可截断，端点这种长值靠 title 兜底。 */
+.pw-pip-testparams { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 8px 10px; background: var(--bg-card-2, var(--bg-soft)); border-radius: 9px; }
+.pw-pip-testparam { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: baseline; gap: 8px; }
+.pw-pip-testparam > dt { font-size: 11px; color: var(--text-4, var(--text-3)); }
+.pw-pip-testparam > dd { margin: 0; min-width: 0; font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-pip-testparam-hint { margin-left: 6px; font-size: 10.5px; color: var(--text-4, var(--text-3)); }
+.pw-pip-testwarn { margin: 0; }
+/* 步骤列表：图标列定宽，名称与 detail 纵向堆叠（detail 常是长 URL / 错误原文）。 */
+.pw-pip-teststeps { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.pw-pip-teststep { display: flex; align-items: flex-start; gap: 7px; }
+.pw-pip-teststep-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; flex: 0 0 auto; color: var(--text-4, var(--text-3)); }
+.pw-pip-teststep.is-ok > .pw-pip-teststep-icon { color: #16a34a; }
+.pw-pip-teststep.is-error > .pw-pip-teststep-icon { color: #dc2626; }
+.pw-pip-teststep-spin { width: 9px; height: 9px; border: 1.5px solid var(--border-strong, var(--border)); border-top-color: var(--accent, #7c3aed); border-radius: 999px; animation: pw-pip-spin 0.7s linear infinite; }
+@keyframes pw-pip-spin { to { transform: rotate(360deg); } }
+.pw-pip-teststep-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.pw-pip-teststep-name { font-size: 11.5px; color: var(--text-1); }
+.pw-pip-teststep-name > em { margin-left: 6px; font-style: normal; font-size: 10.5px; color: var(--text-4, var(--text-3)); }
+/* detail 允许换行:长 URL 与上游错误原文在一行里截断就失去排查价值,这正是本次要修的问题。 */
+.pw-pip-teststep-detail { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; line-height: 1.5; color: var(--text-3); word-break: break-all; }
+.pw-pip-teststep.is-error > .pw-pip-teststep-body > .pw-pip-teststep-detail { color: #dc2626; }
+.pw-pip-testverdict { padding: 7px 9px; font-size: 11.5px; border-radius: 8px; }
+.pw-pip-testverdict.is-ok { color: #16a34a; background: color-mix(in srgb, #16a34a 8%, transparent); }
+.pw-pip-testverdict.is-error { color: #dc2626; background: color-mix(in srgb, #dc2626 8%, transparent); }
 /* 自定义分区：虚线添加入口 + 内联编辑器容器 */
 .pw-pip-add { width: 100%; padding: 13px; font-size: 12.5px; color: var(--text-3); background: none; border: 1.5px dashed var(--border-strong, var(--border)); border-radius: 12px; text-align: center; cursor: pointer; }
 .pw-pip-add:hover { border-color: var(--accent, #7c3aed); color: var(--accent, #7c3aed); }

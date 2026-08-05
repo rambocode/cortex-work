@@ -300,6 +300,38 @@ describe("连接测试", () => {
     expect(result.error).not.toContain("sk-live-ABCDEF");
     expect(result.error).toContain("401 unauthorized");
   });
+
+  it("成功时回带完整步骤轨迹（面板的「复制诊断信息」靠它，不能只在事件里给）", async () => {
+    stubRuntime({
+      probe: async (_p, _m, options) => {
+        options?.onStep?.({ id: "runtime", state: "running" });
+        options?.onStep?.({ id: "runtime", state: "ok", ms: 12 });
+        options?.onStep?.({ id: "request", state: "ok", ms: 34, detail: "maxTokens 16" });
+        return { modelId: "m-1" };
+      },
+    });
+    resetProviderAuthForTests();
+
+    const result = await invoke<ProviderConnectionTestResult>(PROVIDER_IPC.connectionTest, "acme");
+    // 同一步的 running → ok 是更新同一行，不是追加两行。
+    expect(result.steps?.map((s) => `${s.id}:${s.state}`)).toEqual(["runtime:ok", "request:ok"]);
+  });
+
+  it("失败时也回带已完成的步骤——用户要看的就是「卡在哪一步」", async () => {
+    stubRuntime({
+      probe: async (_p, _m, options) => {
+        options?.onStep?.({ id: "runtime", state: "ok", ms: 12 });
+        options?.onStep?.({ id: "request", state: "error", ms: 5, detail: "401 unauthorized" });
+        throw new Error("401 unauthorized");
+      },
+    });
+    resetProviderAuthForTests();
+
+    const result = await invoke<ProviderConnectionTestResult>(PROVIDER_IPC.connectionTest, "acme");
+    expect(result.ok).toBe(false);
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps?.[1]).toMatchObject({ id: "request", state: "error" });
+  });
 });
 
 describe("自定义 Provider 通道", () => {

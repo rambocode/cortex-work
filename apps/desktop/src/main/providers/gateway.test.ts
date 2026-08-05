@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AssistantMessage, AssistantMessageEvent, Context, Model, Api } from "@earendil-works/pi-ai";
 
-import type { CatalogModel, CatalogProvider, ProviderCatalog } from "./contract";
+import type { CatalogModel, CatalogProvider, GatewayStreamEvent, ProviderCatalog } from "./contract";
 import type { PiGatewayRuntime } from "./pi-runtime";
 
 // ── Catalog 替身 ─────────────────────────────────────────────────────────────
@@ -427,6 +427,113 @@ describe("出站选项", () => {
     expect(downstream.aborted).toBe(false);
     controller.abort();
     expect(downstream.aborted).toBe(true);
+  });
+});
+
+// ── temperature 被上游拒绝时的自愈重试 ────────────────────────────────────────
+
+describe("temperature 被上游拒绝 → 去参重试一次", () => {
+  /** OpenAI 推理模型（gpt-5.x 经 codex 协议）的真实报错形态。 */
+  const REJECTION = "Codex error: Unsupported parameter: 'temperature'";
+
+  /** 首次调用按 errorMessage 失败、之后成功的 completeSimple 替身（calls 记在返回对象上）。 */
+  function rejectOnceRuntime(errorMessage: string): RuntimeSpy {
+    let first = true;
+    const rt: RuntimeSpy = makeRuntime({
+      completeSimple: async (model, context, options) => {
+        rt.calls.push({ model, context, options: options as Record<string, unknown> });
+        if (first) {
+          first = false;
+          return assistant({ stopReason: "error", errorMessage });
+        }
+        return assistant();
+      },
+    });
+    return rt;
+  }
+
+  it("complete：重试请求不带 temperature，最终成功", async () => {
+    const runtime = rejectOnceRuntime(REJECTION);
+    const outcome = await runGatewayComplete({ ...REQ, temperature: 0.9, maxTokens: 64 }, { runtime });
+    expect(outcome).toMatchObject({ ok: true, text: "hello" });
+    expect(runtime.calls).toHaveLength(2);
+    expect(runtime.calls[0]!.options).toMatchObject({ temperature: 0.9 });
+    expect(runtime.calls[1]!.options).not.toHaveProperty("temperature");
+    // 其余参数原样保留，不因重试而丢失。
+    expect(runtime.calls[1]!.options).toMatchObject({ maxTokens: 64 });
+  });
+
+  it("complete：pi 以异常（而非 error 终态）拒绝时同样重试", async () => {
+    let first = true;
+    const runtime: RuntimeSpy = makeRuntime({
+      completeSimple: async (model, context, options) => {
+        runtime.calls.push({ model, context, options: options as Record<string, unknown> });
+        if (first) {
+          first = false;
+          throw new Error("temperature is not supported with this model");
+        }
+        return assistant();
+      },
+    });
+    const outcome = await runGatewayComplete({ ...REQ, temperature: 0.7 }, { runtime });
+    expect(outcome.ok).toBe(true);
+    expect(runtime.calls).toHaveLength(2);
+  });
+
+  it("complete：未传 temperature 时不重试（错误原样返回）", async () => {
+    const runtime = rejectOnceRuntime(REJECTION);
+    const outcome = await runGatewayComplete(REQ, { runtime });
+    expect(outcome.ok).toBe(false);
+    expect(runtime.calls).toHaveLength(1);
+  });
+
+  it("complete：与 temperature 无关的错误不重试（503 过载等不消费重试）", async () => {
+    const runtime = rejectOnceRuntime("503: Service is too busy.");
+    const outcome = await runGatewayComplete({ ...REQ, temperature: 0.7 }, { runtime });
+    expect(outcome.ok).toBe(false);
+    expect(runtime.calls).toHaveLength(1);
+  });
+
+  it("stream：握手阶段被拒（零增量）→ 去参重试，订阅方拿到干净的一份正文", async () => {
+    let first = true;
+    const runtime: RuntimeSpy = makeRuntime({
+      streamSimple: async (model, context, options) => {
+        runtime.calls.push({ model, context, options: options as Record<string, unknown> });
+        if (first) {
+          first = false;
+          return fakeStream([], assistant({ stopReason: "error", errorMessage: REJECTION }));
+        }
+        return fakeStream(
+          [{ type: "text_delta", contentIndex: 0, delta: "hello", partial: assistant() }] as AssistantMessageEvent[],
+          assistant(),
+        );
+      },
+    });
+    const events: GatewayStreamEvent[] = [];
+    const outcome = await runGatewayStream({ ...REQ, temperature: 0.9 }, (e) => events.push(e), { runtime });
+    expect(outcome.ok).toBe(true);
+    expect(runtime.calls).toHaveLength(2);
+    expect(runtime.calls[1]!.options).not.toHaveProperty("temperature");
+    // 只有重试那一份增量与一条成功 done，不存在两份拼接的正文。
+    expect(events.filter((e) => e.type === "text")).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: "done", ok: true });
+  });
+
+  it("stream：已推过增量后失败 → 绝不重试（UI 已渲染半截内容）", async () => {
+    const runtime: RuntimeSpy = makeRuntime({
+      streamSimple: async (model, context, options) => {
+        runtime.calls.push({ model, context, options: options as Record<string, unknown> });
+        return fakeStream(
+          [{ type: "text_delta", contentIndex: 0, delta: "hel", partial: assistant() }] as AssistantMessageEvent[],
+          assistant({ stopReason: "error", errorMessage: REJECTION }),
+        );
+      },
+    });
+    const events: GatewayStreamEvent[] = [];
+    const outcome = await runGatewayStream({ ...REQ, temperature: 0.9 }, (e) => events.push(e), { runtime });
+    expect(outcome.ok).toBe(false);
+    expect(runtime.calls).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: "done", ok: false });
   });
 });
 

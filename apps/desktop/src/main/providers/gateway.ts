@@ -368,6 +368,32 @@ const ABORTED_OUTCOME: GatewayOutcome = {
   errorKind: "aborted",
 };
 
+/**
+ * 上游明确拒绝 temperature 参数的报错特征。
+ *
+ * OpenAI 的推理模型（gpt-5.x / o 系，经 openai-responses / openai-codex-responses 出站）对
+ * 请求体里的 temperature 直接 400："Unsupported parameter: 'temperature'"；部分兼容网关的
+ * 措辞是 "temperature is not supported" / "Invalid parameter: temperature"。pi 只在
+ * anthropic-messages 一种协议里按 `compat.supportsTemperature` 门控该参数，其余协议盲传，
+ * 所以这层自愈只能由 Gateway 做。
+ *
+ * 为什么是「失败后去参重试」而不是「按能力位预判」：Catalog / pi 都没有「模型是否接受
+ * temperature」的能力数据，按 reasoning 位预判等于 Cortex 自建能力映射表（计划 §1 禁止），
+ * 且会误伤 temperature 与推理并存的模型（gemini / zai 等）。上游亲口拒绝才降级，不会误判；
+ * 代价只是首次调用多一个往返，且 temperature 本就是「可选增强」（丢掉只影响草稿多样性）。
+ */
+function isTemperatureRejection(error: string | undefined): boolean {
+  if (!error) return false;
+  return /temperature/i.test(error) && /unsupported|not\s+support|invalid|does not accept/i.test(error);
+}
+
+/** 去掉 temperature 的重试请求（浅拷贝，绝不改动调用方传入的对象）。 */
+function withoutTemperature(req: GatewayCompleteRequest): GatewayCompleteRequest {
+  const rest = { ...req };
+  delete rest.temperature;
+  return rest;
+}
+
 /** 单发补全。任何失败都以 ok:false 返回，**不抛错**（调用方一律需要确定性降级路径）。 */
 export async function runGatewayComplete(
   req: GatewayCompleteRequest,
@@ -386,12 +412,27 @@ export async function runGatewayComplete(
     }
     if (signal.aborted) return ABORTED_OUTCOME;
 
-    const message = await runtime.completeSimple(
-      resolved.model,
-      buildPiContext(req),
-      buildStreamOptions(req, resolved.catalogModel, signal, timeoutMs),
-    );
-    return finalize(message);
+    /** 单次出站（异常也吞成 ok:false 结果，让下面的 temperature 自愈重试统一判定）。 */
+    const attempt = async (request: GatewayCompleteRequest): Promise<GatewayOutcome> => {
+      try {
+        const message = await runtime.completeSimple(
+          resolved.model,
+          buildPiContext(request),
+          buildStreamOptions(request, resolved.catalogModel, signal, timeoutMs),
+        );
+        return finalize(message);
+      } catch (err) {
+        const error = safeErrorMessage(err, "模型调用失败");
+        return { ok: false, text: "", truncated: false, error, errorKind: classifyGatewayError(err, error) };
+      }
+    };
+
+    let outcome = await attempt(req);
+    // 上游拒绝 temperature（gpt-5.x 等推理模型）→ 去掉该参数原样重试一次，见 isTemperatureRejection。
+    if (!outcome.ok && req.temperature !== undefined && isTemperatureRejection(outcome.error) && !signal.aborted) {
+      outcome = await attempt(withoutTemperature(req));
+    }
+    return outcome;
   } catch (err) {
     const error = safeErrorMessage(err, "模型调用失败");
     return { ok: false, text: "", truncated: false, error, errorKind: classifyGatewayError(err, error) };
@@ -425,17 +466,52 @@ export async function runGatewayStream(
     }
     if (signal.aborted) return fail(ABORTED_OUTCOME);
 
-    const stream = await runtime.streamSimple(
-      resolved.model,
-      buildPiContext(req),
-      buildStreamOptions(req, resolved.catalogModel, signal, timeoutMs),
-    );
-    for await (const event of stream) {
-      if (event.type === "text_delta") onEvent({ type: "text", delta: event.delta });
-      else if (event.type === "thinking_delta") onEvent({ type: "thinking", delta: event.delta });
+    /**
+     * 单次流式出站。emitted 记录是否已向订阅方推过增量——推过就绝不重试
+     * （UI 已渲染半截内容，重试会拼出两份正文）；参数被拒发生在请求握手阶段，
+     * 典型情况下一个增量都不会产出，重试是安全的。
+     */
+    const attempt = async (
+      request: GatewayCompleteRequest,
+    ): Promise<{ outcome: GatewayOutcome; emitted: boolean }> => {
+      let emitted = false;
+      try {
+        const stream = await runtime.streamSimple(
+          resolved.model,
+          buildPiContext(request),
+          buildStreamOptions(request, resolved.catalogModel, signal, timeoutMs),
+        );
+        for await (const event of stream) {
+          if (event.type === "text_delta") {
+            emitted = true;
+            onEvent({ type: "text", delta: event.delta });
+          } else if (event.type === "thinking_delta") {
+            emitted = true;
+            onEvent({ type: "thinking", delta: event.delta });
+          }
+        }
+        return { outcome: finalize(await stream.result()), emitted };
+      } catch (err) {
+        const error = safeErrorMessage(err, "模型调用失败");
+        return {
+          outcome: { ok: false, text: "", truncated: false, error, errorKind: classifyGatewayError(err, error) },
+          emitted,
+        };
+      }
+    };
+
+    let attempted = await attempt(req);
+    // 同 runGatewayComplete：上游拒绝 temperature 且尚未外发任何增量 → 去参重试一次。
+    if (
+      !attempted.outcome.ok &&
+      !attempted.emitted &&
+      req.temperature !== undefined &&
+      isTemperatureRejection(attempted.outcome.error) &&
+      !signal.aborted
+    ) {
+      attempted = await attempt(withoutTemperature(req));
     }
-    const message = await stream.result();
-    const outcome = finalize(message);
+    const outcome = attempted.outcome;
     const usage = outcome.usage;
     if (usage) onEvent({ type: "usage", usage });
     onEvent(

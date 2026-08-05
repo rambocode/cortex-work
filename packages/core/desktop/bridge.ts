@@ -15,6 +15,7 @@ import type {
   ProviderAuthEvent,
   ProviderAuthSnapshot,
   ProviderCatalogResult,
+  ProviderConnectionTestEvent,
   ProviderConnectionTestResult,
 } from "./provider-catalog";
 import type {
@@ -405,7 +406,11 @@ export interface DesktopBridge {
   // 自建网关/代理端点覆盖；传 undefined 清除覆盖、恢复 pi 内置目录里的官方端点。
   providerAuthSetBaseUrl?(providerId: string, baseUrl: string | undefined): Promise<{ ok: boolean; error?: string }>;
   onProviderAuthEvent?(cb: (event: ProviderAuthEvent) => void): () => void;
-  providerConnectionTest?(providerId: string, modelId?: string): Promise<ProviderConnectionTestResult>;
+  // traceId 由渲染端生成、主进程原样回带，用于把步骤事件对回发起它的那个测试面板；
+  // 旧壳没有第三参也不会炸（多余实参被忽略），只是拿不到实时步骤、退化成等最终结果。
+  providerConnectionTest?(providerId: string, modelId?: string, traceId?: string): Promise<ProviderConnectionTestResult>;
+  // 连接测试的实时步骤流；按 traceId 过滤是订阅方的责任（多行同时测试会串场）。
+  onProviderConnectionTestEvent?(cb: (event: ProviderConnectionTestEvent) => void): () => void;
   providerCustomList?(): Promise<CustomProviderDefinition[]>;
   providerCustomSave?(def: CustomProviderDefinition): Promise<{ ok: boolean; error?: string }>;
   providerCustomDelete?(id: string): Promise<{ ok: boolean; error?: string }>;

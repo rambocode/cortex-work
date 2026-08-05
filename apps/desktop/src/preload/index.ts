@@ -15,6 +15,7 @@ import type {
   GatewayBuildResult,
   GatewayDiscoverRequest,
   GatewayDiscoverResult,
+  ProviderConnectionTestEvent,
   ProviderConnectionTestResult,
 } from "../main/providers/contract";
 import type {
@@ -444,8 +445,20 @@ const personal = {
     return () => ipcRenderer.removeListener(PROVIDER_IPC.authEvent, listener);
   },
   // 显式连接测试：真发一次最小请求，可能产生少量费用 —— UI 调用前必须提示。
-  providerConnectionTest: (providerId: string, modelId?: string): Promise<ProviderConnectionTestResult> =>
-    ipcRenderer.invoke(PROVIDER_IPC.connectionTest, providerId, modelId),
+  // traceId 由渲染端生成并原样回带，用于把步骤事件对回发起它的那个测试面板。
+  providerConnectionTest: (
+    providerId: string,
+    modelId?: string,
+    traceId?: string,
+  ): Promise<ProviderConnectionTestResult> =>
+    ipcRenderer.invoke(PROVIDER_IPC.connectionTest, providerId, modelId, traceId),
+  // 连接测试的实时步骤流。订阅是全局的，按 traceId 过滤是**调用方的责任**——
+  // 多行同时点「测试」时不过滤就会串场。
+  onProviderConnectionTestEvent: (cb: (event: ProviderConnectionTestEvent) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, event: ProviderConnectionTestEvent) => cb(event);
+    ipcRenderer.on(PROVIDER_IPC.connectionTestEvent, listener);
+    return () => ipcRenderer.removeListener(PROVIDER_IPC.connectionTestEvent, listener);
+  },
   // 阶段B 聚合网关:只传 Secret 名,明文不过这条通道(真值由主进程自金库取)。
   providerGatewayDiscover: (req: GatewayDiscoverRequest): Promise<GatewayDiscoverResult> =>
     ipcRenderer.invoke(PROVIDER_IPC.gatewayDiscover, req),

@@ -105,11 +105,29 @@ export type ProviderAuthEvent =
   | { type: "done"; providerId: string; status: ProviderAuthStatus }
   | { type: "error"; providerId: string; message: string };
 
+/**
+ * 连接测试的一步。**脱敏红线**：`detail` 里绝不能出现 API Key 明文或 Authorization 头，
+ * 凭据只标来源标签；错误一律先过 `secrets.ts` 的 `safeErrorMessage` 再填进来。
+ */
+export interface ProviderConnectionTestStep {
+  id: string;
+  state: "running" | "ok" | "error";
+  detail?: string;
+  ms?: number;
+}
+
+/** `providerConnection:testEvent` 的负载。traceId 由渲染端生成，主进程原样回带，防止多行串场。 */
+export interface ProviderConnectionTestEvent {
+  traceId: string;
+  step: ProviderConnectionTestStep;
+}
+
 export interface ProviderConnectionTestResult {
   ok: boolean;
   modelId?: string;
   latencyMs?: number;
   error?: string;
+  steps?: ProviderConnectionTestStep[];
 }
 
 export interface CustomProviderDefinition {
@@ -243,6 +261,8 @@ export const PROVIDER_IPC = {
   authEvent: "providerAuth:event",
   /** 显式连接测试（可能产生费用，调用前 UI 须提示）。 */
   connectionTest: "providerConnection:test",
+  /** 主进程 → renderer 的连接测试步骤流（按 traceId 分发，见 ProviderConnectionTestEvent）。 */
+  connectionTestEvent: "providerConnection:testEvent",
   /** 阶段B：聚合网关接入 —— 模型发现（GET /v1/models）与 Pi Provider JSON 生成。 */
   gatewayDiscover: "providerGateway:discover",
   gatewayBuild: "providerGateway:build",

@@ -113,7 +113,17 @@ export function PiGatewaySection({
                   {parsed?.baseUrl ? <span className="pw-pip-baseurl">{parsed.baseUrl}</span> : null}
                   {parsed?.api ? <span className="pw-prov-badge">{parsed.api}</span> : null}
                   <span className="pw-pip-spacer" />
-                  <ProviderTestControl providerId={def.id} modelId={parsed?.models[0]?.id ?? ""} />
+                  <ProviderTestControl
+                    providerId={def.id}
+                    modelId={parsed?.models[0]?.id ?? ""}
+                    // 网关的地址写在自定义 Provider JSON 里（不走 baseUrl 覆盖），故直接取解析值。
+                    context={{
+                      providerName: parsed?.name ?? def.id,
+                      baseUrl: parsed?.baseUrl,
+                      authSource: view?.status.source,
+                      authType: view?.status.type,
+                    }}
+                  />
                   <button
                     type="button"
                     className="pw-pip-linkbtn"

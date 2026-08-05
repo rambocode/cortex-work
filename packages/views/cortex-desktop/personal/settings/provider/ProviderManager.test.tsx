@@ -84,6 +84,9 @@ interface BridgeOpts {
   hidden?: string[];
   connectionTest?: DesktopBridge["providerConnectionTest"];
   setBaseUrl?: DesktopBridge["providerAuthSetBaseUrl"];
+  setApiKey?: DesktopBridge["providerAuthSetApiKey"];
+  /** 连接测试的实时步骤流；测试里手动推事件用。 */
+  onTestEvent?: DesktopBridge["onProviderConnectionTestEvent"];
   /** 已保存的 baseUrl 覆盖（providerId → url），并入认证快照。 */
   baseUrlOverride?: Record<string, string>;
   /** 已保存的自定义 Provider 定义（网关与手写的都从这一份列表来 —— 存储只有一份）。 */
@@ -120,11 +123,12 @@ function makeBridge(o: BridgeOpts = {}): DesktopBridge {
     providerGatewayDiscover: vi.fn(async () => ({ ok: true, models: [] })),
     providerGatewayBuild: vi.fn(async () => ({ ok: true, json: "{}" })),
     providerAuthSetSecrets: vi.fn(async () => ({ ok: true })),
-    providerAuthSetApiKey: vi.fn(async () => ({ ok: true })),
+    providerAuthSetApiKey: o.setApiKey ?? vi.fn(async () => ({ ok: true })),
     providerAuthLogout: vi.fn(async () => ({ ok: true })),
     providerAuthSetHidden: vi.fn(async () => ({ ok: true })),
     providerAuthSetBaseUrl: o.setBaseUrl ?? vi.fn(async () => ({ ok: true })),
     providerConnectionTest: o.connectionTest ?? vi.fn(async () => ({ ok: true, modelId: "gpt-vision", latencyMs: 42 })),
+    onProviderConnectionTestEvent: o.onTestEvent ?? vi.fn(() => () => undefined),
     onProviderAuthEvent: vi.fn(() => () => undefined),
     providerAuthLogin: vi.fn(async () => ({ ok: true })),
   } as unknown as DesktopBridge;
@@ -138,8 +142,14 @@ function renderUI(ui: ReactElement, bridge: DesktopBridge | null) {
   );
 }
 
+/** 切到某个接入形态 tab。五类分区改成 tab 后，断言前必须先选中对应那一类。 */
+async function openTab(name: string): Promise<void> {
+  fireEvent.click(await screen.findByRole("tab", { name: new RegExp(`^${name}`) }));
+}
+
 /** 找到某 Provider 在 API Key 分区里的整行容器（行内按钮太多，断言必须限定作用域）。 */
 async function findKeyRow(name: string): Promise<HTMLElement> {
+  await openTab("API Key");
   const label = await screen.findByText(name);
   const row = label.closest(".pw-pip-row");
   if (!row) throw new Error(`row of ${name} not found`);
@@ -155,22 +165,27 @@ afterEach(() => cleanup());
 describe("Pi 供应商平铺页：认证状态与降级", () => {
   it("按认证形态分区渲染：订阅卡已登录、env/ambient 徽标、免认证说明、未配置输入行", async () => {
     renderUI(<PiProvidersSection />, makeBridge());
-    // 订阅登录卡（anthropic oauth）→ 绿色「已登录」
+    // 默认落在「订阅登录」tab：anthropic oauth → 绿色「已登录」
     expect(await screen.findByText("已登录")).toBeInTheDocument();
-    // API Key 分区：openai 凭据来自环境变量、bedrock 来自系统凭据
+    // 切到 API Key tab：openai 凭据来自环境变量、bedrock 来自系统凭据
+    await openTab("API Key");
     expect(screen.getByText("环境变量")).toBeInTheDocument();
     expect(screen.getByText("系统凭据")).toBeInTheDocument();
     // local 免认证 → 本地端点说明
     expect(screen.getByText("该供应商无需登录（本地端点）。")).toBeInTheDocument();
-    // deepseek 未配置 → 粘贴即存的密码输入行
-    expect(screen.getByLabelText("DeepSeek API Key")).toBeInTheDocument();
+    // deepseek 未配置 → 只给一个「配置」入口，输入框按需展开（26 行各摆一个空输入框会淹没主操作）
+    const row = await findKeyRow("DeepSeek");
+    expect(screen.queryByLabelText("DeepSeek API Key")).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    expect(within(row).getByLabelText("DeepSeek API Key")).toBeInTheDocument();
   });
 
   it("safeStorage 不可用 → 只读警告条 + 密钥输入被禁用", async () => {
     renderUI(<PiProvidersSection />, makeBridge({ storageAvailable: false }));
     expect((await screen.findAllByText(/系统密钥库不可用/)).length).toBeGreaterThan(0);
-    const key = (await screen.findByLabelText("DeepSeek API Key")) as HTMLInputElement;
-    expect(key.disabled).toBe(true);
+    // 只读降级要一路挡到底：连展开输入框的「配置」入口都不给。
+    const row = await findKeyRow("DeepSeek");
+    expect((within(row).getByRole("button", { name: "配置" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("Catalog 不可用 → 明确降级提示，不白屏", async () => {
@@ -198,12 +213,48 @@ describe("Pi 供应商平铺页：认证状态与降级", () => {
     expect(screen.queryByText(/供应商配置已升级/)).toBeNull();
   });
 
-  it("ambient 凭据不可删除：「更换」禁用并说明去哪儿删", async () => {
+  it("五类接入形态按 tab 切换：一次只挂一个分区", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    // 默认「订阅登录」：只有订阅卡在场，API Key 行不该同时挂着。
+    expect(await screen.findByText("已登录")).toBeInTheDocument();
+    expect(screen.queryByText("DeepSeek")).toBeNull();
+
+    await openTab("API Key");
+    expect(screen.getByText("DeepSeek")).toBeInTheDocument();
+    expect(screen.queryByText("一键 OAuth 授权,无需 API Key")).toBeNull();
+  });
+
+  it("搜索时退回全量平铺、tab 栏隐藏——查找不该要求先猜对分类", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    await screen.findByText("已登录");
+    fireEvent.change(screen.getByLabelText("搜索供应商"), { target: { value: "deep" } });
+    // 当前 tab 仍是「订阅登录」，但 DeepSeek（API Key 类）照样能被搜出来。
+    await waitFor(() => expect(screen.getByText("DeepSeek")).toBeInTheDocument());
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  });
+
+  it("API Key 区按「已接入 / 可接入」分组，已接入置顶", async () => {
+    // 26 行混排时用户得逐行扫才知道自己配过哪几个；分组后已接入的恒在顶部且不参与折叠。
+    const { container } = renderUI(<PiProvidersSection />, makeBridge());
+    await openTab("API Key");
+    const labels = [...container.querySelectorAll(".pw-pip-grouplbl")].map((el) => el.textContent);
+    expect(labels[0]).toMatch(/^已接入/);
+    expect(labels[1]).toMatch(/^可接入/);
+
+    // openai/bedrock/local 已可用 → 在第一组；deepseek 未配置 → 在第二组。
+    const tables = [...container.querySelectorAll(".pw-pip-table")];
+    expect(tables[0]?.textContent).toContain("OpenAI");
+    expect(tables[0]?.textContent).not.toContain("DeepSeek");
+    expect(tables[1]?.textContent).toContain("DeepSeek");
+  });
+
+  it("ambient 凭据不可删除：配置区里的「清除密钥」禁用并说明去哪儿删", async () => {
     renderUI(<PiProvidersSection />, makeBridge());
     const row = await findKeyRow("Bedrock");
-    const replace = within(row).getByRole("button", { name: "更换" }) as HTMLButtonElement;
-    expect(replace.disabled).toBe(true);
-    expect(within(row).getByText(/Cortex 只能读取、不能删除/)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    const clear = within(row).getByRole("button", { name: "清除密钥" }) as HTMLButtonElement;
+    expect(clear.disabled).toBe(true);
+    expect(within(row).getAllByText(/Cortex 只能读取、不能删除/).length).toBeGreaterThan(0);
   });
 });
 
@@ -215,16 +266,92 @@ describe("Pi 供应商平铺页：API Key 行的自定义接口地址", () => {
     renderUI(<PiProvidersSection />, makeBridge({ setBaseUrl }));
     const row = await findKeyRow("DeepSeek");
 
-    fireEvent.click(within(row).getByRole("button", { name: "自定义地址" }));
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
     const input = within(row).getByLabelText("Base URL 覆盖") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "https://my-gw.example/v1" } });
-    // 行内有两个「保存」（API Key 的与地址的），必须限定到地址块的动作区。
-    const actions = row.querySelector(".pw-mode-block-actions") as HTMLElement;
-    fireEvent.click(within(actions).getByRole("button", { name: "保存" }));
+    // 一行只有一个「保存」，它提交本行全部脏改动（此前地址块自带一个，与密钥的同名同屏）。
+    fireEvent.click(within(row).getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
       expect(setBaseUrl).toHaveBeenCalledWith("deepseek", "https://my-gw.example/v1"),
     );
+  });
+
+  it("一行只有一个「保存」：密钥输入与地址覆盖同屏时也不例外", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    const row = await findKeyRow("DeepSeek");
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    expect(within(row).getAllByRole("button", { name: "保存" })).toHaveLength(1);
+  });
+
+  it("同一个「保存」一次提交密钥与地址两处改动", async () => {
+    const setApiKey = vi.fn(async () => ({ ok: true }));
+    const setBaseUrl = vi.fn(async () => ({ ok: true }));
+    renderUI(<PiProvidersSection />, makeBridge({ setApiKey, setBaseUrl }));
+    const row = await findKeyRow("DeepSeek");
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    fireEvent.change(within(row).getByLabelText("DeepSeek API Key"), { target: { value: "sk-abc" } });
+    fireEvent.change(within(row).getByLabelText("Base URL 覆盖"), { target: { value: "https://gw.example/v1" } });
+    fireEvent.click(within(row).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(setApiKey).toHaveBeenCalledWith("deepseek", "sk-abc"));
+    expect(setBaseUrl).toHaveBeenCalledWith("deepseek", "https://gw.example/v1");
+  });
+
+  it("留空 = 不改动：只填密钥时不动已存的地址覆盖", async () => {
+    // 「配置」把密钥与地址放进同一个面板后，空着的那一栏绝不能被当成「清空」提交出去。
+    const setApiKey = vi.fn(async () => ({ ok: true }));
+    const setBaseUrl = vi.fn(async () => ({ ok: true }));
+    renderUI(
+      <PiProvidersSection />,
+      makeBridge({ setApiKey, setBaseUrl, baseUrlOverride: { deepseek: "https://my-gw.example/v1" } }),
+    );
+    const row = await findKeyRow("DeepSeek");
+    // 已设覆盖 → 配置区默认展开；清空地址框后只填密钥。
+    fireEvent.change(within(row).getByLabelText("Base URL 覆盖"), { target: { value: "" } });
+    fireEvent.change(within(row).getByLabelText("DeepSeek API Key"), { target: { value: "sk-abc" } });
+    fireEvent.click(within(row).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(setApiKey).toHaveBeenCalledWith("deepseek", "sk-abc"));
+    expect(setBaseUrl).not.toHaveBeenCalled(); // 清除覆盖是显式动作，走「清除覆盖」按钮
+  });
+
+  it("留空 = 不改动：只填地址时不动已存的密钥", async () => {
+    const setApiKey = vi.fn(async () => ({ ok: true }));
+    const setBaseUrl = vi.fn(async () => ({ ok: true }));
+    renderUI(<PiProvidersSection />, makeBridge({ setApiKey, setBaseUrl }));
+    const row = await findKeyRow("OpenAI"); // 已配置（env 来源），密钥框空着
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    fireEvent.change(within(row).getByLabelText("Base URL 覆盖"), { target: { value: "https://gw.example/v1" } });
+    fireEvent.click(within(row).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(setBaseUrl).toHaveBeenCalledWith("openai", "https://gw.example/v1"));
+    expect(setApiKey).not.toHaveBeenCalled();
+  });
+
+  it("已配置的行也走同一个「配置」入口，且不再出现「更换」", async () => {
+    renderUI(<PiProvidersSection />, makeBridge());
+    const row = await findKeyRow("OpenAI");
+    expect(within(row).queryByRole("button", { name: "更换" })).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    // 密钥不回显，故 placeholder 必须明说「留空不改」，否则空框会被读成「已被清空」。
+    expect((within(row).getByLabelText("OpenAI API Key") as HTMLInputElement).placeholder).toBe(
+      "留空则不修改已保存的密钥",
+    );
+  });
+
+  it("地址非法被主进程拒绝时，密钥不落盘（不留「密钥存了、地址没存」的半成品）", async () => {
+    const setApiKey = vi.fn(async () => ({ ok: true }));
+    const setBaseUrl = vi.fn(async () => ({ ok: false, error: "请填合法的 URL" }));
+    renderUI(<PiProvidersSection />, makeBridge({ setApiKey, setBaseUrl }));
+    const row = await findKeyRow("DeepSeek");
+    fireEvent.click(within(row).getByRole("button", { name: "配置" }));
+    fireEvent.change(within(row).getByLabelText("DeepSeek API Key"), { target: { value: "sk-abc" } });
+    fireEvent.change(within(row).getByLabelText("Base URL 覆盖"), { target: { value: "not-a-url" } });
+    fireEvent.click(within(row).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(within(row).getByText("请填合法的 URL")).toBeInTheDocument());
+    expect(setApiKey).not.toHaveBeenCalled();
   });
 
   it("已设过覆盖的供应商默认展开——否则「没走官方端点」这件事在界面上完全不可见", async () => {
@@ -233,7 +360,8 @@ describe("Pi 供应商平铺页：API Key 行的自定义接口地址", () => {
     expect((within(row).getByLabelText("Base URL 覆盖") as HTMLInputElement).value).toBe(
       "https://my-gw.example/v1",
     );
-    expect(within(row).getByRole("button", { name: "已设自定义地址" })).toBeInTheDocument();
+    // 行上还要有徽标：配置区收起后，这是「没走官方端点」在界面上的唯一线索。
+    expect(within(row).getByText("已设自定义地址")).toBeInTheDocument();
   });
 });
 
@@ -268,7 +396,7 @@ describe("Pi 供应商平铺页：能力只读（事故根因回归）", () => {
   });
 });
 
-describe("Pi 供应商平铺页：连接测试的费用提示", () => {
+describe("Pi 供应商平铺页：连接测试的费用提示与过程面板", () => {
   it("点「测试」先出费用确认，确认前不得发起调用", async () => {
     const test = vi.fn(async () => ({ ok: true, modelId: "gpt-vision", latencyMs: 42 }));
     renderUI(<PiProvidersSection />, makeBridge({ connectionTest: test }));
@@ -281,11 +409,60 @@ describe("Pi 供应商平铺页：连接测试的费用提示", () => {
     await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/连接正常/)).toBeInTheDocument();
   });
+
+  it("确认面板列出将要用的参数：端点区分官方 / 自定义覆盖", async () => {
+    // 排查「测试通过但聊天不通」时，用户第一件要确认的就是请求到底发去了哪儿。
+    // 用 local（免认证，行内恒有「测试」）承载覆盖：未配置的行本来就不给测试入口。
+    renderUI(<PiProvidersSection />, makeBridge({ baseUrlOverride: { local: "https://my-gw.example/v1" } }));
+    const row = await findKeyRow("Local");
+    fireEvent.click(within(row).getByRole("button", { name: /测试/ }));
+    const panel = screen.getByRole("dialog", { name: "连接测试" });
+    expect(within(panel).getByText("https://my-gw.example/v1")).toBeInTheDocument();
+    expect(within(panel).getByText("自定义覆盖")).toBeInTheDocument();
+  });
+
+  it("步骤事件按 traceId 过滤：别的测试推来的事件不画进本面板", async () => {
+    let emit: ((e: { traceId: string; step: { id: string; state: "ok"; detail?: string } }) => void) | undefined;
+    const onTestEvent = vi.fn((cb: never) => {
+      emit = cb as never;
+      return () => undefined;
+    });
+    renderUI(<PiProvidersSection />, makeBridge({ onTestEvent: onTestEvent as never }));
+    const row = await findKeyRow("OpenAI");
+    fireEvent.click(within(row).getByRole("button", { name: /测试/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认测试" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "连接测试" })).toBeInTheDocument());
+
+    // 冒充另一行的测试推来的事件：traceId 对不上，必须被丢弃。
+    emit?.({ traceId: "test-does-not-exist", step: { id: "runtime", state: "ok", detail: "别人的步骤" } });
+    await waitFor(() => expect(screen.queryByText("别人的步骤")).toBeNull());
+  });
+
+  it("失败时把主进程回传的步骤轨迹摊开：用户能看出卡在哪一步", async () => {
+    const test = vi.fn(async () => ({
+      ok: false,
+      error: "401 Unauthorized",
+      steps: [
+        { id: "runtime", state: "ok" as const, ms: 412 },
+        { id: "request", state: "error" as const, ms: 233, detail: "401 Unauthorized" },
+      ],
+    }));
+    renderUI(<PiProvidersSection />, makeBridge({ connectionTest: test as never }));
+    const row = await findKeyRow("OpenAI");
+    fireEvent.click(within(row).getByRole("button", { name: /测试/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认测试" }));
+
+    const panel = await screen.findByRole("dialog", { name: "连接测试" });
+    expect(await within(panel).findByText("加载模型运行时")).toBeInTheDocument();
+    expect(within(panel).getByText("发送最小请求")).toBeInTheDocument();
+    expect(within(panel).getByText("401 Unauthorized")).toBeInTheDocument();
+  });
 });
 
 describe("自定义供应商预制表单", () => {
   /** 打开表单并用 Ollama 预设 + 能力声明填出一份可保存的配置。 */
   async function fillForm() {
+    await openTab("自定义");
     fireEvent.click(await screen.findByRole("button", { name: /添加自定义供应商/ }));
     fireEvent.click(screen.getByRole("button", { name: "Ollama" }));
     fireEvent.change(screen.getByLabelText(/模型 ID/), { target: { value: "qwen3, llama4" } });
@@ -340,6 +517,7 @@ describe("自定义供应商预制表单", () => {
 
   it("能力声明缺失时保存按钮不可用——不猜默认值,而是逼出显式输入", async () => {
     renderUI(<PiProvidersSection />, makeBridge());
+    await openTab("自定义");
     fireEvent.click(await screen.findByRole("button", { name: /添加自定义供应商/ }));
     fireEvent.click(screen.getByRole("button", { name: "Ollama" }));
     fireEvent.change(screen.getByLabelText(/模型 ID/), { target: { value: "qwen3" } });
@@ -399,29 +577,37 @@ describe("聚合网关顶层分区", () => {
     updatedAt: 1,
   };
 
-  /** 按分区标题定位整个分区容器（两区的行结构一模一样，断言必须限定作用域）。 */
+  /**
+   * 按分区标题定位整个分区容器（两区的行结构一模一样，断言必须限定作用域）。
+   * 用 getAllByText 而不是 getByText：同名文案在 tab 栏里也有一份，只有落在 .pw-pip-sec 里的才是分区。
+   */
   function sectionOf(title: string): HTMLElement {
-    const el = screen.getByText(title).closest(".pw-pip-sec");
+    const el = screen
+      .getAllByText(title)
+      .map((n) => n.closest(".pw-pip-sec"))
+      .find(Boolean);
     if (!el) throw new Error(`section ${title} not found`);
     return el as HTMLElement;
   }
 
-  it("向导生成的定义归「聚合网关」区，不出现在自定义供应商区", async () => {
+  it("向导生成的定义归「聚合网关」tab，不出现在自定义供应商 tab", async () => {
+    // 分区改 tab 后一次只挂一个分区，互斥性改为「切过去看两边各有什么」来验。
     renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF, HANDWRITTEN_DEF] }));
+    await openTab("聚合网关");
     expect(await screen.findByText("公司网关")).toBeInTheDocument();
-    expect(within(sectionOf("聚合网关")).getByText("公司网关")).toBeInTheDocument();
-    expect(within(sectionOf("自定义供应商")).queryByText("公司网关")).toBeNull();
-  });
-
-  it("手写 JSON 的定义相反：留在自定义供应商区，不出现在网关区", async () => {
-    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF, HANDWRITTEN_DEF] }));
-    expect(await screen.findByText("本地 Ollama")).toBeInTheDocument();
-    expect(within(sectionOf("自定义供应商")).getByText("本地 Ollama")).toBeInTheDocument();
     expect(within(sectionOf("聚合网关")).queryByText("本地 Ollama")).toBeNull();
   });
 
-  it("网关区的「＋ 接入网关」直接开向导（不必先进别的分区）", async () => {
+  it("手写 JSON 的定义相反：留在自定义供应商 tab，不出现在网关 tab", async () => {
+    renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF, HANDWRITTEN_DEF] }));
+    await openTab("自定义");
+    expect(await screen.findByText("本地 Ollama")).toBeInTheDocument();
+    expect(within(sectionOf("自定义供应商")).queryByText("公司网关")).toBeNull();
+  });
+
+  it("网关 tab 的「＋ 接入网关」直接开向导（不必先进别的分区）", async () => {
     renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF] }));
+    await openTab("聚合网关");
     await screen.findByText("公司网关");
     fireEvent.click(within(sectionOf("聚合网关")).getByRole("button", { name: "＋ 接入网关" }));
     expect(await screen.findByText("接入聚合网关")).toBeInTheDocument();
@@ -429,6 +615,7 @@ describe("聚合网关顶层分区", () => {
 
   it("网关行的「编辑」开的是向导，不是整段 JSON 编辑器", async () => {
     renderUI(<PiProvidersSection />, makeBridge({ customs: [GATEWAY_DEF] }));
+    await openTab("聚合网关");
     const row = (await screen.findByText("公司网关")).closest(".pw-pip-row") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
     // 向导编辑态：直接进第二步，已保存的模型预勾选。
@@ -474,12 +661,14 @@ describe("自定义供应商：在聊天中是否可用的状态提示", () => {
 
   it("解析成功且有模型 → 提示已可在聊天的模型选择器中选用,并给出模型数", async () => {
     renderUI(<PiProvidersSection />, bridgeWithCustoms());
+    await openTab("自定义");
     const row = (await screen.findByText("本地 Ollama")).closest(".pw-pip-row") as HTMLElement;
     expect(within(row).getByText(/已可在聊天的模型选择器中选用（1 个模型）/)).toBeInTheDocument();
   });
 
   it("解析成功但无模型通过校验 / JSON 解析失败 → 两种不可用给出各自的排查方向", async () => {
     renderUI(<PiProvidersSection />, bridgeWithCustoms());
+    await openTab("自定义");
     const halfRow = (await screen.findByText("半成品网关")).closest(".pw-pip-row") as HTMLElement;
     expect(within(halfRow).getByText(/没有一条模型通过校验/)).toBeInTheDocument();
     // JSON 解析失败的条目退化成用 id 展示,提示走另一条文案。

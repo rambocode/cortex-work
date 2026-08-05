@@ -23,7 +23,9 @@ import type {
   GatewayBuildResult,
   GatewayDiscoverRequest,
   GatewayDiscoverResult,
+  ProviderConnectionTestEvent,
   ProviderConnectionTestResult,
+  ProviderConnectionTestStep,
   ProviderCredentialSource,
 } from "../providers/contract";
 import { getProviderCatalog } from "../providers/catalog";
@@ -273,17 +275,39 @@ export function registerProviderAuthHandlers(): void {
   });
 
   // 显式连接测试：真发一次最小请求，**保存配置不会自动触发**（会产生费用，须用户显式点）。
+  //
+  // 步骤流是**双投递**:边跑边经 connectionTestEvent 推给发起方(实时点亮过程),同时本地累积一份
+  // 挂在返回值的 `steps` 上。两份不是冗余——订阅晚了/窗口重载会丢事件,而「复制诊断信息」必须拿得到
+  // 完整轨迹;失败路径尤其依赖它(用户要看的就是「卡在哪一步」)。
   ipcMain.handle(
     PROVIDER_IPC.connectionTest,
-    async (_e, providerId: string, modelId?: string): Promise<ProviderConnectionTestResult> => {
+    async (_e, providerId: string, modelId?: string, traceId?: string): Promise<ProviderConnectionTestResult> => {
       const startedAt = Date.now();
+      const steps: ProviderConnectionTestStep[] = [];
+      const onStep = (step: ProviderConnectionTestStep) => {
+        // 同一 id 的 running → 终态是「更新同一行」,不是追加两行;UI 不必自己去重。
+        const at = steps.findIndex((s) => s.id === step.id);
+        if (at >= 0) steps[at] = step;
+        else steps.push(step);
+        // traceId 缺省(旧渲染端)时不推事件,只走返回值兜底 —— 无 id 的事件无法被面板认领。
+        // sender 可能已随窗口销毁(测试期长达 60s,用户完全来得及关窗),此时静默跳过即可。
+        if (traceId && _e?.sender && !_e.sender.isDestroyed()) {
+          _e.sender.send(PROVIDER_IPC.connectionTestEvent, { traceId, step } satisfies ProviderConnectionTestEvent);
+        }
+      };
       try {
         // 内建与自定义供应商走**同一条** probe:自定义的已由 custom-provider-registry
         // 同步进主进程 pi-ai 注册表（此前没同步,所以对自定义必报「模型不存在」)。
-        const result = await getPiAuthRuntime().probe(providerId, modelId);
-        return { ok: true, modelId: result.modelId, latencyMs: Date.now() - startedAt };
+        const result = await getPiAuthRuntime().probe(providerId, modelId, { onStep });
+        return { ok: true, modelId: result.modelId, latencyMs: Date.now() - startedAt, steps };
       } catch (err) {
-        return { ok: false, ...(modelId ? { modelId } : {}), error: safeErrorMessage(err, "连接测试失败") };
+        return {
+          ok: false,
+          ...(modelId ? { modelId } : {}),
+          latencyMs: Date.now() - startedAt,
+          error: safeErrorMessage(err, "连接测试失败"),
+          steps,
+        };
       }
     },
   );
