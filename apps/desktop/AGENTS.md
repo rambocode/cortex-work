@@ -4,7 +4,14 @@
 
 This package is the Electron desktop client for Cortex. Main-process code lives in `src/main/`, preload bridge code in `src/preload/`, and renderer entry points in `src/renderer/`. Shared UI and business views should come from workspace packages such as `@cortex-work/ui`, `@cortex-work/core`, and `@cortex-work/views` instead of being duplicated here.
 
-Assets used by the packaged app belong in `assets/` or `resources/`. The bundled `pi` binary is built into `resources/pi/` by `scripts/build-pi-binary.mjs`. Build outputs are generated under `out/` and `dist/`; do not edit or commit generated artifacts unless a release workflow explicitly requires it.
+Assets used by the packaged app belong in `assets/` or `resources/`. Build outputs are generated under `out/` and `dist/`; do not edit or commit generated artifacts unless a release workflow explicitly requires it.
+
+The `pi` agent currently has **two coexisting execution paths**, selected by a feature flag (`CORTEX_PI_INPROC`, see `src/main/agents/pi-inproc/feature-flag.ts`; **defaults to the binary path**):
+
+- **Binary (default)**: a self-contained `pi` executable built into `resources/pi/` by `scripts/build-pi-binary.mjs`, launched with `child_process.spawn`.
+- **In-process (opt-in, migration in progress)**: the main process imports the `@earendil-works/*` packages from `node_modules` (shipped inside `app.asar`) and drives `createAgentSession()` directly; nothing is staged into `resources/` for this path.
+
+Do not remove `resources/pi/` or `scripts/build-pi-binary.mjs` while the flag still defaults to the binary path.
 
 ## Build, Test, and Development Commands
 

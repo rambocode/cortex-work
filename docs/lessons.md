@@ -73,11 +73,16 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 
 **潜在同类**:unpacked 区代码用 `fs` 读 asar 内资源(如 pi 的 photon wasm 图片处理)也有类似边界。
 
-> ⚠️ 后续:全 unpack 仍在 asar 体系内缠斗(wasm fs 边界等隐患仍在),**最终被下一条「bun 二进制」方案取代**。本条与上一条(override)作为历史经验保留——理解「为什么 bun 二进制是对的」需先看这两条踩过的坑。
+> ⚠️ 后续脉络(**三条连读才完整,只读其中一条会得出相反结论**):全 unpack 仍在 asar 体系内缠斗(wasm fs 边界等隐患仍在) → 被下一条「bun 二进制 + spawn」方案取代 → 而 bun 二进制方案**又被再下一条「主进程 in-process 库调用」取代**。本条与上一条(override)作为历史经验保留;但**本条的失败根因(unpacked 区往上找依赖,候选链不经过平行的 `app.asar`)与 in-process 形态不是同一个问题**,不要拿它去否定 in-process——理由见最后一条。
 
 ---
 
-## 终极方案:纯 ESM 复杂 CLI(如 pi)在 Electron 里改用 `bun --compile` 自包含二进制 + spawn
+## 阶段性方案(**已被下一条取代**):纯 ESM 复杂 CLI(如 pi)在 Electron 里改用 `bun --compile` 自包含二进制 + spawn
+
+> ⚠️ **已被下一条「主进程内 in-process 调用」取代**(pi 自 2026-08 起灰度迁移,迁移期两条路径并存、
+> 开关默认仍走本条描述的二进制)。本条作为历史经验保留:它当年确实解决了问题,**当时的判断是对的**;
+> 被取代不是因为它错,而是因为「为什么当年 asar 内跑不通」这一层根因被重新分析清楚了(见下一条)。
+> 读到本条时**不要**据此把 pi 改回二进制。
 
 前两条(版本 override、全 unpack)都是在 asar 体系内打补丁。pi 这类**纯 ESM、依赖闭包庞大、还带 wasm/napi 原生资产**的 CLI,塞进 asar 始终在跟 Node 模块解析 + asar 边界缠斗。**根治:用 bun 编成自包含单二进制,所有依赖 inline,彻底脱离 node_modules 解析。**
 
@@ -90,6 +95,54 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 **收益**:minimatch/typebox/undici/任何依赖解析问题一次性消失;asar 恢复正常;用 pi 官方一等支持的 bun 二进制形态最稳。**代价**:构建依赖 bun(CI 需装);pi 升级要重 compile(脚本按 `.pi-version` 幂等)。
 
 **验证同样必须仓库外**:`Test.app/Contents/Resources/pi/pi --mode json -p -e <ext> --provider <id> "hi"`,确认完整 JSON 事件流 + 扩展加载 + 到 LLM 调用(假 key 401 即通)。
+
+---
+
+## 「asar 里跑不了纯 ESM 包」是**误记**:主进程自己 import 与 unpacked 子进程 import 不是同一个问题
+
+**背景**:上一条把 pi 编成 bun 二进制之后,「纯 ESM 的 pi 在 asar 里必炸」几乎成了本仓的共识。
+但 2026-08 起 pi 正在改成**主进程内直接 `import('@earendil-works/pi-coding-agent')` 并调
+`createAgentSession()`**(引擎层 `main/agents/pi-inproc/`,灰度开关 `CORTEX_PI_INPROC`,
+**默认仍走二进制**,两条路径并存)。实测:三个 pi 包**留在 asar 内、不 unpack**,在打包好的 app 里
+按包名动态 import **全部解析成功**。共识错在哪里,值得单独记一条。
+
+**翻案的关键差异——两次 import 的「发起方位置」不同**:
+
+| | 当年(失败) | 现在(成功) |
+|---|---|---|
+| 谁发起 import | `app.asar.unpacked` 里的 pi 进程 | **主进程自己**,代码在 `app.asar` 内 |
+| 候选 `node_modules` 链 | 从 `app.asar.unpacked/...` 逐级向上,**经过 `app.asar.unpacked`、不经过平行的 `app.asar`**(二者是 `Resources` 下两个独立条目) | 从 `app.asar/...` 逐级向上,天然落在**同一棵 asar 树**内,由 Electron 的 fs patch 透明处理 |
+| 结论 | 依赖闭包在 asar 内 → 一律解析不到 | 依赖闭包与发起方同树 → 正常解析 |
+
+**所以当年的教训准确表述是「跨 asar 边界解析依赖不行」,而不是「asar 里不能跑纯 ESM」。**
+把后者当结论记住,就会拒绝掉一个本来可行的方案。
+
+**这条路成立有两个硬前提,缺一即回到当年的 `ERR_MODULE_NOT_FOUND`**:
+
+1. **动态 import 的 specifier 必须是变量**(数组 `join("/")` 拼)并加 `/* @vite-ignore */`。
+   主进程被 electron-vite 打成 **CJS**,而 pi 三包是纯 ESM。写成字符串字面量,打包器会静态分析并把
+   **整个 ESM 依赖图静默内联进 CJS chunk**——0.1.52 / 0.1.53 正式包「模型运行时不可用 / 连接测试全挂」
+   就是这个坑。类型侧一律走 `import type`(编译期擦除,零运行时与打包影响)。
+2. **接入层不得有 top-level await**。rollup 对 CJS 输出直接拒绝
+   (`Module format "cjs" does not support top-level await`),构建期即失败——这条至少是响亮的。
+
+**最容易漏的一环:`electron-builder.yml` 的排除清单里藏着 pi 的运行时依赖。**
+本次要放开 5 条排除(`pi-coding-agent` / `pi-agent-core` / `pi-tui` / `@silvia-odwyer` / `highlight.js`)。
+前三条显然;后两条**光看注释完全看不出与 pi 有关**——它们当年的排除理由写的是
+「photon:**pi 二进制自带**、不在 pi-ai 闭包内」和「highlight.js:**纯 renderer 代码高亮**,已 bundle 进 out/」。
+实际上 photon 是 `pi-coding-agent` 的直接依赖(图像处理/截图缩放),highlight.js 经 `pi-tui` 进闭包。
+**判据必须是「对新的运行时入口求一遍完整依赖闭包」,而不是「读一遍排除项的注释」**——
+注释描述的是**写它那天的用途**,依赖关系变了它不会自己更新。
+
+**体积账(实测)**:asar 因收进三包及其闭包约 **+18MB**;`resources/pi` 的二进制加旁置资产约 **−84MB**
+(该目录的删除是迁移收尾动作,尚未执行);两相抵**净减约 66MB**。
+
+**验证仍然必须在仓库外**(与前三条同一条纪律,本次不变):仓库内的 `dist` 能摸到仓库 `node_modules` 兜底,
+制造「看着能解析」的假象。本次的护栏是 `apps/desktop/scripts/verify-pi-inprocess.mjs`——它刻意不满足于
+「import 成功」,而是把 **三包加载 → 工具集构造 → 一整轮真跑的 agent loop(工具真实读写磁盘)**
+串起来,任一环失败即非零退出;打包态由 `verify-pi-ai-packaging.mjs` 注入 asar 内的 `importModule`
+复用同一套断言,让它在 `app.asar` 里再跑一遍。**为什么要跑到 agent loop 这么深**:这条链路的第二类失败
+不抛异常,只表现为 `message_end.stopReason === "error"`,只断言「加载成功」会全程绿灯。
 
 ---
 
@@ -115,6 +168,10 @@ ELECTRON_RUN_AS_NODE=1 "/tmp/Test.app/Contents/MacOS/<App>" \
 
 **教训 / 排查套路**:
 1. **引入任何会被主进程 `require` 的新依赖(尤其经 externalizeDepsPlugin external 掉的)后,先查 `electron-builder.yml` 的 `files` 黑名单**有没有把它(或它的传递依赖)排除掉。renderer-only 的体积优化排除,会随「该依赖被主进程用上」而失效。
+   **反向同样成立,且更隐蔽:把某个既有依赖从「renderer-only / 子进程自带」改成「主进程也用」时,必须回查一遍排除清单。**
+   pi 改 in-process 时的 `@silvia-odwyer`(photon)与 `highlight.js` 正是此型——排除注释写的是
+   「pi 二进制自带」「纯 renderer 冗余」,不 grep 依赖闭包根本联想不到它们跟这次改动有关(见后面那条 in-process 经验)。
+   判据统一成一句:**排除项的依据是「当前哪些运行时入口需要它」,不是注释里写的那句历史用途。**
 2. `Cannot find module 'X/sub'` 先判断是「整个包没打进去」还是「子路径缺失」:`node -e "require('@electron/asar').listPackage(asar).filter(p=>p.includes('node_modules/X/'))"` 数条目,0 条=整包没进(报错里的子路径只是原始 specifier)。
 3. **打包问题必须仓库外验证**:改完跑 `dist:dir`(跳签名),再用 `@electron/asar` listPackage 确认目标文件(如 `zod/v3/index.cjs`)真在 asar 里,别只改配置就发版。
 4. peerDependency 不会被 electron-builder 自动收;靠消费方(desktop)把它列进 `dependencies` 才打包——但若被 `files` 显式排除,列了也没用。
