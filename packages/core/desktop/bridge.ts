@@ -119,6 +119,7 @@ import type {
   ComputerUseStatus,
   KnowledgeDocResult,
 } from "./types";
+import type { PetdexCacheStats, PetdexManifestResult, PetdexSpriteRef } from "./petdex-types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
 // 写作信息图(U7）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-infographic-types.ts 镜像）。
@@ -852,6 +853,22 @@ export interface DesktopBridge {
   onPetEnabledChange?(cb: (enabled: boolean) => void): () => void;
   /** 订阅主进程广播的宠物状态快照(overlay 窗口用)。返回退订函数。 */
   onPetSyncState?(cb: (snapshot: PetStateSnapshot) => void): () => void;
+
+  // ── 公共宠物图鉴(petdex.dev)────────────────────────────────────────────────
+  // 整段可选:Web 端为 undefined,图鉴入口据此降级为「渲染端直连」(petdex 的 CORS 全开,
+  // 本仓两端也都没有 CSP,直连可行;Web 没有离线诉求,不需要磁盘缓存)。
+  // 桌面端一律走主进程:网络只发生在那边(host 白名单 + 8MB 上限 + 20s 超时,
+  // 见 apps/desktop/src/main/ipc/petdex-security.ts),渲染端只拿 cortex-petdex:// URL。
+  petdex?: {
+    /** 拉取图鉴索引(6 小时本地有效期 + 条件请求)。force 跳过有效期强制刷新。 */
+    getManifest(opts?: { force?: boolean }): Promise<PetdexManifestResult>;
+    /** 确保某只宠物的 sprite 已在本地,必要时下载。 */
+    ensureSprite(slug: string): Promise<PetdexSpriteRef>;
+    /** 只查本地、绝不联网。启动恢复选中宠物用——开机不该变成一次强制下载。 */
+    peekSprite(slug: string): Promise<PetdexSpriteRef | null>;
+    cacheStats(): Promise<PetdexCacheStats>;
+    clearCache(): Promise<PetdexCacheStats>;
+  };
 
   // ── 深度研究引擎（CRE）────────────────────────────────────────────────────
   // 整段可选：Web 端与旧壳没有它,侧栏入口与整窗覆盖层据此整体降级隐藏(同本文件全可选约定)。

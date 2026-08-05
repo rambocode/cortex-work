@@ -6,6 +6,7 @@
 // 绕过状态机写入会被下一次派生覆盖,且拿不到去抖与自动回落。
 
 import { create } from "zustand";
+import type { PetSpriteSource } from "../desktop/petdex-types";
 
 export type PetState =
   | "idle" // 闲置:呼吸/眨眼/甩尾
@@ -28,7 +29,10 @@ export interface PetStore {
   enabled: boolean;
   /** 显示缩放(1 = 默认,范围约 0.8–2;持久化由 views 层负责)。 */
   size: number;
+  /** 当前该渲染哪张 sprite。null = 还没解析出来,按 kind 用内置角色兜底。 */
+  sprite: PetSpriteSource | null;
   setKind: (k: PetKind) => void;
+  setSprite: (sprite: PetSpriteSource | null) => void;
   setEnabled: (enabled: boolean) => void;
   setSize: (size: number) => void;
 }
@@ -38,7 +42,9 @@ export const usePetStore = create<PetStore>((set) => ({
   kind: "cat",
   enabled: true,
   size: 1,
+  sprite: null,
   setKind: (k) => set({ kind: k }),
+  setSprite: (sprite) => set({ sprite }),
   setEnabled: (enabled) => set({ enabled }),
   setSize: (size) => set({ size }),
 }));

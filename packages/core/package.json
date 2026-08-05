@@ -23,6 +23,7 @@
     "./store/ui": "./store/ui.ts",
     "./store/personal": "./store/personal.ts",
     "./desktop/types": "./desktop/types.ts",
+    "./desktop/petdex-types": "./desktop/petdex-types.ts",
     "./desktop/tasks-types": "./desktop/tasks-types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
     "./desktop/provider-catalog": "./desktop/provider-catalog.ts",

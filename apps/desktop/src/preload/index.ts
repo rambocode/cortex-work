@@ -186,6 +186,8 @@ import type {
   UserMemoryScope,
   UserMemoryState,
 } from "@cortex-work/core/memory/memory";
+// 公共宠物图鉴子桥：5 个 petdex:* channel,单独成文件（见其头部注释）。
+import { createPetdexBridge } from "./petdex-bridge";
 // 深度研究（CRE）子桥：8 个 research:* channel + research:event 事件流,单独成文件（见其头部注释）。
 import { createResearchBridge } from "./research-bridge";
 
@@ -1066,6 +1068,7 @@ const personal = {
   // 必须挂在 personal 下：渲染端经 CoreProvider 注入的 DesktopBridge 就是这个对象，
   // 挂到 desktopAPI 顶层的话 views 侧的 bridge?.research 永远是 undefined。
   research: createResearchBridge(),
+  petdex: createPetdexBridge(), // 公共宠物图鉴子桥,单独成文件(见其头部注释)
   // ── 公司知识库（远端 MCP server）子域 ──────────────────────────────────────
   // 与 research 同款凭据模式：**明文令牌只在 renderer → main 这一个方向流动**，
   // 反向永远只回「已配置 / 未配置」，桥这层不提供任何读明文的方法。

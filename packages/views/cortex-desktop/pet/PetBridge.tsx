@@ -11,7 +11,7 @@
 //    desktopBridge 为 null,这一段整体跳过,由同窗口内嵌的 <Pet/> 直接消费 store。
 
 import { useEffect } from "react";
-import { usePetStore, usePersonalStore, useDesktopBridge } from "@cortex-work/core";
+import { usePetStore, usePersonalStore, useDesktopBridge, type PetStateSnapshot } from "@cortex-work/core";
 import { petActivity, startPetEngine } from "@cortex-work/core/pet";
 import { loadPetKind, loadPetSize } from "./designs";
 import { loadPetEnabled, savePetEnabled } from "./behavior";
@@ -45,11 +45,14 @@ export function PetBridge() {
     if (!bridge?.reportPetState) return;
     // 挂载时先发一次当前快照,再订阅后续变化——避免 pet-overlay 窗口在两者都刚起来时
     // 错过第一次同步(overlay 侧也会主动 requestPetSync 兜底,双保险)。
-    const snapshot = (s: ReturnType<typeof usePetStore.getState>) => ({
+    const snapshot = (s: ReturnType<typeof usePetStore.getState>): PetStateSnapshot => ({
       state: s.state,
       kind: s.kind,
       enabled: s.enabled,
       size: s.size,
+      // sprite 由渲染层解析后填入(见 pet/source.ts);为 null 时 overlay 按 kind 兜底
+      // 用内置角色渲染,这也是首启尚未选过 petdex 宠物时的正常状态。
+      sprite: s.sprite,
     });
     bridge.reportPetState(snapshot(usePetStore.getState()));
     const offEnabledChange = bridge.onPetEnabledChange?.((enabled) => {

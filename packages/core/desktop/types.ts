@@ -2,6 +2,7 @@
 // 镜像（core 不能依赖 app 包，desktop 侧用 `satisfies` 对齐形状）。
 
 import type { PetKind, PetState } from "../store/pet";
+import type { PetSpriteSource } from "./petdex-types";
 
 export type AgentKind = "claude" | "codex" | "pi";
 
@@ -2138,6 +2139,9 @@ export interface PluginSkill {
 // 插件市场（第一期，只读）类型。集中在 ./plugin-types 以免本已超 1200 行的类型文件继续膨胀。
 export * from "./plugin-types";
 
+// petdex 公共宠物图鉴类型。同理集中在 ./petdex-types。
+export * from "./petdex-types";
+
 // 桌面宠物脱离主窗体(独立 overlay 窗口)状态快照:主窗口 usePetStore 变化时转发给主进程,
 // 再广播给宠物 overlay 窗口镜像。与 apps/desktop/src/main/ipc/types.ts 镜像同步。
 export interface PetStateSnapshot {
@@ -2145,4 +2149,7 @@ export interface PetStateSnapshot {
   kind: PetKind;
   enabled: boolean;
   size: number;
+  /** 当前该渲染哪张 sprite;null = 尚未解析出来(overlay 此时按内置角色兜底)。
+   * 搭这条广播的顺风车下发,让 overlay 不必自己去碰 petdex 域。 */
+  sprite: PetSpriteSource | null;
 }
