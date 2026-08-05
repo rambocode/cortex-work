@@ -12,6 +12,7 @@ import type {
   PersistedState,
   TtsStreamEvent,
   TtsSynthesizeRequest,
+  EdgeTtsSynthesizeRequest,
 } from "../main/ipc/types";
 
 // 语音聊天浮层专用桥:store 仅允许 loadState 读取当前麦克风/ASR/TTS/默认 agent 设置;
@@ -49,6 +50,7 @@ export const voiceChat = {
   },
   // speakText 的 OpenAI 分支需要的两条窄能力;系统语音完全在 renderer 内完成。
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
+  ttsSynthesizeEdge: (req: EdgeTtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesizeEdge", req),
   // 流式合成:与 personal.ttsSynthesizeStream 同构(streamId 关联 tts:stream 推送)。
   // 浮层没有它时 speakText 会退回「整段合成完才出声」,本地慢速推理下不可用,故必须暴露。
   // 停止播放时中止在途合成流(否则本地 TTS 服务会继续生成整段并堵塞后续请求)。

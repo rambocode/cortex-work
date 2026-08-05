@@ -16,6 +16,11 @@ const openaiSettings = (voice: string): TtsSettings => ({
   engine: { kind: "openai", baseUrl: "http://localhost:8880", model: "tts-1", voice },
 });
 
+const edgeSettings = (): TtsSettings => ({
+  autoSpeak: true,
+  engine: { kind: "edge", voice: "zh-CN-XiaoxiaoNeural", rate: 1.2 },
+});
+
 function bridge(): DesktopBridge {
   return {
     ttsSynthesize: vi.fn(async () => new ArrayBuffer(1)),
@@ -99,6 +104,37 @@ describe("splitSpeechChunks", () => {
 });
 
 describe("TTS 播放控制", () => {
+  it("edge 引擎经桌面桥合成 mp3，并传递所选音色和语速", async () => {
+    const b = { ttsSynthesizeEdge: vi.fn(async () => new ArrayBuffer(1)) } as unknown as DesktopBridge;
+
+    await speakText(b, edgeSettings(), "你好");
+
+    expect(b.ttsSynthesizeEdge).toHaveBeenCalledWith({ text: "你好", voice: "zh-CN-XiaoxiaoNeural", rate: 1.2 });
+  });
+
+  it("edge 合成失败时仅在允许回落的后台场景使用系统语音", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak, getVoices: () => [] });
+    vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(_text: string) {} });
+    const b = { ttsSynthesizeEdge: vi.fn(async () => { throw new Error("offline"); }) } as unknown as DesktopBridge;
+
+    await expect(speakText(b, edgeSettings(), "试听")).rejects.toThrow("offline");
+    await speakText(b, edgeSettings(), "自动朗读", { allowFallback: true });
+
+    expect(speak).toHaveBeenCalledTimes(1);
+  });
+
+  // edge 是新用户默认引擎，Web 壳没有桌面桥；这里退化成静默会让整个朗读功能看起来是坏的。
+  it("edge 引擎在没有桌面桥的 Web 壳上降级到系统语音而非静默", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak, getVoices: () => [] });
+    vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(_text: string) {} });
+
+    await speakText(null, edgeSettings(), "网页端朗读");
+
+    expect(speak).toHaveBeenCalledTimes(1);
+  });
+
   it("speakText 记录最近朗读,供重听使用", async () => {
     const b = bridge();
     await speakText(b, openaiSettings("alloy"), "第一条回复");

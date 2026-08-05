@@ -1516,7 +1516,7 @@ function finalizeRun(
   // TTS：开启自动朗读时,把这一轮的回复读出来（失败静默,不影响会话）。
   const tts = usePersonalStore.getState().ttsSettings;
   if (tts.autoSpeak && run.gotResult && run.buffer.trim()) {
-    speakText(bridgeRef, tts, run.buffer).catch(() => {
+    speakText(bridgeRef, tts, run.buffer, { allowFallback: true }).catch(() => {
       // TTS 端点不可用等,静默跳过
     });
   }

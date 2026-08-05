@@ -5,6 +5,7 @@ import { ipcMain } from "electron";
 import type {
   AsrTranscribeRequest,
   AsrTranscribeResponse,
+  EdgeTtsSynthesizeRequest,
   TtsListVoicesRequest,
   TtsSynthesizeStreamRequest,
   TtsSynthesizeRequest,
@@ -18,6 +19,8 @@ import { postChatCompletion } from "./openai-chat";
 // 确保 MAX_BYTES 约束与行为一致。
 import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
 import { authHeaders } from "../capabilities/whisper/transcribe-auth";
+import { synthesizeEdgeTts } from "../capabilities/edge-tts/client";
+import { listEdgeTtsVoices } from "../capabilities/edge-tts/voices";
 
 /**
  * `llm:openaiComplete` 的入参（Timeline / 日报的一次性补全）。
@@ -105,6 +108,18 @@ export function registerLlmHandlers(): void {
     return await res.arrayBuffer();
   });
 
+  // Edge TTS 也接入同一个取消注册表，停止播放必须关闭其 WSS，不能留下悬挂合成连接。
+  ipcMain.handle("tts:synthesizeEdge", async (_e, req: EdgeTtsSynthesizeRequest) => {
+    const streamId = `edge-${crypto.randomUUID()}`;
+    const controller = new AbortController();
+    activeTtsStreams.set(streamId, controller);
+    try {
+      return await synthesizeEdgeTts({ ...req, signal: AbortSignal.any([AbortSignal.timeout(TTS_STREAM_TIMEOUT_MS), controller.signal]) });
+    } finally {
+      activeTtsStreams.delete(streamId);
+    }
+  });
+
   ipcMain.handle("tts:synthesizeStream", async (event, req: TtsSynthesizeStreamRequest) => {
     const sender = event.sender;
     const send = (streamEvent: TtsStreamEvent) => {
@@ -172,6 +187,8 @@ export function registerLlmHandlers(): void {
     }
     return [];
   });
+
+  ipcMain.handle("tts:listEdgeVoices", async (): Promise<TtsVoiceOption[]> => listEdgeTtsVoices());
 
   // ASR：OpenAI 兼容 /v1/audio/transcriptions,返回转写文本。
   // OQ4：实际转写逻辑已委托给共享函数 transcribeOnline（含 MAX_BYTES 检查），

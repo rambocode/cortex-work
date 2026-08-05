@@ -15,7 +15,7 @@ Cortex Desktop 的语音能力由统一的「设置 → 语音」分区管理，
 | 概念 | 说明 | 真源 |
 |---|---|---|
 | `VoiceSettings` | 麦克风、语音聊天与听写的交互偏好；不包含 TTS/ASR 引擎参数 | `core/desktop/types.ts` 与 `main/ipc/types.ts` 镜像 |
-| `ttsSettings` | 自动朗读、系统语音或 OpenAI 兼容 TTS 引擎配置 | `store/personal.ts` |
+| `ttsSettings` | 自动朗读、系统语音、Edge TTS 或 OpenAI 兼容 TTS 引擎配置 | `store/personal.ts` |
 | `asrSettings` | Whisper / 云端转写服务、语言与模型配置 | `store/personal.ts` |
 | 语音词典 | 专有名词的转写 prompt 偏置列表；不是文本替换规则 | `VoiceSettings.dictationDictionary` |
 | 语音聊天键 | 调起或提交语音聊天的全局快捷键 | `VoiceSettings.chatHotkey` |
@@ -40,6 +40,8 @@ flowchart LR
 ```
 
 `voiceSettings` 是持久化切片，故 `saveUrgency` 将其变更纳入节流保存。hydrate 遇到旧存档缺少该字段时，必须回落 `defaultVoiceSettings()`，而不是保留 `undefined`。
+
+`ttsSettings` 缺失时回落 `DEFAULT_TTS_SETTINGS`，因此新用户默认使用 `zh-CN-XiaoxiaoNeural` 的 Edge TTS；已有 `personal-workspace.json` 中保存的引擎配置不会被迁移或覆盖。
 
 ## 跨进程契约
 
@@ -69,6 +71,14 @@ sequenceDiagram
 ```
 
 ## 关键实现与边界
+
+### Edge TTS
+
+Edge TTS 是无需 API Key 的在线神经网络语音。renderer 仅通过 `DesktopBridge.ttsSynthesizeEdge()` 与 `listEdgeTtsVoices()` 请求；WebSocket、微软的防重放签名和版本协商均留在主进程 `capabilities/edge-tts/`，避免暴露服务细节并绕开 renderer 的网络限制。它返回完整 MP3，播放层按句分块预取，不能复用只支持 WAV PCM 的流式播放器。
+
+自动朗读、聊天手动朗读和语音聊天浮层会在 Edge 失败时静默回落系统语音；设置页试听不回落，直接显示错误以便用户排查。Edge 依赖网络且为非公开接口，系统语音始终保留为离线方案。
+
+维护时首先检查 `capabilities/edge-tts/client.ts` 的 `SEC_MS_GEC_VERSIONS`：微软会提高可接受的 Chromium 版本下限，候选值全部收到 HTTP 403 时应更新该列表。`Sec-MS-GEC` 同时依赖本机五分钟时间窗口；设备时钟偏移超过五分钟也会导致 403。
 
 ### 麦克风设备
 
