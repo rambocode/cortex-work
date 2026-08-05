@@ -1,9 +1,9 @@
-// 文档抽取的纯逻辑:把一个本地文档文件抽成纯文本。
-//  - 纯文本类(.txt/.csv/.md)直接 UTF-8 读取,不过 officeParser(更快、零依赖路径)。
-//  - 二进制类(.pdf/.docx/.xlsx/.pptx)走 officeParser.parseOffice → toText。
+// 文档抽取的纯逻辑:把一个本地文档文件抽成 Markdown/纯文本。
+//  - 纯文本类(.txt/.csv/.md)直接 UTF-8 读取(直读非「解析」;csv 直读也比转 Markdown 表格省 token)。
+//  - 二进制类(pdf/Office 新旧全系/OpenDocument/rtf/epub)走 @firecrawl/anydoc → GFM Markdown。
 //  - **不启用 OCR**(KTD8):扫描件/图片型 PDF 抽不出文本时返回 empty=true + 提示,由 agent 转述。
 //  - 输出按字节上限截断(防恶意/超大文档把无界文本回传宿主)。
-// parse 注入便于单测(默认绑 officeParser);本文件不直接 import electron,可在临时目录单测。
+// convert 注入便于单测(默认绑 anydoc.toMarkdown);本文件不直接 import electron,可在临时目录单测。
 
 import { promises as fsp } from "fs";
 import { extname } from "path";
@@ -14,7 +14,29 @@ export const MAX_EXTRACT_TEXT_BYTES = 10 * 1024 * 1024; // 10MB
 export const EXTRACT_TIMEOUT_MS = 30_000;
 
 const PLAIN_EXTS = new Set(["txt", "csv", "md"]);
-const OFFICE_EXTS = new Set(["pdf", "docx", "xlsx", "pptx"]);
+// anydoc 支持的二进制文档全集(与 ipc/doc.ts 的 DOC_EXTS 二进制部分同值,主进程落盘侧是权威闸门)。
+const BINARY_DOC_EXTS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "docm",
+  "xls",
+  "xlsx",
+  "xlsm",
+  "xlsb",
+  "ppt",
+  "pptx",
+  "pptm",
+  "ppsx",
+  "ppsm",
+  "pot",
+  "pps",
+  "odt",
+  "ods",
+  "odp",
+  "rtf",
+  "epub",
+]);
 
 export interface ExtractResult {
   text: string;
@@ -23,10 +45,8 @@ export interface ExtractResult {
   note?: string; // 给 agent 的提示(如「可能为扫描件」)
 }
 
-// 文档解析函数签名(officeParser.parseOffice 的最小子集);注入以便单测。
-export type ParseOffice = (input: string, config?: { ocr?: boolean; outputErrorToConsole?: boolean }) => Promise<{
-  toText(): string;
-}>;
+// 文档转换函数签名(anydoc.toMarkdown 的形状:路径进、Markdown 出);注入以便单测。
+export type ConvertToMarkdown = (absPath: string) => Promise<string>;
 
 function extOf(p: string): string {
   return extname(p).replace(/^\./, "").toLowerCase();
@@ -39,9 +59,10 @@ function capText(text: string, maxBytes: number): { text: string; truncated: boo
   return { text: buf.subarray(0, maxBytes).toString("utf8"), truncated: true };
 }
 
+// 抽取入口:按扩展名分流到「直读」或注入的 convert(anydoc),统一做截断与 empty 检测。
 export async function extractDocText(
   absPath: string,
-  opts: { maxBytes?: number; parse?: ParseOffice } = {},
+  opts: { maxBytes?: number; convert?: ConvertToMarkdown } = {},
 ): Promise<ExtractResult> {
   const maxBytes = opts.maxBytes ?? MAX_EXTRACT_TEXT_BYTES;
   const ext = extOf(absPath);
@@ -52,19 +73,18 @@ export async function extractDocText(
     return { text, truncated, empty: text.trim().length === 0 };
   }
 
-  if (OFFICE_EXTS.has(ext)) {
-    const parse = opts.parse;
-    if (!parse) throw new Error("extractDocText: 缺少 parse 实现(应注入 officeParser.parseOffice)");
-    // ocr:false —— v1 不启用 OCR(库内置 tesseract 仅吃静态体积,不走该路径)。
-    const ast = await parse(absPath, { ocr: false, outputErrorToConsole: false });
-    const { text, truncated } = capText(ast.toText(), maxBytes);
+  if (BINARY_DOC_EXTS.has(ext)) {
+    const convert = opts.convert;
+    if (!convert) throw new Error("extractDocText: 缺少 convert 实现(应注入 anydoc.toMarkdown)");
+    const markdown = await convert(absPath);
+    const { text, truncated } = capText(markdown, maxBytes);
     const empty = text.trim().length === 0;
     return {
       text,
       truncated,
       empty,
-      // 二进制类抽取为空:最可能是扫描件/图片型(无文本层),v1 不做 OCR。
-      note: empty ? "无可抽取文本,可能为扫描件/图片型文档(v1 不支持 OCR)" : undefined,
+      // 二进制类抽取为空:最可能是扫描件/图片型(无文本层),产品红线是不做 OCR。
+      note: empty ? "无可抽取文本,可能为扫描件/图片型文档(不支持 OCR)" : undefined,
     };
   }
 

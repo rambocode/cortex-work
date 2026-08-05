@@ -1,4 +1,4 @@
-// 文档采集纯函数单测:扩展名/大小校验(拒旧二进制)、去重键、File→PendingDocFile(srcPath 优先 / data 兜底)。
+// 文档采集纯函数单测:扩展名/大小校验(anydoc 全格式)、去重键、File→PendingDocFile(srcPath 优先 / data 兜底)。
 import { describe, expect, it } from "vitest";
 import {
   MAX_DOC_BYTES,
@@ -17,21 +17,26 @@ describe("docExtOf / isAcceptedDoc", () => {
     expect(isAcceptedDoc("a.pdf")).toBe(true);
     expect(isAcceptedDoc("a.md")).toBe(true);
   });
-  it("旧二进制与未知 → 不支持", () => {
-    expect(isAcceptedDoc("a.doc")).toBe(false);
-    expect(isAcceptedDoc("a.xls")).toBe(false);
-    expect(isAcceptedDoc("a.ppt")).toBe(false);
+  it("anydoc 新增格式(旧 Office/ODF/RTF/EPUB) → 支持", () => {
+    for (const n of ["a.doc", "a.xls", "a.ppt", "a.docm", "a.ppsx", "a.odt", "a.ods", "a.odp", "a.rtf", "a.epub"]) {
+      expect(isAcceptedDoc(n)).toBe(true);
+    }
+  });
+  it("未知扩展名 → 不支持", () => {
     expect(isAcceptedDoc("a.zip")).toBe(false);
+    expect(isAcceptedDoc("a.exe")).toBe(false);
     expect(isAcceptedDoc("noext")).toBe(false);
   });
 });
 
-describe("isBinaryDoc(仅 PDF/Office,区分文本注入 vs 文档通道)", () => {
+describe("isBinaryDoc(全集减纯文本,区分文本注入 vs 文档通道)", () => {
   it("二进制文档 → true", () => {
-    for (const n of ["a.pdf", "b.docx", "c.xlsx", "d.pptx"]) expect(isBinaryDoc(n)).toBe(true);
+    for (const n of ["a.pdf", "b.docx", "c.xlsx", "d.pptx", "e.doc", "f.rtf", "g.epub", "h.odt"]) {
+      expect(isBinaryDoc(n)).toBe(true);
+    }
   });
   it("文本类/其他 → false", () => {
-    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.doc"]) expect(isBinaryDoc(n)).toBe(false);
+    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.zip"]) expect(isBinaryDoc(n)).toBe(false);
   });
 });
 
@@ -48,7 +53,7 @@ describe("pendingDocFromPath(应用内拖入:已知路径作 srcPath)", () => {
 
 describe("checkDocFile", () => {
   it("不支持格式 → type", () => {
-    expect(checkDocFile({ name: "a.doc", size: 10 })).toBe("type");
+    expect(checkDocFile({ name: "a.zip", size: 10 })).toBe("type");
   });
   it("超大 → size", () => {
     expect(checkDocFile({ name: "a.pdf", size: MAX_DOC_BYTES + 1 })).toBe("size");

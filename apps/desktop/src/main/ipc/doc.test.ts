@@ -1,5 +1,5 @@
 // doc:save 落盘 + assertDocPath 读侧闸门的纯函数单测(接收 root 入参 → 临时目录跑真实 fs)。
-// 重点:扩展名 allowlist(拒 .doc/.xls/.ppt)、magic-bytes 复核、体积上限、srcPath/data 双来源、
+// 重点:扩展名 allowlist、magic-bytes 复核(PDF/ZIP/OLE/RTF 四组)、体积上限、srcPath/data 双来源、
 // symlink 逃逸防护、根边界。
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -15,7 +15,9 @@ vi.mock("electron", () => ({
 import { assertDocPath, extToDocExt, MAX_DOC_BYTES, saveDocInto, sniffDocMatches } from "./doc";
 
 const PDF = Buffer.concat([Buffer.from([0x25, 0x50, 0x44, 0x46]), Buffer.from("-1.7\n%abc")]); // %PDF-1.7
-const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(8)]); // PK\x03\x04 (docx/xlsx/pptx)
+const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(8)]); // PK\x03\x04 (OOXML/ODF/EPUB)
+const OLE = Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), Buffer.alloc(8)]); // 旧 Office
+const RTF = Buffer.from("{\\rtf1\\ansi hello}");
 const TXT = Buffer.from("hello, 文档世界\n");
 const ab = (b: Buffer): ArrayBuffer => new Uint8Array(b).buffer;
 
@@ -31,11 +33,14 @@ describe("extToDocExt", () => {
     expect(extToDocExt("报表.xlsx")).toBe("xlsx");
     expect(extToDocExt("x.md")).toBe("md");
   });
-  it("旧二进制格式与未知 → null", () => {
-    expect(extToDocExt("a.doc")).toBeNull();
-    expect(extToDocExt("a.xls")).toBeNull();
-    expect(extToDocExt("a.ppt")).toBeNull();
+  it("anydoc 新增格式(旧 Office/ODF/RTF/EPUB) → 归一", () => {
+    for (const ext of ["doc", "xls", "ppt", "docm", "xlsm", "xlsb", "pptm", "ppsx", "odt", "ods", "odp", "rtf", "epub"]) {
+      expect(extToDocExt(`a.${ext}`)).toBe(ext);
+    }
+  });
+  it("未知扩展名 → null", () => {
     expect(extToDocExt("a.exe")).toBeNull();
+    expect(extToDocExt("a.zip")).toBeNull();
     expect(extToDocExt("noext")).toBeNull();
   });
 });
@@ -46,6 +51,18 @@ describe("sniffDocMatches", () => {
     expect(sniffDocMatches(ZIP, "docx")).toBe(true);
     expect(sniffDocMatches(ZIP, "pdf")).toBe(false); // 非 %PDF
     expect(sniffDocMatches(TXT, "docx")).toBe(false); // 非 ZIP
+  });
+  it("ODF/EPUB 走 ZIP 头;旧 Office 走 OLE 头;RTF 走 {\\rtf", () => {
+    expect(sniffDocMatches(ZIP, "odt")).toBe(true);
+    expect(sniffDocMatches(ZIP, "epub")).toBe(true);
+    expect(sniffDocMatches(OLE, "doc")).toBe(true);
+    expect(sniffDocMatches(OLE, "xls")).toBe(true);
+    expect(sniffDocMatches(OLE, "ppt")).toBe(true);
+    expect(sniffDocMatches(RTF, "rtf")).toBe(true);
+    expect(sniffDocMatches(TXT, "doc")).toBe(false); // 「exe/文本改名 .doc」拒绝
+    expect(sniffDocMatches(ZIP, "doc")).toBe(false); // 新旧格式头不互通
+    expect(sniffDocMatches(OLE, "docx")).toBe(false);
+    expect(sniffDocMatches(TXT, "rtf")).toBe(false);
   });
   it("纯文本无 magic → 放行", () => {
     expect(sniffDocMatches(TXT, "txt")).toBe(true);
@@ -68,8 +85,16 @@ describe("saveDocInto", () => {
     expect(existsSync(path)).toBe(true);
     expect(path).toMatch(/\.txt$/);
   });
-  it("旧二进制格式(.doc) → 拒绝", async () => {
-    await expect(saveDocInto(base, "sess1", "old.doc", { data: ab(ZIP) })).rejects.toThrow(/不支持/);
+  it("旧二进制格式(.doc,OLE 头) → 落盘成功", async () => {
+    const { path } = await saveDocInto(base, "sess1", "old.doc", { data: ab(OLE) });
+    expect(existsSync(path)).toBe(true);
+    expect(path).toMatch(/\.doc$/);
+  });
+  it(".doc 但字节是 ZIP(头不符) → 拒绝", async () => {
+    await expect(saveDocInto(base, "sess1", "old.doc", { data: ab(ZIP) })).rejects.toThrow(/不符/);
+  });
+  it("完全不支持的扩展名(.zip) → 拒绝", async () => {
+    await expect(saveDocInto(base, "sess1", "a.zip", { data: ab(ZIP) })).rejects.toThrow(/不支持/);
   });
   it("扩展名是 pdf 但字节不是 %PDF → 拒绝", async () => {
     await expect(saveDocInto(base, "sess1", "fake.pdf", { data: ab(TXT) })).rejects.toThrow(/不符/);

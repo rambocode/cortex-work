@@ -33,7 +33,7 @@ export function registerDocExtractTools(mcp: McpServer, ctx: ToolContext): void 
     "extract_document",
     {
       description:
-        "读取用户在本次聊天中附带的文档(PDF / Word .docx / Excel .xlsx / PPT .pptx / 纯文本)的文本内容。" +
+        "读取用户在本次聊天中附带的文档(PDF / Word / Excel / PPT 新旧格式 / OpenDocument / RTF / EPUB / 纯文本)的内容,二进制文档转为 Markdown 返回。" +
         "path 取自用户消息附件的 files[].path。仅能读取本会话的附件;扫描件/图片型 PDF 可能无文本。",
       inputSchema: { path: z.string().describe("文档绝对路径(来自消息附件 files[].path)") },
     },

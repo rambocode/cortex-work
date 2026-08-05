@@ -40,9 +40,9 @@ describe("saveTaskDoc", () => {
     expect(ref.sizeBytes).toBe(PDF.byteLength); // 按磁盘真实字节数
   });
 
-  it("非白名单扩展名（旧二进制 .doc）→ 拒绝（图片同理被拒，本期仅文档类型）", async () => {
+  it("非白名单扩展名（.zip）→ 拒绝（图片同理被拒，本期仅文档类型）", async () => {
     await expect(
-      saveTaskDoc(root, "task-a", { name: "old.doc", mimeType: "application/msword", data: ab(ZIP) }),
+      saveTaskDoc(root, "task-a", { name: "a.zip", mimeType: "application/zip", data: ab(ZIP) }),
     ).rejects.toThrow(/不支持/);
   });
 

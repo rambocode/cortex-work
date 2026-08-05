@@ -5,17 +5,58 @@
 
 import type { PendingDocFile } from "@cortex-work/core";
 
-export const ACCEPTED_DOC_EXTS = ["pdf", "docx", "xlsx", "pptx", "csv", "txt", "md"] as const;
+// 与 main/ipc/doc.ts 的 DOC_EXTS 同值(anydoc 支持的全部格式);主进程仍是权威闸门。
+export const ACCEPTED_DOC_EXTS = [
+  "pdf",
+  "doc",
+  "docx",
+  "docm",
+  "xls",
+  "xlsx",
+  "xlsm",
+  "xlsb",
+  "ppt",
+  "pptx",
+  "pptm",
+  "ppsx",
+  "ppsm",
+  "pot",
+  "pps",
+  "odt",
+  "ods",
+  "odp",
+  "rtf",
+  "epub",
+  "csv",
+  "txt",
+  "md",
+] as const;
 export const MAX_DOC_BYTES = 50 * 1024 * 1024; // 50MB,与 main/ipc/doc.ts MAX_DOC_BYTES 同值
 export const MAX_DOCS_PER_MESSAGE = 6;
-// 文件选择框 accept 属性:旧二进制(.doc/.xls/.ppt)不在内,系统层即不可选。
-export const DOC_ACCEPT_ATTR = ".pdf,.docx,.xlsx,.pptx,.csv,.txt,.md";
+// 文件选择框 accept 属性(与 allowlist 同步生成,系统层即过滤不支持的类型)。
+export const DOC_ACCEPT_ATTR = ACCEPTED_DOC_EXTS.map((e) => `.${e}`).join(",");
 
 const EXT_MIME: Record<string, string> = {
   pdf: "application/pdf",
+  doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  docm: "application/vnd.ms-word.document.macroEnabled.12",
+  xls: "application/vnd.ms-excel",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
+  xlsb: "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+  ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  pptm: "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+  ppsx: "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+  ppsm: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12",
+  pot: "application/vnd.ms-powerpoint",
+  pps: "application/vnd.ms-powerpoint",
+  odt: "application/vnd.oasis.opendocument.text",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  rtf: "application/rtf",
+  epub: "application/epub+zip",
   csv: "text/csv",
   txt: "text/plain",
   md: "text/markdown",
@@ -30,16 +71,18 @@ export function isAcceptedDoc(name: string): boolean {
   return (ACCEPTED_DOC_EXTS as readonly string[]).includes(docExtOf(name));
 }
 
-// 二进制文档(PDF/现代 Office):必须经抽取工具读,不能当文本注入。用于区分应用内 Files 面板拖入时
+// 二进制文档(全集减纯文本):必须经抽取工具读,不能当文本注入。用于区分应用内 Files 面板拖入时
 // 「文本文件→既有 readFile 注入 prompt」vs「二进制文档→文档附件通道」,避免破坏文本文件注入功能。
-const DOC_BINARY_EXTS = new Set(["pdf", "docx", "xlsx", "pptx"]);
+const DOC_BINARY_EXTS = new Set(
+  (ACCEPTED_DOC_EXTS as readonly string[]).filter((e) => e !== "csv" && e !== "txt" && e !== "md"),
+);
 export function isBinaryDoc(name: string): boolean {
   return DOC_BINARY_EXTS.has(docExtOf(name));
 }
 
 export type DocRejectReason = "type" | "size";
 
-// 纯校验(不读内容):格式不支持(含旧二进制 .doc/.xls/.ppt)/ 超大 → 原因;通过 → null。
+// 纯校验(不读内容):格式不支持 / 超大 → 原因;通过 → null。
 export function checkDocFile(file: { name: string; size: number }): DocRejectReason | null {
   if (!isAcceptedDoc(file.name)) return "type";
   if (file.size > MAX_DOC_BYTES) return "size";
@@ -48,7 +91,7 @@ export function checkDocFile(file: { name: string; size: number }): DocRejectRea
 
 export function docRejectText(reason: DocRejectReason, name: string): string {
   return reason === "type"
-    ? `不支持的文档格式：${name || "文档"}（仅 PDF / .docx / .xlsx / .pptx / .csv / .txt / .md）`
+    ? `不支持的文档格式：${name || "文档"}（仅 PDF / Office / OpenDocument / RTF / EPUB / 纯文本）`
     : `文档过大：${name || "文档"}（上限 ${Math.round(MAX_DOC_BYTES / 1024 / 1024)}MB）`;
 }
 

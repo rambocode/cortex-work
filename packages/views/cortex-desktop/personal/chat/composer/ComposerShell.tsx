@@ -637,7 +637,7 @@ export function ComposerShell({
     const rawTodo = e.dataTransfer.getData(TODO_DRAG_MIME);
     const rawFile = e.dataTransfer.getData(FILE_DRAG_MIME);
     // 应用内 MIME(skill/todo/file)优先;否则当作系统文件拖入,按类型分流:
-    // 图片→图片通道、受支持文档→文档通道(R8 不混用)、其余(含旧二进制 .doc/.xls/.ppt)→ 逐个 toast 跳过。
+    // 图片→图片通道、受支持文档→文档通道(R8 不混用)、其余不支持类型 → 逐个 toast 跳过。
     if (!rawPrompt && !rawTodo && !rawFile) {
       const all = Array.from(e.dataTransfer.files ?? []);
       const imgs = all.filter((f) => f.type.startsWith("image/"));
