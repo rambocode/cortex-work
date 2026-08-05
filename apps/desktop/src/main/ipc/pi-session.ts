@@ -20,9 +20,15 @@ import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcRe
 import {
   openPiInProcSession,
   shouldUsePiInProcEngine,
+  type PiInProcDeps,
   type PiInProcModelSelection,
   type PiSessionEngine,
 } from "../agents/pi-inproc";
+// 类型侧 import：编译期擦除，不会把纯 ESM 的 pi 包拖进主进程的 CJS chunk（KTD1）。
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createPiNativeHooks } from "../agents/pi-inproc/native-hooks";
+import { createMcpInProcTools } from "../agents/pi-mcp-inproc";
+import { resolveComputerUseInproc } from "../capabilities/computer-use/inproc";
 import { getPiInprocModelRuntime, resolvePiInprocModel } from "../providers/pi-inproc-models";
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
@@ -230,18 +236,29 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     prepared.piExtensionPath = writePiExtension(prepared.provider);
   }
 
+  // 引擎选路在本函数内多处影响「能力以何种形态交付」：binary 生成 .js extension 文件并 `-e` 加载，
+  // in-process 改为原生对象（customTools / extensionFactories / additionalExtensionPaths）。
+  // 判定取一次并贯穿全函数，避免同一次准备里前后不一致。
+  const useInProc = shouldUsePiInProcEngine();
+
   const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
-  if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
-  if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
-  if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
+  // ⚠️ 以下四类 extension 在 in-process 路径下由 pi-inproc/native-hooks.ts 原生注册，
+  // 这里必须跳过——否则同一份能力会注册两遍（审批弹窗弹两次、todo_write 重名冲突）。
+  if (!useInProc) {
+    if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
+    if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
+    if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
+  }
 
   const askQuestionSentinel =
     prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
   prepared.askQuestionSentinel = askQuestionSentinel;
-  extra.push(writeAskQuestionExtension(askQuestionSentinel));
-  // 任务清单工具 todo_write(常驻):pi 无原生 TodoWrite,经此补齐。事件在 pi-rpc.ts mapPiEvent
-  // 特判转成 todo 整表快照事件,渲染端折叠成任务清单卡片。
-  extra.push(writeTodoExtension());
+  if (!useInProc) {
+    extra.push(writeAskQuestionExtension(askQuestionSentinel));
+    // 任务清单工具 todo_write(常驻):pi 无原生 TodoWrite,经此补齐。事件在 pi-rpc.ts mapPiEvent
+    // 特判转成 todo 整表快照事件,渲染端折叠成任务清单卡片。
+    extra.push(writeTodoExtension());
+  }
 
   try {
     const state = await getPersistedState();
@@ -331,7 +348,10 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
-    if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
+    // 收集规则两条路径共用（一处定义两处复用）；只有「怎么交给 pi」不同：
+    // binary 烘焙成 .js extension 文件，in-process 留结构化配置、稍后原生注册成 customTools。
+    prepared.bridgeServers = bridgeServers;
+    if (!useInProc && bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
   } catch (e) {
     log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
   }
@@ -341,11 +361,19 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   // 只在这条 RPC 路径注入——单发路径无审批 UI,详见 capabilities/computer-use/inject.ts 的说明。
   try {
     const gs = (await getPersistedState()).generalSettings;
-    const cu = await resolveComputerUse(gs?.computerUse);
-    if (cu.path) {
-      extra.push(cu.path);
-      // env 经 prepared 传到下面的 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）。
-      if (Object.keys(cu.env).length) prepared.computerUseEnv = cu.env;
+    if (useInProc) {
+      // in-process：五门控判定完全复用（inproc.ts 只调 resolveComputerUse 拿结论），
+      // 差别只在交付形态——路径给 additionalExtensionPaths 由 SDK 的 jiti 链路加载，
+      // grounding 模型的 env 由 resolveComputerUseInproc 就地写进主进程（没有子进程可传 env）。
+      const cu = await resolveComputerUseInproc(gs?.computerUse);
+      if (cu.additionalExtensionPaths.length) prepared.inProcExtensionPaths = cu.additionalExtensionPaths;
+    } else {
+      const cu = await resolveComputerUse(gs?.computerUse);
+      if (cu.path) {
+        extra.push(cu.path);
+        // env 经 prepared 传到下面的 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）。
+        if (Object.keys(cu.env).length) prepared.computerUseEnv = cu.env;
+      }
     }
   } catch (e) {
     log.warn(`Computer Use 注入决策失败,本轮不注入: ${String(e)}`);
@@ -374,21 +402,78 @@ async function resolveInProcModel(req: PiOpenRequest): Promise<PiInProcModelSele
 }
 
 /**
- * in-process 路径下**尚未迁移**的能力做一次响亮告警（迁移计划 U3）。
+ * 组装 in-process 引擎的依赖：把各能力的**原生**产物汇成一份 `PiInProcDeps`。
  *
- * `preparePiOpenRequest` 仍会生成 provider / 审批 / MCP 桥 / computer-use 这些 extension 文件，
- * 但 in-process 引擎不消费 `-e` 文件路径——它要的是原生 `customTools` / `extensionFactories`。
- * 不告警的话，开关一开这些能力会**静默消失**：审批弹窗不再出现（等于绕过安全闸）、MCP 工具全失踪，
- * 而日志里没有任何线索。宁可吵，也不能让审批闸无声失效。
+ * 对应关系（左：binary 路径生成 .js 文件经 `-e` 加载；右：本函数产出的原生对象）：
+ *   审批 hook / todo / askquestion / 样例  → native-hooks 的 extensionFactories + customTools
+ *   MCP 桥（十几个 capability server）       → pi-mcp-inproc 的 customTools
+ *   Computer Use（磁盘上的第三方包）        → additionalExtensionPaths（SDK 的 jiti 链路加载）
+ *   自定义 Provider                         → resolveInProcModel（密钥请求时才解，不落盘）
+ *
+ * `hasUiOutlet` 必须如实反映本会话有没有 UI 回写通道：in-process 下 pi 的 `ctx.hasUI` 恒为 true
+ * （uiContext 总是被 rebind 传进去），照抄旧判据会让无 UI 的路径从「放行」翻转成「全部 block」。
+ *
+ * 返回的 `disposeMcp` 必须在会话 stop 时调用——MCP 的 stdio 子进程与在途 HTTP 请求
+ * 不会随会话对象被 GC，漏调即连接泄漏累积。
+ */
+async function buildInProcDeps(
+  prepared: PiOpenRequest,
+  hasUiOutlet: boolean,
+): Promise<{ deps: PiInProcDeps; disposeMcp: () => Promise<void> }> {
+  const hooks = createPiNativeHooks({
+    enableToolApproval: prepared.enableToolApproval,
+    approvalTools: prepared.approvalTools,
+    hasUiOutlet: () => hasUiOutlet,
+    uiSessionId: prepared.uiSessionId,
+    enableSampleTools: prepared.enableSampleTools,
+    enableSampleCommands: prepared.enableSampleCommands,
+    askQuestionSentinel: prepared.askQuestionSentinel,
+  });
+
+  // MCP 单 server 失败只跳过该 server（createMcpInProcTools 内部保证不抛），整体失败才降级为无桥。
+  let mcpTools: ToolDefinition[] = [];
+  let disposeMcp = async (): Promise<void> => {};
+  const servers = prepared.bridgeServers ?? [];
+  if (servers.length) {
+    try {
+      const bridge = await createMcpInProcTools(servers);
+      mcpTools = bridge.tools;
+      disposeMcp = () => bridge.dispose();
+      if (bridge.failed.length) {
+        log.warn(`[in-process] MCP 接入失败 ${bridge.failed.length} 个: ${bridge.failed.map((f) => f.id).join("、")}`);
+      }
+    } catch (e) {
+      log.warn(`[in-process] MCP 桥整体失败,本会话无 MCP 工具: ${String(e)}`);
+    }
+  }
+
+  return {
+    deps: {
+      resolveModel: resolveInProcModel,
+      customTools: [...hooks.customTools, ...mcpTools],
+      extensionFactories: hooks.extensionFactories,
+      ...(prepared.inProcExtensionPaths?.length
+        ? { additionalExtensionPaths: prepared.inProcExtensionPaths }
+        : {}),
+    },
+    disposeMcp,
+  };
+}
+
+/**
+ * in-process 路径下**仍未迁移**的能力做一次响亮告警。
+ *
+ * 审批 / todo / askquestion / MCP 桥 / Computer Use / 自定义 Provider 都已原生化，
+ * 只剩「扩展市场装的第三方扩展」还没有 in-process 形态——它们是用户自己装的任意
+ * npm/git 包，交付形态与 Computer Use 同类（磁盘目录），但需要逐个过信任门，另案处理。
+ *
+ * 不告警的话，开关一开这些能力会**静默消失**，而日志里没有任何线索。
  */
 function warnUnmigratedCapabilities(prepared: PiOpenRequest): void {
-  const pending: string[] = [];
-  if (prepared.piExtensionPath) pending.push("自定义 Provider extension");
-  if (prepared.extraExtensionPaths?.length) pending.push(`审批/工具/命令 extension × ${prepared.extraExtensionPaths.length}`);
-  if (prepared.extensionPaths?.length) pending.push(`市场扩展 × ${prepared.extensionPaths.length}`);
-  if (prepared.computerUseEnv && Object.keys(prepared.computerUseEnv).length) pending.push("Computer Use");
-  if (pending.length) {
-    log.warn(`[in-process] 以下能力尚未迁移到原生注册,本会话不生效（迁移计划 U3）: ${pending.join("、")}`);
+  if (prepared.extensionPaths?.length) {
+    log.warn(
+      `[in-process] 扩展市场的 ${prepared.extensionPaths.length} 个扩展尚未迁移到原生加载,本会话不生效`,
+    );
   }
 }
 
@@ -428,15 +513,28 @@ export function registerPiSessionHandlers(): void {
     });
 
     let session: PiSessionEngine;
+    let disposeMcp: (() => Promise<void>) | undefined;
     if (useInProc) {
       warnUnmigratedCapabilities(prepared);
+      // hasUiOutlet=true：本路径总是接了 emitUiRequest（渲染端在监听 pi:uiRequest）。
+      // 无 UI 的是单发/编排那些路径，它们各自传 false。
+      const built = await buildInProcDeps(prepared, true);
+      disposeMcp = built.disposeMcp;
       session = await openPiInProcSession({
         request: prepared,
         onEvent: (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
         onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
         askQuestionSentinel: prepared.askQuestionSentinel,
-        deps: { resolveModel: resolveInProcModel },
+        deps: built.deps,
       });
+      // MCP 的释放挂在 stop() 上而不是在各个清理点各写一遍：本文件有 5 处会停会话
+      // （重开 / sender destroyed / ready 失败 / pi:close / crashed），逐处补调迟早漏一处，
+      // 而漏掉的表现是 stdio 子进程与在途 HTTP 静默泄漏、越积越多。
+      const rawStop = session.stop.bind(session);
+      session.stop = () => {
+        rawStop();
+        void disposeMcp?.().catch((e: unknown) => log.warn(`[in-process] MCP 释放失败: ${String(e)}`));
+      };
     } else {
       const transport = spawnPiRpc(args, {
         cwd: prepared.cwd,

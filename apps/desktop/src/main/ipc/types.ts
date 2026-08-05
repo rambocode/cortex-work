@@ -2,6 +2,9 @@
 // core 不能依赖 app 包，故两侧各持一份；preload 以 core 的 DesktopBridge 为准对齐。
 
 import type { ResearchEngineMainSettings } from "./types-research";
+// MCP 桥接 server 的归一形状。in-process 引擎直接消费结构化配置（不再生成 extension 文件），
+// 故 PiOpenRequest 需要携带它——见下方 bridgeServers 字段。
+import type { BridgeServer } from "../agents/pi-mcp-bridge";
 
 export type { ResearchEngineMainSettings, ResearchSearchServerSettings } from "./types-research";
 
@@ -1018,6 +1021,15 @@ export interface PiOpenRequest {
   toolWhitelist?: string[];
   // 主进程内部填充:除 provider 外追加的 extension 路径（审批/样例工具/命令），各加一个 -e。
   extraExtensionPaths?: string[];
+  // 主进程内部填充（in-process 引擎专用，binary 路径忽略）:收集到的 MCP 桥接 server 配置。
+  // binary 路径把它们烘焙进一个生成的 .js extension；in-process 路径改为原生注册成 customTools，
+  // 故这里保留结构化配置而非文件路径——鉴权头与 stdio env 因此不再落盘。
+  // ⚠️ 含 MCP server 的鉴权头与 env 明文，与 provider 同级，**不得回传 renderer**。
+  bridgeServers?: BridgeServer[];
+  // 主进程内部填充（in-process 引擎专用）:磁盘上已安装的第三方 extension 目录（当前只有
+  // pi-computer-use）。binary 路径走 extraExtensionPaths + `-e`；in-process 路径经
+  // resourceLoaderOptions.additionalExtensionPaths 由 SDK 的 jiti 链路加载。
+  inProcExtensionPaths?: string[];
   // pi 持久追加 system prompt（阶段4）:renderer 传,buildRpcArgs → --append-system-prompt。
   appendSystemPrompt?: string;
   // pi 思考强度初值（阶段5）:renderer 传,buildRpcArgs → --thinking（冷启设初值）。
