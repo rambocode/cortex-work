@@ -192,22 +192,11 @@
     "desc": "选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画。",
     "cardTitle": "宠物",
     "showPet": "显示宠物",
-    "behavior": "行为",
-    "behaviorDesc": "「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。",
-    "modeFree": "自由放置",
-    "modePerch": "趴在输入框",
-    "walk": "闲时底部走动",
-    "walkDesc": "10 分钟无操作时沿应用底边散步,一有动静即回最右侧待命。",
     "appearanceCard": "造型与外观",
     "design": "造型",
     "size": "尺寸",
     "sizeAria": "宠物尺寸",
-    "reset": "重置",
-    "color": "颜色",
-    "colorDesc": "选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。",
-    "colorDefault": "默认",
-    "colorDefaultTitle": "默认配色",
-    "colorCustomTitle": "自定义颜色"
+    "reset": "重置"
   },
   "general": {
     "title": "通用",

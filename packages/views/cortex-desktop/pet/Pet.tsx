@@ -1,4 +1,4 @@
-// 桌面宠物 —— 纯 SVG + CSS 动画,随应用状态切换形态:
+// 桌面宠物 —— sprite 序列帧(无资源时回退内联 SVG),随应用状态切换形态:
 //   idle      呼吸/眨眼/甩尾/耳朵偶尔抖
 //   typing    耳朵竖起,瞳孔盯向左下输入框,尾巴加速
 //   thinking  仰头盯思考泡泡「…」
@@ -6,29 +6,16 @@
 //   replying  弯月笑眼,嘴巴开合,对话气泡
 //   sleeping  闭眼耷耳,Zzz 飘浮
 //   happy     跳一下 + 爱心(点击/任务完成)
-// 行为模式(设置页选择,pet/behavior.ts 持久化):
-//   free   自由放置:可拖动(位置存 localStorage),悬停 3D 视差倾斜。
-//          叠加「闲时底部走动」开关(walk):开启后宠物常驻底部巡逻道——
-//          安静满 10 分钟开始沿底边来回散步(rAF 直改 style,不经 React 重渲),
-//          一有事件(输入/思考/点击)平滑过渡回最右侧,原地播放状态动画。
-//   perch  趴在聊天输入框上沿:专属趴姿造型,找不到输入框回退右下角
+// 放置方式:自由放置——可拖动(位置存 localStorage),悬停 3D 视差倾斜。
 // 悬停浮现 ✕ 可隐藏宠物(设置页可重新打开);造型在设置菜单中选择(pet/designs.tsx)。
 
 import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { Accessories, PERCH_EDGE_Y, PET_DESIGNS, loadPetColor, loadPetKind, loadPetSize, petColorVars } from "./designs";
+import { Accessories, PET_DESIGNS, loadPetKind, loadPetSize } from "./designs";
 import { hasSprites } from "./sprites";
 import { SpriteLayer } from "./SpriteLayer";
-import {
-  WALK_IDLE_DELAY_MS,
-  loadPetEnabled,
-  loadPetMode,
-  loadPetWalk,
-  savePetEnabled,
-  stepWalk,
-  type WalkPos,
-} from "./behavior";
+import { loadPetEnabled, savePetEnabled } from "./behavior";
 
 const PET_STATES = ["idle", "typing", "thinking", "working", "replying", "sleeping", "happy"] as const;
 
@@ -37,10 +24,6 @@ const PET_W = 110;
 const PET_H = 100;
 const SVG_W = 104;
 const SVG_H = 89;
-// perch 专属造型(designs.tsx 的 Perch):viewBox 140x102,框沿基线在 PERCH_EDGE_Y,
-// 头部中心约 x=60;显示比例与全身图一致(SVG_W/140)。
-const PERCH_VIEW_H = 102;
-const PERCH_SCALE = SVG_W / 140;
 
 function loadPos(size: number): { x: number; y: number } | null {
   try {
@@ -72,7 +55,6 @@ export interface PetProps {
    * 不做 CSS position:fixed 拖拽定位——挪动宠物改用 `-webkit-app-region: drag` 让
    * 操作系统直接移动这扇窗口本身(见 pet-overlay-window.ts 头部注释——多显示器下,
    * 靠 CSS 在一个铺满全屏的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限)。
-   * 巡逻走动在此模式下禁用(移动窗口本身走动是后续工作项,当前先禁用而非假装支持)。
    * 主窗口内嵌场景(Web/桌面主窗口)不传,行为与此前完全一致。 */
   windowFollowsPet?: boolean;
   /** 独立 overlay 把显隐动作回传给主窗口设置真源；主窗口内嵌模式无需传。 */
@@ -83,151 +65,46 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
   const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
-  const mode = usePetStore((s) => s.mode);
-  const walk = usePetStore((s) => s.walk);
   const enabled = usePetStore((s) => s.enabled);
   const size = usePetStore((s) => s.size);
-  const color = usePetStore((s) => s.color);
   const set = usePetStore((s) => s.set);
-  const wake = usePetStore((s) => s.wake);
   const setKind = usePetStore((s) => s.setKind);
-  const setMode = usePetStore((s) => s.setMode);
-  const setWalk = usePetStore((s) => s.setWalk);
   const setEnabled = usePetStore((s) => s.setEnabled);
   const setSize = usePetStore((s) => s.setSize);
-  const setColor = usePetStore((s) => s.setColor);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() =>
     windowFollowsPet ? null : loadPos(loadPetSize()),
   );
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
-  // 安静满 10 分钟(WALK_IDLE_DELAY_MS)→ 无聊,可以开始散步;由节拍器驱动。
-  const [bored, setBored] = useState(false);
-  // perch 模式锚定位置;null = 没找到输入框(回退默认右下角全身造型)。
-  const [perch, setPerch] = useState<{ left: number; top: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
-  const walkRef = useRef<WalkPos>({
-    x: typeof window !== "undefined" ? Math.max(0, window.innerWidth - PET_W - 18) : 0,
-    dir: -1,
-  });
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 启动时恢复上次选择的造型 / 行为 / 显隐 / 尺寸 / 配色。
+  // 启动时恢复上次选择的造型 / 显隐 / 尺寸。
   useEffect(() => {
     // 独立 overlay 只是主窗口状态的镜像；file:// 页面各自的 localStorage 不能作为
     // 同一份设置来源，否则 overlay 会在收到同步快照后又用自己的默认值覆盖它。
     if (windowFollowsPet) return;
     setKind(loadPetKind());
-    setMode(loadPetMode());
-    setWalk(loadPetWalk());
     setEnabled(loadPetEnabled());
     setSize(loadPetSize());
-    setColor(loadPetColor());
-  }, [windowFollowsPet, setKind, setMode, setWalk, setEnabled, setSize, setColor]);
+  }, [windowFollowsPet, setKind, setEnabled, setSize]);
 
-  // 节拍器:超时衰减 + 无聊判定。
-  // 安静 2–10 分钟打盹;满 10 分钟且开了走动开关 → 叫醒去散步(wake 不刷新
-  // lastActivity,否则一醒计时清零就永远走不起来)。
+  // 节拍器:超时衰减。安静 2 分钟打盹;打字/开心短暂后回到 idle。
   useEffect(() => {
     const timer = setInterval(() => {
-      const { state: cur, lastActivity, mode: m, walk: w, enabled: en } = usePetStore.getState();
+      const { state: cur, lastActivity } = usePetStore.getState();
       const quiet = Date.now() - lastActivity;
-      const boredNow = en && w && m === "free" && quiet >= WALK_IDLE_DELAY_MS;
       if (cur === "typing" && quiet > 1600) set("idle");
       else if (cur === "happy" && quiet > 2200) set("idle");
-      else if (boredNow && cur === "sleeping") wake();
-      else if (cur === "idle" && quiet > 120_000 && !boredNow) set("sleeping");
-      setBored(boredNow);
+      else if (cur === "idle" && quiet > 120_000) set("sleeping");
     }, 500);
     return () => clearInterval(timer);
-  }, [set, wake]);
+  }, [set]);
 
-  // ---- 底部巡逻道(free + 走动开关):常驻底边,无聊时散步,有事件归位最右 ----
-  // windowFollowsPet 模式下禁用:巡逻要挪的是窗口本身(屏幕坐标),不是窗口内的 CSS
-  // 位置,现有 rAF 直改 style 的实现搬不过来,留作后续工作项而非假装支持。
-  const lane = !windowFollowsPet && enabled && mode === "free" && walk;
-  const walking = lane && bored && state === "idle";
-
-  // 进入/退出巡逻道:贴底定位(初始停在最右侧),窗口缩放跟随;退出时清理内联样式。
-  useEffect(() => {
-    if (!lane) return;
-    const el = rootRef.current;
-    if (!el) return;
-    const place = () => {
-      const maxX = Math.max(0, window.innerWidth - PET_W * size);
-      walkRef.current = { ...walkRef.current, x: Math.min(Math.max(0, walkRef.current.x), maxX) };
-      el.style.left = `${walkRef.current.x}px`;
-      el.style.top = `${Math.max(0, window.innerHeight - PET_H * size)}px`;
-      el.style.right = "auto";
-      el.style.bottom = "auto";
-    };
-    walkRef.current = { x: Math.max(0, window.innerWidth - PET_W * size - 18), dir: -1 };
-    place();
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("resize", place);
-      el.style.left = el.style.top = el.style.right = el.style.bottom = "";
-      delete el.dataset.dir;
-    };
-  }, [lane, size]);
-
-  // 巡逻道内:走动(rAF 逐帧)↔ 归位(改 left,由 .is-gliding 的 CSS transition 平滑过渡)。
-  useEffect(() => {
-    if (!lane) return;
-    const el = rootRef.current;
-    if (!el) return;
-    if (!walking) {
-      const x = Math.max(0, window.innerWidth - PET_W * size - 18);
-      walkRef.current = { x, dir: -1 };
-      el.dataset.dir = "right"; // 归位朝右走
-      el.style.left = `${x}px`;
-      return;
-    }
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min(100, now - last); // 后台节流后的超大 dt 截断,防瞬移
-      last = now;
-      walkRef.current = stepWalk(walkRef.current, dt, 0, Math.max(0, window.innerWidth - PET_W * size));
-      el.style.left = `${walkRef.current.x}px`;
-      el.dataset.dir = walkRef.current.dir === 1 ? "right" : "left";
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [lane, walking, size]);
-
-  // ---- perch:轮询锚定可见的聊天输入框(.composer-wrap),贴其上沿 ----
-  useEffect(() => {
-    if (!enabled || mode !== "perch") {
-      setPerch(null);
-      return;
-    }
-    const measure = () => {
-      const rect = document.querySelector(".composer-wrap")?.getBoundingClientRect();
-      if (!rect || rect.width < 80) {
-        setPerch(null);
-        return;
-      }
-      // 造型里的框沿基线(PERCH_EDGE_Y)对齐输入框上沿:爪子自然垂搭在框上,
-      // 头部(中心 x≈60)水平居中于输入框。
-      const left = rect.left + rect.width / 2 - 60 * PERCH_SCALE * size;
-      const top = rect.top - PERCH_EDGE_Y * PERCH_SCALE * size;
-      setPerch((p) => (p && Math.abs(p.left - left) < 1 && Math.abs(p.top - top) < 1 ? p : { left, top }));
-    };
-    measure();
-    const timer = setInterval(measure, 600);
-    window.addEventListener("resize", measure);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("resize", measure);
-    };
-  }, [enabled, mode, size]);
-
-  // 拖动(仅 free 且未开走动开关;pointer capture,移动超过阈值视为拖,否则当点击)。
+  // 拖动(pointer capture,移动超过阈值视为拖,否则当点击)。
   // windowFollowsPet 模式下整个跳过——挪动窗口交给 `-webkit-app-region: drag` 原生处理,
   // dragRef 永远不会被设置,onPointerUp 里的 `d?.moved` 判断天然落到"当作点击"分支。
   const onPointerDown = (e: React.PointerEvent) => {
-    if (windowFollowsPet || mode !== "free" || lane) return;
+    if (windowFollowsPet) return;
     const el = rootRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -251,8 +128,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
       }
       return;
     }
-    // 未拖动时:光标视差倾斜(伪 3D;perch 趴着不倾斜)。
-    if (mode === "perch") return;
+    // 未拖动时:光标视差倾斜(伪 3D)。
     const el = rootRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -283,7 +159,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
     set(state === "happy" ? "idle" : "happy");
   };
 
-  // 窗口缩放或宠物尺寸变化时夹回可视区(free 模式的记忆位置)。
+  // 窗口缩放或宠物尺寸变化时夹回可视区(记忆位置)。
   useEffect(() => {
     const onResize = () => setPos((p) => (p ? clampPos(p, size) : p));
     onResize();
@@ -306,16 +182,11 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
   const stateLabel = (PET_STATES as readonly string[]).includes(state)
     ? t(`state.${state}`, { name: petName })
     : undefined;
-  // 自定义配色变量(未自定义时为空,SVG 回落到造型默认色);--pet-scale 供阴影等 CSS 跟随。
-  const styleVars = {
-    "--pet-scale": size,
-    ...(color ? petColorVars(color) : null),
-  } as React.CSSProperties;
+  // --pet-scale 供阴影等 CSS 跟随缩放。
+  const styleVars = { "--pet-scale": size } as React.CSSProperties;
 
-  const perched = mode === "perch" && perch !== null;
   // 定位:windowFollowsPet 模式下固定居中在 overlay 窗口里(挪动窗口本身,不挪 CSS);
-  // 其余情况:巡逻道(lane)由 effect 直改 style,perch 用锚定坐标,
-  // 纯 free(未开走动)用记忆位置(无则 CSS 默认右下)。
+  // 其余情况用记忆位置(无则 CSS 默认右下)。
   const posStyle = windowFollowsPet
     ? {
         left: (OVERLAY_WINDOW_W - PET_W * size) / 2,
@@ -323,71 +194,19 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
         right: "auto" as const,
         bottom: "auto" as const,
       }
-    : lane
-      ? null
-      : perched
-        ? { left: perch.left, top: perch.top, right: "auto" as const, bottom: "auto" as const }
-        : mode === "free" && pos
-          ? { left: pos.x, top: pos.y, right: "auto" as const, bottom: "auto" as const }
-          : null;
+    : pos
+      ? { left: pos.x, top: pos.y, right: "auto" as const, bottom: "auto" as const }
+      : null;
   // 原生窗口拖拽区域(仅 windowFollowsPet 模式):关闭按钮要单独标 no-drag,否则点它会
   // 被当成拖拽手势的一部分,点不到。
   const dragRegionStyle = windowFollowsPet ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
   const noDragRegionStyle = windowFollowsPet ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
-  const closeBtn = (
-    <button
-      className="pet-x"
-      title={t("hideTitle")}
-      aria-label={t("hideAria")}
-      style={noDragRegionStyle}
-      onPointerDown={(e) => e.stopPropagation()}
-      onPointerUp={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        hide();
-      }}
-    >
-      ×
-    </button>
-  );
-
-  if (perched) {
-    const Perch = design.Perch;
-    return (
-      <div
-        ref={rootRef}
-        className="pet is-perched"
-        data-state={state}
-        data-mode="perch"
-        title={stateLabel}
-        style={{ ...styleVars, ...posStyle, ...dragRegionStyle }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={() => setTilt(null)}
-      >
-        {closeBtn}
-        <div className="pet-3d">
-          <svg
-            viewBox={`0 0 140 ${PERCH_VIEW_H}`}
-            width={Math.round(SVG_W * size)}
-            height={Math.round(PERCH_VIEW_H * PERCH_SCALE * size)}
-            aria-hidden="true"
-          >
-            <Perch />
-          </svg>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={rootRef}
-      className={`pet ${dragRef.current?.moved ? "is-dragging" : ""} ${walking ? "is-walking" : ""} ${lane && !walking ? "is-gliding" : ""}`}
+      className={`pet ${dragRef.current?.moved ? "is-dragging" : ""}`}
       data-state={state}
-      data-mode={mode}
       title={stateLabel}
       style={{ ...styleVars, ...posStyle, ...dragRegionStyle }}
       onPointerDown={onPointerDown}
@@ -395,16 +214,29 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
       onPointerUp={onPointerUp}
       onPointerLeave={() => setTilt(null)}
     >
-      {closeBtn}
+      <button
+        className="pet-x"
+        title={t("hideTitle")}
+        aria-label={t("hideAria")}
+        style={noDragRegionStyle}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          hide();
+        }}
+      >
+        ×
+      </button>
       <div
         className="pet-3d"
         style={tilt ? { transform: `rotateX(${tilt.rx.toFixed(1)}deg) rotateY(${tilt.ry.toFixed(1)}deg)` } : undefined}
       >
         {/* 角色级共存:有 sprite 资产走序列帧渲染层,否则回退现有内联 SVG 造型。
-            外围定位/巡逻/拖拽/节拍器与 sprite 层正交,均不受影响。 */}
+            外围定位/拖拽/节拍器与 sprite 层正交,均不受影响。 */}
         {hasSprites(kind) ? (
           <>
-            <SpriteLayer kind={kind} state={state} walking={walking} />
+            <SpriteLayer kind={kind} state={state} />
             {/* 浮动配件叠加层:sprite 本体不含状态语义,靠这层复用现有 SVG 配件
                 (思考泡/齿轮/汗滴/Zzz/对话泡/爱心),由 .pet[data-state] 驱动显隐,
                 让 thinking/working/replying/sleeping/happy 仍有可见反馈。 */}

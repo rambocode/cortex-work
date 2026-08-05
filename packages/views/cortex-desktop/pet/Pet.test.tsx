@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePetStore, type DesktopBridge } from "@cortex-work/core";
-import { PET_ENABLED_KEY, PET_MODE_KEY, PET_WALK_KEY, WALK_IDLE_DELAY_MS } from "./behavior";
+import { PET_ENABLED_KEY } from "./behavior";
 import { PET_KIND_KEY, PET_SIZE_KEY } from "./designs";
 import { Pet } from "./Pet";
 import { PetBridge } from "./PetBridge";
@@ -12,22 +12,17 @@ function resetStore() {
   usePetStore.setState({
     state: "idle",
     kind: "cat",
-    mode: "free",
-    walk: true,
     enabled: true,
     size: 1,
-    color: null,
     lastActivity: Date.now(),
   });
 }
 
-// jsdom 视口 1024 宽,巡逻道最右侧 = innerWidth - PET_W(110) - 18
-const RIGHT_X = 1024 - 110 - 18;
 const petCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 const TEST_WS_ID = "test-ws";
 const TEST_IDENTITY = { userId: "me", name: "我" };
 
-describe("Pet 行为模式", () => {
+describe("Pet", () => {
   beforeEach(() => {
     localStorage.clear();
     resetStore();
@@ -43,61 +38,7 @@ describe("Pet 行为模式", () => {
     expect(container.querySelector(".pet")).toBeNull();
   });
 
-  it("默认自由放置:free 模式、不进巡逻道、不自动走动", () => {
-    const { container } = render(<Pet />); // 默认 walk 关
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.getAttribute("data-mode")).toBe("free");
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.classList.contains("is-gliding")).toBe(false);
-  });
-
-  it("显式开启走动:安静满 10 分钟才开始走动;一有事件平滑归位最右侧", () => {
-    vi.useFakeTimers();
-    localStorage.setItem(PET_WALK_KEY, "1"); // 走动为隐藏能力,显式开启才生效
-    const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet") as HTMLElement;
-
-    // 9 分钟:还不走
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS - 60_000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-
-    // 超过 10 分钟:开始走动
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(true);
-
-    // 有输入事件:停止走动,归位最右(is-gliding 由 CSS transition 平滑过渡)
-    act(() => {
-      usePetStore.getState().set("typing");
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.classList.contains("is-gliding")).toBe(true);
-    expect(parseFloat(pet.style.left)).toBe(RIGHT_X);
-    expect(pet.getAttribute("data-state")).toBe("typing");
-  });
-
-  it("走动开关关闭(纯自由放置):不进巡逻道,安静 10 分钟也不走", () => {
-    vi.useFakeTimers();
-    localStorage.setItem(PET_WALK_KEY, "0");
-    const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.classList.contains("is-gliding")).toBe(false);
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.querySelector(".pet-3d")).not.toBeNull();
-  });
-
-  it("纯自由拖拽时根节点坐标更新", () => {
-    localStorage.setItem(PET_WALK_KEY, "0");
+  it("拖拽时根节点坐标更新并持久化", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
     pet.getBoundingClientRect = () =>
@@ -110,6 +51,17 @@ describe("Pet 行为模式", () => {
     expect(parseFloat(pet.style.left)).toBe(160);
     expect(parseFloat(pet.style.top)).toBe(240);
     expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
+  });
+
+  // 节拍器是当前唯一的衰减驱动:安静足够久后自动进入 sleeping。
+  it("安静满 2 分钟后进入 sleeping", () => {
+    vi.useFakeTimers();
+    render(<Pet />);
+    act(() => {
+      usePetStore.setState({ lastActivity: Date.now() - 121_000 });
+      vi.advanceTimersByTime(600);
+    });
+    expect(usePetStore.getState().state).toBe("sleeping");
   });
 
   it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {
@@ -143,15 +95,6 @@ describe("Pet 行为模式", () => {
     expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("0");
   });
 
-  it("perch 已退役:历史持久化的 perch 强制迁回 free(走 sprite,不进趴姿)", () => {
-    localStorage.setItem(PET_MODE_KEY, "perch");
-    const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.getAttribute("data-mode")).toBe("free");
-    expect(pet.classList.contains("is-perched")).toBe(false);
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull(); // 默认 cat,走 sprite
-  });
-
   // 独立 pet-overlay 窗口专用模式:宠物固定居中在一个刚好包住它的小窗口里,挪动窗口本身
   // (原生 app-region:drag)而不是在窗口内部用 CSS 拖拽——多显示器下靠 CSS 在一个铺满全屏
   // 的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限(见 Pet.tsx/pet-overlay-window.ts
@@ -181,19 +124,6 @@ describe("Pet 行为模式", () => {
     // CSS 依据),但 jsdom 的 CSSStyleDeclaration 用 cssstyle 包做属性名校验,不认识这个
     // 非标准属性,赋值会被静默丢弃(真实 Chromium/Electron 环境没有这个问题)——单测校验不
     // 到,只能靠打包后手动验证:悬停宠物应能原生拖拽窗口,悬停关闭按钮不触发拖拽。
-
-    it("巡逻走动禁用:即使开着走动开关、安静超过 10 分钟也不进巡逻道", () => {
-      vi.useFakeTimers();
-      act(() => usePetStore.setState({ walk: true }));
-      const { container } = render(<Pet windowFollowsPet />);
-      const pet = container.querySelector(".pet") as HTMLElement;
-      act(() => {
-        usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-        vi.advanceTimersByTime(600);
-      });
-      expect(pet.classList.contains("is-walking")).toBe(false);
-      expect(pet.classList.contains("is-gliding")).toBe(false);
-    });
 
     it("点击仍触发 happy(未经自定义拖拽判定,onPointerDown 整个跳过)", () => {
       const { container } = render(<Pet windowFollowsPet />);

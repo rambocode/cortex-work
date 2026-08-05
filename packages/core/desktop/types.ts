@@ -1,7 +1,7 @@
 // 个人工作区（桌面端）共享类型。与 apps/desktop/src/main/ipc/types.ts 保持
 // 镜像（core 不能依赖 app 包，desktop 侧用 `satisfies` 对齐形状）。
 
-import type { PetKind, PetMode, PetState } from "../store/pet";
+import type { PetKind, PetState } from "../store/pet";
 
 export type AgentKind = "claude" | "codex" | "pi";
 
@@ -2143,9 +2143,6 @@ export * from "./plugin-types";
 export interface PetStateSnapshot {
   state: PetState;
   kind: PetKind;
-  mode: PetMode;
-  walk: boolean;
   enabled: boolean;
   size: number;
-  color: string | null;
 }

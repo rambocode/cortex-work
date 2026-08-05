@@ -1973,25 +1973,14 @@ export default interface Resources {
     },
     "pet": {
       "appearanceCard": "造型与外观",
-      "behavior": "行为",
-      "behaviorDesc": "「自由放置」可随意拖动;「趴在输入框」只露头和前爪搭在聊天框上。",
       "cardTitle": "宠物",
-      "color": "颜色",
-      "colorCustomTitle": "自定义颜色",
-      "colorDefault": "默认",
-      "colorDefaultTitle": "默认配色",
-      "colorDesc": "选择主色后,毛色深浅会自动派生;「默认」恢复各造型的原始配色。",
       "desc": "选择陪伴你工作的小伙伴,它会随输入、思考、执行工具等状态切换动画。",
       "design": "造型",
-      "modeFree": "自由放置",
-      "modePerch": "趴在输入框",
       "reset": "重置",
       "showPet": "显示宠物",
       "size": "尺寸",
       "sizeAria": "宠物尺寸",
-      "title": "桌面宠物",
-      "walk": "闲时底部走动",
-      "walkDesc": "10 分钟无操作时沿应用底边散步,一有动静即回最右侧待命。"
+      "title": "桌面宠物"
     },
     "pi": {
       "defaultModel": "默认模型",

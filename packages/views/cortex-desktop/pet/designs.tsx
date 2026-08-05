@@ -155,58 +155,6 @@ function FurTufts({ fill }: { fill: string }) {
   );
 }
 
-// ── 趴窗共用:垂搭在框沿上的前爪(肉爪;边沿基线 y=PERCH_EDGE_Y) ────────────
-// 形状:从边沿垂下的圆底小爪,带两道脚趾线(参考 peeking pet 贴纸构图)。
-export const PERCH_EDGE_Y = 80;
-
-function PerchPaw({ cx, side, fill }: { cx: number; side: "pl" | "pr"; fill: string }) {
-  const y = PERCH_EDGE_Y;
-  return (
-    <g className={`perch-paw ${side}`} style={{ transformOrigin: `${cx}px ${y}px` }}>
-      {/* 腕侧碎毛 */}
-      <path d={`M ${cx - 13} ${y + 3} l -4.5 1.5 l 4.5 2.5 z M ${cx + 13} ${y + 3} l 4.5 1.5 l -4.5 2.5 z`} fill={fill} stroke={OUTLINE} strokeWidth="1.5" strokeLinejoin="round" />
-      {/* 爪体:底缘四个趾瓣鼓包 */}
-      <path
-        d={`M ${cx - 13} ${y}
-            L ${cx - 13} ${y + 11}
-            a 3.25 4.4 0 0 0 6.5 0.6
-            a 3.25 5 0 0 0 6.5 0.4
-            a 3.25 5 0 0 0 6.5 -0.4
-            a 3.25 4.4 0 0 0 6.5 -0.6
-            L ${cx + 13} ${y} Z`}
-        fill={fill}
-        stroke={OUTLINE}
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      {/* 趾缝(从趾瓣凹谷向上收) */}
-      <path
-        d={`M ${cx - 6.6} ${y + 15.6} q -0.5 -3.6 0 -5.6 M ${cx} ${y + 16.6} q -0.4 -3.8 0 -6 M ${cx + 6.6} ${y + 15.6} q 0.5 -3.6 0 -5.6`}
-        fill="none"
-        stroke={OUTLINE}
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </g>
-  );
-}
-
-// 趴窗共用:颈胸绒毛(尖刺毛缘,底边齐框沿,藏在头后)。
-function PerchChest({ fill }: { fill: string }) {
-  const y = PERCH_EDGE_Y;
-  return (
-    <path
-      d={`M 25 ${y}
-          l 4 -8.5 l 3.5 4.5 l 4.5 -7.5 l 4 5 l 5 -7.5 l 4.5 5 l 5.5 -7 l 5.5 7
-          l 4.5 -5 l 5 7.5 l 4 -5 l 4.5 7.5 l 3.5 -4.5 l 4 8.5 z`}
-      fill={fill}
-      stroke={OUTLINE}
-      strokeWidth="1.8"
-      strokeLinejoin="round"
-    />
-  );
-}
-
 // ── 小柯 · 橘猫 ───────────────────────────────────────────────────────────
 function CatHead() {
   return (
@@ -293,19 +241,6 @@ function CatParts() {
   );
 }
 
-// 趴窗:胸毛 + 头 + 两只垂搭前爪(头在胸毛上、爪在最前)。
-function CatPerch() {
-  return (
-    <>
-      <Accessories />
-      <PerchChest fill="var(--pet-light, #f7dfc0)" />
-      <CatHead />
-      <PerchPaw cx={32} side="pl" fill="var(--pet-main, #ecb98a)" />
-      <PerchPaw cx={88} side="pr" fill="var(--pet-main, #ecb98a)" />
-    </>
-  );
-}
-
 // ── 阿柴 · 柴犬 ───────────────────────────────────────────────────────────
 function DogHead() {
   return (
@@ -380,23 +315,10 @@ function DogParts() {
   );
 }
 
-function DogPerch() {
-  return (
-    <>
-      <Accessories />
-      <PerchChest fill="var(--pet-light, #f8efdd)" />
-      <DogHead />
-      <PerchPaw cx={32} side="pl" fill="var(--pet-light, #f8efdd)" />
-      <PerchPaw cx={88} side="pr" fill="var(--pet-light, #f8efdd)" />
-    </>
-  );
-}
-
 // ── 薄荷 · 水滴精灵 ────────────────────────────────────────────────────────
-// mint 主渲染路径走 sprite(见 sprites.ts 的 PET_SPRITES.mint),这里的 SVG 只在
-// 两处兜底生效:①趴窗(perch)模式恒用 SVG,不判断 hasSprites;②sprite 资源本身
-// 加载失败等极端兜底。造型是无耳、无独立头身分界的圆润水滴形,故不复用
-// FurTufts/耳朵,只复用共享的 Eyes/Accessories/PerchPaw/PerchChest。
+// mint 主渲染路径走 sprite(见 sprites.ts 的 PET_SPRITES.mint),这里的 SVG 仅作
+// sprite 资源加载失败时的极端兜底。造型是无耳、无独立头身分界的圆润水滴形,
+// 故不复用 FurTufts/耳朵,只复用共享的 Eyes/Accessories。
 function MintHead() {
   return (
     <g className="pet-head" style={{ transformOrigin: "60px 55px" }}>
@@ -454,32 +376,17 @@ function MintParts() {
   );
 }
 
-function MintPerch() {
-  return (
-    <>
-      <Accessories />
-      <PerchChest fill="var(--pet-main, #9fe0b0)" />
-      <MintHead />
-      <PerchPaw cx={32} side="pl" fill="var(--pet-main, #9fe0b0)" />
-      <PerchPaw cx={88} side="pr" fill="var(--pet-main, #9fe0b0)" />
-    </>
-  );
-}
-
 export interface PetDesign {
   name: string;
   desc: string;
   Parts: () => ReactNode;
-  /** 趴窗(perch)专属造型:头 + 搭在框沿的前爪,身子不显示。 */
-  Perch: () => ReactNode;
 }
 
+// Parts 是 sprite 资源缺失时的兜底造型;三个角色当前均有 sprite,正常路径走不到这里。
 export const PET_DESIGNS: Record<PetKind, PetDesign> = {
-  cat: { name: "小柯", desc: "橘猫", Parts: CatParts, Perch: CatPerch },
-  // dog 的 Parts/Perch 复用原柴犬 SVG(作 sprite 缺失时的兜底 + perch 趴姿造型)。
-  dog: { name: "阿柴", desc: "柴犬", Parts: DogParts, Perch: DogPerch },
-  // mint 主渲染路径走 sprite;Parts 仅作兜底,Perch 恒定使用(perch 模式不判断 hasSprites)。
-  mint: { name: "薄荷", desc: "水滴精灵", Parts: MintParts, Perch: MintPerch },
+  cat: { name: "小柯", desc: "橘猫", Parts: CatParts },
+  dog: { name: "阿柴", desc: "柴犬", Parts: DogParts },
+  mint: { name: "薄荷", desc: "水滴精灵", Parts: MintParts },
 };
 
 export const PET_KIND_KEY = "cortex_pet_kind";
@@ -494,61 +401,13 @@ export function loadPetKind(): PetKind {
   return "cat";
 }
 
-// ── 自定义配色:由主色派生深(轮廓纹路)/浅(肚皮面板)两档,生成 CSS 变量 ──────
-// 造型 SVG 的主题色都写成 var(--pet-main|dark|light, 各自默认色),
-// 不设变量时回落到造型原配色;设置后三档统一跟随用户主色。
-
-function hexToHsl(hex: string): [number, number, number] | null {
-  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex.trim());
-  if (!m?.[1]) return null;
-  let c = m[1];
-  if (c.length === 3) c = c.replace(/./g, (ch) => ch + ch);
-  const r = parseInt(c.slice(0, 2), 16) / 255;
-  const g = parseInt(c.slice(2, 4), 16) / 255;
-  const b = parseInt(c.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l * 100];
-  const d = max - min;
-  const s = d / (l > 0.5 ? 2 - max - min : max + min);
-  let h: number;
-  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  else if (max === g) h = ((b - r) / d + 2) / 6;
-  else h = ((r - g) / d + 4) / 6;
-  return [h * 360, s * 100, l * 100];
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  s = Math.min(100, Math.max(0, s)) / 100;
-  l = Math.min(100, Math.max(0, l)) / 100;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    return Math.round(v * 255)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-/** 由主色生成宠物三档配色的 CSS 变量;hex 无效时返回 null。 */
-export function petColorVars(hex: string): Record<string, string> | null {
-  const hsl = hexToHsl(hex);
-  if (!hsl) return null;
-  const [h, s, l] = hsl;
-  return {
-    "--pet-main": hslToHex(h, s, l),
-    "--pet-dark": hslToHex(h, Math.min(100, s * 1.08), l * 0.76),
-    "--pet-light": hslToHex(h, s * 0.55, l + (100 - l) * 0.62),
-  };
-}
-
-// ── 尺寸 / 颜色持久化(沿用 PET_KIND_KEY 的 views 层 localStorage 模式) ────
+// ── 尺寸持久化(沿用 PET_KIND_KEY 的 views 层 localStorage 模式) ───────────
+//
+// 造型 SVG 的主题色仍写成 var(--pet-main|dark|light, 各自默认色)。曾有一套由主色
+// 派生三档配色的调色能力,设置页下线后已随 cortex_pet_color 一并移除;这些变量
+// 现在恒不设置,SVG 一律回落到各造型的默认配色。
 
 export const PET_SIZE_KEY = "cortex_pet_size";
-export const PET_COLOR_KEY = "cortex_pet_color";
 export const PET_SIZE_MIN = 0.8;
 export const PET_SIZE_MAX = 2;
 
@@ -560,14 +419,4 @@ export function loadPetSize(): number {
     /* 忽略 */
   }
   return 1;
-}
-
-export function loadPetColor(): string | null {
-  try {
-    const c = localStorage.getItem(PET_COLOR_KEY);
-    if (c && petColorVars(c)) return c;
-  } catch {
-    /* 忽略 */
-  }
-  return null;
 }

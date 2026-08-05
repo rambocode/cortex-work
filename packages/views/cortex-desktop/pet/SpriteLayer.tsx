@@ -17,15 +17,13 @@ import { resolveSpriteAnim, spriteKeyFor } from "./sprites";
 interface SpriteLayerProps {
   kind: PetKind;
   state: PetState;
-  /** 是否处于底部巡逻散步(walk 是行为而非 PetState,需显式传入)。 */
-  walking: boolean;
 }
 
 // CSS 自定义属性需要字符串值;这里扩展 CSSProperties 以容纳 --sprite-* 变量。
 type SpriteStyle = CSSProperties & Record<"--sprite-frames" | "--sprite-steps" | "--sprite-dur", string>;
 
-export function SpriteLayer({ kind, state, walking }: SpriteLayerProps) {
-  const anim = useMemo(() => resolveSpriteAnim(kind, state, walking), [kind, state, walking]);
+export function SpriteLayer({ kind, state }: SpriteLayerProps) {
+  const anim = useMemo(() => resolveSpriteAnim(kind, state), [kind, state]);
 
   if (!anim) return null;
 
@@ -50,14 +48,14 @@ export function SpriteLayer({ kind, state, walking }: SpriteLayerProps) {
 
   // key 绑定到动画键:切到不同动画(如 idle→happy)时重挂载节点,使一次性 / 往复
   // 动画从头播放;而 idle/typing 等同映射到 idle 的状态不变 key,保持呼吸连续不闪。
-  const animKey = `${kind}:${spriteKeyFor(state, walking)}`;
+  const animKey = `${kind}:${spriteKeyFor(state)}`;
 
   return (
     <div
       key={animKey}
       className="pet-sprite"
       data-anim-frames={anim.frames}
-      data-anim={`${kind}:${state}:${walking ? "walk" : "still"}`}
+      data-anim={`${kind}:${state}`}
       style={style}
       aria-hidden="true"
     />

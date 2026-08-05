@@ -6579,41 +6579,6 @@ button.sb-row {
 .pet:hover .pet-x { opacity: 1; }
 .pet-x:hover { color: var(--text-1); background: var(--bg-hover); }
 
-/* —— 底部巡逻道(自由放置 + 走动开关):无聊散步 / 有事件平滑归位最右 —— */
-/* 行进朝向:向左走时整体水平翻转(暂停时保持朝向,避免突兀回正) */
-.pet[data-dir="left"] .pet-3d > svg,
-.pet[data-dir="left"] .pet-3d > .pet-sprite { transform: scaleX(-1); }
-.pet.is-gliding { transition: transform 0.15s ease, left 1.2s ease-in-out, top 0.4s ease; }
-.pet.is-walking:hover { transform: none; } /* 行走中不做悬停放大,避免与步态叠加抖动 */
-.pet.is-walking .pet-3d { transition: none; }
-.pet.is-walking .pet-body,
-.pet.is-walking .pet-head { animation: pet-waddle 0.72s ease-in-out infinite; }
-.pet.is-walking .paw.p1 { animation: pet-paw 0.36s ease-in-out infinite; }
-.pet.is-walking .paw.p2 { animation: pet-paw 0.36s ease-in-out 0.18s infinite; }
-.pet.is-walking .pet-tail { animation: pet-tail 1.4s ease-in-out infinite; }
-@keyframes pet-waddle {
-  0%, 100% { transform: rotate(-1.6deg) translateY(0); }
-  25% { transform: rotate(0deg) translateY(-1.6px); }
-  50% { transform: rotate(1.6deg) translateY(0); }
-  75% { transform: rotate(0deg) translateY(-1.6px); }
-}
-
-/* —— perch:趴在聊天输入框上沿(designs.tsx 的 Perch 专属造型:头 + 垂搭前爪) —— */
-.pet.is-perched { z-index: 60; } /* 压在输入框上但低于弹层 */
-.pet.is-perched:hover { transform: none; }
-.pet.is-perched .pet-3d { animation: pet-peek 4.2s ease-in-out infinite; }
-/* 头部保留呼吸/歪头等动画;爪子轻轻交替扒一下框沿 */
-.pet.is-perched .perch-paw.pl { animation: pet-perch-paw 4.2s ease-in-out infinite; }
-.pet.is-perched .perch-paw.pr { animation: pet-perch-paw 4.2s ease-in-out 2.1s infinite; }
-@keyframes pet-peek {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(2.5px); }
-}
-@keyframes pet-perch-paw {
-  0%, 100% { transform: rotate(0deg); }
-  50% { transform: rotate(-3deg) translateY(-1px); }
-}
-
 /* ---------- 个人工作区:设置弹出层(左 Tab + 右内容) ---------- */
 .pw-dlg-overlay {
   position: fixed;
@@ -8130,37 +8095,6 @@ button.sb-row {
 }
 .pw-pet-reset:hover { color: var(--text-1); border-color: var(--border); }
 
-/* 宠物颜色选择 */
-.pw-pet-colors { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pw-pet-color-chip {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid var(--border-soft);
-  cursor: pointer;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.12s ease, border-color 0.12s ease;
-}
-.pw-pet-color-chip:hover { transform: scale(1.1); }
-.pw-pet-color-chip.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
-.pw-pet-color-chip.is-default {
-  width: auto;
-  border-radius: 13px;
-  padding: 0 10px;
-  font-size: 11.5px;
-  color: var(--text-2);
-  background: var(--bg-main);
-}
-.pw-pet-color-chip.is-custom { position: relative; color: var(--text-3); background: var(--bg-main); overflow: hidden; }
-.pw-pet-color-chip.is-custom input[type="color"] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
 /* 预览中隐藏状态配件,只展示本体 */
 .pet-preview { display: block; }
 /* 设置页造型预览:真实 sprite 的 idle 首帧(静态,停在第 0 帧) */

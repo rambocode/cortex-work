@@ -18,22 +18,19 @@ import type { PetKind, PetState } from "@cortex-work/core";
 // cat 四核心态均为 AI 生成的真实序列帧(codex image_gen,参考图锚定保持同一只猫
 // → 绿幕去背 → ImageMagick 统一缩放/基线对齐拼成等宽 2x sheet → WebP)。
 import catIdle from "./assets/cat/idle.webp";
-import catWalk from "./assets/cat/walk.webp";
 import catHappy from "./assets/cat/happy.webp";
 import catSleeping from "./assets/cat/sleeping.webp";
 import dogIdle from "./assets/dog/idle.webp";
-import dogWalk from "./assets/dog/walk.webp";
 import dogHappy from "./assets/dog/happy.webp";
 import dogSleeping from "./assets/dog/sleeping.webp";
-// mint 帧数比 cat/dog 少(idle 3、walk 2、happy 3、sleeping 2),是首版可行性验证产出,
+// mint 帧数比 cat/dog 少(idle 3、happy 3、sleeping 2),是首版可行性验证产出,
 // 后续可用同一条 codex image_gen 流水线补齐到同等帧数而不影响这里的接线。
 import mintIdle from "./assets/mint/idle.webp";
-import mintWalk from "./assets/mint/walk.webp";
 import mintHappy from "./assets/mint/happy.webp";
 import mintSleeping from "./assets/mint/sleeping.webp";
 
-/** sprite 动画键。7 个 PetState 收敛到这 4 个核心动画(见 spriteKeyFor)。 */
-export type SpriteAnimKey = "idle" | "walk" | "happy" | "sleeping";
+/** sprite 动画键。7 个 PetState 收敛到这 3 个核心动画(见 spriteKeyFor)。 */
+export type SpriteAnimKey = "idle" | "happy" | "sleeping";
 
 export interface SpriteAnim {
   /** sheet 资产 URL(已归一化)。 */
@@ -64,25 +61,22 @@ const FH = 100;
  */
 export const PET_SPRITES: Partial<Record<PetKind, Partial<Record<SpriteAnimKey, SpriteAnim>>>> = {
   // fps 偏低是刻意的:这些是「姿态关键帧」而非补间动画,帧少、节奏要慢而柔,
-  // 否则像快放。dur = frames/fps:idle 2s 呼吸、walk 0.8s 步频、happy 0.83s 跳、
+  // 否则像快放。dur = frames/fps:idle 2s 呼吸、happy 0.83s 跳、
   // sleeping 2s/帧(pingpong 往复约 4s)。
   cat: {
     idle: { src: assetUrl(catIdle), frames: 4, frameW: FW, frameH: FH, fps: 2, loop: true },
-    walk: { src: assetUrl(catWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
     happy: { src: assetUrl(catHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
     sleeping: { src: assetUrl(catSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
   },
   dog: {
     idle: { src: assetUrl(dogIdle), frames: 4, frameW: FW, frameH: FH, fps: 2, loop: true },
-    walk: { src: assetUrl(dogWalk), frames: 4, frameW: FW, frameH: FH, fps: 5, loop: true },
     happy: { src: assetUrl(dogHappy), frames: 5, frameW: FW, frameH: FH, fps: 6, loop: false },
     sleeping: { src: assetUrl(dogSleeping), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: "pingpong" },
   },
   // mint 帧数比 cat/dog 少,fps 相应调低,使每个动画的播放时长(dur = frames/fps)
-  // 与 cat/dog 保持一致的节奏感(idle 2s、walk 0.8s、happy 0.83s、sleeping 单程 2s)。
+  // 与 cat/dog 保持一致的节奏感(idle 2s、happy 0.83s、sleeping 单程 2s)。
   mint: {
     idle: { src: assetUrl(mintIdle), frames: 3, frameW: FW, frameH: FH, fps: 1.5, loop: true },
-    walk: { src: assetUrl(mintWalk), frames: 2, frameW: FW, frameH: FH, fps: 2.5, loop: true },
     happy: { src: assetUrl(mintHappy), frames: 3, frameW: FW, frameH: FH, fps: 3.6, loop: false },
     sleeping: { src: assetUrl(mintSleeping), frames: 2, frameW: FW, frameH: FH, fps: 1, loop: "pingpong" },
   },
@@ -95,12 +89,10 @@ export function hasSprites(kind: PetKind): boolean {
 }
 
 /**
- * 把 (状态, 是否散步) 映射到 4 个核心动画键。
- * 散步优先(walk 是行为而非 PetState);其余信息性状态(typing/thinking/working/
- * replying)本期复用 idle 本体,状态语义靠后续的 SVG 配件叠加层表达(U4)。
+ * 把状态映射到 3 个核心动画键。信息性状态(typing/thinking/working/replying)
+ * 复用 idle 本体,状态语义靠 SVG 配件叠加层表达(见 Pet.tsx 的 .pet-accessories)。
  */
-export function spriteKeyFor(state: PetState, walking: boolean): SpriteAnimKey {
-  if (walking) return "walk";
+export function spriteKeyFor(state: PetState): SpriteAnimKey {
   if (state === "happy") return "happy";
   if (state === "sleeping") return "sleeping";
   return "idle";
@@ -110,9 +102,8 @@ export function spriteKeyFor(state: PetState, walking: boolean): SpriteAnimKey {
  * 解析出应播放的 SpriteAnim;角色无 sprite 返回 null(交由 SVG 兜底)。
  * 选中的动画键若缺资产,回退到该角色的 idle;idle 也缺则 null。
  */
-export function resolveSpriteAnim(kind: PetKind, state: PetState, walking: boolean): SpriteAnim | null {
+export function resolveSpriteAnim(kind: PetKind, state: PetState): SpriteAnim | null {
   const map = PET_SPRITES[kind];
   if (!map) return null;
-  const key = spriteKeyFor(state, walking);
-  return map[key] ?? map.idle ?? null;
+  return map[spriteKeyFor(state)] ?? map.idle ?? null;
 }

@@ -192,22 +192,11 @@
     "desc": "Pick a companion to keep you company; it switches animations based on typing, thinking, tool execution and more.",
     "cardTitle": "Pet",
     "showPet": "Show pet",
-    "behavior": "Behavior",
-    "behaviorDesc": "\"Free\" lets you drag it anywhere; \"Perch on composer\" only shows its head and front paws resting on the chat box.",
-    "modeFree": "Free",
-    "modePerch": "Perch on composer",
-    "walk": "Wander along the bottom when idle",
-    "walkDesc": "Strolls along the app's bottom edge after 10 minutes of inactivity, returning to the far right when there's activity.",
     "appearanceCard": "Look & appearance",
     "design": "Design",
     "size": "Size",
     "sizeAria": "Pet size",
-    "reset": "Reset",
-    "color": "Color",
-    "colorDesc": "Pick a main color and the fur shades derive automatically; \"Default\" restores each design's original palette.",
-    "colorDefault": "Default",
-    "colorDefaultTitle": "Default palette",
-    "colorCustomTitle": "Custom color"
+    "reset": "Reset"
   },
   "general": {
     "title": "General",

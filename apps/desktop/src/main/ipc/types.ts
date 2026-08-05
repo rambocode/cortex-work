@@ -1575,13 +1575,9 @@ export * from "../workflow/types";
 // (core 不能依赖 app 包,两侧各持一份;联合类型字面量须与 packages/core/store/pet.ts 保持一致)。
 export type PetState = "idle" | "typing" | "thinking" | "working" | "replying" | "sleeping" | "happy";
 export type PetKind = "cat" | "dog" | "mint";
-export type PetMode = "free" | "perch";
 export interface PetStateSnapshot {
   state: PetState;
   kind: PetKind;
-  mode: PetMode;
-  walk: boolean;
   enabled: boolean;
   size: number;
-  color: string | null;
 }

@@ -11,7 +11,7 @@ describe("SpriteLayer", () => {
   afterEach(cleanup);
 
   it("有 sprite 的角色渲染 .pet-sprite 并注入帧数 / 时长 / 背景", () => {
-    const { container } = render(<SpriteLayer kind="cat" state="idle" walking={false} />);
+    const { container } = render(<SpriteLayer kind="cat" state="idle" />);
     const el = container.querySelector(".pet-sprite") as HTMLElement;
     expect(el).not.toBeNull();
     expect(el.style.getPropertyValue("--sprite-frames")).toBe("4");
@@ -23,12 +23,12 @@ describe("SpriteLayer", () => {
   });
 
   it("状态切换改变所选 anim(idle→happy)", () => {
-    const { container, rerender } = render(<SpriteLayer kind="cat" state="idle" walking={false} />);
+    const { container, rerender } = render(<SpriteLayer kind="cat" state="idle" />);
     let el = container.querySelector(".pet-sprite") as HTMLElement;
     expect(el.getAttribute("data-anim-frames")).toBe("4");
-    expect(el.getAttribute("data-anim")).toBe("cat:idle:still");
+    expect(el.getAttribute("data-anim")).toBe("cat:idle");
 
-    rerender(<SpriteLayer kind="cat" state="happy" walking={false} />);
+    rerender(<SpriteLayer kind="cat" state="happy" />);
     el = container.querySelector(".pet-sprite") as HTMLElement;
     expect(el.getAttribute("data-anim-frames")).toBe("5"); // happy 5 帧
     // happy loop:false → 播一次停末帧
@@ -36,22 +36,22 @@ describe("SpriteLayer", () => {
     expect(el.style.animationFillMode).toBe("forwards");
   });
 
-  it("散步覆盖状态,选中 walk anim", () => {
-    const { container } = render(<SpriteLayer kind="cat" state="happy" walking={true} />);
+  it("信息性状态复用 idle 资产", () => {
+    const { container } = render(<SpriteLayer kind="cat" state="working" />);
     const el = container.querySelector(".pet-sprite") as HTMLElement;
-    expect(el.getAttribute("data-anim")).toBe("cat:happy:walk");
-    expect(el.style.backgroundImage).toContain(PET_SPRITES.cat!.walk!.src);
+    expect(el.getAttribute("data-anim")).toBe("cat:working");
+    expect(el.style.backgroundImage).toContain(PET_SPRITES.cat!.idle!.src);
   });
 
   it("sleeping 为 pingpong 往复", () => {
-    const { container } = render(<SpriteLayer kind="cat" state="sleeping" walking={false} />);
+    const { container } = render(<SpriteLayer kind="cat" state="sleeping" />);
     const el = container.querySelector(".pet-sprite") as HTMLElement;
     expect(el.style.animationDirection).toBe("alternate");
   });
 
   it("manifest 中无该角色时渲染 null(交由 Pet 回退 SVG)", () => {
     // cat/dog 均有 sprite;用越界 kind 触发 null 渲染分支
-    const { container } = render(<SpriteLayer kind={"ghost" as PetKind} state="idle" walking={false} />);
+    const { container } = render(<SpriteLayer kind={"ghost" as PetKind} state="idle" />);
     expect(container.querySelector(".pet-sprite")).toBeNull();
   });
 
