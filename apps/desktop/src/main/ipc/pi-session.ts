@@ -416,10 +416,10 @@ async function resolveInProcModel(req: PiOpenRequest): Promise<PiInProcModelSele
  * 返回的 `disposeMcp` 必须在会话 stop 时调用——MCP 的 stdio 子进程与在途 HTTP 请求
  * 不会随会话对象被 GC，漏调即连接泄漏累积。
  */
-async function buildInProcDeps(
+export async function buildInProcDeps(
   prepared: PiOpenRequest,
   hasUiOutlet: boolean,
-): Promise<{ deps: PiInProcDeps; disposeMcp: () => Promise<void> }> {
+): Promise<PiInProcDeps> {
   const hooks = createPiNativeHooks({
     enableToolApproval: prepared.enableToolApproval,
     approvalTools: prepared.approvalTools,
@@ -447,34 +447,46 @@ async function buildInProcDeps(
     }
   }
 
+  // 磁盘 extension 的两个来源合并成一个槽：Computer Use（我们按五门控决策注入的第三方包）
+  // 与扩展市场里用户自装的扩展（已过 UI 信任门 + filterLoadableExtensionPaths 的库存根闸）。
+  // 两者交付形态相同——目录路径交给 SDK 的 jiti 链路，等价 binary 路径的 `-e`。
+  //
+  // ⚠️ 安全边界变化（in-process 相对 binary 的**实质**差异，不是等价迁移）：
+  // binary 路径下这些扩展跑在**独立的 pi 子进程**里，能碰的只有文件系统与网络；
+  // in-process 后它们与主进程同址，理论上可以 `require("electron")` 摸到 app / session /
+  // BrowserWindow / safeStorage。信任模型因此从「用户装了个能读写文件的插件」变成
+  // 「用户装了个与宿主同权的插件」。
+  // 当前判断：可接受——扩展本就需要用户显式安装并逐个过 UI 信任门（`-a` 是整批信任，
+  // UI 那道门才是逐扩展强制点），且 Computer Use 走的是同一条路、已按此模型运行。
+  // 但这条差异必须留在代码里：日后若要放开「自动安装/静默更新扩展」，本注释即是否决依据。
+  const diskExtensionPaths = [
+    ...(prepared.inProcExtensionPaths ?? []),
+    ...(prepared.extensionPaths ?? []),
+  ];
+
   return {
-    deps: {
-      resolveModel: resolveInProcModel,
-      customTools: [...hooks.customTools, ...mcpTools],
-      extensionFactories: hooks.extensionFactories,
-      ...(prepared.inProcExtensionPaths?.length
-        ? { additionalExtensionPaths: prepared.inProcExtensionPaths }
-        : {}),
-    },
-    disposeMcp,
+    resolveModel: resolveInProcModel,
+    customTools: [...hooks.customTools, ...mcpTools],
+    extensionFactories: hooks.extensionFactories,
+    ...(diskExtensionPaths.length ? { additionalExtensionPaths: diskExtensionPaths } : {}),
+    // 释放交给引擎在 stop() 里统一调用——调用方那边停会话的路径有五六处，逐处补调必漏一处。
+    onDispose: disposeMcp,
   };
 }
 
 /**
- * in-process 路径下**仍未迁移**的能力做一次响亮告警。
+ * in-process 会话建立前的一次性提示。
  *
- * 审批 / todo / askquestion / MCP 桥 / Computer Use / 自定义 Provider 都已原生化，
- * 只剩「扩展市场装的第三方扩展」还没有 in-process 形态——它们是用户自己装的任意
- * npm/git 包，交付形态与 Computer Use 同类（磁盘目录），但需要逐个过信任门，另案处理。
+ * 能力侧已全部原生化（审批 / todo / askquestion / MCP 桥 / Computer Use / 自定义 Provider /
+ * 市场扩展），故这里不再是「未迁移告警」，而是记录**同址执行**这件事：磁盘 extension 在
+ * in-process 下与主进程同权（详见 `buildInProcDeps` 里的安全边界说明）。
  *
- * 不告警的话，开关一开这些能力会**静默消失**，而日志里没有任何线索。
+ * 保留成一条 info 而不是删掉：出问题时「这次会话加载了哪几个第三方扩展、跑在哪个进程里」
+ * 是第一手线索，而扩展导致的崩溃在 in-process 下表现为主进程异常，堆栈里往往看不出是扩展干的。
  */
-function warnUnmigratedCapabilities(prepared: PiOpenRequest): void {
-  if (prepared.extensionPaths?.length) {
-    log.warn(
-      `[in-process] 扩展市场的 ${prepared.extensionPaths.length} 个扩展尚未迁移到原生加载,本会话不生效`,
-    );
-  }
+function logInProcExtensionScope(prepared: PiOpenRequest): void {
+  const count = (prepared.inProcExtensionPaths?.length ?? 0) + (prepared.extensionPaths?.length ?? 0);
+  if (count) log.info(`[in-process] 本会话加载 ${count} 个磁盘 extension（与主进程同址执行）`);
 }
 
 export function registerPiSessionHandlers(): void {
@@ -513,28 +525,17 @@ export function registerPiSessionHandlers(): void {
     });
 
     let session: PiSessionEngine;
-    let disposeMcp: (() => Promise<void>) | undefined;
     if (useInProc) {
-      warnUnmigratedCapabilities(prepared);
+      logInProcExtensionScope(prepared);
       // hasUiOutlet=true：本路径总是接了 emitUiRequest（渲染端在监听 pi:uiRequest）。
-      // 无 UI 的是单发/编排那些路径，它们各自传 false。
-      const built = await buildInProcDeps(prepared, true);
-      disposeMcp = built.disposeMcp;
+      // 无 UI 的是单发那条路径，它不走这里。
       session = await openPiInProcSession({
         request: prepared,
         onEvent: (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
         onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
         askQuestionSentinel: prepared.askQuestionSentinel,
-        deps: built.deps,
+        deps: await buildInProcDeps(prepared, true),
       });
-      // MCP 的释放挂在 stop() 上而不是在各个清理点各写一遍：本文件有 5 处会停会话
-      // （重开 / sender destroyed / ready 失败 / pi:close / crashed），逐处补调迟早漏一处，
-      // 而漏掉的表现是 stdio 子进程与在途 HTTP 静默泄漏、越积越多。
-      const rawStop = session.stop.bind(session);
-      session.stop = () => {
-        rawStop();
-        void disposeMcp?.().catch((e: unknown) => log.warn(`[in-process] MCP 释放失败: ${String(e)}`));
-      };
     } else {
       const transport = spawnPiRpc(args, {
         cwd: prepared.cwd,

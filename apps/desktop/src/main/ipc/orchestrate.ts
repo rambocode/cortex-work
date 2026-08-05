@@ -61,13 +61,12 @@ import { buildRpcArgs, PiRpcSession, spawnPiRpc } from "../agents/pi-rpc";
 import {
   openPiInProcSession,
   shouldUsePiInProcEngine,
-  type PiInProcModelSelection,
   type PiSessionEngine,
 } from "../agents/pi-inproc";
 import { createPiSessionPool } from "../agents/pi-inproc/session-pool";
-import { getPiInprocModelRuntime, resolvePiInprocModel } from "../providers/pi-inproc-models";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
 import {
+  buildInProcDeps,
   clearTransientPiUiRequestsForSession,
   preparePiOpenRequest,
   registerTransientPiUiRequest,
@@ -405,36 +404,16 @@ function mapPiToCliEvent(ev: PiSessionEvent): CliStreamEvent | null {
   }
 }
 
-/**
- * 编排子会话的模型/Provider 解析（in-process 路径专用）。
- *
- * 镜像 `ipc/pi-session.ts` 的私有 `resolveInProcModel`（该函数未导出，本阶段不改那个文件）：
- * 无 providerId → 只给共享 `ModelRuntime`（pi 按 settings 选默认模型）；有则按 provider+model 解析。
- * 两处必须同源——编排子 agent 与主会话选出不同的模型是最难查的一类「行为不一致」。
- */
-async function resolveOrchestrateInProcModel(req: PiOpenRequest): Promise<PiInProcModelSelection> {
-  const providerId = req.providerId?.trim();
-  if (!providerId) return { modelRuntime: await getPiInprocModelRuntime() };
-  return resolvePiInprocModel({ providerId, modelId: req.model });
-}
 
 /**
- * in-process 路径下**尚未迁移**的能力做一次响亮告警（镜像 `ipc/pi-session.ts` 的同名私有函数）。
+ * 记录本编排段加载了几个磁盘 extension（对应 `ipc/pi-session.ts` 的 `logInProcExtensionScope`）。
  *
- * 编排子会话与主会话共用 `preparePiOpenRequest`，因此同样会生成 provider / 审批 / MCP 桥 /
- * computer-use 这批 `-e` extension 文件，而 in-process 引擎不消费文件路径（它要原生
- * `customTools` / `extensionFactories`）。不吵一声的话，子 agent 的**审批弹窗会无声消失**
- * ——等于安全闸静默失效，且日志里毫无线索。U3 迁完后本函数连同 pi-session 的孪生体一起删。
+ * 能力已全部原生化，这里不再是「未迁移告警」；留着是因为 in-process 下扩展与主进程同址执行，
+ * 出问题时崩的是主进程、堆栈里往往看不出是某个子 agent 的扩展干的，这条 info 是第一手线索。
  */
-function warnUnmigratedCapabilities(stage: OrchestrateStage, prepared: PiOpenRequest): void {
-  const pending: string[] = [];
-  if (prepared.piExtensionPath) pending.push("自定义 Provider extension");
-  if (prepared.extraExtensionPaths?.length) pending.push(`审批/工具/命令 extension × ${prepared.extraExtensionPaths.length}`);
-  if (prepared.extensionPaths?.length) pending.push(`市场扩展 × ${prepared.extensionPaths.length}`);
-  if (prepared.computerUseEnv && Object.keys(prepared.computerUseEnv).length) pending.push("Computer Use");
-  if (pending.length) {
-    log.warn(`[in-process] 编排段 ${stage} 的以下能力尚未迁移到原生注册,本段不生效（迁移计划 U3）: ${pending.join("、")}`);
-  }
+function logInProcExtensionScope(stage: OrchestrateStage, prepared: PiOpenRequest): void {
+  const count = (prepared.inProcExtensionPaths?.length ?? 0) + (prepared.extensionPaths?.length ?? 0);
+  if (count) log.info(`[in-process] 编排段 ${stage} 加载 ${count} 个磁盘 extension（与主进程同址执行）`);
 }
 
 async function runPiStage(opts: {
@@ -518,15 +497,19 @@ async function runPiStage(opts: {
         // 目标只是产出一个 `PiSessionEngine`；此后的 ready / prompt / 事件 / 释放全无分支。
         let opened: PiSessionEngine;
         if (useInProc) {
-          warnUnmigratedCapabilities(stage, req);
+          logInProcExtensionScope(stage, req);
           // cwd 路径闸对两条路径都要过：它守的是「能不能在这个目录里跑 agent」，与是否 spawn 无关。
           assertSpawnCwd(cwd);
+          // 依赖组装**复用** pi-session 的 buildInProcDeps，不在本文件另写一份：
+          // 子会话与主会话的能力集合（审批集、MCP 桥、Computer Use、模型解析）必须逐项一致，
+          // 两份实现迟早漂移，而「子 agent 少了一道审批闸」这种漂移不会有任何报错。
+          // MCP 的释放随 deps.onDispose 由引擎在 stop() 里统一做，本文件不需要额外收尾。
           opened = await openPiInProcSession({
             request: req,
             onEvent: (ev) => handlePiEvent(ev),
             onUiRequest: handleUiRequest,
             askQuestionSentinel: req.askQuestionSentinel,
-            deps: { resolveModel: resolveOrchestrateInProcModel },
+            deps: await buildInProcDeps(req, true),
           });
         } else {
           const args = buildRpcArgs(req);

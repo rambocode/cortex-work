@@ -150,6 +150,14 @@ export interface PiInProcDeps {
   sessionDir?: string;
   /** 包加载器注入点（单测替身）。 */
   loadModule?: () => Promise<PiCodingAgentModule>;
+  /**
+   * 会话停止时要一并释放的**外部**资源（当前是 MCP 桥：stdio 子进程 + 在途 HTTP）。
+   *
+   * 由引擎在 `stop()` 里统一调用，而不是让调用方各自包装 `stop()`——后者既会破坏
+   * `PiSessionEngine` 的方法身份（测试里 stop 不再是同一个函数），也必然在某条清理路径上漏调。
+   * 失败只记日志：释放失败不该阻断「会话已停止」这个事实。
+   */
+  onDispose?: () => Promise<void> | void;
 }
 
 export interface PiInProcOpenOptions {
@@ -235,6 +243,8 @@ export class PiInProcSession implements PiSessionEngine {
     private readonly uiBridge: PiUiBridge,
     private readonly onEvent: (ev: PiSessionEvent, runId?: string) => void,
     private readonly uiSessionId: string,
+    /** 外部资源释放钩子，见 `PiInProcDeps.onDispose`。 */
+    private readonly onDispose?: () => Promise<void> | void,
   ) {
     this.session = runtime.session;
     this.pump = createPiEventPump({
@@ -368,6 +378,13 @@ export class PiInProcSession implements PiSessionEngine {
     this.uiBridge.cancelAll();
     // dispose 会跑扩展的 session_shutdown 钩子，可能是异步的；失败不影响会话已被摘除的事实。
     void this.runtime.dispose().catch((err) => log.warn("pi 会话释放失败", { error: errText(err) }));
+    // 调用方注入的外部资源释放（当前是 MCP 桥的 stdio 子进程与在途 HTTP）。
+    // 放在引擎内部而不是让每个调用方包装 stop()：调用方那边停会话的路径有五六处
+    //（重开 / 渲染端销毁 / ready 失败 / 主动关闭 / crashed / 编排 settle），逐处补调必漏一处，
+    // 而漏掉的表现是连接静默泄漏、越积越多。这里是唯一收口。
+    void Promise.resolve(this.onDispose?.()).catch((err) =>
+      log.warn("pi 会话外部资源释放失败", { error: errText(err) }),
+    );
     // scope 沿用 "pi"（AgentTraceEvent 的封闭联合，不为本次迁移扩张 IPC 契约 —— R1）；
     // 是哪条引擎路径由 summary 与 data.engine 区分。
     recordAgentTrace({
@@ -714,7 +731,7 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
     ...(askQuestionSentinel ? { askQuestionSentinel } : {}),
   });
 
-  const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId);
+  const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, deps.onDispose);
   notifySlot.emit = session.notifySink();
   await session.rebind();
 

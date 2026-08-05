@@ -96,6 +96,10 @@ const piMocks = vi.hoisted(() => {
     preparePiOpenRequestMock: vi.fn(),
     registerTransientPiUiRequestMock: vi.fn(),
     clearTransientPiUiRequestsForSessionMock: vi.fn(),
+    // 依赖组装复用 pi-session 的 buildInProcDeps（能力集合两处必须逐项一致）。
+    // 这里只给一个可观测替身：真实行为由 pi-session 侧的用例覆盖，本文件关心的是
+    // 「编排确实走了那条共用实现」以及「返回的 deps 被原样透传给 openPiInProcSession」。
+    buildInProcDepsMock: vi.fn(),
     fakePiSessions,
     promptResults,
     FakePiSession,
@@ -108,6 +112,7 @@ const {
   preparePiOpenRequestMock,
   registerTransientPiUiRequestMock,
   clearTransientPiUiRequestsForSessionMock,
+  buildInProcDepsMock,
   fakePiSessions,
   promptResults,
 } = piMocks;
@@ -132,6 +137,7 @@ vi.mock("./pi-session", () => ({
   preparePiOpenRequest: (...args: unknown[]) => preparePiOpenRequestMock(...args),
   registerTransientPiUiRequest: (...args: unknown[]) => registerTransientPiUiRequestMock(...args),
   clearTransientPiUiRequestsForSession: (...args: unknown[]) => clearTransientPiUiRequestsForSessionMock(...args),
+  buildInProcDeps: (...args: unknown[]) => buildInProcDepsMock(...args),
 }));
 
 vi.mock("../log", () => ({
@@ -326,6 +332,12 @@ beforeEach(() => {
   preparePiOpenRequestMock.mockReset();
   registerTransientPiUiRequestMock.mockReset();
   clearTransientPiUiRequestsForSessionMock.mockReset();
+  buildInProcDepsMock.mockReset();
+  // 默认替身：deps 里放一个可辨识的 resolveModel，用于断言「原样透传」；disposeMcp 可观测释放。
+  buildInProcDepsMock.mockImplementation(async () => ({
+    resolveModel: vi.fn(async () => ({})),
+    onDispose: vi.fn(async () => {}),
+  }));
   promptResults.length = 0;
   buildRpcArgsMock.mockImplementation((req: { uiSessionId?: string }) => ["--mode", "rpc", req.uiSessionId ?? ""]);
   spawnPiRpcMock.mockReturnValue({});
@@ -1388,19 +1400,29 @@ describe("U6 引擎选路（单一灰度开关）", () => {
     expect(openArgs[2]!.request.appendSystemPrompt).toBeUndefined();
   });
 
-  it("模型解析注入：无 providerId 用共享 ModelRuntime，有则按 provider+model 解析", async () => {
+  // 依赖组装（模型解析 / 审批 hook / MCP 桥 / Computer Use）复用 pi-session 的 buildInProcDeps，
+  // 编排侧不再自己实现一份 —— 子会话与主会话的能力集合必须逐项一致，两份实现迟早漂移，
+  // 而「子 agent 少了一道审批闸」这种漂移不会有任何报错。这里守的就是「确实复用了」。
+  it("依赖组装复用 pi-session 的 buildInProcDeps，且 deps 原样透传给引擎", async () => {
     inprocMocks.shouldUseInProcMock.mockReturnValue(true);
     const { handlerP } = startPiOrchestration();
     await runThreeInProcStages(handlerP);
 
-    const resolveModel = (inprocMocks.openInProcMock.mock.calls[0]![0] as {
-      deps: { resolveModel: (req: unknown) => Promise<unknown> };
-    }).deps.resolveModel;
+    // 三段各组装一次，且都声明有 UI 出口（编排链路接了 handleUiRequest）。
+    expect(buildInProcDepsMock).toHaveBeenCalledTimes(3);
+    for (const call of buildInProcDepsMock.mock.calls) {
+      expect(call[1]).toBe(true);
+    }
 
-    await resolveModel({ providerId: "  " });
-    expect(getPiInprocModelRuntimeMock).toHaveBeenCalled();
-    await resolveModel({ providerId: "custom-x", model: "gpt-9" });
-    expect(resolvePiInprocModelMock).toHaveBeenCalledWith({ providerId: "custom-x", modelId: "gpt-9" });
+    // 透传：引擎拿到的 deps 必须就是 buildInProcDeps 返回的那个对象，不允许中途重建。
+    // MCP 的释放挂在 deps.onDispose 上，由引擎在 stop() 里统一调用——调用方不再包装 stop()，
+    // 那种包法既破坏 PiSessionEngine 的方法身份，也必然在某条清理路径上漏调。
+    for (let i = 0; i < 3; i += 1) {
+      const built = await (buildInProcDepsMock.mock.results[i]!.value as Promise<Record<string, unknown>>);
+      const passed = (inprocMocks.openInProcMock.mock.calls[i]![0] as { deps: unknown }).deps;
+      expect(passed).toBe(built);
+      expect(built.onDispose).toBeTypeOf("function");
+    }
   });
 });
 
