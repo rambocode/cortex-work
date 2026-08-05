@@ -4,9 +4,10 @@
 // - 底部固定用户行承载头像菜单（闪记 / 自动化 / Loop / 显示宠物 / 设置）与消息铃铛。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, usePersonalStore } from "@cortex-work/core";
+import { CoreProvider, usePersonalStore, usePetStore } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, ProjectMeta, SessionMeta } from "@cortex-work/core";
+import { PET_ENABLED_KEY } from "../../pet/behavior";
 import { PersonalSidebar } from "./PersonalSidebar";
 
 // 侧栏渲染只需最小 bridge：探测 editors 用 listEditors（缺则空），其余方法只用于能力门控。
@@ -193,6 +194,21 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(menu?.textContent).toContain("Loop");
     expect(menu?.textContent).toContain("设置");
     expect(menu?.textContent).toContain("显示宠物");
+  });
+
+  // 回归：头像菜单里切「显示宠物」曾只改 petStore 不落盘，重启后被 loadPetEnabled 覆盖回旧值。
+  it("头像菜单切换显示宠物时持久化到 localStorage", () => {
+    localStorage.removeItem(PET_ENABLED_KEY);
+    usePetStore.setState({ enabled: true });
+    const { container } = renderSidebar(bridgeWith());
+
+    fireEvent.click(container.querySelector(".pw-sb-user")!);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /显示宠物/ }));
+    expect(usePetStore.getState().enabled).toBe(false);
+    expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("0");
+
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /显示宠物/ }));
+    expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("1");
   });
 
   // 铃铛是 desktop-only 能力：桥缺 notificationCenterList（web / 旧壳）时整体隐藏，
