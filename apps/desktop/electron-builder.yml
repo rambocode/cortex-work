@@ -30,14 +30,19 @@ files:
   - package.json
   # 防私有源码结构经 sourcemap 泄入公开产物（生产构建默认不出 .map,这里再加一道防御,见计划 F6）。
   - "!**/*.map"
-  # pi 聊天会话走 resources/pi 下的 bun 自包含二进制（extraResources）,故 pi-coding-agent 及其
-  # TUI/agent-core 不必进 asar。⚠️ 但 @earendil-works/pi-ai **必须保留**:主进程的连接测试与
-  # Model Gateway（providers/pi-runtime.ts、custom-provider-registry.ts）在运行时用 @vite-ignore
-  # 动态 import 加载它——bundler 刻意不打包,只能靠 asar 里的 node_modules 解析。曾经的作用域
-  # 整体排除(!@earendil-works/**)让 0.1.52/0.1.53 正式包的连接测试全数报「模型运行时不可用」。
-  - "!**/node_modules/@earendil-works/pi-coding-agent/**"
-  - "!**/node_modules/@earendil-works/pi-agent-core/**"
-  - "!**/node_modules/@earendil-works/pi-tui/**"
+  # ⚠️ @earendil-works 作用域整体**不得排除**。这里的判据在 pi 由二进制迁 in-process 后变了:
+  #   旧判据(已作废):pi 聊天会话走 resources/pi 的 bun 自包含二进制、依赖全 inline,故
+  #     pi-coding-agent / pi-agent-core / pi-tui 三包在 asar 里纯属冗余,曾被显式排除。
+  #   新判据(现行):主进程直接 in-process 调用 pi-coding-agent 的 SDK（createAgentSession）,
+  #     三包变成**主进程运行时依赖**——与 pi-ai 同构,都是 bundler 刻意不打包、只能靠 asar 里
+  #     的 node_modules 按包名解析（KTD1:动态 import + 变量 specifier + @vite-ignore）。
+  # 排除其中任何一个 = 首次进入聊天时 ERR_MODULE_NOT_FOUND。作用域整体排除
+  # (!@earendil-works/**)正是让 0.1.52/0.1.53 正式包连接测试全数报「模型运行时不可用」的原因,
+  # 而这类事故**只在正式包暴露**（开发态从仓库 node_modules 解析,永远看不到）。
+  # 已实测:三包在打包 app 的 asar 内按包名动态 import 成功,asar 因此约 +18MB。
+  # 消费点:pi-ai 见 providers/pi-runtime.ts、providers/custom-provider-registry.ts;
+  #        三包见 agents/ 下的 in-process 引擎层。
+  # ——故此处不再列 pi-coding-agent / pi-agent-core / pi-tui 的排除项,保留本段说明防止被「顺手优化」回去。
   # agent-browser 通过 extraResources 仅携带目标平台二进制；npm 包含的其它平台二进制全部排除。
   - "!**/node_modules/agent-browser/**"
   # node-pty 自带 prebuilds/<platform-arch> 全架构预编译二进制,运行时按 platform/arch 自动选择;
@@ -58,7 +63,11 @@ files:
   # 故主进程那次 dynamic import 也 bundle 进 out/main。两端都不 require asar 这份,排除即纯省体积。
   # 发版前按本段抬头「打包后启动应用,控制台无 Cannot find module」核查一次(尤其 PDF 打开 + 检索索引路径)。
   - "!**/node_modules/pdfjs-dist/**"           # 12MB+  PDF 渲染/解析(renderer+main 均已 bundle）
-  - "!**/node_modules/highlight.js/**"         # 1.6MB  代码高亮
+  # ⚠️ highlight.js **不再排除**（曾以「纯 renderer 代码高亮 1.6MB,已 bundle 进 out/」为由排除）:
+  # pi in-process 化后它同时是 @earendil-works/pi-coding-agent → pi-tui 的**运行时依赖**
+  # （TUI 侧的语法高亮）。主进程并不用 TUI,但上游 exports 只有 `.` 与 `./rpc-entry`,import 图
+  # 躲不开,asar 里必须留这份——否则首次 createAgentSession 即 ERR_MODULE_NOT_FOUND,且只在正式包暴露。
+  # renderer 那份仍随 out/ bundle,二者并存(asar 这份是主进程必需,非冗余)。
   - "!**/node_modules/marked/**"               # markdown 渲染
   - "!**/node_modules/tailwind-merge/**"
   # ⚠️ LLM SDK 不再排除（曾以「core 引入,全部随 renderer bundle」为由排除过）:
@@ -67,7 +76,11 @@ files:
   # @aws-sdk+@smithy...),排除任何一个都会让对应供应商的连接测试/Model Gateway 在正式包里
   # 首次使用时 ERR_MODULE_NOT_FOUND。名单以 pi-ai 依赖闭包为准,升级 pi 后如需再做体积
   # 优化,必须先重新求一遍闭包再动排除项。
-  - "!**/node_modules/@silvia-odwyer/**"       # 2.1MB photon 图像（pi 二进制自带,不在 pi-ai 闭包内）
+  # ⚠️ @silvia-odwyer（photon 图像处理,2.1MB）**不再排除**（曾以「pi 二进制自带、不在 pi-ai
+  # 闭包内」为由排除）:该理由随 pi in-process 化失效——photon 是 @earendil-works/pi-coding-agent
+  # 的**直接依赖**（图像处理/截图缩放),现由主进程从 asar 解析。它还是 wasm/native 侧的包,
+  # 排除后的表现同样是首次用到时 ERR_MODULE_NOT_FOUND,只在正式包暴露。
+  # ⚠️ 若后续再做体积优化:photon 与 jiti 在 asar 内的加载行为需实测,不能只按闭包纸面推断。
   # 注意:zod 不能排除!主进程的 @modelcontextprotocol/sdk(浏览器控制 MCP server)走
   # externalizeDepsPlugin、运行时从 asar node_modules require zod(且 require('zod/v3')),
   # 排除会导致打包后启动崩溃 "Cannot find module 'zod/v3'"。renderer 那份 zod 仍随 out/ bundle,
@@ -102,6 +115,10 @@ extraResources:
     to: agent-browser
   # pi 的 bun 二进制 + 旁置资产（theme/assets/export-html/wasm）,由 scripts/build-pi-binary.mjs
   # 生成；落到 <App>/Contents/Resources/pi/,pi-locate.resolvePiBinary 打包态指向这里。
+  # ⚠️ 迁移期保留(暂不删):pi 正在从「二进制 + spawn」迁到「主进程 in-process 调 SDK」,
+  # 两条路径由灰度开关并存、可随时回退到二进制。本段（连同 build-pi-binary.mjs、package.json 的
+  # build:pi 步骤、「双架构必须串行」的约束）的删除是迁移计划 U7 阶段的独立动作,不要提前动。
+  # 删除后包体净减约 66MB（asar +18MB / resources/pi −84MB）。
   - from: resources/pi
     to: pi
   # Cortex_Helper（快捷回复的 macOS 原生伴生二进制:AX/CGEventPost/Vision OCR/EventKit/事件 tap）,
@@ -126,9 +143,11 @@ extraResources:
   # 落到 <App>/Contents/Resources/whisper/<platform>-<arch>/，resolveWhisperRunner 打包态指向这里。
   - from: resources/whisper
     to: whisper
-# pi 现在走 resources/pi 下的 bun 自包含二进制（extraResources,不进 asar）,依赖全 inline,
-# 故无需再为 pi 依赖 unpack 任何 node_modules。这里只留必须落地的原生模块:node-pty。
+# pi 迁 in-process 后,三个 pi 包（coding-agent / agent-core / tui）以**纯 JS/ESM** 形式留在 asar 内,
+# 已实测可从 asar 按包名动态 import,故**不需要** unpack。这里只列必须以真实文件落地的原生模块。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）
+# ⚠️ 待观察项:pi-coding-agent 闭包里的 jiti（运行时 TS 加载）与 photon-node（native/wasm）在 asar
+# 内的行为要在护栏脚本里持续验证;若将来实测某个 .node 无法从 asar 加载,在此追加 unpack 而非改回排除。
 asarUnpack:
   # Research Worker（CRE）：utilityProcess.fork 的入口是纯 JS，理论上从 asar 内加载没问题，
   # 但子进程的模块解析根与 asar 边界的交互历史上不稳（见 doc-extract 的教训），且解包纯 JS
