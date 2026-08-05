@@ -7950,6 +7950,111 @@ button.sb-row {
 }
 .pw-pet-reset:hover { color: var(--text-1); border-color: var(--border); }
 
+/* —— 当前宠物 + 图鉴选择器 —— */
+.pw-pet-current { display: flex; align-items: center; gap: 12px; }
+.pw-pet-current-meta { flex: 1; min-width: 0; }
+.pw-pet-current-actions { display: flex; gap: 6px; }
+.pw-pet-current-actions button,
+.pw-pet-cache button {
+  border: 1px solid var(--border-soft);
+  background: var(--bg-main);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pw-pet-current-actions button:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
+.pw-pet-current-actions button:disabled { opacity: 0.5; cursor: default; }
+.pw-pet-cache { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-3); }
+
+.pw-petdex { margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; }
+.pw-petdex-bar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-soft); }
+.pw-petdex-search { flex: 1; min-width: 0; }
+.pw-petdex-kinds { display: flex; gap: 2px; }
+.pw-petdex-kinds button {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pw-petdex-kinds button:hover { color: var(--text-1); }
+.pw-petdex-kinds button.is-active { color: var(--text-1); background: var(--bg-hover); border-color: var(--border-soft); }
+.pw-petdex-close { border: none; background: transparent; color: var(--text-3); cursor: pointer; display: inline-flex; }
+.pw-petdex-close:hover { color: var(--text-1); }
+
+.pw-petdex-note { padding: 10px; font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 8px; }
+.pw-petdex-note.is-stale { color: var(--amber); }
+.pw-petdex-note.is-error { color: var(--red, #c0504d); }
+.pw-petdex-note button { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
+
+/* 每张卡的图就是完整 sprite sheet(petdex 没有缩略图端点),故一页固定 24 张 + 分页,
+   不做无限滚动——否则用户会在不知情的情况下拉爆流量。 */
+.pw-petdex-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.pw-petdex-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.pw-petdex-card:hover { background: var(--bg-hover); }
+.pw-petdex-card.is-active { border-color: var(--accent); background: var(--bg-hover); }
+/* 缩略图只取左上第一格:按主流的 8 列 × 9 行把 sheet 放大到那么多个容器大小,
+   定位到 0 0 即是第 0 帧的 idle。少数 11 行/9 列的 sprite 会略有偏差,缩略图可接受。 */
+.pw-petdex-thumb {
+  width: 100%;
+  aspect-ratio: 192 / 208;
+  background-repeat: no-repeat;
+  background-size: 800% 900%;
+  background-position: 0 0;
+  background-color: var(--bg-main);
+  border-radius: 6px;
+}
+.pw-petdex-name {
+  font-size: 11px;
+  color: var(--text-3);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pw-petdex-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pw-petdex-foot button {
+  border: 1px solid var(--border-soft);
+  background: var(--bg-main);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pw-petdex-foot button:disabled { opacity: 0.45; cursor: default; }
+.pw-petdex-total { margin-left: auto; }
+
 /* 设置页造型预览:复用宠物本体的渲染器(frozen = 只画第 0 帧)。
    此前要用一串 display:none 把配件逐个反选隐藏,canvas 化后配件天然不出现。 */
 .pet-preview { display: block; }

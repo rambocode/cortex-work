@@ -23,7 +23,6 @@ import {
   useDesktopBridge,
   usePersonalProfile,
   usePersonalStore,
-  usePetStore,
   useUpdateState,
 } from "@cortex-work/core";
 import { UpdateDialog } from "../../UpdateDialog";
@@ -41,9 +40,7 @@ import type {
 } from "@cortex-work/core";
 import type { Density, FontScale, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
-import { PET_SIZE_MAX, PET_SIZE_MIN, patchPetPrefs } from "../../pet/prefs";
-import { PetCanvas } from "../../pet/PetCanvas";
-import { BUILTIN_KIND } from "../../pet/sheets";
+import { PetSettingsSection } from "./PetSettingsSection";
 import { PluginManager } from "../plugins/PluginManager";
 import { ArchivedSessionsSection } from "../sessions/ArchivedSessionsSection";
 import { SpeechSettingsSection } from "./SpeechSettingsSection";
@@ -214,62 +211,6 @@ function ProfileSection() {
             </div>
           ) : null}
         </SBlock>
-      </SettingCard>
-    </>
-  );
-}
-
-function PetSection() {
-  const { t } = useTranslation("settings");
-  const { t: tPet } = useTranslation("pet");
-  const petSprite = usePetStore((s) => s.sprite);
-  const petEnabled = usePetStore((s) => s.enabled);
-  const petSize = usePetStore((s) => s.size);
-  // 单一端口:改运行时 store 与落盘由 patchPetPrefs 一并完成,调用方不需要配对。
-  const pickEnabled = (v: boolean) => patchPetPrefs({ enabled: v });
-  const pickSize = (v: number) => patchPetPrefs({ size: v });
-  return (
-    <>
-      <div className="pw-dlg-title">{t("pet.title")}</div>
-      <div className="pw-dlg-desc">{t("pet.desc")}</div>
-
-      <SettingCard title={t("pet.cardTitle")}>
-        <SwitchRow label={t("pet.showPet")} value={petEnabled} onChange={pickEnabled} />
-      </SettingCard>
-
-      <SettingCard title={t("pet.appearanceCard")}>
-        <SBlock label={t("pet.design")}>
-          {/* 预览复用宠物本体的渲染器(frozen = 只画第 0 帧、不起定时器),
-              内置角色与 petdex 图鉴宠物走的是同一条渲染路径,所见即所得。 */}
-          <div className="pw-pet-grid">
-            <div className="pw-pet-card is-active">
-              <span className="pet-preview">
-                <PetCanvas sprite={petSprite} state="idle" width={84} frozen />
-              </span>
-              <span className="pw-pet-name">{petSprite?.displayName ?? tPet(`kind.${BUILTIN_KIND}.name`)}</span>
-              <span className="pw-pet-desc">{tPet(`kind.${BUILTIN_KIND}.desc`)}</span>
-            </div>
-          </div>
-        </SBlock>
-        <SRow label={t("pet.size")}>
-          <div className="pw-pet-size">
-            <input
-              type="range"
-              min={PET_SIZE_MIN}
-              max={PET_SIZE_MAX}
-              step={0.05}
-              value={petSize}
-              onChange={(e) => pickSize(Number(e.target.value))}
-              aria-label={t("pet.sizeAria")}
-            />
-            <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
-            {petSize !== 1 ? (
-              <button className="pw-pet-reset" onClick={() => pickSize(1)}>
-                {t("pet.reset")}
-              </button>
-            ) : null}
-          </div>
-        </SRow>
       </SettingCard>
     </>
   );
@@ -1102,7 +1043,7 @@ export function PersonalSettingsView() {
           ) : tab === "pi" ? (
             <ModelsSection />
           ) : tab === "pet" ? (
-            <PetSection />
+            <PetSettingsSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (
