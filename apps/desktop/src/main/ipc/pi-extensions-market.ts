@@ -26,7 +26,6 @@ import { ipcMain } from "electron";
 import { homedir } from "os";
 
 import { createLogger } from "../log";
-import { buildEnv } from "./cli";
 import type { PiExtInstallResult } from "./types";
 
 const log = createLogger("pi-ext");
@@ -133,7 +132,7 @@ export function __setPiPackageSessionForTest(factory: PiPackageSessionFactory | 
   sessionFactory = factory ?? createRealSession;
 }
 
-// ── 操作外壳:串行化 + PATH 补齐 + 超时 + 进度收集 ────────────────────────────
+// ── 操作外壳:串行化 + 超时 + 进度收集 ──────────────────────────────────────
 
 // 串行化:所有包管理操作排队,回避并发写 settings.json / npm 目录的竞争。
 let chain: Promise<unknown> = Promise.resolve();
@@ -150,11 +149,12 @@ function errorText(err: unknown): string {
 /**
  * 在受控环境里跑一次包管理操作。
  *
- * PATH 补齐是这里最容易被忽略的一条:`DefaultPackageManager` spawn npm/git 时直接用
- * `process.env`,而 GUI 启动的 Electron 主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm
- *（旧的 spawn 路径靠 `spawnEnvFor` 的 `buildEnv()` 补齐,in-process 后这层没了）。
- * 因为所有操作都被 serialize 串起来,临时改写 `process.env.PATH` 不会与其它操作交错;
- * finally 里恢复原值。已 spawn 的子进程在 spawn 时就取走了 env,恢复不影响它们。
+ * PATH 依赖:`DefaultPackageManager` spawn npm/git 时直接用 `process.env`,而 GUI 启动的
+ * Electron 主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm（旧的 spawn 路径靠
+ * `spawnEnvFor` 的 `buildEnv()` 逐次补齐,in-process 后这层没了）。补齐已上移到启动期的
+ * `ensureProcessPath()`（`main/index.ts`）—— 此处不再临时改写 `process.env.PATH`:
+ * 那种「改完再还原」的写法有还原窗口,窗口内任何并发 spawn（agent CLI / pty / helper /
+ * whisper 都在并发）都会读到被改的值,是能跑但脆的全局可变状态。
  */
 function runPackageOp<T>(
   label: string,
@@ -164,8 +164,6 @@ function runPackageOp<T>(
   return serialize(async () => {
     const session = await sessionFactory();
     const progress: string[] = [];
-    const prevPath = process.env.PATH;
-    process.env.PATH = buildEnv().PATH;
     session.pm.setProgressCallback((event) => {
       if (event.message) progress.push(event.message);
       log.debug(`[${label}] ${event.action}/${event.type} ${event.source}${event.message ? `: ${event.message}` : ""}`);
@@ -184,8 +182,6 @@ function runPackageOp<T>(
     } finally {
       if (timer) clearTimeout(timer);
       session.pm.setProgressCallback(undefined);
-      if (prevPath === undefined) delete process.env.PATH;
-      else process.env.PATH = prevPath;
     }
   });
 }

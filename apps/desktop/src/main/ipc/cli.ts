@@ -385,6 +385,23 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
+/**
+ * 把补齐后的 PATH 写回 `process.env.PATH`，启动时调一次即可（幂等）。
+ *
+ * 为什么需要：GUI 启动的 Electron 主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm
+ * （从 Finder/Dock 拉起时不经登录 shell）。`spawnEnvFor` 这条路径靠 `buildEnv()` 逐次补齐，
+ * 但**不经过它**的第三方 spawn 就没人补——典型如 pi SDK 的 `DefaultPackageManager`，
+ * 它内部直接用 `process.env` 起 npm，装包会以「找不到 npm」失败。
+ *
+ * 早年那种「用到时临时改写 process.env.PATH、finally 还原」的写法能跑但脆：还原窗口期内
+ * 任何并发 spawn 都会读到被改的值，而主进程里 agent CLI / pty / helper / whisper 全在并发 spawn。
+ * 索性在启动期一次性补齐——PATH 只增不减（`mergePathWithPreferredDirs` 去重后拼接，
+ * extras 全部经过 `existsSync` 过滤），补齐后 `buildEnv()` 再算一次结果相同，故对既有路径无行为影响。
+ */
+export function ensureProcessPath(): void {
+  process.env.PATH = buildEnv().PATH;
+}
+
 // 按 agent 定制子进程环境：pi 把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension
 // 里 apiKey:"$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
 export function spawnEnvFor(req: {

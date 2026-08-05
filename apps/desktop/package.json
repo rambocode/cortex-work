@@ -7,6 +7,8 @@
   "scripts": {
     "build:pi": "node scripts/build-pi-binary.mjs",
     "build:pi-catalog": "node scripts/build-pi-catalog.mjs",
+    "verify:pi-inproc": "node scripts/verify-pi-inprocess.mjs",
+    "verify:pi-packaging": "node scripts/verify-pi-ai-packaging.mjs",
     "sync:bento": "node scripts/sync-bento-runtime.mjs",
     "build:cortex-helper": "node scripts/build-cortex-helper.mjs",
     "build:whisper": "node scripts/prepare-whisper-runner.mjs --platform darwin --arch arm64",

@@ -131,6 +131,7 @@ vi.mock("./codex-ws-run", () => ({
 import {
   __runDelegateSubAgentForTest,
   detectAgents,
+  ensureProcessPath,
   envForCommand,
   mergePathWithPreferredDirs,
   nvmBinDirs,
@@ -1250,6 +1251,35 @@ describe("resolveSpawnCwd 无项目会话兜底", () => {
     const real = mkdtempSync(join(tmpdir(), "spawn-cwd-"));
     expect(resolveSpawnCwd(`  ${real}  `)).toBe(real);
     rmSync(real, { recursive: true, force: true });
+  });
+});
+
+// GUI 启动（Finder/Dock,不经登录 shell）的主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm。
+// 走 spawnEnvFor 的路径本来就逐次补齐,但第三方库自己 spawn 时只认 process.env
+//（如 pi SDK 的 DefaultPackageManager 起 npm 装包）,故启动期一次性补齐。
+describe("ensureProcessPath", () => {
+  const original = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = original;
+  });
+
+  it("只增不减:原有目录一个不丢", () => {
+    process.env.PATH = "/original/bin:/another/bin";
+    ensureProcessPath();
+    const dirs = (process.env.PATH ?? "").split(":");
+    expect(dirs).toContain("/original/bin");
+    expect(dirs).toContain("/another/bin");
+  });
+
+  it("幂等:连调两次结果不变,也不会把补齐目录堆两遍", () => {
+    process.env.PATH = "/original/bin";
+    ensureProcessPath();
+    const once = process.env.PATH;
+    ensureProcessPath();
+    expect(process.env.PATH).toBe(once);
+    // 去重由 mergePathWithPreferredDirs 保证;这里额外守住「没有重复条目」这条性质。
+    const dirs = (process.env.PATH ?? "").split(":");
+    expect(new Set(dirs).size).toBe(dirs.length);
   });
 });
 

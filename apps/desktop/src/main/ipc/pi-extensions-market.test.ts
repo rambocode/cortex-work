@@ -248,12 +248,15 @@ describe("pi-ext:list / remove", () => {
   });
 });
 
-describe("PATH 补齐（GUI 启动的主进程 PATH 里通常没有 node/npm）", () => {
+describe("PATH（补齐已上移到启动期的 ensureProcessPath）", () => {
   beforeEach(() => {
     process.env.PATH = "/original/bin";
   });
 
-  it("操作期间 process.env.PATH 用 buildEnv() 的值,结束后还原", async () => {
+  // 早先这里守的是「操作期间临时改写 process.env.PATH、finally 还原」。那个写法能跑但脆:
+  // 还原窗口内任何并发 spawn（agent CLI / pty / helper / whisper 都在并发）都会读到被改的值。
+  // 现在补齐一次性发生在启动期（main/index.ts 的 ensureProcessPath），本模块不再碰全局状态。
+  it("包管理操作全程不改写 process.env.PATH", async () => {
     let seen = "";
     const f = fakeSession({
       installImpl: async (source, installed) => {
@@ -264,7 +267,8 @@ describe("PATH 补齐（GUI 启动的主进程 PATH 里通常没有 node/npm）"
     __setPiPackageSessionForTest(async () => f.session);
 
     await callInstall("npm:path");
-    expect(seen).toBe("/fake/bin");
+    // 操作期间读到的就是进程当前值——没有临时替换，也就没有还原窗口。
+    expect(seen).toBe("/original/bin");
     expect(process.env.PATH).toBe("/original/bin");
   });
 });

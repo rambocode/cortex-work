@@ -119,6 +119,7 @@ import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
+import { ensureProcessPath } from "./ipc/cli";
 import { installAppMenu } from "./app-menu";
 import { createLogger } from "./log";
 import { createMainWindowOptions } from "./main-window-geometry";
@@ -129,6 +130,12 @@ const log = createLogger("main");
 // → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
 // 不杀进程(ipcMain.handle 链内的 reject 由 Electron 转发渲染端,不会到这里)。
 installGlobalCrashGuards();
+
+// PATH 补齐要早于任何 spawn / 包管理调用:GUI 启动（Finder/Dock,不经登录 shell）的主进程
+// PATH 里通常没有 nvm / homebrew 的 node 与 npm。走 spawnEnvFor 的路径本来就会经 buildEnv()
+// 补齐,但第三方库自己 spawn 时只认 process.env（如 pi SDK 的 DefaultPackageManager 起 npm 装包）。
+// 只增不减、幂等,故对既有 spawn 行为无影响。
+ensureProcessPath();
 
 // petdex 图鉴的 cortex-petdex:// 只读协议:特权注册必须发生在 app.ready 之前,
 // 故放在模块顶层而非 whenReady 回调里(晚了 Electron 会拒绝注册)。
