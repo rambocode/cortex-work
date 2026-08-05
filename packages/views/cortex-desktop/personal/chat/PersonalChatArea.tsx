@@ -501,7 +501,7 @@ export function PersonalChatArea({
                 type="button"
                 className="m-act-btn"
                 title={speaking ? "停止朗读" : "朗读这条回复"}
-                onClick={() => (speaking ? stopSpeaking() : void speakText(bridge, ttsSettings, msgText))}
+                onClick={() => (speaking ? stopSpeaking() : void speakText(bridge, ttsSettings, msgText, { allowFallback: true }))}
               >
                 {speaking ? <Icon.Stop size={15} /> : <Icon.Run size={15} />}
               </button>

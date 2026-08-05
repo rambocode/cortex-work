@@ -166,11 +166,12 @@ function VoiceChat(): React.ReactElement {
     // 本地慢速推理(如 OMLX)下首响会拖到全篇合成结束。
     const ttsBridge = {
       ttsSynthesize: api.ttsSynthesize,
+      ttsSynthesizeEdge: api.ttsSynthesizeEdge,
       ttsSynthesizeStream: api.ttsSynthesizeStream,
       // stopSpeaking 靠它把「取消在途合成」传导到主进程,浮层打断/关闭时停掉服务端生成。
       ttsCancelStreams: api.ttsCancelStreams,
-    } as Pick<DesktopBridge, "ttsSynthesize" | "ttsSynthesizeStream" | "ttsCancelStreams">;
-    await speakText(ttsBridge as DesktopBridge, settings, text);
+    } as Pick<DesktopBridge, "ttsSynthesize" | "ttsSynthesizeEdge" | "ttsSynthesizeStream" | "ttsCancelStreams">;
+    await speakText(ttsBridge as DesktopBridge, settings, text, { allowFallback: true });
     if (!getTtsPlaybackState().isSpeaking) advance({ type: "speechFinished" });
   }, [advance, api]);
 

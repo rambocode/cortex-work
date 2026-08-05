@@ -359,38 +359,22 @@ async function startBlobPlayback(buf: ArrayBuffer): Promise<{ done: Promise<void
   return { done };
 }
 
-async function speakWithOpenai(
+/**
+ * mp3 完整包的分句流水线。Edge 与 OpenAI 都返回可由 HTMLAudioElement 播放的 mp3，
+ * 统一在这里保证首块起播后预取一块、后续失败不打断已开始的朗读。
+ */
+async function runChunkPipeline(
   seq: number,
-  bridge: DesktopBridge,
-  engine: Extract<TtsSettings["engine"], { kind: "openai" }>,
   text: string,
+  synth: (chunkText: string) => Promise<ArrayBuffer>,
 ): Promise<void> {
-  if (await speakWithOpenaiStream(seq, bridge, engine, text)) return;
-  // 非流式回退同样分句流水线:整段一次性送 TTS 要等全篇合成完才有第一声,
-  // 本地慢速推理下不可用。播第 i 块的同时预取第 i+1 块(深度 1,不打爆本地推理服务)。
   const chunks = splitSpeechChunks(text, PIPELINE_TEXT_CHARS);
   const firstChunk = chunks[0];
   if (!firstChunk) return;
-  activeBridge = bridge;
-  const synth = (chunkText: string) =>
-    bridge.ttsSynthesize({
-      baseUrl: engine.baseUrl,
-      apiKey: engine.apiKey,
-      model: engine.model,
-      voice: engine.voice,
-      speed: engine.speed,
-      language: engine.language ?? "zh",
-      stream: engine.stream ?? true,
-      streamingInterval: engine.streamingInterval ?? DEFAULT_STREAMING_INTERVAL,
-      text: chunkText,
-    });
-  // 首块的合成失败(鉴权/音色配置错误)与 play() 拒绝按旧契约抛给调用方,保证配置错误可见。
   const first = await synth(firstChunk);
   if (playbackSeq !== seq) return;
   setSpeaking(true);
   const { done: firstDone } = await startBlobPlayback(first);
-  // 后续块在后台衔接:speakText 与旧行为一致在首块起播后即 resolve,
-  // 播放完成信号经 subscribeTtsPlayback(isSpeaking)对外暴露。
   void (async () => {
     let done = firstDone;
     let nextIndex = 1;
@@ -402,11 +386,9 @@ async function speakWithOpenai(
       try {
         buf = await pending;
       } catch {
-        // 后续块失败:首块已验证配置可用,大概率是瞬时故障——播完已有内容安静收尾,不中断整轮。
         buf = null;
       }
-      if (playbackSeq !== seq) return;
-      if (!buf) break;
+      if (playbackSeq !== seq || !buf) break;
       nextIndex += 1;
       pending = nextIndex < chunks.length ? synth(chunks[nextIndex]!) : null;
       try {
@@ -420,7 +402,47 @@ async function speakWithOpenai(
   })();
 }
 
-async function playCleanText(bridge: DesktopBridge | null, settings: TtsSettings, text: string): Promise<void> {
+async function speakWithOpenai(
+  seq: number,
+  bridge: DesktopBridge,
+  engine: Extract<TtsSettings["engine"], { kind: "openai" }>,
+  text: string,
+): Promise<void> {
+  if (await speakWithOpenaiStream(seq, bridge, engine, text)) return;
+  activeBridge = bridge;
+  const synth = (chunkText: string) =>
+    bridge.ttsSynthesize({
+      baseUrl: engine.baseUrl,
+      apiKey: engine.apiKey,
+      model: engine.model,
+      voice: engine.voice,
+      speed: engine.speed,
+      language: engine.language ?? "zh",
+      stream: engine.stream ?? true,
+      streamingInterval: engine.streamingInterval ?? DEFAULT_STREAMING_INTERVAL,
+      text: chunkText,
+    });
+  // 首块失败仍向上抛，设置页可以展示真实配置错误。
+  await runChunkPipeline(seq, text, synth);
+}
+
+async function speakWithEdge(
+  seq: number,
+  bridge: DesktopBridge,
+  engine: Extract<TtsSettings["engine"], { kind: "edge" }>,
+  text: string,
+): Promise<void> {
+  if (!bridge.ttsSynthesizeEdge) throw new Error("当前桌面版本不支持 Edge TTS");
+  activeBridge = bridge;
+  await runChunkPipeline(seq, text, (chunkText) => bridge.ttsSynthesizeEdge!({ text: chunkText, voice: engine.voice, rate: engine.rate }));
+}
+
+async function playCleanText(
+  bridge: DesktopBridge | null,
+  settings: TtsSettings,
+  text: string,
+  opts?: { allowFallback?: boolean },
+): Promise<void> {
   if (!text) return;
   stopSpeaking();
   const seq = playbackSeq;
@@ -429,18 +451,35 @@ async function playCleanText(bridge: DesktopBridge | null, settings: TtsSettings
     speakWithSystem(seq, text, engine.voice, engine.rate);
     return;
   }
-  if (!bridge || !engine.baseUrl || !engine.model) return;
+  if (!bridge) return;
+  if (engine.kind === "edge") {
+    try {
+      await speakWithEdge(seq, bridge, engine, text);
+    } catch (error) {
+      if (!opts?.allowFallback) throw error;
+      // 后台自动朗读不可静音：在线 Edge 不可用时明确回落唯一离线引擎。
+      console.warn("[tts] Edge TTS 失败，已回落系统语音", error);
+      speakWithSystem(seq, text);
+    }
+    return;
+  }
+  if (!engine.baseUrl || !engine.model) return;
   await speakWithOpenai(seq, bridge, engine, text);
 }
 
 // 朗读一段文本（按设置选择引擎）。空文本/引擎不可用时静默返回;
 // openai 引擎失败抛错由调用方决定提示与否。
-export async function speakText(bridge: DesktopBridge | null, settings: TtsSettings, raw: string): Promise<void> {
+export async function speakText(
+  bridge: DesktopBridge | null,
+  settings: TtsSettings,
+  raw: string,
+  opts?: { allowFallback?: boolean },
+): Promise<void> {
   const text = clipSpeechText(raw);
   if (!text) return;
   lastSpeech = { text, settings };
   emit();
-  await playCleanText(bridge, settings, text);
+  await playCleanText(bridge, settings, text, opts);
 }
 
 export async function replayLastSpeech(bridge: DesktopBridge | null, settings?: TtsSettings): Promise<void> {

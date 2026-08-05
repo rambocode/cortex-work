@@ -52,6 +52,7 @@
     "html-to-docx": "^1.8.0",
     "node-pty": "^1.1.0",
     "nodemailer": "^8.0.11",
+    "ws": "^8.18.3",
     "zod": "^4.4.3",
     "zustand": "catalog:"
   },
@@ -70,6 +71,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@types/ws": "^8.5.14",
     "@vitejs/plugin-react": "^5.2.0",
     "builder-util": "^26.15.0",
     "electron": "^39.2.6",

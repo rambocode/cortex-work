@@ -1140,6 +1140,14 @@ export interface TtsSynthesizeRequest {
   text: string;
 }
 
+/** Edge 在线 TTS 的最小请求；不接受端点或密钥，避免把非公开服务细节暴露给 renderer。 */
+export interface EdgeTtsSynthesizeRequest {
+  text: string;
+  voice: string;
+  rate?: number;
+  pitch?: number;
+}
+
 export interface TtsSynthesizeStreamRequest extends TtsSynthesizeRequest {
   streamId: string;
 }

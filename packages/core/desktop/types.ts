@@ -261,10 +261,14 @@ export const DEFAULT_PUSH_SETTINGS: PushSettings = {};
 
 // ── TTS（Agent 输出转语音） ──────────────────────────────────────────────
 
+export const DEFAULT_EDGE_TTS_VOICE = "zh-CN-XiaoxiaoNeural";
+
 // system = 系统语音（renderer speechSynthesis,本地零配置）;
+// edge = 微软 Edge 在线 TTS（免密钥，主进程 WSS 直连）;
 // openai = OpenAI 兼容 /v1/audio/speech 端点（本地部署或云端均可）。
 export type TtsEngineConfig =
   | { kind: "system"; voice?: string; rate?: number }
+  | { kind: "edge"; voice: string; rate?: number }
   | {
       kind: "openai";
       baseUrl: string;
@@ -285,7 +289,8 @@ export interface TtsSettings {
 
 export const DEFAULT_TTS_SETTINGS: TtsSettings = {
   autoSpeak: false,
-  engine: { kind: "system" },
+  // 只在没有历史持久化设置的新用户上生效；hydrate 会保留已有用户的引擎选择。
+  engine: { kind: "edge", voice: DEFAULT_EDGE_TTS_VOICE },
 };
 
 // ── 供应商（Provider）配置：顶层 LLM 端点抽象（kun 风格） ─────────────────
@@ -449,6 +454,14 @@ export interface TtsSynthesizeRequest {
   stream?: boolean;
   streamingInterval?: number;
   text: string;
+}
+
+/** 与 apps/desktop/src/main/ipc/types.ts 镜像。 */
+export interface EdgeTtsSynthesizeRequest {
+  text: string;
+  voice: string;
+  rate?: number;
+  pitch?: number;
 }
 
 export type TtsStreamEvent =

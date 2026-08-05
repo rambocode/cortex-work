@@ -90,6 +90,7 @@ import type {
   SpotlightIntent,
   TaskDelegateIntent,
   TtsListVoicesRequest,
+  EdgeTtsSynthesizeRequest,
   TtsSynthesizeRequest,
   TaskFilesResult,
   TrimSessionRequest,
@@ -532,6 +533,7 @@ const personal = {
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
+  ttsSynthesizeEdge: (req: EdgeTtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesizeEdge", req),
   ttsSynthesizeStream: async (req: TtsSynthesizeRequest, cb: (event: TtsStreamEvent) => void): Promise<void> => {
     const streamId = crypto.randomUUID();
     const listener = (_e: IpcRendererEvent, payload: { streamId: string; event: TtsStreamEvent }) => {
@@ -547,6 +549,7 @@ const personal = {
   // 停止播放时中止在途合成流(否则本地 TTS 服务会继续生成整段并堵塞后续请求)。
   ttsCancelStreams: (): Promise<void> => ipcRenderer.invoke("tts:cancelStreams"),
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
+  listEdgeTtsVoices: (): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listEdgeVoices"),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
   // 三段编排接入：start 走 invoke（等结果）；kill 走 send（fire-and-forget，对齐主进程

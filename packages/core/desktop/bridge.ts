@@ -98,6 +98,7 @@ import type {
   TrimSessionRequest,
   TtsListVoicesRequest,
   TtsSynthesizeRequest,
+  EdgeTtsSynthesizeRequest,
   TaskFilesResult,
   TtsStreamEvent,
   TtsVoiceOption,
@@ -462,6 +463,8 @@ export interface DesktopBridge {
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）
   ttsSynthesize(req: TtsSynthesizeRequest): Promise<ArrayBuffer>;
+  // Edge 在线 TTS：可选以兼容 web 与旧桌面壳；缺失时由 UI 走系统语音。
+  ttsSynthesizeEdge?(req: EdgeTtsSynthesizeRequest): Promise<ArrayBuffer>;
   // TTS：流式合成,主进程边读响应边把音频块推给 renderer。
   ttsSynthesizeStream?(req: TtsSynthesizeRequest, cb: (event: TtsStreamEvent) => void): Promise<void>;
   // 停止播放时中止在途合成流:声音停掉只是表象,不中止 fetch 的话本地 TTS 服务会继续
@@ -469,6 +472,7 @@ export interface DesktopBridge {
   ttsCancelStreams?(): Promise<void>;
   // TTS：按模型发现可选音色；端点不支持时返回空数组。
   listTtsVoices(req: TtsListVoicesRequest): Promise<TtsVoiceOption[]>;
+  listEdgeTtsVoices?(): Promise<TtsVoiceOption[]>;
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
   asrTranscribe(req: AsrTranscribeRequest): Promise<AsrTranscribeResponse>;
   killCli(runId: string): Promise<void>;
