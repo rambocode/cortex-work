@@ -10,11 +10,15 @@
 // 用法：先 `pnpm --filter @cortex-work/desktop dist:dir`，再 `node scripts/verify-pi-ai-packaging.mjs`。
 // 任一检查失败即非零退出。
 //
-// 检查分两层：
+// 检查分三层：
 //  1. 静态：asar 里 pi-ai 入口与全部重型 SDK 依赖在场（防 files 排除清单误伤闭包）。
 //  2. 动态：起一个最小 Electron 主进程，从 asar 内真实 import providers/all 与各 api 实现
 //     ——api 模块急切引各家 SDK，其内部裸标识符以 asar 内文件为 parent 解析，
 //     与生产链路同一套 ESM 加载语义；缺任何传递依赖都会在此暴露为 ERR_MODULE_NOT_FOUND。
+//  3. in-process 护栏（迁移计划 R11）：pi 从 bun 二进制迁到主进程内 SDK 调用后，
+//     pi-coding-agent / pi-agent-core 也会进 asar。这一层在**打包产物内**实跑一整轮
+//     agent loop（工具真实执行），断言与 scripts/verify-pi-inprocess.mjs 同源、不重复实现。
+//     该层是自适应的：三包尚未进 asar（迁移 U1 前）则跳过，并沿用旧的「不该进包」体积守卫。
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const inProcVerifier = join(appDir, "scripts", "verify-pi-inprocess.mjs");
 const failures = [];
 
 function check(label, fn) {
@@ -93,12 +98,28 @@ for (const dep of [
   });
 }
 
-// 不该进包的 pi CLI 家族仍应被排除（体积守卫，防排除项回退成全量放行）。
-for (const dep of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@earendil-works/pi-agent-core"]) {
-  check(`asar 不含 ${dep}`, () => {
-    const prefix = `/node_modules/${dep}/`;
-    if (asarList.some((f) => f.startsWith(prefix))) throw new Error(`${prefix} 不该进 asar`);
-  });
+// pi in-process 迁移（U1）会把 pi-coding-agent / pi-agent-core 放进 asar。本脚本按产物实际形态
+// 二选一：迁移前守「不该进包」的体积红线，迁移后守「进了包且真能跑」。
+// 之所以做成自适应而不是写死，是因为这个脚本在灰度期会同时面对两种产物形态（R3 开关两侧）。
+const hasInAsar = (dep) => asarList.some((f) => f.startsWith(`/node_modules/${dep}/`));
+const inProcessPackaged = hasInAsar("@earendil-works/pi-coding-agent") && hasInAsar("@earendil-works/pi-agent-core");
+
+if (!inProcessPackaged) {
+  // 迁移前：pi 走 extraResources 的 bun 二进制，CLI 家族三包纯属冗余，必须排除（体积守卫，
+  // 防排除项回退成全量放行）。U1 放开排除后这段会自动让位给下面的 in-process 护栏。
+  for (const dep of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@earendil-works/pi-agent-core"]) {
+    check(`asar 不含 ${dep}`, () => {
+      if (hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 不该进 asar`);
+    });
+  }
+} else {
+  // 迁移后：三包在场，改为守它们的隐藏依赖闭包。这两条是 R10 点名的「以纯 renderer 冗余为由
+  // 被排除、实为主进程运行时依赖」的项，漏放开即首次使用时 ERR_MODULE_NOT_FOUND。
+  for (const dep of ["@silvia-odwyer/photon-node", "highlight.js"]) {
+    check(`asar 含 in-process 隐藏依赖 ${dep}`, () => {
+      if (!hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 缺失（electron-builder.yml 排除项漏放开？）`);
+    });
+  }
 }
 
 // ── 2. 动态：Electron 主进程内从 asar 真实 import ─────────────────────────────
@@ -152,6 +173,81 @@ app.whenReady().then(async () => {
     rmSync(harnessDir, { recursive: true, force: true });
   }
 });
+
+// ── 3. in-process 护栏：在 asar 内实跑一轮 agent loop（R11） ─────────────────
+
+if (!inProcessPackaged) {
+  console.log("  · 跳过 in-process 护栏 — asar 内无 pi-coding-agent/pi-agent-core（迁移计划 U1 尚未落地）");
+} else if (!existsSync(inProcVerifier)) {
+  failures.push(`in-process 护栏: 找不到 ${inProcVerifier}`);
+  console.log(`  ✗ in-process 护栏 — 找不到 ${inProcVerifier}`);
+} else {
+  check("Electron 主进程可在 asar 内跑通 pi in-process agent loop", () => {
+    const harnessDir = mkdtempSync(join(tmpdir(), "pi-inproc-asar-test-"));
+    try {
+      // harness 只负责两件事：① 把「按包名解析」翻译成「在 asar 内定位 ESM 入口」；
+      // ② 调 verify-pi-inprocess.mjs 的同一套断言。断言逻辑刻意不在这里复制一份——
+      // 复制必然与开发态那份漂移，而漂移正是本护栏要防的东西。
+      //
+      // 为什么要自己解析入口：harness 在临时目录里，裸 import 会以临时目录为 parent 解析，
+      // 根本碰不到 asar。手动定位到 asar 内的入口文件后，包**内部**的裸标识符仍以 asar 内文件为
+      // parent 解析（与生产链路同一套 ESM 语义），传递依赖缺失照样暴露为 ERR_MODULE_NOT_FOUND。
+      writeFileSync(
+        join(harnessDir, "main.cjs"),
+        `
+const { app } = require("electron");
+const { pathToFileURL } = require("url");
+const path = require("path");
+const fs = require("fs");
+const ASAR = process.env.TEST_ASAR;
+const VERIFIER = process.env.TEST_VERIFIER;
+
+// 读包自身 package.json 的 exports["."].import（回退 default / main）定位 ESM 入口。
+// 三个 pi 包都是 "type":"module" 且 exports 只有 import 条件，不能用 require.resolve。
+function resolveInAsar(name) {
+  const dir = path.join(ASAR, "node_modules", ...name.split("/"));
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const dot = pkg.exports && pkg.exports["."];
+  const rel = (dot && (dot.import || dot.default)) || pkg.main || "index.js";
+  return pathToFileURL(path.join(dir, rel)).href;
+}
+
+app.whenReady().then(async () => {
+  try {
+    const mod = await import(pathToFileURL(VERIFIER).href);
+    const { ok } = await mod.runPiInProcessVerification({
+      importModule: (name) => import(resolveInAsar(name)),
+      log: (s) => console.log("      " + s),
+    });
+    console.log(ok ? "[INPROC-PASS]" : "[INPROC-FAIL]");
+    app.exit(ok ? 0 : 1);
+  } catch (err) {
+    console.error("[INPROC-FAIL]", (err && (err.stack || err.message)) || String(err));
+    app.exit(1);
+  }
+});
+`,
+      );
+      writeFileSync(join(harnessDir, "package.json"), JSON.stringify({ name: "pi-inproc-asar-test", main: "main.cjs" }));
+      const electronBin = join(appDir, "node_modules", ".bin", "electron");
+      const out = spawnSync(electronBin, [harnessDir], {
+        env: { ...process.env, TEST_ASAR: asarPath, TEST_VERIFIER: inProcVerifier },
+        encoding: "utf8",
+        // 比上一层宽：这里要真跑 grep/read/bash 三个工具 + 构造 AgentSession。
+        timeout: 180_000,
+      });
+      const stdout = `${out.stdout ?? ""}${out.stderr ?? ""}`;
+      // 逐行回显 harness 输出，失败时不用再去猜是哪一段断言挂了。
+      for (const line of stdout.split("\n")) if (line.trim()) console.log(`    ${line}`);
+      if (out.status !== 0 || !stdout.includes("[INPROC-PASS]")) {
+        throw new Error(`退出码 ${out.status}`);
+      }
+      return "PI_INPROC_RESULT=PASS";
+    } finally {
+      rmSync(harnessDir, { recursive: true, force: true });
+    }
+  });
+}
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} 项失败`);
