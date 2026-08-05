@@ -4,7 +4,8 @@ import Foundation
 
 // events:长驻模式。用单个 CGEventTap 同时承载两件事:
 //   1) 监听 flagsChanged 做全局修饰键手势判定(双击起草键 <0.35s → draft-gesture;
-//      按住语音键 → voice-start / voice-end)。手势判定在原生侧完成,JS 只收高层事件。
+//      按住语音键 → voice-start / voice-end;按住听写组合键 → dictation-start / dictation-end)。
+//      手势判定在原生侧完成,JS 只收高层事件。
 //   2) intercept 开启期间吞掉候选气泡需要的四类键(Enter/Esc/←/→/Tab),转发为 key-event,
 //      不让它们落入前台应用(否则微信里 Enter 会误发送)。
 //
@@ -14,13 +15,19 @@ import Foundation
 
 /// 修饰键名 → CGEventFlags 单键位映射(与主进程下发的 config 字符串对齐)
 private func flag(for name: String) -> CGEventFlags {
+    modifierFlag(for: name) ?? .maskCommand
+}
+
+/// 仅接受主进程协议中约定的修饰键名。dictation 配置不能像 reply 旧配置那样静默回退到
+/// Command，否则一条损坏设置可能意外吞掉用户的 Command 组合键。
+private func modifierFlag(for name: String) -> CGEventFlags? {
     switch name {
     case "command": return .maskCommand
     case "option": return .maskAlternate
     case "control": return .maskControl
     case "shift": return .maskShift
     case "function": return .maskSecondaryFn
-    default: return .maskCommand
+    default: return nil
     }
 }
 
@@ -55,10 +62,19 @@ final class EventsMode {
     private var wasVoiceDown = false
     private var voiceActive = false
 
+    // 听写按住键独立于 reply 的 voice 手势：keyCode 为 nil 时是纯修饰键组合，非 nil 时
+    // 是「修饰键 + ANSI 普通键」。active/heldKeyCode 必须分开保存，才能在 keyUp 可靠配对。
+    private var dictationModifiers: [CGEventFlags] = []
+    private var dictationKeyCode: Int64?
+    private var dictationActive = false
+    private var heldDictationKeyCode: Int64?
+
     /// 创建并启用 tap。返回 false 表示 tap 创建失败(通常为辅助功能未授权),
     /// 调用方据此让主进程降级到兜底 accelerator。
     func start() -> Bool {
-        let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
+        let mask = (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
         let unmanagedSelf = Unmanaged.passUnretained(self).toOpaque()
         eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -92,18 +108,28 @@ final class EventsMode {
         CGEvent.tapEnable(tap: eventTap, enable: true)
     }
 
-    /// tap 主回调:flagsChanged 走手势判定并放行;keyDown 在 intercept 开启时按白名单吞键。
+    /// tap 主回调:flagsChanged 判定修饰键手势;dictation 的普通键组合在 keyDown/keyUp 配对并
+    /// 吞掉;其余 keyDown 才交给候选气泡的 intercept 白名单处理。
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .flagsChanged {
             handleFlags(event.flags)
             return Unmanaged.passUnretained(event)
         }
-        if type == .keyDown, interceptOn {
+        if type == .keyDown {
+            if handleDictationKeyDown(event) {
+                return nil // 按住听写的触发键不应落入前台应用
+            }
+            if !interceptOn {
+                return Unmanaged.passUnretained(event)
+            }
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             if let name = interceptedKeyName(keyCode) {
                 emitJSON(["event": "key-event", "key": name])
                 return nil // 吞掉,不落入前台应用
             }
+        }
+        if type == .keyUp, handleDictationKeyUp(event) {
+            return nil // 与被吞掉的 keyDown 成对吞掉，避免前台收到孤立 keyUp
         }
         return Unmanaged.passUnretained(event)
     }
@@ -138,6 +164,60 @@ final class EventsMode {
 
         wasDraftDown = draftDown
         wasVoiceDown = voiceDown
+
+        // 纯修饰键组合没有 keyDown/keyUp 可配对：全部指定 flags 出现时开始，任一消失即结束。
+        // 与 reply 的 voiceActive 状态刻意不共用，允许两套功能各自安全结束而不串状态。
+        guard dictationKeyCode == nil, !dictationModifiers.isEmpty else { return }
+        if allDictationModifiersDown(flags) {
+            startDictation()
+        } else {
+            endDictation()
+        }
+    }
+
+    /// 含普通 ANSI 键的听写组合在 keyDown 开始。CGEvent 的 autorepeat 会继续投递 keyDown，
+    /// 因此 active/heldKeyCode 是必要去抖，避免一次长按反复触发录音开始。
+    private func handleDictationKeyDown(_ event: CGEvent) -> Bool {
+        guard let configuredKeyCode = dictationKeyCode,
+              !dictationModifiers.isEmpty else {
+            return false
+        }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard keyCode == configuredKeyCode, allDictationModifiersDown(event.flags) else {
+            return false
+        }
+        if !dictationActive {
+            dictationActive = true
+            heldDictationKeyCode = keyCode
+            emitJSON(["event": "dictation-start"])
+        }
+        return true
+    }
+
+    /// 只接受与启动时相同的 keyUp，避免用户在按住期间敲击其它键时提前结束听写。
+    private func handleDictationKeyUp(_ event: CGEvent) -> Bool {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard dictationActive, heldDictationKeyCode == keyCode else { return false }
+        heldDictationKeyCode = nil
+        endDictation()
+        return true
+    }
+
+    private func allDictationModifiersDown(_ flags: CGEventFlags) -> Bool {
+        dictationModifiers.allSatisfy { flags.contains($0) }
+    }
+
+    private func startDictation() {
+        guard !dictationActive else { return }
+        dictationActive = true
+        emitJSON(["event": "dictation-start"])
+    }
+
+    private func endDictation() {
+        guard dictationActive else { return }
+        dictationActive = false
+        heldDictationKeyCode = nil
+        emitJSON(["event": "dictation-end"])
     }
 
     // MARK: - stdin 命令
@@ -169,11 +249,50 @@ final class EventsMode {
         case "config":
             if let draft = obj["draft"] as? String { draftFlag = flag(for: draft) }
             if let voice = obj["voice"] as? String { voiceFlag = flag(for: voice) }
+            if let dictation = obj["dictation"] as? [String: Any] {
+                configureDictation(dictation)
+            }
         case "quit":
             exit(0)
         default:
             break
         }
+    }
+
+    /// 应用按住听写配置。配置变更期间若正在录音，先发结束事件，避免旧键松开后无法配对而
+    /// 让主进程停留在 recording 状态。无效配置一律禁用听写，绝不猜测用户意图。
+    private func configureDictation(_ config: [String: Any]) {
+        endDictation()
+        guard let modifierNames = config["modifiers"] as? [String], !modifierNames.isEmpty else {
+            dictationModifiers = []
+            dictationKeyCode = nil
+            return
+        }
+        let modifiers = modifierNames.compactMap(modifierFlag(for:))
+        guard modifiers.count == modifierNames.count,
+              Set(modifiers.map { $0.rawValue }).count == modifiers.count else {
+            dictationModifiers = []
+            dictationKeyCode = nil
+            return
+        }
+
+        let keyCode: Int64?
+        if let rawKeyCode = config["keyCode"], !(rawKeyCode is NSNull) {
+            guard let number = rawKeyCode as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.rounded() == number.doubleValue,
+                  number.int64Value >= 0 else {
+                dictationModifiers = []
+                dictationKeyCode = nil
+                return
+            }
+            keyCode = number.int64Value
+        } else {
+            keyCode = nil
+        }
+
+        dictationModifiers = modifiers
+        dictationKeyCode = keyCode
     }
 }
 

@@ -122,6 +122,23 @@ describe("transcribeLocal", () => {
     expect(spawnArgs).not.toContain("-l");
   });
 
+  it("非空 prompt 以 --prompt 传给 whisper-cli", async () => {
+    mockReadFile.mockResolvedValue("转写结果");
+    mockSpawn.mockReturnValue(makeMockProcess(0));
+
+    await transcribeLocal({
+      audio: FAKE_AUDIO,
+      mimeType: "audio/wav",
+      language: "zh",
+      modelPath: MODEL_PATH,
+      prompt: "Cortex, Whisper, 麦克风",
+    });
+
+    const spawnArgs: string[] = mockSpawn.mock.calls[0][1];
+    expect(spawnArgs).toContain("--prompt");
+    expect(spawnArgs).toContain("Cortex, Whisper, 麦克风");
+  });
+
   it("读取 .txt 结果并 trim 后返回", async () => {
     mockReadFile.mockResolvedValue("  Hello World  \n");
     mockSpawn.mockReturnValue(makeMockProcess(0));

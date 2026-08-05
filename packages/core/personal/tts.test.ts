@@ -123,7 +123,7 @@ describe("TTS 播放控制", () => {
         text: "你好，今天天气很好。",
         language: "zh",
         stream: true,
-        streamingInterval: 1.0,
+        streamingInterval: 0.3,
       }),
     );
   });
@@ -166,22 +166,69 @@ describe("TTS 播放控制", () => {
 
     expect(b.ttsSynthesizeStream).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ voice: "vivian", text: "一".repeat(160), stream: true, streamingInterval: 1.0 }),
+      expect.objectContaining({ voice: "vivian", text: "一".repeat(160), stream: true, streamingInterval: 0.3 }),
       expect.any(Function),
     );
     expect(b.ttsSynthesizeStream).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ voice: "vivian", text: `${"一".repeat(10)}。`, stream: true, streamingInterval: 1.0 }),
+      expect.objectContaining({ voice: "vivian", text: `${"一".repeat(10)}。`, stream: true, streamingInterval: 0.3 }),
       expect.any(Function),
     );
     expect(b.ttsSynthesizeStream).toHaveBeenNthCalledWith(
       3,
-      expect.objectContaining({ voice: "vivian", text: "第二段随后发送。", stream: true, streamingInterval: 1.0 }),
+      expect.objectContaining({ voice: "vivian", text: "第二段随后发送。", stream: true, streamingInterval: 0.3 }),
       expect.any(Function),
     );
     expect(b.ttsSynthesize).not.toHaveBeenCalled();
     expect(frameCounts).toEqual([4, 4, 4]);
     expect(starts).toHaveLength(3);
+  });
+
+  it("非流式回退按句分块流水线:首块起播即预取下一块,播完衔接后续块", async () => {
+    // 覆盖默认 Audio stub:收集实例并允许手动触发 onended,驱动流水线前进。
+    const audios: { onended: (() => void) | null; onerror: (() => void) | null; onpause: (() => void) | null }[] = [];
+    vi.stubGlobal(
+      "Audio",
+      class {
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onpause: (() => void) | null = null;
+        pause = vi.fn();
+        play = vi.fn(async () => {});
+        constructor() {
+          audios.push(this);
+        }
+      },
+    );
+    const calls: string[] = [];
+    const b = {
+      ttsSynthesize: vi.fn(async (req: { text: string }) => {
+        calls.push(req.text);
+        return new ArrayBuffer(1);
+      }),
+    } as unknown as DesktopBridge;
+
+    // 三个句子、子句级限长 30:每句 16 字,两句相加 32 超限,不会被合并,各自成块。
+    const sentence = (label: string) => `${label}${"字".repeat(14)}。`;
+    const text = sentence("一") + sentence("二") + sentence("三");
+    await speakText(b, openaiSettings("vivian"), text);
+
+    // speakText resolve 时:首块已请求并起播,第二块已在预取——不等首块播完。
+    expect(calls).toEqual([sentence("一"), sentence("二")]);
+    expect(audios).toHaveLength(1);
+    expect(getTtsPlaybackState().isSpeaking).toBe(true);
+
+    // 首块播完 → 播第二块,并立即预取第三块。
+    audios[0]?.onended?.();
+    await vi.waitFor(() => expect(audios).toHaveLength(2));
+    expect(calls).toEqual([sentence("一"), sentence("二"), sentence("三")]);
+    expect(getTtsPlaybackState().isSpeaking).toBe(true);
+
+    // 播完最后两块 → isSpeaking 收尾为 false。
+    audios[1]?.onended?.();
+    await vi.waitFor(() => expect(audios).toHaveLength(3));
+    audios[2]?.onended?.();
+    await vi.waitFor(() => expect(getTtsPlaybackState().isSpeaking).toBe(false));
   });
 
   it("stopSpeaking 会通知订阅方播放已停止", () => {

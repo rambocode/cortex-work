@@ -39,14 +39,35 @@ export class VoiceCapture {
   }
 
   /**
-   * 申请麦克风并开始录音。失败（无 getUserMedia / 无 MediaRecorder / 用户拒绝）时抛错，
-   * 由宿主转成 toast / 失败结果。
+   * 当前录音使用的同一条麦克风流（只读）。听写栏可据此接 AnalyserNode 画真实电平，
+   * 不得为电平表另起 getUserMedia，否则会重复申请设备并可能与实际录音争抢独占麦克风。
    */
-  async start(): Promise<void> {
+  get mediaStream(): MediaStream | null {
+    return this.stream;
+  }
+
+  /**
+   * 申请指定麦克风（未传则系统默认）并开始录音。若已选设备不再满足约束则自动回退默认设备；
+   * 其余失败（无 getUserMedia / 无 MediaRecorder / 用户拒绝）原样抛出，由宿主转成 toast。
+   */
+  async start(deviceId?: string): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       throw new Error("当前浏览器不支持录音");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 指定设备用 exact 保证用户选择生效；设备被拔出/权限变更时仅对约束不满足回退默认，
+    // 其它错误（如用户拒绝权限）必须原样抛出，不能静默绕过用户决定。
+    const constraints: MediaStreamConstraints = {
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    };
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      if (!deviceId || !(error instanceof DOMException) || error.name !== "OverconstrainedError") {
+        throw error;
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     this.stream = stream;
     this.chunks = [];
     const mimeType = pickRecordingMimeType();
@@ -110,6 +131,7 @@ export async function transcribeRecording(
   bridge: Pick<DesktopBridge, "transcribeSpeech">,
   asr: AsrSettings,
   blob: Blob,
+  opts?: { prompt?: string },
 ): Promise<string> {
   if (!bridge.transcribeSpeech) throw new Error("当前环境不支持语音转写");
   // 重采样为 16kHz 单声道 WAV（whisper-cli 需要；在线接口也接受 WAV）
@@ -121,6 +143,8 @@ export async function transcribeRecording(
       model: asr.model,
       // language 空串/"auto" → 不传（让服务端自动检测；OpenAI 兼容接口省略 language 表示 auto）
       language: asr.language && asr.language !== "auto" ? asr.language : undefined,
+      // 词典 prompt 与 ASR 端点统一约定为解码偏置；空白值不发送，避免污染线上请求。
+      prompt: opts?.prompt?.trim() || undefined,
       fileName: "recording.wav",
       mimeType: "audio/wav",
       audio,

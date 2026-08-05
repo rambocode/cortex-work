@@ -72,6 +72,7 @@ import type {
   Member,
   OpenAiCompleteRequest,
   PersistedState,
+  VoiceSettings,
   PiOpenRequest,
   PiOpenResult,
   PiSessionEvent,
@@ -450,12 +451,22 @@ export interface DesktopBridge {
   // 渲染端改闪记全局热键 → 主进程即时校验 + 重注册（仿 setDesktopBehavior 的即时通路）。
   // ok=true 表示新键已生效;ok=false 表示格式无效或被占用（已回退旧键,toast 含原因）。可选。
   setNotesHotkey?(accelerator: string): Promise<{ ok: boolean; toast?: string }>;
+  // 同步语音聊天 / 听写的三项快捷键。空串解除对应绑定；主进程会原子地恢复上一组注册，
+  // 因此任一返回 ok=false 时设置 UI 应回滚完整 pick3，保持显示值与系统实际绑定一致。
+  setVoiceHotkeys?(
+    hotkeys: Pick<VoiceSettings, "chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey">,
+  ): Promise<
+    Record<"chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey", { ok: boolean; toast?: string }>
+  >;
   // 日报推送（企微/钉钉 webhook、SMTP 邮件;主进程发请求规避 CORS）
   pushReport(target: PushTarget, payload: { subject: string; text: string }): Promise<PushResult>;
   // TTS：OpenAI 兼容 /v1/audio/speech 合成,返回音频字节（renderer 播放）
   ttsSynthesize(req: TtsSynthesizeRequest): Promise<ArrayBuffer>;
   // TTS：流式合成,主进程边读响应边把音频块推给 renderer。
   ttsSynthesizeStream?(req: TtsSynthesizeRequest, cb: (event: TtsStreamEvent) => void): Promise<void>;
+  // 停止播放时中止在途合成流:声音停掉只是表象,不中止 fetch 的话本地 TTS 服务会继续
+  // 满负荷生成整段文本并堵塞后续请求(stopSpeaking 经此把取消传导到主进程)。
+  ttsCancelStreams?(): Promise<void>;
   // TTS：按模型发现可选音色；端点不支持时返回空数组。
   listTtsVoices(req: TtsListVoicesRequest): Promise<TtsVoiceOption[]>;
   // ASR：OpenAI 兼容 /v1/audio/transcriptions 转写,返回文本。
@@ -710,6 +721,9 @@ export interface DesktopBridge {
   //   mimo-asr               → MIMO ASR（同 OpenAI 兼容接口形状）
   // U9 ComposerShell 通过此方法发起转写；asrTranscribe 保持向后兼容供旧消费方使用。
   transcribeSpeech?(req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse>;
+  // 转写文本 LLM 纠错(stt:polish):开关/模型/prompt 全由主进程按 voiceSettings 决定,
+  // 失败或未配置模型时原文返回——调用方只需「转写 → 纠错 → 再上屏」串联,无需感知细节。
+  polishTranscript?(text: string): Promise<string>;
 
   // ── 节点式工作流（loop）────────────────────────────────────────────────────
   // 可选能力（web/旧壳无此桥 → UI 据此降级隐藏工作流入口）。

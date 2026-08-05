@@ -68,6 +68,8 @@ export default defineConfig({
           notification: resolve("src/renderer/notification.html"),
           projects: resolve("src/renderer/projects.html"),
           reply: resolve("src/renderer/reply.html"),
+          voiceChat: resolve("src/renderer/voice-chat.html"),
+          dictation: resolve("src/renderer/dictation.html"),
           petOverlay: resolve("src/renderer/pet-overlay.html"),
         },
       },

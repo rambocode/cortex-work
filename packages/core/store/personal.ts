@@ -34,6 +34,7 @@ import type {
   TimelineSettings,
   TodoMeta,
   TtsSettings,
+  VoiceSettings,
   DesignSettings,
   DesignDocMeta,
   DesignUiState,
@@ -56,6 +57,7 @@ import {
   defaultMediaGenSettings,
   normalizeMediaGenSettings,
   defaultAsrSettings,
+  defaultVoiceSettings,
   DEFAULT_WRITING_LLM_SETTINGS,
   clampWritingDebounceMs,
   clampWritingMaxTokens,
@@ -253,6 +255,8 @@ export interface PersonalState {
   designUi: DesignUiState;
   // 语音识别设置（持久化;与 PersistedState.asrSettings 镜像）。
   asrSettings: AsrSettings;
+  // 语音聊天与系统级听写的交互配置（持久化;引擎参数仍各自归属 ttsSettings/asrSettings）。
+  voiceSettings: VoiceSettings;
   // 写作续写/改写(U3)独立模型配置（持久化;与 PersistedState.writingLlmSettings 镜像）。
   writingLlmSettings: WritingLlmSettings;
   // 各 agent 是否可用（主进程探测,不持久化;启动时回填）。
@@ -427,6 +431,8 @@ export interface PersonalState {
   setMediaGenSettings: (patch: Partial<MediaGenSettings>) => void;
   // 语音识别设置 patch（浅合并;与 setTtsSettings 模式一致）。
   setAsrSettings: (patch: Partial<AsrSettings>) => void;
+  // 语音聊天/听写交互设置 patch（词典数组由调用方整体替换，避免就地变更破坏订阅比较）。
+  setVoiceSettings: (patch: Partial<VoiceSettings>) => void;
   // 写作续写/改写模型配置 patch（浅合并;设置页「写作」分区编辑）。
   setWritingLlmSettings: (patch: Partial<WritingLlmSettings>) => void;
   // 设计工作台：设置 patch（合并后经归一化,拒绝脏数据落盘）。
@@ -661,6 +667,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   ttsSettings: DEFAULT_TTS_SETTINGS,
   mediaGenSettings: defaultMediaGenSettings(),
   asrSettings: defaultAsrSettings(),
+  voiceSettings: defaultVoiceSettings(),
   writingLlmSettings: DEFAULT_WRITING_LLM_SETTINGS,
   designSettings: defaultDesignSettings(),
   designDocs: [],
@@ -689,6 +696,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       mediaGenSettings: normalizeMediaGenSettings(s.mediaGenSettings),
       // ASR：旧档无此字段时回落工厂默认（向后兼容）。
       asrSettings: s.asrSettings ?? defaultAsrSettings(),
+      // 语音交互设置：整体缺失回落默认;部分缺失(旧档没有后加的 transcriptPolish 等字段)
+      // 用默认对象打底逐字段补齐,避免 undefined 穿透成「永远关闭」。
+      voiceSettings: { ...defaultVoiceSettings(), ...s.voiceSettings },
       // 写作续写/改写模型配置：旧档缺字段（如 debounceMs/maxTokens）由默认补齐。
       writingLlmSettings: hydrateWritingLlmSettings(s.writingLlmSettings),
       // 设计工作台：设置经归一化兜底（旧档/脏数据回落默认）,索引与 UI 态缺省为空。
@@ -1316,6 +1326,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setAsrSettings: (patch) =>
     set((s) => ({ asrSettings: { ...s.asrSettings, ...patch } })),
 
+  setVoiceSettings: (patch) =>
+    set((s) => ({ voiceSettings: { ...s.voiceSettings, ...patch } })),
+
   setWritingLlmSettings: (patch) =>
     set((s) => ({ writingLlmSettings: { ...s.writingLlmSettings, ...patch } })),
 
@@ -1363,6 +1376,7 @@ export function toPersistedState(s: PersonalState): PersistedState {
     ttsSettings: s.ttsSettings,
     mediaGenSettings: s.mediaGenSettings,
     asrSettings: s.asrSettings,
+    voiceSettings: s.voiceSettings,
     writingLlmSettings: s.writingLlmSettings,
     designSettings: s.designSettings,
     designDocs: s.designDocs,

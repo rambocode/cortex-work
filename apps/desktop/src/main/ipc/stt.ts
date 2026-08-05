@@ -27,6 +27,7 @@ import {
 } from "../capabilities/whisper/models";
 import { transcribeLocal } from "../capabilities/whisper/transcribe";
 import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
+import { polishTranscriptIfEnabled } from "../capabilities/whisper/polish";
 import { isLocalWhisperModelId } from "@cortex-work/core/whisper/models";
 import type { LocalWhisperModelProgress } from "@cortex-work/core/whisper/models";
 import type { AsrTranscribeRequest, AsrTranscribeResponse, AsrSettings } from "./types";
@@ -80,6 +81,14 @@ export function registerSttHandlers(): void {
     return checkSources(modelId);
   });
 
+  // ── 转写文本 LLM 纠错 ──────────────────────────────────────────────────────
+  // renderer 消费方(语音聊天浮层等)在转写后调用;开关/模型/prompt 均由主进程按
+  // voiceSettings 决定,失败或未配置模型时原文返回,调用方无需感知细节。
+  ipcMain.handle("stt:polish", async (_e, text: unknown): Promise<string> => {
+    if (typeof text !== "string") return "";
+    return polishTranscriptIfEnabled(text);
+  });
+
   // ── U8：统一转写入口（按 AsrSettings.protocol 分发） ───────────────────────
   // 调用方（U9 ComposerShell）传入完整的 asrSettings，由此 handler 路由到：
   //   local-whisper          → transcribeLocal（spawn whisper-cli）
@@ -130,6 +139,8 @@ export function registerSttHandlers(): void {
           audio: audioReq.audio,
           mimeType: audioReq.mimeType,
           language: asrSettings.language ?? "",
+          // prompt 由听写词典等 renderer 输入携带；主进程只透传，不在此处拼接或持久化口述内容。
+          prompt: audioReq.prompt,
           modelPath: status.path,
         });
         return { text: result.text };

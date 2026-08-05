@@ -142,6 +142,16 @@ describe("transcribeOnline", () => {
     expect(body.has("language")).toBe(false);
   });
 
+  it("非空 prompt 透传给 FormData", async () => {
+    const spy = mockFetch({ text: "Cortex" });
+
+    await transcribeOnline(makeReq({ prompt: "Cortex, Whisper, 麦克风" }));
+
+    const fetchCall = spy.mock.calls[0][1] as RequestInit;
+    const body = fetchCall?.body as FormData;
+    expect(body.get("prompt")).toBe("Cortex, Whisper, 麦克风");
+  });
+
   it("HTTP baseUrl 被拒绝（HTTPS 断言）", async () => {
     await expect(
       transcribeOnline(makeReq({ baseUrl: "http://api.example.com" })),

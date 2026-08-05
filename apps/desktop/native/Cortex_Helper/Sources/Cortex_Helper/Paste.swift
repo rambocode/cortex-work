@@ -2,9 +2,10 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-// paste <text>:把草稿写回目标输入框。移植自 ReplyClone AccessibilityBridge 的剪贴板粘贴路径。
+// paste:从 stdin 读一行草稿并写回目标输入框。移植自 ReplyClone AccessibilityBridge 的剪贴板粘贴路径。
 // 关键约束:粘贴前多格式备份用户剪贴板、粘贴后恢复,绝不悄悄覆盖用户复制的内容;
 // 用 defer 保证即使中途异常 / setString 失败,备份也会被还原。
+// 正文不能走 argv：同机进程可经 ps 读取命令行，会泄露听写内容。
 
 /// 深拷贝当前剪贴板全部条目。NSPasteboardItem 不能跨 clearContents 复用,必须逐类型拷 data。
 private func snapshotPasteboard(_ pasteboard: NSPasteboard) -> [NSPasteboardItem] {
@@ -45,8 +46,13 @@ private func sendCommandV() {
     commandUp?.post(tap: .cghidEventTap)
 }
 
-/// paste <text>:备份剪贴板 → 写入草稿 → 模拟 ⌘V → 约 150ms 后恢复剪贴板。
-func runPaste(text: String) {
+/// paste:从 stdin 读取一行正文，再备份剪贴板 → 写入草稿 → 模拟 ⌘V → 约 150ms 后恢复。
+/// 没有正文时在触碰剪贴板前返回，确保空 stdin 不会改变用户原有内容。
+func runPaste() {
+    guard let text = readLine(strippingNewline: true) else {
+        emitJSON(["ok": false, "error": "missing-text"])
+        return
+    }
     let pasteboard = NSPasteboard.general
     let savedItems = snapshotPasteboard(pasteboard)
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_MODELS, DEFAULT_MODEL, PERMISSION_MODES, APPROVAL_POLICIES } from "./types";
+import {
+  AGENT_MODELS,
+  APPROVAL_POLICIES,
+  DEFAULT_MODEL,
+  defaultVoiceSettings,
+  PERMISSION_MODES,
+} from "./types";
 
 describe("desktop agent model config", () => {
   it("Codex exposes selectable recommended models", () => {
@@ -26,5 +32,26 @@ describe("访问范围 + 执行审批 常量", () => {
 
   it("APPROVAL_POLICIES 两档", () => {
     expect(APPROVAL_POLICIES).toEqual(["auto", "ask"]);
+  });
+});
+
+describe("语音功能默认设置", () => {
+  it("默认关闭快捷键和浮层选项，并使用系统默认麦克风；转写纠错默认开、跟随全局默认模型", () => {
+    expect(defaultVoiceSettings()).toEqual({
+      micDeviceId: "",
+      chatHotkey: "",
+      chatScreenContext: false,
+      dictationHoldHotkey: "",
+      dictationToggleHotkey: "",
+      dictationBarAlwaysVisible: false,
+      dictationDictionary: [],
+      chatProviderId: "",
+      chatModelId: "",
+      chatPrompt: "",
+      transcriptPolish: true,
+      polishProviderId: "",
+      polishModelId: "",
+      polishPrompt: "",
+    });
   });
 });

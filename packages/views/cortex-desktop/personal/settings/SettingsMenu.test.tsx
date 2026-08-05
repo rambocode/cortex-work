@@ -108,6 +108,17 @@ describe("设置入口与整页设置视图", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
+  it("统一「语音」分区聚合聊天、听写与模型管理，旧语音转文字入口不再出现", () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    renderUI(<PersonalSettingsView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "语音" }));
+
+    expect(screen.getByText("语音聊天")).toBeInTheDocument();
+    expect(screen.getByText("模型管理")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "语音转文字" })).toBeNull();
+  });
+
   it("通用分区显示版本更新,可手动检查并展示失败", async () => {
     usePersonalStore.setState({ settingsOpen: true });
     const { bridge, updateCheck } = fakeUpdateBridge(
@@ -416,27 +427,27 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     expect(item.getAttribute("aria-current")).toBe("page");
   });
 
-  it("「个性化」组含「语音转文字」菜单项,切换后右栏渲染该分区(U2)", () => {
+  it("「个性化」组含统一「语音」菜单项,切换后右栏渲染聚合分区", () => {
     const { container } = renderUI(<PersonalSettingsView />);
-    const item = screen.getByRole("button", { name: "语音转文字" });
+    const item = screen.getByRole("button", { name: "语音" });
     expect(item).toBeTruthy();
     fireEvent.click(item);
-    // 外壳 SttSection 渲染的 pw-dlg-desc 描述文案(唯一出现,Section 组件返回 null)。
+    // 统一分区描述文案（TTS、听写和模型管理均由该分区承载）。
     expect(container.querySelector(".pw-dlg-desc")?.textContent).toBe(
-      "配置语音识别引擎与输入方式,支持本地 Whisper 与云端 API。",
+      "在这里管理麦克风、语音聊天、系统级听写和语音识别模型。",
     );
     expect(item.className).toContain("is-active");
     expect(item.getAttribute("aria-current")).toBe("page");
   });
 
-  it("「媒体生成」归入「应用」组,「语音转文字」归入「个性化」组(U2 分组正确性)", () => {
+  it("「媒体生成」归入「应用」组，统一「语音」归入「个性化」组", () => {
     const { container } = renderUI(<PersonalSettingsView />);
     // 组标题节点（.pw-dlg-nav-h 非 button）:此时应有 5 个组标题（新增未改组数）。
     const heads = Array.from(container.querySelectorAll(".pw-dlg-nav-h")).map((el) => el.textContent);
     expect(heads).toEqual(["通用", "模型与 Agent", "应用", "个性化", "自动化"]);
     // 「应用」组同时包含「媒体生成」
     expect(screen.getByRole("button", { name: "媒体生成" })).toBeTruthy();
-    // 「个性化」组同时包含「语音转文字」
-    expect(screen.getByRole("button", { name: "语音转文字" })).toBeTruthy();
+    // 「个性化」组同时包含统一「语音」
+    expect(screen.getByRole("button", { name: "语音" })).toBeTruthy();
   });
 });

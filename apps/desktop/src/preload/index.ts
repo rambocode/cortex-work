@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+// 语音浮层(语音聊天/听写栏)窄桥拆到 voice.ts:桥面收窄的边界说明见该文件头注释。
+import { dictation, voiceChat } from "./voice";
 // Provider Catalog / 认证 / Gateway 的跨进程契约（通道名常量 + 类型）。通道名一律走
 // PROVIDER_IPC，不再手写字符串——两侧写歪会表现为「invoke 永远挂起且无报错」。
 import { PROVIDER_IPC } from "../main/providers/contract";
@@ -67,6 +69,7 @@ import type {
   Member,
   NoteStatus,
   PersistedState,
+  VoiceSettings,
   PushSettings,
   PiOpenRequest,
   PiOpenResult,
@@ -520,6 +523,12 @@ const personal = {
     };
     return { ok: r.registered && !r.degraded, toast: r.toast };
   },
+  // 语音三键需作为一个配置整体交给 main 校验与重绑，避免单键更新时暂时与另外两键冲突。
+  setVoiceHotkeys: (
+    hotkeys: Pick<VoiceSettings, "chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey">,
+  ): Promise<
+    Record<"chatHotkey" | "dictationHoldHotkey" | "dictationToggleHotkey", { ok: boolean; toast?: string }>
+  > => ipcRenderer.invoke("voice:setHotkeys", hotkeys),
   pushReport: (target: unknown, payload: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("push:report", target, payload),
   ttsSynthesize: (req: TtsSynthesizeRequest): Promise<ArrayBuffer> => ipcRenderer.invoke("tts:synthesize", req),
@@ -535,6 +544,8 @@ const personal = {
       ipcRenderer.removeListener("tts:stream", listener);
     }
   },
+  // 停止播放时中止在途合成流(否则本地 TTS 服务会继续生成整段并堵塞后续请求)。
+  ttsCancelStreams: (): Promise<void> => ipcRenderer.invoke("tts:cancelStreams"),
   listTtsVoices: (req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => ipcRenderer.invoke("tts:listVoices", req),
   asrTranscribe: (req: AsrTranscribeRequest): Promise<AsrTranscribeResponse> => ipcRenderer.invoke("asr:transcribe", req),
   killCli: (runId: string): Promise<void> => ipcRenderer.invoke("cli:kill", runId),
@@ -887,6 +898,8 @@ const personal = {
     asrSettings: AsrSettings,
   ): Promise<AsrTranscribeResponse> =>
     ipcRenderer.invoke("stt:transcribe", { ...req, asrSettings }),
+  // 转写 LLM 纠错:开关/模型/prompt 全在主进程按 voiceSettings 决定,失败原文返回。
+  polishTranscript: (text: string): Promise<string> => ipcRenderer.invoke("stt:polish", text),
 
   // ── 节点式工作流（loop）IPC 透传 ───────────────────────────────────────────
   // 形状与 packages/core/desktop/bridge.ts 的 DesktopBridge workflow* 方法一一对应。
@@ -1176,6 +1189,8 @@ const desktopAPI = {
   notesOverlay,
   notification,
   replyBubble,
+  voiceChat,
+  dictation,
   projectsWindow,
   consumeNotesHotkeyDegraded,
 };

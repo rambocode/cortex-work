@@ -230,7 +230,7 @@ describe("ReplyHelperClient events", () => {
     expect(client.isDegraded()).toBe(true);
   });
 
-  it("高层事件转发给 onEvent", () => {
+  it("高层事件（含听写事件）转发给 onEvent", () => {
     const p = new FakeProc();
     const events: HelperEvent[] = [];
     const client = new ReplyHelperClient({
@@ -239,8 +239,13 @@ describe("ReplyHelperClient events", () => {
       onEvent: (e) => events.push(e),
     });
     client.startEvents();
-    p.emitStdout('{"event":"draft-gesture"}\n{"event":"key-event","key":"tab"}\n');
-    expect(events).toEqual([{ event: "draft-gesture" }, { event: "key-event", key: "tab" }]);
+    p.emitStdout('{"event":"draft-gesture"}\n{"event":"dictation-start"}\n{"event":"dictation-end"}\n{"event":"key-event","key":"tab"}\n');
+    expect(events).toEqual([
+      { event: "draft-gesture" },
+      { event: "dictation-start" },
+      { event: "dictation-end" },
+      { event: "key-event", key: "tab" },
+    ]);
   });
 
   it("ready 后重放 config 与 intercept 状态", () => {
@@ -256,7 +261,11 @@ describe("ReplyHelperClient events", () => {
     client.startEvents();
     const first = procs[0];
     first.emitStdout('{"event":"ready"}\n');
-    client.sendConfig({ draft: "command", voice: "function" });
+    client.sendConfig({
+      draft: "command",
+      voice: "function",
+      dictation: { modifiers: ["command", "shift"], keyCode: 2 },
+    });
     client.setIntercept(true);
     first.written.length = 0;
 
@@ -268,6 +277,7 @@ describe("ReplyHelperClient events", () => {
     const joined = second.written.join("");
     expect(joined).toContain('"cmd":"config"');
     expect(joined).toContain('"draft":"command"');
+    expect(joined).toContain('"dictation":{"modifiers":["command","shift"],"keyCode":2}');
     expect(joined).toContain('"cmd":"intercept"');
     expect(joined).toContain('"on":true');
   });
@@ -384,6 +394,24 @@ describe("ReplyHelperClient one-shot", () => {
     expect(gotArgs).toEqual(["calendar-events", "1786000000000", "1786600000000"]);
   });
 
+  it("screenshot 可选地把目标 pid 传给 helper，并原样返回 PNG base64 响应", async () => {
+    let gotArgs: string[] = [];
+    const p = new FakeProc();
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: (_bin, args) => {
+        gotArgs = args;
+        return p;
+      },
+    });
+    const promise = client.screenshot(4321);
+    p.emitStdout('{"ok":true,"pid":4321,"pngBase64":"cG5n"}\n');
+    p.emitExit(0);
+
+    await expect(promise).resolves.toEqual({ ok: true, pid: 4321, pngBase64: "cG5n" });
+    expect(gotArgs).toEqual(["screenshot", "4321"]);
+  });
+
   // 载荷走 stdin 而非 argv：事件标题/备注是私密内容，argv 对同机任意进程经 ps 可见。
   it("calendarCreate 的载荷经 stdin 而非 argv，且 end 恰好调一次", async () => {
     let gotArgs: string[] = [];
@@ -405,6 +433,28 @@ describe("ReplyHelperClient one-shot", () => {
     expect(p.written).toHaveLength(1);
     expect(JSON.parse(p.written[0])).toEqual({ title: "私密会议", startMs: 1, endMs: 2 });
     expect(p.written[0].endsWith("\n")).toBe(true); // helper 侧 readLine 需要换行收尾
+    expect(p.stdinEndCalls).toBe(1);
+  });
+
+  // 听写正文与日历标题同属用户私密内容；绝不能把它放进 argv 让同机 ps 读取。
+  it("paste 的正文经 stdin 而非 argv，且仍以换行结束", async () => {
+    let gotArgs: string[] = [];
+    const p = new FakeProc();
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: (_bin, args) => {
+        gotArgs = args;
+        return p;
+      },
+    });
+    const promise = client.paste("只写入当前光标");
+    p.emitStdout('{"ok":true}\n');
+    p.emitExit(0);
+    await promise;
+
+    expect(gotArgs).toEqual(["paste"]);
+    expect(gotArgs.join(" ")).not.toContain("只写入当前光标");
+    expect(p.written).toEqual(["只写入当前光标\n"]);
     expect(p.stdinEndCalls).toBe(1);
   });
 

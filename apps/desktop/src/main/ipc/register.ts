@@ -49,6 +49,7 @@ import { registerResearchHandlers } from "./research";
 import { registerKnowledgeHandlers } from "./knowledge";
 import { registerComputerUseHandlers } from "./computer-use";
 import { registerArtifactHandlers } from "./artifact";
+import { registerVoiceHandlers } from "./voice";
 import { syncResearchEngineRuntime } from "../research/runtime";
 
 interface RegisterIpcHandlersOptions {
@@ -100,6 +101,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerAutomationHandlers();
   registerWorkflowHandlers(); // 节点式工作流（loop）IPC，紧挨 automation 注册
   registerSttHandlers();
+  // 语音聊天 / 听写快捷键。回调在阶段 4/5 接线前安全 no-op，注册/解除仍立即生效。
+  registerVoiceHandlers();
   registerOrchestrateHandlers(); // chat 三段编排调度器（U1）
   registerRoleHandlers(); // 全局角色库 CRUD（圆桌会话）
   registerRoundtableHandlers(); // 圆桌多角色 BFS 编排调度器

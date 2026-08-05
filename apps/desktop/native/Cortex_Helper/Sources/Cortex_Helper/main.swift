@@ -7,7 +7,7 @@ import Foundation
 let args = CommandLine.arguments
 guard args.count >= 2 else {
     emitJSON(["ok": false, "error": "missing-command",
-              "usage": "ax-capture | ax-activate <pid> | paste <text> | ocr [pid] | calendar"
+              "usage": "ax-capture | ax-activate <pid> | paste | ocr [pid] | screenshot [pid] | calendar"
                      + " | calendar-events <startMs> <endMs> | calendar-create | permissions | events"])
     exit(2)
 }
@@ -22,14 +22,13 @@ case "ax-activate":
     }
     runAXActivate(pid: pid)
 case "paste":
-    guard args.count >= 3 else {
-        emitJSON(["ok": false, "error": "missing-text"])
-        exit(2)
-    }
-    runPaste(text: args[2])
+    runPaste() // 正文从 stdin 读一行，避免听写内容出现在 argv / ps。
 case "ocr":
     let pid: pid_t? = args.count >= 3 ? pid_t(args[2]) : nil
     runOCR(pid: pid)
+case "screenshot":
+    let pid: pid_t? = args.count >= 3 ? pid_t(args[2]) : nil
+    runScreenshot(pid: pid)
 case "calendar":
     runCalendar()
 case "calendar-events":

@@ -71,6 +71,9 @@ function parseVoiceOptions(data: unknown): TtsVoiceOption[] {
   return out;
 }
 
+// 在途 TTS 流式请求(streamId → 中止句柄):tts:cancelStreams 据此把取消传导到上游服务。
+const activeTtsStreams = new Map<string, AbortController>();
+
 export function registerLlmHandlers(): void {
   ipcMain.handle("llm:openaiComplete", async (_e, req: OpenAiCompleteRequest) => {
     // 请求/错误契约收敛在 openai-chat.ts（现已改架在 Pi Model Gateway 之上）；
@@ -108,6 +111,10 @@ export function registerLlmHandlers(): void {
       if (!sender.isDestroyed()) sender.send("tts:stream", { streamId: req.streamId, event: streamEvent });
     };
 
+    // 可取消:renderer 停止播放时经 tts:cancelStreams 中止 fetch——否则本地 TTS 服务会
+    // 继续满负荷生成整段文本,并把后续请求堵在其串行队列后面。
+    const controller = new AbortController();
+    activeTtsStreams.set(req.streamId, controller);
     try {
       const res = await fetch(audioSpeechUrl(req.baseUrl), {
         method: "POST",
@@ -116,7 +123,7 @@ export function registerLlmHandlers(): void {
           ...(await authHeaders(req.baseUrl, req.apiKey)),
         },
         body: JSON.stringify(audioSpeechPayload({ ...req, stream: true })),
-        signal: AbortSignal.timeout(TTS_STREAM_TIMEOUT_MS),
+        signal: AbortSignal.any([AbortSignal.timeout(TTS_STREAM_TIMEOUT_MS), controller.signal]),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -135,7 +142,15 @@ export function registerLlmHandlers(): void {
       send({ type: "done" });
     } catch (error) {
       send({ type: "error", error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      activeTtsStreams.delete(req.streamId);
     }
+  });
+
+  // 停止播放时中止全部在途合成流(逻辑上同时最多一条;按 Map 全清防御竞态残留)。
+  ipcMain.handle("tts:cancelStreams", async (): Promise<void> => {
+    for (const controller of activeTtsStreams.values()) controller.abort();
+    activeTtsStreams.clear();
   });
 
   ipcMain.handle("tts:listVoices", async (_e, req: TtsListVoicesRequest): Promise<TtsVoiceOption[]> => {

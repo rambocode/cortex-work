@@ -65,6 +65,8 @@ export async function transcribeOnline(req: AsrTranscribeRequest): Promise<AsrTr
   form.append("model", req.model);
   form.append("response_format", "verbose_json");
   if (req.language) form.append("language", req.language);
+  // 与本地 --prompt 语义对齐：词典仅影响模型解码偏置，不能替代音频内容。
+  if (req.prompt?.trim()) form.append("prompt", req.prompt);
 
   const res = await fetch(audioTranscriptionsUrl(req.baseUrl), {
     method: "POST",
