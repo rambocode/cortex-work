@@ -16,6 +16,26 @@ import "./pet-overlay.css";
 
 const bridge = window.desktopAPI?.personal;
 
+// 本地显示覆写:这扇窗口里没有状态机(它在主窗口的 PetBridge 里跑),点击宠物若直接写
+// store,下一次 pet:sync-state 广播就会把它顶回去。故用一个「覆写截止时刻」哨兵:
+// 期间照常接收同步快照的其它字段(造型/尺寸/显隐),唯独忽略 state,让 happy 播完。
+// 与 core/pet 里 celebrate 一次性位的时长保持一致。
+const POKE_MS = 2200;
+let overrideUntil = 0;
+let overrideTimer: ReturnType<typeof setTimeout> | undefined;
+
+function pokePet(): void {
+  overrideUntil = Date.now() + POKE_MS;
+  usePetStore.setState({ state: "happy" });
+  clearTimeout(overrideTimer);
+  // 覆写到期后主动回落——期间被忽略的广播不会自己补发,不落回宠物会一直挂着 happy。
+  overrideTimer = setTimeout(() => {
+    overrideUntil = 0;
+    usePetStore.setState({ state: "idle" });
+    bridge?.requestPetSync?.(); // 要一次最新快照,把可能已经变化的真实姿态补回来
+  }, POKE_MS);
+}
+
 // 这扇窗口是纯展示层,不需要任何右键菜单(默认 Chromium 行为/DevTools 的
 // Inspect Element 菜单都会挡在宠物上方、看起来像"宠物窗体自己的菜单")。
 window.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -30,11 +50,21 @@ if (bridge?.onPetSyncState) {
     bridge.setPetOverlayVisible?.(state.enabled);
   });
   bridge.onPetSyncState((snapshot) => {
+    // 本地覆写期间只丢弃 state,其余设置照常同步(此时改造型/尺寸仍要立即生效)。
+    if (Date.now() < overrideUntil) {
+      const { state: _ignored, ...rest } = snapshot;
+      usePetStore.setState(rest);
+      return;
+    }
     usePetStore.setState(snapshot);
   });
   bridge.requestPetSync?.();
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <Pet windowFollowsPet onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)} />,
+  <Pet
+    windowFollowsPet
+    onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)}
+    onPoke={pokePet}
+  />,
 );

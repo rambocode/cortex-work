@@ -12,8 +12,8 @@ import {
   agentThinkingOptions,
   useDesktopBridge,
   usePersonalStore,
-  usePetStore,
 } from "@cortex-work/core";
+import { petActivity } from "@cortex-work/core/pet";
 import { useComposerVoice } from "./useComposerVoice";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type {
@@ -923,9 +923,10 @@ export function ComposerShell({
               if (e.target.value.trim()) onPrewarm?.();
               // @mention autocomplete：文本变更时重新检测 @query
               requestAnimationFrame(() => mention.updateMentionState());
-              // 宠物:进入「看你打字」状态（停止输入后由节拍器衰减回 idle）。
-              const pet = usePetStore.getState();
-              if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
+              // 宠物:置一次性的「在打字」位(停止输入后自动清)。
+              // 不需要在这里守卫「别打断 thinking/working」——那条规则已内化成
+              // core/pet/derive.ts 里 typing 垫底的优先级。
+              petActivity.flash("typing");
             }}
             onKeyDown={onKey}
             onPaste={onPaste}

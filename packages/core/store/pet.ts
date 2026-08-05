@@ -1,5 +1,9 @@
-// 桌面宠物状态机（Zustand,仅 core）。各处只负责「报告发生了什么」,
-// 衰减类转换（typing→idle、idle→sleeping、happy→idle）由 Pet 组件的节拍器驱动。
+// 桌面宠物的展示态（Zustand,仅 core）。
+//
+// 这里只存「该显示什么」,不含任何判定逻辑:`state` 的唯一写入方是 core/pet 的状态机
+// (由事件产生方窗口的 PetBridge 启动),桌面 overlay 窗口则由 pet:sync-state 广播写入。
+// 业务侧要报告「发生了什么」请用 core/pet 的 petActivity,不要直接改这里的 state——
+// 绕过状态机写入会被下一次派生覆盖,且拿不到去抖与自动回落。
 
 import { create } from "zustand";
 
@@ -24,10 +28,6 @@ export interface PetStore {
   enabled: boolean;
   /** 显示缩放(1 = 默认,范围约 0.8–2;持久化由 views 层负责)。 */
   size: number;
-  lastActivity: number;
-  set: (s: PetState) => void;
-  /** 切状态但不刷新 lastActivity(非用户事件用,避免重置安静计时)。 */
-  wake: () => void;
   setKind: (k: PetKind) => void;
   setEnabled: (enabled: boolean) => void;
   setSize: (size: number) => void;
@@ -38,9 +38,6 @@ export const usePetStore = create<PetStore>((set) => ({
   kind: "cat",
   enabled: true,
   size: 1,
-  lastActivity: Date.now(),
-  set: (s) => set({ state: s, lastActivity: Date.now() }),
-  wake: () => set({ state: "idle" }),
   setKind: (k) => set({ kind: k }),
   setEnabled: (enabled) => set({ enabled }),
   setSize: (size) => set({ size }),

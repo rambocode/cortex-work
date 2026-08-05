@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePetStore, type DesktopBridge } from "@cortex-work/core";
+import { petActivity } from "@cortex-work/core/pet";
 import { PET_ENABLED_KEY } from "./behavior";
 import { PET_KIND_KEY, PET_SIZE_KEY } from "./designs";
 import { Pet } from "./Pet";
@@ -14,7 +15,6 @@ function resetStore() {
     kind: "cat",
     enabled: true,
     size: 1,
-    lastActivity: Date.now(),
   });
 }
 
@@ -25,6 +25,7 @@ const TEST_IDENTITY = { userId: "me", name: "我" };
 describe("Pet", () => {
   beforeEach(() => {
     localStorage.clear();
+    petActivity.__reset();
     resetStore();
   });
   afterEach(() => {
@@ -32,10 +33,19 @@ describe("Pet", () => {
     vi.useRealTimers();
   });
 
-  it("enabled=false(持久化为关)时不渲染", () => {
-    localStorage.setItem(PET_ENABLED_KEY, "0");
+  // 设置的恢复归 PetBridge 一处负责(见该组件头注释),Pet 只消费 store。
+  it("enabled=false 时不渲染", () => {
+    act(() => usePetStore.setState({ enabled: false }));
     const { container } = render(<Pet />);
     expect(container.querySelector(".pet")).toBeNull();
+  });
+
+  it("点击(非拖拽)置庆祝位,由状态机派生成 happy——不直接写 store", () => {
+    const { container } = render(<Pet />);
+    const pet = container.querySelector(".pet") as HTMLElement;
+    fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(petActivity.snapshot().celebrate).toBe(true);
   });
 
   it("拖拽时根节点坐标更新并持久化", () => {
@@ -51,17 +61,6 @@ describe("Pet", () => {
     expect(parseFloat(pet.style.left)).toBe(160);
     expect(parseFloat(pet.style.top)).toBe(240);
     expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
-  });
-
-  // 节拍器是当前唯一的衰减驱动:安静足够久后自动进入 sleeping。
-  it("安静满 2 分钟后进入 sleeping", () => {
-    vi.useFakeTimers();
-    render(<Pet />);
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - 121_000 });
-      vi.advanceTimersByTime(600);
-    });
-    expect(usePetStore.getState().state).toBe("sleeping");
   });
 
   it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {
@@ -125,12 +124,16 @@ describe("Pet", () => {
     // 非标准属性,赋值会被静默丢弃(真实 Chromium/Electron 环境没有这个问题)——单测校验不
     // 到,只能靠打包后手动验证:悬停宠物应能原生拖拽窗口,悬停关闭按钮不触发拖拽。
 
-    it("点击仍触发 happy(未经自定义拖拽判定,onPointerDown 整个跳过)", () => {
-      const { container } = render(<Pet windowFollowsPet />);
+    // overlay 里没有状态机(它是纯镜像),点击不能自己写 store——会被下一次广播顶回去。
+    // 改为报给宿主做本地显示覆写(见 pet-overlay.tsx 的 pokePet)。
+    it("点击报给宿主而不是写 store", () => {
+      const onPoke = vi.fn();
+      const { container } = render(<Pet windowFollowsPet onPoke={onPoke} />);
       const pet = container.querySelector(".pet") as HTMLElement;
       fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, pointerId: 1 });
       fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
-      expect(usePetStore.getState().state).toBe("happy");
+      expect(onPoke).toHaveBeenCalledOnce();
+      expect(petActivity.snapshot().celebrate).toBe(false);
     });
 
     it("点击关闭时通知 overlay 宿主同步主窗口设置", () => {
@@ -148,6 +151,7 @@ describe("Pet", () => {
 describe("PetBridge", () => {
   beforeEach(() => {
     localStorage.clear();
+    petActivity.__reset();
     resetStore();
   });
   afterEach(() => cleanup());

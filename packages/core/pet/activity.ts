@@ -93,13 +93,21 @@ export const petActivity = {
     notify();
   },
 
-  /** run 收尾。ok 决定放一次庆祝还是失败的一次性反馈。 */
-  endRun(runId: string, ok: boolean): void {
+  /**
+   * run 收尾。
+   * ok=true 庆祝一下 / ok=false 给失败反馈 / 省略则静默收尾(只清账,不打扰用户)。
+   * 静默档是给「说不清成败」的兜底路径用的——例如收到退出事件时 run 注册表已被
+   * 看门狗清掉,此时报 failed 就是假警报。
+   */
+  endRun(runId: string, ok?: boolean): void {
     runs.delete(runId);
     rememberEnded(runId);
     awaiting.delete(runId);
-    petActivity.flash(ok ? "celebrate" : "error");
-    // flash 内部已 notify,这里不重复。
+    if (ok === undefined) {
+      notify();
+      return;
+    }
+    petActivity.flash(ok ? "celebrate" : "error"); // flash 内部已 notify
   },
 
   /** 审批 / 澄清的挂起与解除。 */

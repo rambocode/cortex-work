@@ -1,21 +1,21 @@
-// 桌面宠物 —— sprite 序列帧(无资源时回退内联 SVG),随应用状态切换形态:
-//   idle      呼吸/眨眼/甩尾/耳朵偶尔抖
-//   typing    耳朵竖起,瞳孔盯向左下输入框,尾巴加速
-//   thinking  仰头盯思考泡泡「…」
-//   working   眯眼专注,齿轮旋转,前爪敲击,冒汗
-//   replying  弯月笑眼,嘴巴开合,对话气泡
-//   sleeping  闭眼耷耳,Zzz 飘浮
-//   happy     跳一下 + 爱心(点击/任务完成)
-// 放置方式:自由放置——可拖动(位置存 localStorage),悬停 3D 视差倾斜。
-// 悬停浮现 ✕ 可隐藏宠物(设置页可重新打开);造型在设置菜单中选择(pet/designs.tsx)。
+// 桌面宠物本体 —— 纯展示 + 拖拽,不含任何状态机逻辑。
+//
+// 姿态(data-state)来自 usePetStore,由 core/pet 的状态机写入(桌面端在主窗口的
+// PetBridge 里跑,overlay 只是镜像);设置的恢复也在 PetBridge。本组件只负责:
+// 定位/拖拽、悬停 3D 视差、✕ 隐藏、以及把「被点了一下」报回去。
+//
+// 姿态一览:idle 待命 / typing 看你打字 / thinking 思考 / working 埋头干活 /
+// replying 回话 / waiting 等你确认 / sleeping 打盹 / happy 开心 / failed 出错了。
+// 造型在设置菜单中选择(pet/designs.tsx)。
 
 import { useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
+import { petActivity } from "@cortex-work/core/pet";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { Accessories, PET_DESIGNS, loadPetKind, loadPetSize } from "./designs";
+import { Accessories, PET_DESIGNS, loadPetSize } from "./designs";
 import { hasSprites } from "./sprites";
 import { SpriteLayer } from "./SpriteLayer";
-import { loadPetEnabled, savePetEnabled } from "./behavior";
+import { savePetEnabled } from "./behavior";
 
 const PET_STATES = [
   "idle",
@@ -69,46 +69,24 @@ export interface PetProps {
   windowFollowsPet?: boolean;
   /** 独立 overlay 把显隐动作回传给主窗口设置真源；主窗口内嵌模式无需传。 */
   onEnabledChange?: (enabled: boolean) => void;
+  /** 点击宠物(非拖拽)。仅 windowFollowsPet 模式需要:那个窗口里没有状态机,
+   * 由宿主做本地显示覆写。内嵌模式不传,组件自己置庆祝位。 */
+  onPoke?: () => void;
 }
 
-export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}) {
+export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetProps = {}) {
   const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
   const kind = usePetStore((s) => s.kind);
   const enabled = usePetStore((s) => s.enabled);
   const size = usePetStore((s) => s.size);
-  const set = usePetStore((s) => s.set);
-  const setKind = usePetStore((s) => s.setKind);
   const setEnabled = usePetStore((s) => s.setEnabled);
-  const setSize = usePetStore((s) => s.setSize);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() =>
     windowFollowsPet ? null : loadPos(loadPetSize()),
   );
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  // 启动时恢复上次选择的造型 / 显隐 / 尺寸。
-  useEffect(() => {
-    // 独立 overlay 只是主窗口状态的镜像；file:// 页面各自的 localStorage 不能作为
-    // 同一份设置来源，否则 overlay 会在收到同步快照后又用自己的默认值覆盖它。
-    if (windowFollowsPet) return;
-    setKind(loadPetKind());
-    setEnabled(loadPetEnabled());
-    setSize(loadPetSize());
-  }, [windowFollowsPet, setKind, setEnabled, setSize]);
-
-  // 节拍器:超时衰减。安静 2 分钟打盹;打字/开心短暂后回到 idle。
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const { state: cur, lastActivity } = usePetStore.getState();
-      const quiet = Date.now() - lastActivity;
-      if (cur === "typing" && quiet > 1600) set("idle");
-      else if (cur === "happy" && quiet > 2200) set("idle");
-      else if (cur === "idle" && quiet > 120_000) set("sleeping");
-    }, 500);
-    return () => clearInterval(timer);
-  }, [set]);
 
   // 拖动(pointer capture,移动超过阈值视为拖,否则当点击)。
   // windowFollowsPet 模式下整个跳过——挪动窗口交给 `-webkit-app-region: drag` 原生处理,
@@ -166,7 +144,12 @@ export function Pet({ windowFollowsPet = false, onEnabledChange }: PetProps = {}
       }
       return; // 拖动结束不触发点击
     }
-    set(state === "happy" ? "idle" : "happy");
+    // 逗一下宠物。两种形态走不同通道:
+    // - 内嵌(Web / 主窗口):置一次性的庆祝位,由状态机派生成 happy 并自动清除。
+    // - overlay:状态机不在这个窗口跑(它是纯镜像),写 store 会被下一次同步顶回去,
+    //   故交给宿主做本地显示覆写(见 pet-overlay.tsx)。
+    if (windowFollowsPet) onPoke?.();
+    else petActivity.flash("celebrate");
   };
 
   // 窗口缩放或宠物尺寸变化时夹回可视区(记忆位置)。
