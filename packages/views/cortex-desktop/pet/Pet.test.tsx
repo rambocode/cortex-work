@@ -4,8 +4,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePetStore, type DesktopBridge } from "@cortex-work/core";
 import { petActivity } from "@cortex-work/core/pet";
-import { PET_ENABLED_KEY } from "./behavior";
-import { PET_KIND_KEY, PET_SIZE_KEY } from "./designs";
+import { PET_ENABLED_KEY, PET_SIZE_KEY } from "./prefs";
 import { Pet } from "./Pet";
 import { PetBridge } from "./PetBridge";
 
@@ -63,27 +62,29 @@ describe("Pet", () => {
     expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
   });
 
-  it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {
-    expect(petCss).toMatch(/\.pet\s*\{[^}]*width:\s*calc\(110px \* var\(--pet-scale, 1\)\)/s);
-    expect(petCss).toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px \* var\(--pet-scale, 1\)\)/s);
+  // 宽高由 JS 按 sprite 格子比例算好写在内联样式上——内置 110:100、petdex 192:208,
+  // 写死在 CSS 里会让其中一种被拉变形。
+  it("根节点尺寸走内联样式,CSS 不再写死宽高", () => {
+    const { container } = render(<Pet />);
+    const pet = container.querySelector(".pet") as HTMLElement;
+    expect(parseFloat(pet.style.width)).toBe(110);
+    expect(parseFloat(pet.style.height)).toBe(100);
+    expect(petCss).not.toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px/s);
     expect(petCss).toMatch(/\.pet-3d\s*\{[^}]*width:\s*100%/s);
   });
 
-  it("有 sprite 的角色(cat)走序列帧层 + 配件叠加层,不渲染内联 SVG 造型", () => {
-    const { container } = render(<Pet />); // 默认 kind=cat
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
-    // 浮动配件叠加层存在(状态反馈),但没有 body 造型 svg
-    expect(pet.querySelector(".pet-3d > svg.pet-accessories")).not.toBeNull();
-    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
-  });
-
-  it("dog 角色同样走 sprite 序列帧层", () => {
-    localStorage.setItem(PET_KIND_KEY, "dog");
+  it("渲染 canvas 逐帧层,不再有 sprite 背景层或 SVG 造型", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
-    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
+    expect(pet.querySelector(".pet-3d > canvas.pet-canvas")).not.toBeNull();
+    expect(pet.querySelector(".pet-sprite")).toBeNull();
+    expect(pet.querySelector("svg")).toBeNull();
+  });
+
+  // petdex 的 sheet 没有睡眠行,这是唯一保留的 DOM 配件。
+  it("保留 Zzz 配件用于睡眠语义", () => {
+    const { container } = render(<Pet />);
+    expect(container.querySelector(".pet-3d > .pet-zzz")).not.toBeNull();
   });
 
   it("点击 ✕ 隐藏宠物并持久化", () => {
@@ -100,14 +101,13 @@ describe("Pet", () => {
   // 头部注释)。
   describe("windowFollowsPet(独立 pet-overlay 窗口)", () => {
     it("只消费主窗口同步状态,不使用 overlay 页面的 localStorage 覆盖", () => {
-      localStorage.setItem(PET_KIND_KEY, "dog");
       localStorage.setItem(PET_SIZE_KEY, "1.5");
       localStorage.setItem(PET_ENABLED_KEY, "0");
-      act(() => usePetStore.setState({ kind: "mint", size: 2, enabled: true }));
+      act(() => usePetStore.setState({ size: 2, enabled: true }));
 
       render(<Pet windowFollowsPet />);
 
-      expect(usePetStore.getState()).toMatchObject({ kind: "mint", size: 2, enabled: true });
+      expect(usePetStore.getState()).toMatchObject({ size: 2, enabled: true });
     });
 
     it("固定居中显示,不读取/写入 localStorage 记忆位置", () => {
@@ -157,7 +157,6 @@ describe("PetBridge", () => {
   afterEach(() => cleanup());
 
   it("首次同步前从主窗口 localStorage 恢复宠物设置", () => {
-    localStorage.setItem(PET_KIND_KEY, "mint");
     localStorage.setItem(PET_SIZE_KEY, "2");
     localStorage.setItem(PET_ENABLED_KEY, "0");
     const reportPetState = vi.fn();
@@ -171,7 +170,7 @@ describe("PetBridge", () => {
 
     expect(reportPetState).toHaveBeenCalledTimes(1);
     expect(reportPetState).toHaveBeenLastCalledWith(
-      expect.objectContaining({ kind: "mint", size: 2, enabled: false }),
+      expect.objectContaining({ kind: "cat", size: 2, enabled: false }),
     );
   });
 

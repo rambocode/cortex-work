@@ -13,8 +13,7 @@
 import { useEffect } from "react";
 import { usePetStore, usePersonalStore, useDesktopBridge, type PetStateSnapshot } from "@cortex-work/core";
 import { petActivity, startPetEngine } from "@cortex-work/core/pet";
-import { loadPetKind, loadPetSize } from "./designs";
-import { loadPetEnabled, savePetEnabled } from "./behavior";
+import { loadPetEnabled, loadPetKind, loadPetSize, savePetEnabled } from "./prefs";
 
 /** 审批挂起在活动注册表里的固定 key——整个应用同一时刻只需要一个「有没有人在等你点」的位。 */
 const PI_UI_AWAITING_KEY = "pi-ui";

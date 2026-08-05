@@ -1585,7 +1585,7 @@ export type PetState =
   | "sleeping"
   | "happy"
   | "failed";
-export type PetKind = "cat" | "dog" | "mint";
+export type PetKind = "cat";
 export interface PetStateSnapshot {
   state: PetState;
   kind: PetKind;

@@ -19,8 +19,9 @@ export type PetState =
   | "happy" // 被点击/任务完成的瞬时开心
   | "failed"; // 本轮运行失败的瞬时反馈
 
-// 宠物造型（设置菜单中选择;持久化由 views 层 localStorage 负责）。
-export type PetKind = "cat" | "dog" | "mint";
+// 内置宠物角色。它只承担「离线与首启的兜底」——造型选择交给 petdex 图鉴的数千只
+// (见 PetSpriteSource)。此前的 dog/mint 已随 SVG 造型体系一并退役。
+export type PetKind = "cat";
 
 export interface PetStore {
   state: PetState;

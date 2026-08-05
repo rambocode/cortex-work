@@ -6,16 +6,15 @@
 //
 // 姿态一览:idle 待命 / typing 看你打字 / thinking 思考 / working 埋头干活 /
 // replying 回话 / waiting 等你确认 / sleeping 打盹 / happy 开心 / failed 出错了。
-// 造型在设置菜单中选择(pet/designs.tsx)。
+// 逐帧渲染在 PetCanvas;造型(内置角色 or petdex 图鉴)在设置菜单中选择。
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePetStore } from "@cortex-work/core";
 import { petActivity } from "@cortex-work/core/pet";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { Accessories, PET_DESIGNS, loadPetSize } from "./designs";
-import { hasSprites } from "./sprites";
-import { SpriteLayer } from "./SpriteLayer";
-import { savePetEnabled } from "./behavior";
+import { PetCanvas } from "./PetCanvas";
+import { BUILTIN_NAME } from "./sheets";
+import { loadPetSize, savePetEnabled } from "./prefs";
 
 const PET_STATES = [
   "idle",
@@ -30,29 +29,8 @@ const PET_STATES = [
 ] as const;
 
 const POS_KEY = "cortex_pet_pos";
+/** 宠物在 scale=1 时的设计宽度。高度按 sprite 的格子宽高比推算,故随来源变化。 */
 const PET_W = 110;
-const PET_H = 100;
-const SVG_W = 104;
-const SVG_H = 89;
-
-function loadPos(size: number): { x: number; y: number } | null {
-  try {
-    const raw = localStorage.getItem(POS_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    if (typeof p?.x === "number" && typeof p?.y === "number") return clampPos(p, size);
-  } catch {
-    /* 忽略 */
-  }
-  return null;
-}
-
-function clampPos(p: { x: number; y: number }, size: number): { x: number; y: number } {
-  return {
-    x: Math.min(Math.max(0, p.x), window.innerWidth - PET_W * size),
-    y: Math.min(Math.max(0, p.y), window.innerHeight - PET_H * size),
-  };
-}
 
 // 独立 pet-overlay 窗口的固定尺寸(windowFollowsPet 模式下把宠物居中定位在这个尺寸里)。
 // 必须与 apps/desktop/src/main/pet-overlay-window.ts 里的同名常量保持一致——那边是
@@ -60,12 +38,31 @@ function clampPos(p: { x: number; y: number }, size: number): { x: number; y: nu
 const OVERLAY_WINDOW_W = 260;
 const OVERLAY_WINDOW_H = 240;
 
+function clampPos(p: { x: number; y: number }, w: number, h: number): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(0, p.x), window.innerWidth - w),
+    y: Math.min(Math.max(0, p.y), window.innerHeight - h),
+  };
+}
+
+function loadPos(w: number, h: number): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p?.x === "number" && typeof p?.y === "number") return clampPos(p, w, h);
+  } catch {
+    /* 忽略 */
+  }
+  return null;
+}
+
 export interface PetProps {
   /** 独立 pet-overlay 窗口专用:true 时宠物固定居中在一个刚好包住它的小窗口里,
    * 不做 CSS position:fixed 拖拽定位——挪动宠物改用 `-webkit-app-region: drag` 让
    * 操作系统直接移动这扇窗口本身(见 pet-overlay-window.ts 头部注释——多显示器下,
    * 靠 CSS 在一个铺满全屏的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限)。
-   * 主窗口内嵌场景(Web/桌面主窗口)不传,行为与此前完全一致。 */
+   * 主窗口内嵌场景(Web)不传。 */
   windowFollowsPet?: boolean;
   /** 独立 overlay 把显隐动作回传给主窗口设置真源；主窗口内嵌模式无需传。 */
   onEnabledChange?: (enabled: boolean) => void;
@@ -77,16 +74,29 @@ export interface PetProps {
 export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetProps = {}) {
   const { t } = useTranslation("pet");
   const state = usePetStore((s) => s.state);
-  const kind = usePetStore((s) => s.kind);
+  const sprite = usePetStore((s) => s.sprite);
   const enabled = usePetStore((s) => s.enabled);
   const size = usePetStore((s) => s.size);
   const setEnabled = usePetStore((s) => s.setEnabled);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(() =>
-    windowFollowsPet ? null : loadPos(loadPetSize()),
-  );
+
+  const petW = PET_W * size;
+  // 实际高度由 sprite 的格子宽高比决定(内置 110:100、petdex 192:208 不同),
+  // 由 PetCanvas 回报——拖拽夹取与窗口内居中都要用它,不能写死。
+  const [petH, setPetH] = useState(Math.round((PET_W * 100) / 110) * size);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const onCanvasSize = useCallback((s: { width: number; height: number }) => setPetH(s.height), []);
+
+  // 记忆位置在拿到真实尺寸后才读:夹取需要宽高,提前读会按错误的盒子夹一次。
+  useEffect(() => {
+    if (windowFollowsPet) return;
+    setPos(loadPos(PET_W * loadPetSize(), petH));
+    // 仅在挂载时恢复一次;后续的尺寸变化由下面的 resize effect 负责夹回。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowFollowsPet]);
 
   // 拖动(pointer capture,移动超过阈值视为拖,否则当点击)。
   // windowFollowsPet 模式下整个跳过——挪动窗口交给 `-webkit-app-region: drag` 原生处理,
@@ -112,7 +122,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
       if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
       if (d.moved) {
         setTilt(null);
-        setPos(clampPos({ x: d.origX + dx, y: d.origY + dy }, size));
+        setPos(clampPos({ x: d.origX + dx, y: d.origY + dy }, petW, petH));
       }
       return;
     }
@@ -135,7 +145,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
     }
     if (d?.moved) {
       // 用事件坐标重算终点（不读 rect:React 可能尚未重渲,会拿到旧位置）。
-      const final = clampPos({ x: d.origX + (e.clientX - d.startX), y: d.origY + (e.clientY - d.startY) }, size);
+      const final = clampPos({ x: d.origX + (e.clientX - d.startX), y: d.origY + (e.clientY - d.startY) }, petW, petH);
       setPos(final);
       try {
         localStorage.setItem(POS_KEY, JSON.stringify(final));
@@ -145,20 +155,21 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
       return; // 拖动结束不触发点击
     }
     // 逗一下宠物。两种形态走不同通道:
-    // - 内嵌(Web / 主窗口):置一次性的庆祝位,由状态机派生成 happy 并自动清除。
+    // - 内嵌(Web):置一次性的庆祝位,由状态机派生成 happy 并自动清除。
     // - overlay:状态机不在这个窗口跑(它是纯镜像),写 store 会被下一次同步顶回去,
     //   故交给宿主做本地显示覆写(见 pet-overlay.tsx)。
     if (windowFollowsPet) onPoke?.();
     else petActivity.flash("celebrate");
   };
 
-  // 窗口缩放或宠物尺寸变化时夹回可视区(记忆位置)。
+  // 窗口缩放或宠物尺寸变化时夹回可视区。
   useEffect(() => {
-    const onResize = () => setPos((p) => (p ? clampPos(p, size) : p));
+    if (windowFollowsPet) return;
+    const onResize = () => setPos((p) => (p ? clampPos(p, petW, petH) : p));
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [size]);
+  }, [windowFollowsPet, petW, petH]);
 
   const hide = () => {
     setEnabled(false);
@@ -168,22 +179,17 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
 
   if (!enabled) return null;
 
-  const design = PET_DESIGNS[kind];
-  const Parts = design.Parts;
-  // 宠物名 + 状态提示走 pet 命名空间;PET_DESIGNS.name 仍作为兜底(设置页等仍直读数据)。
-  const petName = t(`kind.${kind}.name`, design.name);
+  const petName = sprite?.displayName || BUILTIN_NAME;
   const stateLabel = (PET_STATES as readonly string[]).includes(state)
     ? t(`state.${state}`, { name: petName })
     : undefined;
-  // --pet-scale 供阴影等 CSS 跟随缩放。
-  const styleVars = { "--pet-scale": size } as React.CSSProperties;
 
   // 定位:windowFollowsPet 模式下固定居中在 overlay 窗口里(挪动窗口本身,不挪 CSS);
   // 其余情况用记忆位置(无则 CSS 默认右下)。
   const posStyle = windowFollowsPet
     ? {
-        left: (OVERLAY_WINDOW_W - PET_W * size) / 2,
-        top: (OVERLAY_WINDOW_H - PET_H * size) / 2,
+        left: (OVERLAY_WINDOW_W - petW) / 2,
+        top: (OVERLAY_WINDOW_H - petH) / 2,
         right: "auto" as const,
         bottom: "auto" as const,
       }
@@ -201,7 +207,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
       className={`pet ${dragRef.current?.moved ? "is-dragging" : ""}`}
       data-state={state}
       title={stateLabel}
-      style={{ ...styleVars, ...posStyle, ...dragRegionStyle }}
+      style={{ width: petW, height: petH, ...posStyle, ...dragRegionStyle }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -225,23 +231,14 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
         className="pet-3d"
         style={tilt ? { transform: `rotateX(${tilt.rx.toFixed(1)}deg) rotateY(${tilt.ry.toFixed(1)}deg)` } : undefined}
       >
-        {/* 角色级共存:有 sprite 资产走序列帧渲染层,否则回退现有内联 SVG 造型。
-            外围定位/拖拽/节拍器与 sprite 层正交,均不受影响。 */}
-        {hasSprites(kind) ? (
-          <>
-            <SpriteLayer kind={kind} state={state} />
-            {/* 浮动配件叠加层:sprite 本体不含状态语义,靠这层复用现有 SVG 配件
-                (思考泡/齿轮/汗滴/Zzz/对话泡/爱心),由 .pet[data-state] 驱动显隐,
-                让 thinking/working/replying/sleeping/happy 仍有可见反馈。 */}
-            <svg className="pet-accessories" viewBox="0 0 140 120" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-              <Accessories />
-            </svg>
-          </>
-        ) : (
-          <svg viewBox="0 0 140 120" width={Math.round(SVG_W * size)} height={Math.round(SVG_H * size)} aria-hidden="true">
-            <Parts />
-          </svg>
-        )}
+        <PetCanvas sprite={sprite} state={state} width={petW} onSize={onCanvasSize} />
+        {/* petdex 的 sheet 里没有睡眠动作,idle 行放慢只能表达「安静」,还差一点
+            「睡着了」的语义。这是唯一保留的 DOM 配件,其余状态语义都由 sprite 自己承载。 */}
+        <span className="pet-zzz" aria-hidden="true">
+          <span className="z z1">Z</span>
+          <span className="z z2">Z</span>
+          <span className="z z3">Z</span>
+        </span>
       </div>
     </div>
   );

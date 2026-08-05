@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vite
 import { CoreProvider, usePersonalStore, usePetStore } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, ProjectMeta, SessionMeta } from "@cortex-work/core";
-import { PET_ENABLED_KEY } from "../../pet/behavior";
+import { PET_ENABLED_KEY } from "../../pet/prefs";
 import { PersonalSidebar } from "./PersonalSidebar";
 
 // 侧栏渲染只需最小 bridge：探测 editors 用 listEditors（缺则空），其余方法只用于能力门控。

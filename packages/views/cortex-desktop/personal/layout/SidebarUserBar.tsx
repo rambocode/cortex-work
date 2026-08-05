@@ -16,7 +16,7 @@ import {
 } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { Icon } from "@cortex-work/ui/icons";
-import { savePetEnabled } from "../../pet/behavior";
+import { savePetEnabled } from "../../pet/prefs";
 import { useDismissableMenu } from "../shared/useDismissableMenu";
 import { NotificationBell } from "./NotificationBell";
 
