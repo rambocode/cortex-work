@@ -131,6 +131,19 @@ export interface PiInProcDeps {
   customTools?: ToolDefinition[];
   /** 原生内联扩展（审批 hook 等，U3 填充）。取代旧路径「生成 .js 文件 + `-e` 加载」。 */
   extensionFactories?: unknown[];
+  /**
+   * 磁盘上已安装的 pi extension 路径（等价旧路径的 `-e <path>`），透传给
+   * `resourceLoaderOptions.additionalExtensionPaths`。
+   *
+   * 为什么单列一个槽而不是塞进 `extensionFactories`：`pi-computer-use` 这类第三方能力是
+   * `pi install` 装到 `~/.pi` 的**磁盘包**，不是我们自己的对象——SDK 侧由 DefaultResourceLoader
+   * 经 jiti 加载（能吃 .ts/.js 与 package.json 的 `pi.extensions` 清单），我们没有理由去重造加载器。
+   *
+   * ⚠️ 与 `noExtensions: true` 并不冲突：实测 SDK 实现里 `noExtensions` 只是让
+   * `extensionPaths = cliEnabledExtensions`（即**只**取本字段解析出来的那批），屏蔽的是「自动发现」，
+   * 显式路径照常加载。这与 CLI 侧「`--no-extensions` 与显式 `-e` 共存」是同一套语义。
+   */
+  additionalExtensionPaths?: string[];
   /** pi 全局配置目录。缺省 `~/.pi/agent`（与 CLI 同源，保证 `pi install` 装的包能被找到）。 */
   agentDir?: string;
   /** 会话 JSONL 落盘目录。缺省由 pi 按 cwd 推导（与 CLI 同源，`sessionFile` 语义不变）。 */
@@ -650,6 +663,11 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
                 Parameters<typeof mod.createAgentSessionServices>[0]["resourceLoaderOptions"]
               >["extensionFactories"],
             }
+          : {}),
+        // ↓ 逐个 `-e <path>`：磁盘上已安装的第三方 extension（如 pi-computer-use）。
+        // 与上面的 noExtensions 并存——它屏蔽的是自动发现，显式路径照常加载（见 PiInProcDeps 注释）。
+        ...(deps.additionalExtensionPaths?.length
+          ? { additionalExtensionPaths: deps.additionalExtensionPaths }
           : {}),
       },
     });
