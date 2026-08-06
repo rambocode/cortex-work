@@ -31,7 +31,8 @@
 // pi 两条引擎路径（迁移计划 U6，docs/plans/2026-08-05-001-refactor-pi-inprocess-migration-plan.md）：
 //   · binary（默认）：`spawnPiRpc` 起 `pi --mode rpc` 子进程 —— `PiRpcSession`；
 //   · in-process：主进程内 `createAgentSession` —— `PiInProcSession`。
-//   由 `shouldUsePiInProcEngine()` 这一个开关选路（与 `ipc/pi-session.ts` 同源同语义）。
+//   由 `resolvePiEngineKind()` 三值选路（与 `ipc/pi-session.ts` 同源同语义；gateway 见
+//   docs/plans/2026-08-06-001-refactor-pi-gateway-worker-plan.md，三段共享常驻 worker）。
 //   本文件的引擎分支**只有 `runPiStage` 里构造会话那一处**，其后事件映射 / settle / 超时 /
 //   取消 / 释放路径全部只依赖 `PiSessionEngine` 契约，两条路共用。
 //
@@ -60,9 +61,10 @@ import { getAgentDef, parseLineEvents } from "../agents";
 import { buildRpcArgs, PiRpcSession, spawnPiRpc } from "../agents/pi-rpc";
 import {
   openPiInProcSession,
-  shouldUsePiInProcEngine,
+  resolvePiEngineKind,
   type PiSessionEngine,
 } from "../agents/pi-inproc";
+import { openPiGatewaySession } from "../agents/pi-gateway/client";
 import { createPiSessionPool } from "../agents/pi-inproc/session-pool";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
 import {
@@ -435,7 +437,7 @@ async function runPiStage(opts: {
   const uiSessionId = `orch-${spawnKey}`;
   // 引擎选路在**每段开始时**判定一次，与 `ipc/pi-session.ts` 的 `pi:open` 同一开关同一语义。
   // 判定后整段固定：同一个会话中途换引擎等于换进程边界，做不到（也没有场景需要）。
-  const useInProc = shouldUsePiInProcEngine();
+  const engine = resolvePiEngineKind();
   let out = "";
   let settled = false;
   // session 被 settle 与 onUiRequest 两个闭包共享（捕获的是变量而非值）：构造完成前它是
@@ -496,9 +498,9 @@ async function runPiStage(opts: {
         // ── 引擎分支：本文件唯一的一处 ────────────────────────────────────────────────
         // 目标只是产出一个 `PiSessionEngine`；此后的 ready / prompt / 事件 / 释放全无分支。
         let opened: PiSessionEngine;
-        if (useInProc) {
+        if (engine === "inproc") {
           logInProcExtensionScope(stage, req);
-          // cwd 路径闸对两条路径都要过：它守的是「能不能在这个目录里跑 agent」，与是否 spawn 无关。
+          // cwd 路径闸对每条路径都要过：它守的是「能不能在这个目录里跑 agent」，与是否 spawn 无关。
           assertSpawnCwd(cwd);
           // 依赖组装**复用** pi-session 的 buildInProcDeps，不在本文件另写一份：
           // 子会话与主会话的能力集合（审批集、MCP 桥、Computer Use、模型解析）必须逐项一致，
@@ -510,6 +512,16 @@ async function runPiStage(opts: {
             onUiRequest: handleUiRequest,
             askQuestionSentinel: req.askQuestionSentinel,
             deps: await buildInProcDeps(req, true),
+          });
+        } else if (engine === "gateway") {
+          logInProcExtensionScope(stage, req);
+          assertSpawnCwd(cwd);
+          // 能力组装在常驻 worker 侧按 req 的结构化字段完成（与主会话同一套 capabilities.ts）。
+          // 三段共享同一个常驻 runtime——编排从 3~6 个进程降到 1 个，正是常驻化的主要收益场景。
+          opened = await openPiGatewaySession({
+            request: req,
+            onEvent: (ev) => handlePiEvent(ev),
+            onUiRequest: handleUiRequest,
           });
         } else {
           const args = buildRpcArgs(req);
@@ -535,7 +547,9 @@ async function runPiStage(opts: {
         // adopt() 在同步瞬间重判一次并就地释放，把这条缝补死。
         // 二进制路径下 opened 是同步构造的，上面刚查过 settled/aborted，isStale 恒为 false，
         // 因此这条分支与迁移前逐字等价。
-        if (!orchestrationPiSessions.adopt(opened, { abortOnRelease: useInProc, isStale: () => settled || signal.aborted })) {
+        // abortOnRelease：inproc 的 stop() 不打断在跑轮次，须先 abort；gateway 的 closeSession
+        // 在 worker 侧本就先 abort 再 stop，主进程侧无需重复；binary 的 stop() 即 kill。
+        if (!orchestrationPiSessions.adopt(opened, { abortOnRelease: engine === "inproc", isStale: () => settled || signal.aborted })) {
           return;
         }
         session = opened;

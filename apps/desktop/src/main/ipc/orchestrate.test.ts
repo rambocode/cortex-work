@@ -197,7 +197,17 @@ const { FakeInProcSession } = inprocMocks;
 
 vi.mock("../agents/pi-inproc", () => ({
   shouldUsePiInProcEngine: () => inprocMocks.shouldUseInProcMock(),
+  // 三值选路：既有用例只在 inproc/binary 之间切，沿用布尔 mock 映射；gateway 场景单独 mock 客户端。
+  resolvePiEngineKind: () => (inprocMocks.shouldUseInProcMock() ? "inproc" : "binary"),
   openPiInProcSession: (...args: unknown[]) => inprocMocks.openInProcMock(...args),
+}));
+
+// gateway 客户端整体替身：真模块会拉进 transport/agent-trace 链。编排的 gateway 行为
+// 与 inproc 共享全部后续路径（PiSessionEngine 契约），此处只需挡住 import。
+vi.mock("../agents/pi-gateway/client", () => ({
+  openPiGatewaySession: vi.fn(async () => {
+    throw new Error("gateway 路径未在本测试文件覆盖");
+  }),
 }));
 
 const getPiInprocModelRuntimeMock = vi.fn(async () => ({ kind: "shared-runtime" }));

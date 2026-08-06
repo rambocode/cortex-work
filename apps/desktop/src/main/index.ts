@@ -120,6 +120,8 @@ import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
 import { ensureProcessPath } from "./ipc/cli";
+import { isPiGatewayEnabled } from "./agents/pi-inproc";
+import { primePiGatewayRuntime, shutdownPiGatewayRuntime } from "./agents/pi-gateway/client";
 import { installAppMenu } from "./app-menu";
 import { createLogger } from "./log";
 import { createMainWindowOptions } from "./main-window-geometry";
@@ -630,6 +632,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    // pi gateway 预热（fire-and-forget）：常驻化的收益就在这里兑现——fork + 三包 ESM 加载
+    // （每会话冷启动的大头）在建窗前后台完成，用户首次开会话只剩 createAgentSession。
+    // 只在选路确为 gateway 时预热：binary/inproc 用户不该白付一个 worker 进程。
+    if (isPiGatewayEnabled()) primePiGatewayRuntime();
+
     electronApp.setAppUserModelId("ai.cortex.work");
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
     app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
@@ -834,6 +841,9 @@ if (!app.requestSingleInstanceLock()) {
     killAllCli();
     killAllAsk();
     killAllPiSessions();
+    // pi gateway 常驻 worker：会话已随上一行逐个 close，这里收掉进程本身。
+    // 窗口关闭即收（而不是留到 app 退出）：无窗口时不该有 pi runtime 挂着吃内存。
+    shutdownPiGatewayRuntime();
     killAllPty();
     closeAllWatchers();
     killAllOrchestrations(); // 编排链路随窗口关闭终止（chat 级进程，不同于 automation）
@@ -871,6 +881,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllCli();
     killAllAsk();
     killAllPiSessions();
+    shutdownPiGatewayRuntime(); // 常驻 worker 与 Research Worker 同理,不随主进程退出自动消失
     killAllPty();
     killAllResearchWorkers(); // Research Worker(utilityProcess)不随主进程退出自动消失,必须显式杀
     closeAllWatchers();

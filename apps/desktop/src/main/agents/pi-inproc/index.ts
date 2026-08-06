@@ -10,10 +10,15 @@
 // 给原生工具与 Provider 适配用，`createBuiltinTools` / `applyActiveTools` 给自定义运行时用。
 
 export {
+  isPiGatewayEnabled,
   isPiInProcEnabled,
   parseBoolFlag,
+  parseEngineKind,
+  PI_ENGINE_ENV_FLAG,
   PI_INPROC_ENV_FLAG,
   resolvePiEngineChoice,
+  resolvePiEngineKind,
+  setPiEngine,
   setPiInProcEnabled,
   type PiEngineChoice,
   type PiEngineKind,

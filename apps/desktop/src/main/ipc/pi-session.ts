@@ -2,10 +2,12 @@
 // pi:open 建、pi:close 销;命令转发到会话方法,归一化事件经 pi:event 推回 renderer。
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
 //
-// ── 两条引擎路径（迁移期并存，见 docs/plans/2026-08-05-001-refactor-pi-inprocess-migration-plan.md）──
-//   · binary（默认）：spawn `resources/pi` 的 bun 二进制 + `--mode rpc` 手抄协议 —— `PiRpcSession`；
-//   · in-process：主进程内直接调 pi-coding-agent 的 `createAgentSession` —— `PiInProcSession`。
-// 二者都实现 `PiSessionEngine`，故本文件除 `pi:open` 的构造分支外**不含任何引擎分支**：
+// ── 三条引擎路径（迁移期并存，选路 CORTEX_PI_ENGINE=binary|inproc|gateway，默认 binary）──
+//   · binary：spawn `resources/pi` 的 bun 二进制 + `--mode rpc` 手抄协议 —— `PiRpcSession`；
+//   · inproc：主进程内直接调 pi-coding-agent 的 `createAgentSession` —— `PiInProcSession`；
+//   · gateway：常驻 utilityProcess worker 持有多个 AgentSession —— `PiGatewaySession`
+//    （见 docs/plans/2026-08-06-001-refactor-pi-gateway-worker-plan.md，fork+ESM 加载只付一次）。
+// 三者都实现 `PiSessionEngine`，故本文件除 `pi:open` 的构造分支外**不含任何引擎分支**：
 // registry、命令转发、UI 回写、清理路径全部只依赖该契约。`PiRpcSession extends PiSessionEngine`
 // 有编译期断言守着（见 pi-inproc/session.ts），改签名会编译失败而非运行时静默失效。
 
@@ -19,11 +21,13 @@ import { app, ipcMain, type WebContents } from "electron";
 import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
 import {
   openPiInProcSession,
-  shouldUsePiInProcEngine,
+  resolvePiEngineKind,
+  type PiEngineKind,
   type PiInProcDeps,
   type PiInProcModelSelection,
   type PiSessionEngine,
 } from "../agents/pi-inproc";
+import { openPiGatewaySession } from "../agents/pi-gateway/client";
 // 类型侧 import：编译期擦除，不会把纯 ESM 的 pi 包拖进主进程的 CJS chunk（KTD1）。
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createPiNativeHooks } from "../agents/pi-inproc/native-hooks";
@@ -48,7 +52,7 @@ import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
-import { resolveComputerUse } from "../capabilities/computer-use/inject";
+import { GROUNDING_MODEL_ENV, resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
@@ -237,14 +241,15 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   }
 
   // 引擎选路在本函数内多处影响「能力以何种形态交付」：binary 生成 .js extension 文件并 `-e` 加载，
-  // in-process 改为原生对象（customTools / extensionFactories / additionalExtensionPaths）。
-  // 判定取一次并贯穿全函数，避免同一次准备里前后不一致。
-  const useInProc = shouldUsePiInProcEngine();
+  // inproc / gateway 都改为原生对象（customTools / extensionFactories / additionalExtensionPaths）
+  // ——差别只在原生组装发生在哪个进程（inproc 在主进程 buildInProcDeps，gateway 在 worker 的
+  // capabilities.ts）。判定取一次并贯穿全函数，避免同一次准备里前后不一致。
+  const engine: PiEngineKind = resolvePiEngineKind();
 
   const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
-  // ⚠️ 以下四类 extension 在 in-process 路径下由 pi-inproc/native-hooks.ts 原生注册，
-  // 这里必须跳过——否则同一份能力会注册两遍（审批弹窗弹两次、todo_write 重名冲突）。
-  if (!useInProc) {
+  // ⚠️ 以下四类 extension 在 inproc/gateway 路径下原生注册，这里必须跳过——
+  // 否则同一份能力会注册两遍（审批弹窗弹两次、todo_write 重名冲突）。
+  if (engine === "binary") {
     if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
     if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
     if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
@@ -253,7 +258,7 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   const askQuestionSentinel =
     prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
   prepared.askQuestionSentinel = askQuestionSentinel;
-  if (!useInProc) {
+  if (engine === "binary") {
     extra.push(writeAskQuestionExtension(askQuestionSentinel));
     // 任务清单工具 todo_write(常驻):pi 无原生 TodoWrite,经此补齐。事件在 pi-rpc.ts mapPiEvent
     // 特判转成 todo 整表快照事件,渲染端折叠成任务清单卡片。
@@ -351,7 +356,7 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     // 收集规则两条路径共用（一处定义两处复用）；只有「怎么交给 pi」不同：
     // binary 烘焙成 .js extension 文件，in-process 留结构化配置、稍后原生注册成 customTools。
     prepared.bridgeServers = bridgeServers;
-    if (!useInProc && bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
+    if (engine === "binary" && bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
   } catch (e) {
     log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
   }
@@ -361,12 +366,23 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   // 只在这条 RPC 路径注入——单发路径无审批 UI,详见 capabilities/computer-use/inject.ts 的说明。
   try {
     const gs = (await getPersistedState()).generalSettings;
-    if (useInProc) {
+    if (engine === "inproc") {
       // in-process：五门控判定完全复用（inproc.ts 只调 resolveComputerUse 拿结论），
       // 差别只在交付形态——路径给 additionalExtensionPaths 由 SDK 的 jiti 链路加载，
-      // grounding 模型的 env 由 resolveComputerUseInproc 就地写进主进程（没有子进程可传 env）。
+      // grounding 模型的 env 由 resolveComputerUseInproc 就地写进主进程（pi 就在主进程里）。
       const cu = await resolveComputerUseInproc(gs?.computerUse);
       if (cu.additionalExtensionPaths.length) prepared.inProcExtensionPaths = cu.additionalExtensionPaths;
+    } else if (engine === "gateway") {
+      // gateway：pi 在常驻 worker 里，主进程写自己的 env 对它无效（两个 agent 独立发现的坑），
+      // 必须经 computerUseEnv 传过去由 worker 的 applyComputerUseEnv 落地。
+      // ⚠️ 常驻进程的 env **跨会话残留**：注入轮必须显式携带 grounding 键——有值 = 写，
+      // 空串 = 删（worker 侧语义），整个字段缺省 = 门控未过、一个字节不碰。少了空串这条，
+      // 用户清空设置后旧模型名会在 worker 里永久粘住。
+      const cu = await resolveComputerUse(gs?.computerUse);
+      if (cu.path) {
+        prepared.inProcExtensionPaths = [cu.path];
+        prepared.computerUseEnv = { ...cu.env, [GROUNDING_MODEL_ENV]: cu.env[GROUNDING_MODEL_ENV] ?? "" };
+      }
     } else {
       const cu = await resolveComputerUse(gs?.computerUse);
       if (cu.path) {
@@ -505,8 +521,8 @@ export function registerPiSessionHandlers(): void {
 
     // 引擎选路。这是本文件**唯一**的引擎分支：构造出 PiSessionEngine 之后，下方所有
     // 命令转发 / 事件回推 / 清理路径对两条路径完全一致。
-    const useInProc = shouldUsePiInProcEngine();
-    const args = useInProc ? [] : buildRpcArgs(prepared);
+    const engine = resolvePiEngineKind();
+    const args = engine === "binary" ? buildRpcArgs(prepared) : [];
     recordAgentTrace({
       scope: "pi",
       phase: "open",
@@ -518,14 +534,14 @@ export function registerPiSessionHandlers(): void {
       data: {
         cwd: prepared.cwd,
         model: prepared.model ?? "(默认)",
-        engine: useInProc ? "in-process" : "binary",
+        engine,
         argCount: args.length,
         providerId: prepared.provider?.id,
       },
     });
 
     let session: PiSessionEngine;
-    if (useInProc) {
+    if (engine === "inproc") {
       logInProcExtensionScope(prepared);
       // hasUiOutlet=true：本路径总是接了 emitUiRequest（渲染端在监听 pi:uiRequest）。
       // 无 UI 的是单发那条路径，它不走这里。
@@ -535,6 +551,15 @@ export function registerPiSessionHandlers(): void {
         onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
         askQuestionSentinel: prepared.askQuestionSentinel,
         deps: await buildInProcDeps(prepared, true),
+      });
+    } else if (engine === "gateway") {
+      logInProcExtensionScope(prepared);
+      // 能力组装在 worker 侧（capabilities.ts）按 prepared 里的结构化字段完成，主进程不调
+      // buildInProcDeps；hasUiOutlet 经 open 协议下发，由传了 onUiRequest 这一事实决定。
+      session = await openPiGatewaySession({
+        request: prepared,
+        onEvent: (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
+        onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
       });
     } else {
       const transport = spawnPiRpc(args, {
