@@ -67,7 +67,7 @@ export {
   type ArchivedGroup,
   type ArchivedPartition,
 } from "./store/archivedSessions";
-export { usePetStore, type PetState, type PetKind, type PetMode, type PetStore } from "./store/pet";
+export { usePetStore, type PetState, type PetKind, type PetStore } from "./store/pet";
 // 快捷回复助手（reply）客户端态 store（U5/U9）。持久化经 usePersonalPersistence 合并进 PersistedState。
 export {
   useReplyStore,

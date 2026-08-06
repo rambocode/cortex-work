@@ -121,6 +121,23 @@ export function petPositionPath(): string {
   return join(cortexHome(), "pet-position.json");
 }
 
+// petdex 公共宠物图鉴的本地缓存根：~/.cortex-desktop/petdex/
+//   manifest.json          图鉴索引（瘦身后约 420KB，带 etag + fetchedAt）
+//   sprites/<slug>.webp    原始 sprite 字节（不转码）
+//   sprites/<slug>.json    该 sprite 的元信息（尺寸/网格/etag/最近使用时刻）
+// 离线兜底靠它：宠物是常驻 overlay，没网时不能变白板。
+export function petdexDir(): string {
+  return join(cortexHome(), "petdex");
+}
+
+export function petdexManifestPath(): string {
+  return join(petdexDir(), "manifest.json");
+}
+
+export function petdexSpritesDir(): string {
+  return join(petdexDir(), "sprites");
+}
+
 // 自动化执行历史：按 automationId 一文件（automation-runs/<id>.json）。
 export function automationRunsDir(): string {
   return join(cortexHome(), "automation-runs");

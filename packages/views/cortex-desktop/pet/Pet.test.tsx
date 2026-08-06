@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePetStore, type DesktopBridge } from "@cortex-work/core";
-import { PET_ENABLED_KEY, PET_MODE_KEY, PET_WALK_KEY, WALK_IDLE_DELAY_MS } from "./behavior";
-import { PET_KIND_KEY, PET_SIZE_KEY } from "./designs";
+import { petActivity } from "@cortex-work/core/pet";
+import { PET_ENABLED_KEY, PET_SIZE_KEY } from "./prefs";
 import { Pet } from "./Pet";
 import { PetBridge } from "./PetBridge";
 
@@ -12,24 +12,19 @@ function resetStore() {
   usePetStore.setState({
     state: "idle",
     kind: "cat",
-    mode: "free",
-    walk: true,
     enabled: true,
     size: 1,
-    color: null,
-    lastActivity: Date.now(),
   });
 }
 
-// jsdom 视口 1024 宽,巡逻道最右侧 = innerWidth - PET_W(110) - 18
-const RIGHT_X = 1024 - 110 - 18;
 const petCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 const TEST_WS_ID = "test-ws";
 const TEST_IDENTITY = { userId: "me", name: "我" };
 
-describe("Pet 行为模式", () => {
+describe("Pet", () => {
   beforeEach(() => {
     localStorage.clear();
+    petActivity.__reset();
     resetStore();
   });
   afterEach(() => {
@@ -37,67 +32,22 @@ describe("Pet 行为模式", () => {
     vi.useRealTimers();
   });
 
-  it("enabled=false(持久化为关)时不渲染", () => {
-    localStorage.setItem(PET_ENABLED_KEY, "0");
+  // 设置的恢复归 PetBridge 一处负责(见该组件头注释),Pet 只消费 store。
+  it("enabled=false 时不渲染", () => {
+    act(() => usePetStore.setState({ enabled: false }));
     const { container } = render(<Pet />);
     expect(container.querySelector(".pet")).toBeNull();
   });
 
-  it("默认自由放置:free 模式、不进巡逻道、不自动走动", () => {
-    const { container } = render(<Pet />); // 默认 walk 关
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.getAttribute("data-mode")).toBe("free");
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.classList.contains("is-gliding")).toBe(false);
-  });
-
-  it("显式开启走动:安静满 10 分钟才开始走动;一有事件平滑归位最右侧", () => {
-    vi.useFakeTimers();
-    localStorage.setItem(PET_WALK_KEY, "1"); // 走动为隐藏能力,显式开启才生效
+  it("点击(非拖拽)置庆祝位,由状态机派生成 happy——不直接写 store", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
-
-    // 9 分钟:还不走
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS - 60_000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-
-    // 超过 10 分钟:开始走动
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(true);
-
-    // 有输入事件:停止走动,归位最右(is-gliding 由 CSS transition 平滑过渡)
-    act(() => {
-      usePetStore.getState().set("typing");
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.classList.contains("is-gliding")).toBe(true);
-    expect(parseFloat(pet.style.left)).toBe(RIGHT_X);
-    expect(pet.getAttribute("data-state")).toBe("typing");
+    fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(petActivity.snapshot().celebrate).toBe(true);
   });
 
-  it("走动开关关闭(纯自由放置):不进巡逻道,安静 10 分钟也不走", () => {
-    vi.useFakeTimers();
-    localStorage.setItem(PET_WALK_KEY, "0");
-    const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.classList.contains("is-gliding")).toBe(false);
-    act(() => {
-      usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-      vi.advanceTimersByTime(600);
-    });
-    expect(pet.classList.contains("is-walking")).toBe(false);
-    expect(pet.querySelector(".pet-3d")).not.toBeNull();
-  });
-
-  it("纯自由拖拽时根节点坐标更新", () => {
-    localStorage.setItem(PET_WALK_KEY, "0");
+  it("拖拽时根节点坐标更新并持久化", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
     pet.getBoundingClientRect = () =>
@@ -112,27 +62,29 @@ describe("Pet 行为模式", () => {
     expect(JSON.parse(localStorage.getItem("cortex_pet_pos")!)).toEqual({ x: 160, y: 240 });
   });
 
-  it("宠物根节点有稳定视觉盒,避免阴影按过宽块级盒居中偏移", () => {
-    expect(petCss).toMatch(/\.pet\s*\{[^}]*width:\s*calc\(110px \* var\(--pet-scale, 1\)\)/s);
-    expect(petCss).toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px \* var\(--pet-scale, 1\)\)/s);
+  // 宽高由 JS 按 sprite 格子比例算好写在内联样式上——内置 110:100、petdex 192:208,
+  // 写死在 CSS 里会让其中一种被拉变形。
+  it("根节点尺寸走内联样式,CSS 不再写死宽高", () => {
+    const { container } = render(<Pet />);
+    const pet = container.querySelector(".pet") as HTMLElement;
+    expect(parseFloat(pet.style.width)).toBe(110);
+    expect(parseFloat(pet.style.height)).toBe(100);
+    expect(petCss).not.toMatch(/\.pet\s*\{[^}]*height:\s*calc\(100px/s);
     expect(petCss).toMatch(/\.pet-3d\s*\{[^}]*width:\s*100%/s);
   });
 
-  it("有 sprite 的角色(cat)走序列帧层 + 配件叠加层,不渲染内联 SVG 造型", () => {
-    const { container } = render(<Pet />); // 默认 kind=cat
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
-    // 浮动配件叠加层存在(状态反馈),但没有 body 造型 svg
-    expect(pet.querySelector(".pet-3d > svg.pet-accessories")).not.toBeNull();
-    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
-  });
-
-  it("dog 角色同样走 sprite 序列帧层", () => {
-    localStorage.setItem(PET_KIND_KEY, "dog");
+  it("渲染 canvas 逐帧层,不再有 sprite 背景层或 SVG 造型", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull();
-    expect(pet.querySelector(".pet-3d > svg:not(.pet-accessories)")).toBeNull();
+    expect(pet.querySelector(".pet-3d > canvas.pet-canvas")).not.toBeNull();
+    expect(pet.querySelector(".pet-sprite")).toBeNull();
+    expect(pet.querySelector("svg")).toBeNull();
+  });
+
+  // petdex 的 sheet 没有睡眠行,这是唯一保留的 DOM 配件。
+  it("保留 Zzz 配件用于睡眠语义", () => {
+    const { container } = render(<Pet />);
+    expect(container.querySelector(".pet-3d > .pet-zzz")).not.toBeNull();
   });
 
   it("点击 ✕ 隐藏宠物并持久化", () => {
@@ -143,29 +95,19 @@ describe("Pet 行为模式", () => {
     expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("0");
   });
 
-  it("perch 已退役:历史持久化的 perch 强制迁回 free(走 sprite,不进趴姿)", () => {
-    localStorage.setItem(PET_MODE_KEY, "perch");
-    const { container } = render(<Pet />);
-    const pet = container.querySelector(".pet") as HTMLElement;
-    expect(pet.getAttribute("data-mode")).toBe("free");
-    expect(pet.classList.contains("is-perched")).toBe(false);
-    expect(pet.querySelector(".pet-3d > .pet-sprite")).not.toBeNull(); // 默认 cat,走 sprite
-  });
-
   // 独立 pet-overlay 窗口专用模式:宠物固定居中在一个刚好包住它的小窗口里,挪动窗口本身
   // (原生 app-region:drag)而不是在窗口内部用 CSS 拖拽——多显示器下靠 CSS 在一个铺满全屏
   // 的透明窗口内挪动会被 macOS 裁剪,原生窗口拖拽不受此限(见 Pet.tsx/pet-overlay-window.ts
   // 头部注释)。
   describe("windowFollowsPet(独立 pet-overlay 窗口)", () => {
     it("只消费主窗口同步状态,不使用 overlay 页面的 localStorage 覆盖", () => {
-      localStorage.setItem(PET_KIND_KEY, "dog");
       localStorage.setItem(PET_SIZE_KEY, "1.5");
       localStorage.setItem(PET_ENABLED_KEY, "0");
-      act(() => usePetStore.setState({ kind: "mint", size: 2, enabled: true }));
+      act(() => usePetStore.setState({ size: 2, enabled: true }));
 
       render(<Pet windowFollowsPet />);
 
-      expect(usePetStore.getState()).toMatchObject({ kind: "mint", size: 2, enabled: true });
+      expect(usePetStore.getState()).toMatchObject({ size: 2, enabled: true });
     });
 
     it("固定居中显示,不读取/写入 localStorage 记忆位置", () => {
@@ -182,25 +124,16 @@ describe("Pet 行为模式", () => {
     // 非标准属性,赋值会被静默丢弃(真实 Chromium/Electron 环境没有这个问题)——单测校验不
     // 到,只能靠打包后手动验证:悬停宠物应能原生拖拽窗口,悬停关闭按钮不触发拖拽。
 
-    it("巡逻走动禁用:即使开着走动开关、安静超过 10 分钟也不进巡逻道", () => {
-      vi.useFakeTimers();
-      act(() => usePetStore.setState({ walk: true }));
-      const { container } = render(<Pet windowFollowsPet />);
-      const pet = container.querySelector(".pet") as HTMLElement;
-      act(() => {
-        usePetStore.setState({ lastActivity: Date.now() - (WALK_IDLE_DELAY_MS + 1000) });
-        vi.advanceTimersByTime(600);
-      });
-      expect(pet.classList.contains("is-walking")).toBe(false);
-      expect(pet.classList.contains("is-gliding")).toBe(false);
-    });
-
-    it("点击仍触发 happy(未经自定义拖拽判定,onPointerDown 整个跳过)", () => {
-      const { container } = render(<Pet windowFollowsPet />);
+    // overlay 里没有状态机(它是纯镜像),点击不能自己写 store——会被下一次广播顶回去。
+    // 改为报给宿主做本地显示覆写(见 pet-overlay.tsx 的 pokePet)。
+    it("点击报给宿主而不是写 store", () => {
+      const onPoke = vi.fn();
+      const { container } = render(<Pet windowFollowsPet onPoke={onPoke} />);
       const pet = container.querySelector(".pet") as HTMLElement;
       fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, pointerId: 1 });
       fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, pointerId: 1 });
-      expect(usePetStore.getState().state).toBe("happy");
+      expect(onPoke).toHaveBeenCalledOnce();
+      expect(petActivity.snapshot().celebrate).toBe(false);
     });
 
     it("点击关闭时通知 overlay 宿主同步主窗口设置", () => {
@@ -218,12 +151,12 @@ describe("Pet 行为模式", () => {
 describe("PetBridge", () => {
   beforeEach(() => {
     localStorage.clear();
+    petActivity.__reset();
     resetStore();
   });
   afterEach(() => cleanup());
 
   it("首次同步前从主窗口 localStorage 恢复宠物设置", () => {
-    localStorage.setItem(PET_KIND_KEY, "mint");
     localStorage.setItem(PET_SIZE_KEY, "2");
     localStorage.setItem(PET_ENABLED_KEY, "0");
     const reportPetState = vi.fn();
@@ -237,7 +170,7 @@ describe("PetBridge", () => {
 
     expect(reportPetState).toHaveBeenCalledTimes(1);
     expect(reportPetState).toHaveBeenLastCalledWith(
-      expect.objectContaining({ kind: "mint", size: 2, enabled: false }),
+      expect.objectContaining({ kind: "cat", size: 2, enabled: false }),
     );
   });
 

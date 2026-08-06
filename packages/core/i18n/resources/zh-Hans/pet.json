@@ -5,8 +5,10 @@
     "thinking": "{{name}}在思考…",
     "working": "{{name}}在埋头干活",
     "replying": "{{name}}在回话",
+    "waiting": "{{name}}在等你确认",
     "sleeping": "{{name}}睡着了,点我叫醒",
-    "happy": "{{name}}很开心!"
+    "happy": "{{name}}很开心!",
+    "failed": "{{name}}发现出错了"
   },
   "hideTitle": "隐藏宠物(可在设置 → 宠物中重新打开)",
   "hideAria": "隐藏宠物",

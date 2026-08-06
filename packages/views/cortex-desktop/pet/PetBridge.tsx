@@ -1,46 +1,93 @@
-// 桌面宠物脱离主窗体后,主窗口不再渲染 <Pet/> 本体(挪去独立 pet-overlay 窗口),但真实的
-// PetState 触发信号(用户打字/agent thinking·working·replying 等)仍然只在主窗口的渲染进程里
-// 发生(见 ComposerShell/ChatArea 的 onChange、core/personal/messages.ts 的 agent 事件路由)。
-// PetBridge 不渲染任何 DOM,只订阅 usePetStore 的变化并经 desktopBridge 转发给主进程,
-// 再由主进程广播给 pet-overlay 窗口镜像(见 apps/desktop/src/main/ipc/pet.ts)。
-// Web 端 desktopBridge 为 null,订阅是 no-op(CortexDesktopView 在 Web 上仍渲染真正的 <Pet/>)。
+// 宠物状态机的宿主 + 桌面端状态转发。不渲染任何 DOM。
+//
+// 两件事,注意它们的启用条件不同:
+// 1. **启动状态机(两端都做)**。真实的活动信号——用户打字、agent 的 thinking/tool/text
+//    事件、审批挂起——只在这个窗口的渲染进程里发生。桌面端主窗口不再渲染 <Pet/> 本体
+//    (挪去独立 overlay 窗口),但状态机必须留在这里,不能跟着 <Pet/> 搬走:
+//    overlay 是纯镜像,让它自己跑一份时钟会与主窗口互相回滚(重构前 happy 被同步顶回来
+//    就是这个毛病,见 core/pet/engine.ts 头注释)。
+// 2. **转发给 overlay(仅桌面端)**。订阅 usePetStore 变化经 desktopBridge 交给主进程,
+//    再广播给 pet-overlay 窗口(见 apps/desktop/src/main/ipc/pet.ts)。Web 端
+//    desktopBridge 为 null,这一段整体跳过,由同窗口内嵌的 <Pet/> 直接消费 store。
 
 import { useEffect } from "react";
-import { usePetStore, useDesktopBridge } from "@cortex-work/core";
-import { loadPetColor, loadPetKind, loadPetSize } from "./designs";
-import { loadPetEnabled, loadPetMode, loadPetWalk, savePetEnabled } from "./behavior";
+import { usePetStore, usePersonalStore, useDesktopBridge, type PetStateSnapshot } from "@cortex-work/core";
+import { petActivity, startPetEngine } from "@cortex-work/core/pet";
+import { BUILTIN_KIND, cleanupLegacyPetKeys, loadPetPrefs, patchPetPrefs } from "./prefs";
+import { builtinSpriteSource } from "./sheets";
+import { createPetdexSource } from "./petdexSource";
+
+/** 审批挂起在活动注册表里的固定 key——整个应用同一时刻只需要一个「有没有人在等你点」的位。 */
+const PI_UI_AWAITING_KEY = "pi-ui";
 
 export function PetBridge() {
   const bridge = useDesktopBridge();
 
   useEffect(() => {
-    if (!bridge?.reportPetState) return;
-    // 桌面端不再在主窗口挂载 <Pet/>，因此必须由主窗口里的 bridge 恢复设置；随后
-    // overlay 只消费这份快照。恢复发生在首次 report 之前，避免先广播 store 默认值。
+    // 设置的唯一恢复点。overlay 里的 <Pet/> 刻意不读 localStorage——file:// 页面各自的
+    // storage 不是同一份,让它自己读会在收到同步快照后又用默认值覆盖回去。
+    cleanupLegacyPetKeys();
+    const prefs = loadPetPrefs();
     usePetStore.setState({
-      kind: loadPetKind(),
-      mode: loadPetMode(),
-      walk: loadPetWalk(),
-      enabled: loadPetEnabled(),
-      size: loadPetSize(),
-      color: loadPetColor(),
+      kind: BUILTIN_KIND,
+      enabled: prefs.enabled,
+      size: prefs.size,
+      sprite: builtinSpriteSource(),
     });
+
+    const stop = startPetEngine();
+
+    // 「有挂起的审批」直接从 store 派生,而不是在每个入队/出队现场手工置位:
+    // 弹窗的产生与清除散落在崩溃、超时、切会话、用户回答等多条路径上,手工记账必然漏。
+    const syncAwaiting = (pending: number) => petActivity.setAwaiting(PI_UI_AWAITING_KEY, pending > 0);
+    syncAwaiting(usePersonalStore.getState().piUiPending.length);
+    const offAwaiting = usePersonalStore.subscribe((s) => syncAwaiting(s.piUiPending.length));
+
+    return () => {
+      offAwaiting();
+      stop();
+    };
+  }, []);
+
+  // 选中的 petdex 宠物:先只查本地(开机不该变成一次强制下载),本地没有再去拉。
+  // 解析不出来就保持内置角色 —— 宠物永远不会因为图鉴不可达而消失。
+  useEffect(() => {
+    const slug = loadPetPrefs().slug;
+    if (!slug) return;
+    const source = createPetdexSource(bridge);
+    let alive = true;
+    void (async () => {
+      const local = await source.peekSprite(slug);
+      if (!alive) return;
+      if (local) {
+        usePetStore.getState().setSprite(local);
+        return;
+      }
+      const fetched = await source.resolveSprite(slug);
+      if (alive && fetched) usePetStore.getState().setSprite(fetched);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!bridge?.reportPetState) return;
     // 挂载时先发一次当前快照,再订阅后续变化——避免 pet-overlay 窗口在两者都刚起来时
     // 错过第一次同步(overlay 侧也会主动 requestPetSync 兜底,双保险)。
-    const snapshot = (s: ReturnType<typeof usePetStore.getState>) => ({
+    const snapshot = (s: ReturnType<typeof usePetStore.getState>): PetStateSnapshot => ({
       state: s.state,
       kind: s.kind,
-      mode: s.mode,
-      walk: s.walk,
       enabled: s.enabled,
       size: s.size,
-      color: s.color,
+      // sprite 由渲染层解析后填入(见 pet/source.ts);为 null 时 overlay 按 kind 兜底
+      // 用内置角色渲染,这也是首启尚未选过 petdex 宠物时的正常状态。
+      sprite: s.sprite,
     });
     bridge.reportPetState(snapshot(usePetStore.getState()));
     const offEnabledChange = bridge.onPetEnabledChange?.((enabled) => {
       if (usePetStore.getState().enabled === enabled) return;
-      savePetEnabled(enabled);
-      usePetStore.getState().setEnabled(enabled);
+      patchPetPrefs({ enabled });
     });
     const offStore = usePetStore.subscribe((s) => bridge.reportPetState?.(snapshot(s)));
     return () => {

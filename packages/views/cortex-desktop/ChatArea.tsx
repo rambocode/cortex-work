@@ -3,7 +3,8 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Icon } from "@cortex-work/ui/icons";
-import { whoMeta, usePetStore, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
+import { whoMeta, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
+import { petActivity } from "@cortex-work/core/pet";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
@@ -951,8 +952,8 @@ function Composer({
             value={text}
             onChange={(e) => {
               setText(e.target.value);
-              const pet = usePetStore.getState();
-              if (pet.state === "idle" || pet.state === "sleeping" || pet.state === "typing") pet.set("typing");
+              // 宠物:置一次性的「在打字」位;优先级由 core/pet/derive.ts 统一裁决。
+              petActivity.flash("typing");
             }}
             onKeyDown={onKey}
             placeholder={placeholder}

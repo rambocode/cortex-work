@@ -1583,17 +1583,27 @@ export * from "./plugin-types";
 // ⚠️ 与 packages/core/desktop/workflow-types.ts 逐字镜像（KTD5 双写契约）。
 export * from "../workflow/types";
 
+import type { PetSpriteSource } from "./types-petdex";
+
 // 桌面宠物脱离主窗体(独立 overlay 窗口)状态快照。与 packages/core/desktop/types.ts 镜像同步
 // (core 不能依赖 app 包,两侧各持一份;联合类型字面量须与 packages/core/store/pet.ts 保持一致)。
-export type PetState = "idle" | "typing" | "thinking" | "working" | "replying" | "sleeping" | "happy";
-export type PetKind = "cat" | "dog" | "mint";
-export type PetMode = "free" | "perch";
+export type PetState =
+  | "idle"
+  | "typing"
+  | "thinking"
+  | "working"
+  | "replying"
+  | "waiting"
+  | "sleeping"
+  | "happy"
+  | "failed";
+export type PetKind = "cat";
 export interface PetStateSnapshot {
   state: PetState;
   kind: PetKind;
-  mode: PetMode;
-  walk: boolean;
   enabled: boolean;
   size: number;
-  color: string | null;
+  /** 当前该渲染哪张 sprite;null = 尚未解析出来(overlay 此时按内置角色兜底)。
+   * 搭这条广播的顺风车下发,让 overlay 不必自己去碰 petdex 域。 */
+  sprite: PetSpriteSource | null;
 }

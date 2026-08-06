@@ -33,7 +33,7 @@ import { checkImageSupport, providerConfigFingerprint } from "./modelCapabilitie
 import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, type VisionBlockHint } from "../store/personal";
-import { usePetStore } from "../store/pet";
+import { petActivity, type RunBits } from "../pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
 import { t } from "../i18n";
@@ -1082,6 +1082,53 @@ function ensureRoleHeader(
   return header;
 }
 
+/**
+ * CLI 事件 → 宠物活动位。返回 null 表示该事件与宠物无关。
+ *
+ * 表驱动而非在各分支里 set 姿态,是为了让「显示什么」只由 core/pet/derive.ts 的优先级链
+ * 决定。两处细节值得留意:
+ * - tool 的 `phase:"end"` 必须在这里被消费成 `toolRunning:false`。旧写法在 if 链的 tool
+ *   分支里遇到 end 直接 return,电平位没有任何机会清掉,于是工具跑完后宠物一直卡在
+ *   working,直到下一个 thinking/text 事件才被覆盖——这就是「工具结束回不到 thinking」。
+ * - 三段编排的中间段(intent/subagent)与 delegate 的角色输出都是「过程」而非面向用户的
+ *   回复,故归入 reasoning 相位,与它们进过程流而非聊天正文的处理保持一致。
+ */
+function petBitsForCliEvent(ev: CliStreamEvent, run: RunState): RunBits | null {
+  switch (ev.type) {
+    case "thinking":
+      return { phase: "reasoning" };
+    case "tool":
+      return { toolRunning: ev.phase !== "end" };
+    case "text":
+      return ev.stage === "intent" || ev.stage === "subagent" || (run.delegate && ev.roleId)
+        ? { phase: "reasoning" }
+        : { phase: "text" };
+    default:
+      return null;
+  }
+}
+
+/**
+ * pi 事件 → 宠物活动位。与 petBitsForCliEvent 同构。
+ * tool-start / tool-end 成对翻转电平位——pi 通道同样存在「工具跑完姿态回不去」的问题,
+ * 这里一并修掉。todo 事件由 adapter 从 tool_execution_start 特判转来、对应的 tool-end
+ * 被吞掉,故它不参与电平位,否则会把工具位永久置真。
+ */
+function petBitsForPiEvent(ev: PiSessionEvent): RunBits | null {
+  switch (ev.type) {
+    case "reasoning":
+      return { phase: "reasoning" };
+    case "text":
+      return { phase: "text" };
+    case "tool-start":
+      return { toolRunning: true };
+    case "tool-end":
+      return { toolRunning: false };
+    default:
+      return null;
+  }
+}
+
 function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sessionIdHint?: string): void {
   // 设计工作台(design:)与写作工作台(writing:/writing-)的 run 由各自的 run-manager
   // 独立消费,绝不能进入下面的 recovered-run 重建路径——否则会以 sessionIdHint 伪造
@@ -1210,13 +1257,18 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 轮边界(R2):仅 trace,不渲染。
     return;
   }
+  // 宠物活动位:表驱动、放在 if 链**之前**统一更新一次,分支内不再出现任何宠物代码。
+  // 这是「工具结束后回不到 thinking」的结构性修复点——旧写法在 tool 的 phase:"end"
+  // 分支里直接 return,电平位根本没有机会被清掉(见 petBitsForCliEvent 的注释)。
+  const petBits = petBitsForCliEvent(ev, run);
+  if (petBits) petActivity.markRun(runId, petBits);
+
   if (ev.type === "thinking") {
     // 三段编排段边界信号:orchestrate.ts sendStageStart 发的 { delta:"", stage, stageLabel }。
     // 在过程流插入一个段标题块,让用户一眼看出当前在「意图理解/子 agent 执行/整理回复」哪一段;
     // 同时收尾上一段仍 active 的 reasoning/agentLog(强制下段开新块)。不进 foldReasoning——空 delta
     // 会创建空 reasoning 块。普通 thinking 不带 stage/stageLabel,走下方原逻辑。
     if (ev.stage && ev.stageLabel) {
-      usePetStore.getState().set("thinking");
       // 先收尾上一段仍 active 的 reasoning/agentLog（强制下段开新块、及时打勾）。
       finalizeProcessAgentLog(qc, sessionId, run);
       finalizeRunReasoning(qc, run);
@@ -1236,7 +1288,6 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 不落盘),与 pi 的 reasoning 折叠同一通道。用户要求:过程在右侧,回复只留 final answer。
     // 阶段切换收尾:收到思考前先收尾打开的工具卡,使新思考块按时序追加到工具之后(think→tool→think
     // 交错时不再把后段思考并回前一个思考块,保留完整的「思考→工具→再思考→再工具」时间线)。
-    usePetStore.getState().set("thinking");
     finalizeProcessAgentLog(qc, sessionId, run);
     foldReasoning(qc, run, ev.delta);
     return;
@@ -1257,8 +1308,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // phase:"end"(工具完成帧)只进上面的运行事件流,不进 agentLog 折叠——否则每个工具在过程
     // 面板出现两次(start+end 各折一条)。同时跳过 typing/变更文件/拦截检测等 start 专属副作用。
     // 也修复既有潜伏 bug:orchestrate 的 pi 路径(mapPiToCliEvent)一直在产 end 事件并被翻倍折叠。
-    if (ev.phase === "end") return;
-    usePetStore.getState().set("working");
+    if (ev.phase === "end") return; // 宠物的工具电平位已在 if 链之前清掉,这里可以安心早退
     updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
     // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
     finalizeRunReasoning(qc, run);
@@ -1281,13 +1331,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 只有 refine 段（或非编排 run，ev.stage 为 undefined）才是面向用户的最终回复。
     // 不做这步则三段文本会全部拼进聊天正文，正文被污染——这是「接通渲染端」最关键的一步。
     if (ev.stage === "intent" || ev.stage === "subagent") {
-      usePetStore.getState().set("thinking");
       finalizeProcessAgentLog(qc, sessionId, run);
       foldReasoning(qc, run, ev.delta); // 与 reasoning 同通道，进过程流
       return;
     }
     if (run.delegate && ev.roleId) {
-      usePetStore.getState().set("thinking");
       finalizeProcessAgentLog(qc, sessionId, run);
       foldReasoning(qc, run, ev.delta);
       return;
@@ -1301,7 +1349,6 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       const roleHeader = ensureRoleHeader(qc, sessionId, run, roleId);
       const mainCursor = run.cursor;
       run.cursor = roleCursor;
-      usePetStore.getState().set("replying");
       dropMsg(qc, sessionId, run.typingUid);
       run.buffer += ev.delta;
       run.sawText = true;
@@ -1316,7 +1363,6 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       run.cursor = mainCursor;
       return;
     }
-    usePetStore.getState().set("replying");
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
     run.sawText = true;
@@ -1436,7 +1482,8 @@ function finalizeRun(
       const store = usePersonalStore.getState();
       if (store.runningBySession[sessionIdHint] === runId) store.setRunning(sessionIdHint, undefined);
       flushChat(qc, sessionIdHint);
-      usePetStore.getState().set("idle");
+      // 静默收尾:注册表已丢失,说不清这一轮是成是败,报 failed 会是假警报。
+      petActivity.endRun(runId);
     }
     return;
   }
@@ -1507,8 +1554,9 @@ function finalizeRun(
   }
   // 一轮结束立即冲刷落盘，不等节流窗口。
   flushChat(qc, sessionId);
-  // 成功收尾 → 开心一下;失败/中断 → 回闲置。
-  usePetStore.getState().set(run.gotResult && run.resultOk !== false ? "happy" : "idle");
+  // 成功收尾 → 开心一下;失败/中断 → 给一次失败反馈(此前一律塌缩成 idle,用户完全
+  // 看不出「刚才那轮炸了」)。两者都是一次性位,由 core/pet 自动清除,不需要在这里记时。
+  petActivity.endRun(runId, run.gotResult && run.resultOk !== false);
 
   // 运行模式拦截:本轮若有被 plan/accept-edits 拦下的工具尝试**且本轮失败**,挂切档提示。
   maybeEmitModeBlockHint(run, !runOk);
@@ -1693,7 +1741,7 @@ export function beginPiRun(
     }
   }, 1000);
   usePersonalStore.getState().setRunning(opts.sessionId, opts.runId);
-  usePetStore.getState().set("thinking");
+  petActivity.startRun(opts.runId);
 }
 
 // 冷启动会话:piOpen 完成后从「启动中」翻到「思考中」（复用会话则一开始即 thinking）。
@@ -1888,7 +1936,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       store.setPiRuntime(sessionId, undefined);
       store.clearPiUiForSession(sessionId); // 清该会话悬挂的确认弹窗（进程已死,回写无意义）。
       flushChat(qc, sessionId);
-      usePetStore.getState().set("idle");
+      if (active) petActivity.endRun(active.runId, false); // 进程崩了是确凿的失败
       return;
     }
   }
@@ -1902,9 +1950,12 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   const runRecord = piEventToRunRecord(ev, run.resultOk !== false);
   if (runRecord) recordRunEvent(qc, sessionId, runId, runRecord);
 
+  // 宠物活动位:与 handleCliEvent 同构,统一在 switch 之前更新一次(见 petBitsForPiEvent)。
+  const petBits = petBitsForPiEvent(ev);
+  if (petBits) petActivity.markRun(runId, petBits);
+
   switch (ev.type) {
     case "reasoning":
-      usePetStore.getState().set("thinking");
       // 先折叠再取片段:snippet 从累进后的 reasoningText 尾部派生,活动行与过程面板同步。
       foldReasoning(qc, run, ev.delta);
       setTypingActivity(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0), {
@@ -1915,7 +1966,6 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       });
       return;
     case "text":
-      usePetStore.getState().set("replying");
       dropMsg(qc, sessionId, run.typingUid);
       finalizeRunReasoning(qc, run);
       run.buffer += ev.delta;
@@ -1925,7 +1975,6 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       foldTextIntoCache(qc, sessionId, run, ev.delta);
       return;
     case "tool-start": {
-      usePetStore.getState().set("working");
       finalizeRunReasoning(qc, run);
       const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
       if (changed) (run.changedFiles ??= new Set()).add(changed);
@@ -2234,7 +2283,7 @@ function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unkn
   });
   usePersonalStore.getState().setRunning(sessionId, undefined);
   usePersonalStore.getState().setPiRuntime(sessionId, undefined);
-  usePetStore.getState().set("idle");
+  petActivity.endRun(runId, false); // 启动/受理失败是确凿的失败
   flushChat(qc, sessionId);
 }
 
@@ -3298,7 +3347,7 @@ export function usePersonalActions(): PersonalActions {
           });
           usePersonalStore.getState().setRunning(cur.sessionId, undefined);
           if (cur.orchestrated) cancelPendingPiUiForSession(bridge, cur.sessionId);
-          usePetStore.getState().set("idle");
+          petActivity.endRun(runId, false); // 启动/静默超时属终态失败
           flushChat(qc, cur.sessionId);
           // 深化:启动/静默超时属终态失败,回落该 session 的 deepening 闪记（普通会话 no-op）。
           void applyDeepenFinalize(bridge, {
@@ -3321,7 +3370,7 @@ export function usePersonalActions(): PersonalActions {
       }, 1000);
       usePersonalStore.getState().setRunning(session.id, runId);
       if (session.agent === "pi") piSendStarting.delete(session.id); // Pi 编排轮已进入 runs/running 管线。
-      usePetStore.getState().set("thinking");
+      petActivity.startRun(runId);
 
       try {
         const resumeKey = artifact ? artifactResumeKey(session, artifact) : undefined;

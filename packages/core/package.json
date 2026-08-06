@@ -23,6 +23,7 @@
     "./store/ui": "./store/ui.ts",
     "./store/personal": "./store/personal.ts",
     "./desktop/types": "./desktop/types.ts",
+    "./desktop/petdex-types": "./desktop/petdex-types.ts",
     "./desktop/tasks-types": "./desktop/tasks-types.ts",
     "./desktop/bridge": "./desktop/bridge.ts",
     "./desktop/provider-catalog": "./desktop/provider-catalog.ts",
@@ -71,7 +72,9 @@
     "./memory/*": "./memory/*.ts",
     "./research/*": "./research/*.ts",
     "./retrieval/*": "./retrieval/*.ts",
-    "./store/memory": "./store/memory.ts"
+    "./store/memory": "./store/memory.ts",
+    "./pet": "./pet/index.ts",
+    "./pet/grid": "./pet/grid.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "catalog:",

@@ -16,7 +16,7 @@ import {
 } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { Icon } from "@cortex-work/ui/icons";
-import { savePetEnabled } from "../../pet/behavior";
+import { patchPetPrefs } from "../../pet/prefs";
 import { useDismissableMenu } from "../shared/useDismissableMenu";
 import { NotificationBell } from "./NotificationBell";
 
@@ -41,14 +41,9 @@ export function SidebarUserBar({
   const openSettings = usePersonalStore((s) => s.openSettings);
   // 宠物开关直接读写 petStore（与设置里的「显示宠物」同一份状态，两处联动）。
   const petEnabled = usePetStore((s) => s.enabled);
-  const setPetEnabled = usePetStore((s) => s.setEnabled);
-  // petStore 在 core 层，按包边界不能碰 localStorage —— 持久化由 views 的每个写入点负责。
-  // 漏掉 savePetEnabled 就会「切了生效、重启回滚」（启动时 PetBridge/Pet 用 loadPetEnabled 覆盖回旧值）。
-  const togglePet = () => {
-    const next = !petEnabled;
-    setPetEnabled(next);
-    savePetEnabled(next);
-  };
+  // 改运行时状态与落盘由 patchPetPrefs 一并完成(pet/prefs.ts 是唯一的偏好写入端口)。
+  // 此前这里要手动配对两步,漏掉落盘就是「切了生效、重启回滚」。
+  const togglePet = () => patchPetPrefs({ enabled: !petEnabled });
 
   // 菜单项点完即收，避免用户还要再点一次外部才关。
   const run = (fn: () => void) => () => {

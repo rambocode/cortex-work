@@ -1,7 +1,12 @@
-// 桌面宠物状态机（Zustand,仅 core）。各处只负责「报告发生了什么」,
-// 衰减类转换（typing→idle、idle→sleeping、happy→idle）由 Pet 组件的节拍器驱动。
+// 桌面宠物的展示态（Zustand,仅 core）。
+//
+// 这里只存「该显示什么」,不含任何判定逻辑:`state` 的唯一写入方是 core/pet 的状态机
+// (由事件产生方窗口的 PetBridge 启动),桌面 overlay 窗口则由 pet:sync-state 广播写入。
+// 业务侧要报告「发生了什么」请用 core/pet 的 petActivity,不要直接改这里的 state——
+// 绕过状态机写入会被下一次派生覆盖,且拿不到去抖与自动回落。
 
 import { create } from "zustand";
+import type { PetSpriteSource } from "../desktop/petdex-types";
 
 export type PetState =
   | "idle" // 闲置:呼吸/眨眼/甩尾
@@ -9,55 +14,38 @@ export type PetState =
   | "thinking" // 已发送,等待 LLM 首个输出
   | "working" // LLM 正在调用工具
   | "replying" // LLM 正在流式回复
+  | "waiting" // 有挂起的审批/确认,等用户点一下
   | "sleeping" // 长时间无活动
-  | "happy"; // 被点击/任务完成的瞬时开心
+  | "happy" // 被点击/任务完成的瞬时开心
+  | "failed"; // 本轮运行失败的瞬时反馈
 
-// 宠物造型（设置菜单中选择;持久化由 views 层 localStorage 负责）。
-export type PetKind = "cat" | "dog" | "mint";
-
-// 行为模式:free 自由放置(可拖动;可叠加「闲时底部走动」开关) / perch 趴在输入框上。
-export type PetMode = "free" | "perch";
+// 内置宠物角色。它只承担「离线与首启的兜底」——造型选择交给 petdex 图鉴的数千只
+// (见 PetSpriteSource)。此前的 dog/mint 已随 SVG 造型体系一并退役。
+export type PetKind = "cat";
 
 export interface PetStore {
   state: PetState;
   kind: PetKind;
-  /** 行为模式(持久化由 views 层负责)。 */
-  mode: PetMode;
-  /** 自由放置下的「闲时底部走动」开关(持久化由 views 层负责)。 */
-  walk: boolean;
   /** 是否显示宠物(✕ 关闭后为 false;持久化由 views 层负责)。 */
   enabled: boolean;
   /** 显示缩放(1 = 默认,范围约 0.8–2;持久化由 views 层负责)。 */
   size: number;
-  /** 自定义主色(hex);null 表示使用造型默认配色。 */
-  color: string | null;
-  lastActivity: number;
-  set: (s: PetState) => void;
-  /** 切状态但不刷新 lastActivity(走动唤醒等"非用户事件"用,避免重置安静计时)。 */
-  wake: () => void;
+  /** 当前该渲染哪张 sprite。null = 还没解析出来,按 kind 用内置角色兜底。 */
+  sprite: PetSpriteSource | null;
   setKind: (k: PetKind) => void;
-  setMode: (m: PetMode) => void;
-  setWalk: (walk: boolean) => void;
+  setSprite: (sprite: PetSpriteSource | null) => void;
   setEnabled: (enabled: boolean) => void;
   setSize: (size: number) => void;
-  setColor: (color: string | null) => void;
 }
 
 export const usePetStore = create<PetStore>((set) => ({
   state: "idle",
   kind: "cat",
-  mode: "free",
-  walk: false,
   enabled: true,
   size: 1,
-  color: null,
-  lastActivity: Date.now(),
-  set: (s) => set({ state: s, lastActivity: Date.now() }),
-  wake: () => set({ state: "idle" }),
+  sprite: null,
   setKind: (k) => set({ kind: k }),
-  setMode: (mode) => set({ mode }),
-  setWalk: (walk) => set({ walk }),
+  setSprite: (sprite) => set({ sprite }),
   setEnabled: (enabled) => set({ enabled }),
   setSize: (size) => set({ size }),
-  setColor: (color) => set({ color }),
 }));

@@ -23,9 +23,7 @@ import {
   useDesktopBridge,
   usePersonalProfile,
   usePersonalStore,
-  usePetStore,
   useUpdateState,
-  type PetKind,
 } from "@cortex-work/core";
 import { UpdateDialog } from "../../UpdateDialog";
 import type {
@@ -42,9 +40,7 @@ import type {
 } from "@cortex-work/core";
 import type { Density, FontScale, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
-import { PET_DESIGNS, PET_KIND_KEY, PET_SIZE_KEY, PET_SIZE_MAX, PET_SIZE_MIN } from "../../pet/designs";
-import { PET_SPRITES } from "../../pet/sprites";
-import { savePetEnabled } from "../../pet/behavior";
+import { PetSettingsSection } from "./PetSettingsSection";
 import { PluginManager } from "../plugins/PluginManager";
 import { ArchivedSessionsSection } from "../sessions/ArchivedSessionsSection";
 import { SpeechSettingsSection } from "./SpeechSettingsSection";
@@ -61,7 +57,6 @@ import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsCont
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
 import { BrowserSection, isSettingsTypingTarget, MediaGenSection, ReplySection } from "./SettingsViewSupport";
-const PET_KINDS = Object.keys(PET_DESIGNS) as PetKind[];
 // 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 type SettingsTab =
@@ -216,98 +211,6 @@ function ProfileSection() {
             </div>
           ) : null}
         </SBlock>
-      </SettingCard>
-    </>
-  );
-}
-
-function PetSection() {
-  const { t } = useTranslation("settings");
-  const { t: tPet } = useTranslation("pet");
-  const petKind = usePetStore((s) => s.kind);
-  const setPetKind = usePetStore((s) => s.setKind);
-  const petEnabled = usePetStore((s) => s.enabled);
-  const setPetEnabled = usePetStore((s) => s.setEnabled);
-  const petSize = usePetStore((s) => s.size);
-  const setPetSize = usePetStore((s) => s.setSize);
-  const pickEnabled = (v: boolean) => {
-    setPetEnabled(v);
-    savePetEnabled(v);
-  };
-  const pick = (k: PetKind) => {
-    setPetKind(k);
-    try {
-      localStorage.setItem(PET_KIND_KEY, k);
-    } catch {
-      /* 忽略 */
-    }
-  };
-  const pickSize = (v: number) => {
-    setPetSize(v);
-    try {
-      localStorage.setItem(PET_SIZE_KEY, String(v));
-    } catch {
-      /* 忽略 */
-    }
-  };
-  return (
-    <>
-      <div className="pw-dlg-title">{t("pet.title")}</div>
-      <div className="pw-dlg-desc">{t("pet.desc")}</div>
-
-      <SettingCard title={t("pet.cardTitle")}>
-        <SwitchRow label={t("pet.showPet")} value={petEnabled} onChange={pickEnabled} />
-      </SettingCard>
-
-      <SettingCard title={t("pet.appearanceCard")}>
-        <SBlock label={t("pet.design")}>
-          <div className="pw-pet-grid">
-            {PET_KINDS.map((k) => {
-              // 预览用真实 sprite 的 idle 首帧(静态:背景定位停在第 0 帧);
-              // 无 sprite 的角色回退内联 SVG 造型。
-              const idle = PET_SPRITES[k]?.idle;
-              const Parts = PET_DESIGNS[k].Parts;
-              return (
-                <button key={k} className={`pw-pet-card ${k === petKind ? "is-active" : ""}`} onClick={() => pick(k)}>
-                  <span className="pet-preview">
-                    {idle ? (
-                      <span
-                        className="pet-preview-sprite"
-                        style={{ backgroundImage: `url("${idle.src}")`, backgroundSize: `${idle.frames * 100}% 100%` }}
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <svg viewBox="0 0 140 120" width="84" height="72" aria-hidden="true">
-                        <Parts />
-                      </svg>
-                    )}
-                  </span>
-                  <span className="pw-pet-name">{tPet(`kind.${k}.name`)}</span>
-                  <span className="pw-pet-desc">{tPet(`kind.${k}.desc`)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </SBlock>
-        <SRow label={t("pet.size")}>
-          <div className="pw-pet-size">
-            <input
-              type="range"
-              min={PET_SIZE_MIN}
-              max={PET_SIZE_MAX}
-              step={0.05}
-              value={petSize}
-              onChange={(e) => pickSize(Number(e.target.value))}
-              aria-label={t("pet.sizeAria")}
-            />
-            <span className="pw-pet-size-val">{Math.round(petSize * 100)}%</span>
-            {petSize !== 1 ? (
-              <button className="pw-pet-reset" onClick={() => pickSize(1)}>
-                {t("pet.reset")}
-              </button>
-            ) : null}
-          </div>
-        </SRow>
       </SettingCard>
     </>
   );
@@ -1140,7 +1043,7 @@ export function PersonalSettingsView() {
           ) : tab === "pi" ? (
             <ModelsSection />
           ) : tab === "pet" ? (
-            <PetSection />
+            <PetSettingsSection />
           ) : tab === "timeline" ? (
             <TimelineSection />
           ) : tab === "push" ? (

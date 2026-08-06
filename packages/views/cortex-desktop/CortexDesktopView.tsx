@@ -183,10 +183,11 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
           </>
           )}
           <ToastStack items={toasts} />
-          {/* 桌面端:宠物本体挪去独立 pet-overlay 窗口(脱离主窗体,可在整个屏幕任意位置显示),
-              这里只挂 PetBridge 转发 usePetStore 变化。Web 端 desktopBridge 为 null,
-              仍渲染内嵌 <Pet/>,行为不变。 */}
-          {desktopBridge ? <PetBridge /> : <Pet />}
+          {/* PetBridge 两端都挂:它是宠物状态机的宿主(活动信号只在这个窗口里发生),
+              桌面端额外负责把状态转发给独立的 pet-overlay 窗口。
+              宠物本体只在 Web 端内嵌渲染;桌面端已挪去 overlay 窗口(可在整屏任意位置显示)。 */}
+          <PetBridge />
+          {desktopBridge ? null : <Pet />}
         </div>
       </div>
     </div>
