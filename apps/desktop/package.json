@@ -16,6 +16,7 @@
     "rebuild:native": "node scripts/rebuild-native-modules.mjs",
     "prebuild:notes": "node scripts/extract-release-notes.mjs",
     "build:worker": "vite build --config electron.worker.config.ts",
+    "build:pi-host": "vite build --config electron.pi-host.config.ts",
     "dev": "pnpm run sync:bento && pnpm run rebuild:native && pnpm run build:pi && pnpm run build:cortex-helper && pnpm run build:worker && electron-vite dev",
     "build": "pnpm run build:worker && electron-vite build",
     "preview": "electron-vite preview",

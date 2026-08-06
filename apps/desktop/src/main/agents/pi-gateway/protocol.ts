@@ -89,12 +89,17 @@ export interface HostUiResponse {
   payload: PiUiResponsePayload;
 }
 
-/** 对 worker 反向请求 `credentials.get` 的应答（KTD1：密钥只在这一刻跨进程存在）。 */
+/**
+ * 对 worker 反向请求 `credentials.get` 的应答（KTD1：密钥只在这一刻跨进程存在）。
+ *
+ * 各 op 的 `value` 语义：`read` → `JSON.stringify(Credential)`；`list` → `JSON.stringify(CredentialInfo[])`；
+ * `write` → 写入后的凭据（同 read 形状）；`delete` → 恒为 null。
+ */
 export interface HostCredentialResponse {
   id: string;
   kind: "credentialResponse";
   requestId: string;
-  /** 解密后的值；未配置该凭据时为 null（**不是**空串——空串是合法的凭据值）。 */
+  /** 结果值；未配置 / 被拒绝 / delete 时为 null（**不是**空串——空串是合法的凭据值）。 */
   value: string | null;
   error?: string;
 }
@@ -137,16 +142,34 @@ export interface WorkerUiRequest {
 }
 
 /**
- * 反向请求：取一条凭据（KTD1）。
+ * 反向请求：访问凭据金库（KTD1）。
  *
  * worker 侧给 pi 的 `ModelRuntime` 注入的 `CredentialStore` 在 pi 真要用密钥时才发这条，
  * 主进程用 safeStorage 解密后经 `HostCredentialResponse` 返回。密钥因此不常驻 worker、不落盘——
  * 严格优于 binary 路径（烘焙进 `.js` 文件 0600 + spawn env 占位符）。
+ *
+ * ── `op` 为什么必须存在（不是「读」一件事）────────────────────────────────────────
+ * pi 的 `CredentialStore` 是四方法接口（read / list / modify / delete），其中 **`modify` 承载
+ * OAuth 刷新后的 token 落盘**（`Models.getAuth()` 在锁内刷新并写回）。只支持读的话刷新结果
+ * 只活在 worker 内存里，下次开会话仍拿旧 refresh token——而服务端很可能已经把它轮换作废，
+ * 表现为**用户莫名其妙被登出**（`providers/credentials.ts` 文件头记的正是这个事故形态）。
+ *
+ * `op` 缺省是 `"read"`，故先落地的「只读」实现与本字段完全向后兼容。
  */
 export interface WorkerCredentialRequest {
   kind: "credentialRequest";
   requestId: string;
+  /**
+   * 目标键。命名空间（语义定死在主进程侧的 `readGatewayCredential`）：
+   *   · `provider:<id>` / 裸 `<id>` → 该 Provider 的凭据，值是 `JSON.stringify(Credential)`；
+   *   · `secret:<NAME>`            → 命名 Secret 的明文（自定义 Provider 的 `${secret:NAME}`）；
+   *   · `credentials:list`         → 凭据元信息清单，值是 `JSON.stringify(CredentialInfo[])`。
+   */
   key: string;
+  /** 操作。缺省 `"read"`。 */
+  op?: "read" | "list" | "write" | "delete";
+  /** `op:"write"` 时的新值（`JSON.stringify(Credential)`）。其余 op 忽略。 */
+  value?: string;
 }
 
 /** worker 侧的日志转发（worker 的 stdout 不连终端，日志要经主进程的 logger 落盘）。 */
