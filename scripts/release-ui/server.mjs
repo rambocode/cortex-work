@@ -120,7 +120,12 @@ async function startRelease({ mode = "resume", stopAfter = null } = {}) {
   }
   run.emitUpdate();
 
-  inflight = (async () => {
+  // 陷阱:不能在 async 函数体内部（finally 里）写 `inflight = null`——当所有阶段都已完成时,
+  // 循环全走 continue、一个 await 都没有,整个函数体（含 finally）会**同步**执行完,
+  // 之后外层的 `inflight = job` 赋值才发生,把 null 覆盖回一个已 resolve 的 promise,
+  // 此后每次「开始发布」都误报「已有发布流程在跑」直到重启（v0.1.54 实测踩到）。
+  // 因此清理挪到 .finally() 回调:它保证在微任务里异步执行,一定晚于下面的赋值。
+  const job = (async () => {
     try {
       for (const def of stepDefs) {
         const st = run.step(def.id);
@@ -147,12 +152,15 @@ async function startRelease({ mode = "resume", stopAfter = null } = {}) {
       run.log("🎉 全部阶段完成", "ok");
     } finally {
       run.finishedAt = Date.now();
-      inflight = null;
       run.emitUpdate();
     }
   })();
 
-  inflight.catch(() => {}); // 失败已记录进状态与日志，这里吞掉避免 unhandled rejection
+  inflight = job;
+  // 失败已记录进状态与日志，这里吞掉避免 unhandled rejection；结束后清 inflight 放行下一轮。
+  job.catch(() => {}).finally(() => {
+    if (inflight === job) inflight = null;
+  });
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
