@@ -62,7 +62,7 @@ const OPEN_TIMEOUT_MS = 120_000;
 const DEFAULT_KILL_DELAY_MS = 3_000;
 
 /**
- * 凭据金库访问器。key 的命名空间与 op 的语义见 `readGatewayCredential`。
+ * 凭据金库访问器。key 的命名空间与 op 的语义见 `accessGatewayCredential`。
  *
  * 入参刻意是整条 `WorkerCredentialRequest`（而不是把 key/op/value 拆成三个位置参数）：
  * 协议将来再加字段时，注入点的签名不用跟着动，单测替身也不必逐个补参数。
@@ -73,7 +73,7 @@ export type PiGatewayCredentialReader = (request: WorkerCredentialRequest) => Pr
 export interface PiGatewayDeps {
   /** 进程承载工厂。缺省 `forkPiHostTransport`（懒加载，避免单测被迫装 electron 替身）。 */
   createTransport?: PiGatewayTransportFactory;
-  /** 凭据解析（KTD1）。缺省 `readGatewayCredential`（safeStorage 金库）。 */
+  /** 凭据金库访问（KTD1）。缺省 `accessGatewayCredential`（safeStorage 金库）。 */
   readCredential?: PiGatewayCredentialReader;
   /** 传给 worker 的追加环境变量（自定义 Provider 密钥占位、Computer Use grounding 等）。 */
   env?: Record<string, string>;
@@ -145,54 +145,92 @@ function trimArgs(args: unknown[]): unknown[] {
 
 // ── 默认凭据解析（KTD1）──────────────────────────────────────────────────────────────
 
+/** 凭据清单的伪 key。`op` 缺省 read 时也按 list 处理，两种写法都认。 */
+const CREDENTIAL_LIST_KEY = "credentials:list";
+const SECRET_PREFIX = "secret:";
+const PROVIDER_PREFIX = "provider:";
+
+/** 从 key 里剥出 providerId。裸 id 与 `provider:` 前缀同义。 */
+function providerIdOf(key: string): string {
+  return key.startsWith(PROVIDER_PREFIX) ? key.slice(PROVIDER_PREFIX.length) : key;
+}
+
 /**
- * 默认凭据解析器：worker 要用密钥的那一刻才回主进程取，主进程用 safeStorage 解密后返回。
+ * 默认凭据金库访问器：worker 要用密钥的那一刻才回主进程取，主进程用 safeStorage 解密后返回。
  *
- * **key 的命名空间约定**（协议只给了「一个 string key → 一个 string value」，语义在这里定死）：
- *   · `secret:<NAME>`        → 命名 Secret 的明文（自定义 Provider 的 `${secret:NAME}` 引用）；
- *   · `provider:<id>` / `<id>` → 金库里该 Provider 的凭据，`JSON.stringify` 后的 pi `Credential`
+ * **key 的命名空间约定**（协议只给了「一个 string key」，语义在这里定死）：
+ *   · `secret:<NAME>`          → 命名 Secret 的明文（自定义 Provider 的 `${secret:NAME}` 引用）；
+ *   · `credentials:list`       → 凭据元信息清单 `JSON.stringify([{providerId,type}])`（**不含密钥**）；
+ *   · `provider:<id>` / `<id>` → 该 Provider 的凭据，`JSON.stringify` 后的 pi `Credential`
  *                                （`{type:"api_key",key,env?}` 或 oauth），worker 侧 `JSON.parse` 还原。
  * 未配置一律返回 `null`——**不是空串**，空串是合法的凭据值（协议注释里那条约束）。
  *
- * ⚠️ 本函数的返回值是明文密钥：**任何分支都不得把它写进日志**。
+ * ── 写路径的收窄（安全边界，务必保留）────────────────────────────────────────────
+ * `write` / `delete` **只接受 provider 命名空间**。命名 Secret 是用户在设置页手工维护的资产，
+ * pi 没有任何理由改写它们；放开的话一个跑飞的扩展就能把用户的 Secret 抹掉，而这类破坏
+ * 没有撤销路径。落到 secret/list 命名空间的写请求一律拒绝并留痕。
+ *
+ * 权限面对照：本访问器给 worker 的能力**不宽于 in-process 路径**——那条路直接把
+ * `createSafeStorageCredentialStore()`（含 modify/delete）交给了 pi。gateway 只是把同一组能力
+ * 收窄成四个具名 op 经协议过一次桥，多了一层可审计的收口。
+ *
+ * ⚠️ 返回值可能是明文密钥：**任何分支都不得把它写进日志**（只记 key 与 op）。
  * 金库模块用懒加载 import 拉进来，让本文件的单测不必替身整条 safeStorage 链路。
  */
-export async function readGatewayCredential(request: WorkerCredentialRequest): Promise<string | null> {
+export async function accessGatewayCredential(request: WorkerCredentialRequest): Promise<string | null> {
   const vault = await import("../../providers/credentials");
-  const { key, op = "read", value } = request;
+  const { key, op = "read" } = request;
 
-  // list：凭据元信息清单（pi 的 CredentialStore.list）。只回元信息，**不含任何明文**。
-  if (op === "list" || key === "credentials:list") {
-    return JSON.stringify(await vault.listStoredCredentialMetas());
+  if (op === "list" || key === CREDENTIAL_LIST_KEY) {
+    // 只回元信息（providerId + type），不解密任何密文——这条是 pi `CredentialStore.list()` 的契约。
+    const metas = await vault.listStoredCredentialMetas();
+    return JSON.stringify(metas.map(({ providerId, type }) => ({ providerId, type })));
   }
 
-  if (key.startsWith("secret:")) {
-    // 命名 Secret 只支持读：它由用户在设置页维护，pi 侧没有写它的语义。
-    if (op !== "read") throw new Error(`命名 Secret 不支持 ${op} 操作`);
-    const name = key.slice("secret:".length);
+  if (op === "write" || op === "delete") {
+    if (key.startsWith(SECRET_PREFIX)) {
+      throw new Error(`拒绝写入命名 Secret（pi 只允许改写 provider 凭据）: ${key}`);
+    }
+    const providerId = providerIdOf(key);
+    if (op === "delete") {
+      await vault.deleteStoredCredential(providerId);
+      return null;
+    }
+    if (request.value === undefined) throw new Error(`凭据写入缺少 value: ${key}`);
+    // 解析放在写之前：坏 JSON 必须在碰金库之前失败，绝不把半个对象落盘。
+    const next = JSON.parse(request.value) as Awaited<ReturnType<typeof vault.readStoredCredential>>;
+    if (!next || typeof next !== "object") throw new Error(`凭据写入的 value 不是对象: ${key}`);
+    // 走 modifyStoredCredential 而不是自己读写：它持有金库的串行锁，pi 的 OAuth 刷新与设置页
+    // 的写入必须共用同一把锁，否则并发刷新会互相覆盖、其中一份 refresh token 被服务端作废。
+    const written = await vault.modifyStoredCredential(providerId, async () => next);
+    return written ? JSON.stringify(written) : null;
+  }
+
+  if (key.startsWith(SECRET_PREFIX)) {
+    const name = key.slice(SECRET_PREFIX.length);
     const secrets = await vault.readSecrets();
     return Object.prototype.hasOwnProperty.call(secrets, name) ? (secrets[name] ?? null) : null;
   }
-
-  const providerId = key.startsWith("provider:") ? key.slice("provider:".length) : key;
-
-  // write：承载 OAuth 刷新后的 token 落盘（见 protocol.ts 里 op 那段说明）。
-  // 少了这条，刷新结果只活在 worker 内存里，下次开会话仍拿已被服务端轮换作废的旧 refresh token，
-  // 表现为「用户莫名其妙被登出」。走金库的串行写，与主进程自己写同一条路径。
-  if (op === "write") {
-    if (value === undefined) throw new Error("write 缺少 value");
-    const parsed: unknown = JSON.parse(value);
-    // modify 的回调是 async 契约（金库在锁内 await 它），故这里也用 async。
-    await vault.modifyStoredCredential(providerId, async () => parsed as never);
-    return value;
-  }
-  if (op === "delete") {
-    await vault.deleteStoredCredential(providerId);
-    return null;
-  }
-
-  const credential = await vault.readStoredCredential(providerId);
+  const credential = await vault.readStoredCredential(providerIdOf(key));
   return credential ? JSON.stringify(credential) : null;
+}
+
+/**
+ * 建会话请求的脱敏：摘掉 `provider.apiKey`（KTD1）。
+ *
+ * `preparePiOpenRequest` 会把解析出来的 Provider 连同**明文 apiKey** 填进请求（见 ipc/types.ts
+ * 对该字段的告警）。binary / in-process 两条路都在同进程内消费它，所以直接带着走；但 gateway
+ * 下这条请求要跨进程，带上密钥就等于把「密钥只在请求那一刻跨进程存在一次」这条 KTD1 作废——
+ * 而它本来就不需要：worker 侧只用 `id` 与 `baseUrl` 登记 baseUrl 覆盖，真要用密钥时会发
+ * `credentialRequest` 回主进程取。
+ *
+ * 浅拷贝到新对象而不是 `delete` 原对象的字段：入参是调用方（`pi:open` handler）还在用的
+ * `prepared`，就地改会波及 binary/in-process 分支与后续的 trace 记录。
+ */
+function sanitizeOpenRequest(request: PiOpenRequest): PiOpenRequest {
+  if (!request.provider?.apiKey) return request;
+  const { apiKey: _apiKey, ...provider } = request.provider;
+  return { ...request, provider: provider as PiOpenRequest["provider"] };
 }
 
 // ── 会话实现 ─────────────────────────────────────────────────────────────────────────
@@ -395,7 +433,8 @@ export class PiGatewaySession implements PiSessionEngine {
     } catch (err) {
       error = errText(err);
       value = null;
-      log.warn("pi gateway 凭据解密失败", { key: msg.key, error });
+      // 只记 key 与 op，绝不记 value（它可能是明文密钥）。
+      log.warn("pi gateway 凭据访问失败", { key: msg.key, op: msg.op ?? "read", error });
     }
     // 解密是异步的，期间会话可能已经停了；write() 内部对断管道是静默的。
     this.write({
@@ -463,7 +502,7 @@ export class PiGatewaySession implements PiSessionEngine {
   /** 建会话。由 `openPiGatewaySession` 调用一次，失败即视为会话不可用。 */
   async open(request: PiOpenRequest, hasUiOutlet: boolean): Promise<void> {
     const reply = await this.send(
-      { id: this.nextId(), kind: "open", request, hasUiOutlet },
+      { id: this.nextId(), kind: "open", request: sanitizeOpenRequest(request), hasUiOutlet },
       OPEN_TIMEOUT_MS,
       "open",
     );
@@ -645,7 +684,7 @@ export async function openPiGatewaySession(options: PiGatewayOpenOptions): Promi
   const session = new PiGatewaySession(transport, {
     onEvent,
     ...(onUiRequest ? { onUiRequest } : {}),
-    readCredential: deps.readCredential ?? readGatewayCredential,
+    readCredential: deps.readCredential ?? accessGatewayCredential,
     uiSessionId: request.uiSessionId,
     ...(deps.killDelayMs === undefined ? {} : { killDelayMs: deps.killDelayMs }),
     ...(deps.onDispose ? { onDispose: deps.onDispose } : {}),

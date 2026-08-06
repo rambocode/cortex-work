@@ -14,9 +14,19 @@ vi.mock("../../log", () => ({ createLogger: () => logMocks.logger, isDevEnv: () 
 vi.mock("electron", () => ({ app: {} }));
 vi.mock("../../ipc/agent-trace", () => ({ recordAgentTrace: vi.fn(), recordStreamDelta: vi.fn() }));
 
-import { openPiGatewaySession, PiGatewaySession } from "./client";
+// 金库替身：`accessGatewayCredential` 是懒加载 import，故这里 mock 的是模块而不是注入点。
+const vaultMocks = vi.hoisted(() => ({
+  readStoredCredential: vi.fn(),
+  listStoredCredentialMetas: vi.fn(),
+  modifyStoredCredential: vi.fn(),
+  deleteStoredCredential: vi.fn(),
+  readSecrets: vi.fn(),
+}));
+vi.mock("../../providers/credentials", () => vaultMocks);
+
+import { accessGatewayCredential, openPiGatewaySession, PiGatewaySession } from "./client";
 import { FakePiGatewayTransport } from "./fake-transport";
-import { ENGINE_METHODS, type HostCall, type HostUiResponse } from "./protocol";
+import { ENGINE_METHODS, type HostCall, type HostUiResponse, type WorkerCredentialRequest } from "./protocol";
 import type { PiOpenRequest, PiSessionEvent, PiUiRequest } from "../../ipc/types";
 
 // ── 夹具 ────────────────────────────────────────────────────────────────────────────
@@ -58,7 +68,6 @@ async function open(
     ...(options.onUiRequest === false ? {} : { onUiRequest: (req: PiUiRequest) => uiRequests.push(req) }),
     deps: {
       createTransport: () => transport,
-      // 替身收 key（用例只关心「问了哪个 key」）；真实 reader 收整条请求，故这里从 req 取。
       readCredential: async (req) => {
         credentialCalls.push(req.key);
         return options.readCredential ? options.readCredential(req.key) : `secret-of-${req.key}`;
@@ -523,5 +532,119 @@ describe("openPiGatewaySession", () => {
     transport.replyOk();
     await pending;
     expect(forkCwd).toBe("/proj/a");
+  });
+});
+
+// ── 默认金库访问器 ──────────────────────────────────────────────────────────────────
+
+describe("accessGatewayCredential 的 key 命名空间与 op", () => {
+  beforeEach(() => {
+    vaultMocks.readStoredCredential.mockReset();
+    vaultMocks.listStoredCredentialMetas.mockReset();
+    vaultMocks.modifyStoredCredential.mockReset();
+    vaultMocks.deleteStoredCredential.mockReset();
+    vaultMocks.readSecrets.mockReset();
+  });
+
+  const req = (over: Partial<WorkerCredentialRequest> & { key: string }): WorkerCredentialRequest => ({
+    kind: "credentialRequest",
+    requestId: "cr",
+    ...over,
+  });
+
+  it("provider:<id> 与裸 id 同义，值是 JSON.stringify(Credential)", async () => {
+    vaultMocks.readStoredCredential.mockResolvedValue({ type: "api_key", key: "sk-1" });
+    await expect(accessGatewayCredential(req({ key: "provider:anthropic" }))).resolves.toBe(
+      JSON.stringify({ type: "api_key", key: "sk-1" }),
+    );
+    expect(vaultMocks.readStoredCredential).toHaveBeenCalledWith("anthropic");
+
+    await accessGatewayCredential(req({ key: "anthropic" }));
+    expect(vaultMocks.readStoredCredential).toHaveBeenLastCalledWith("anthropic");
+  });
+
+  it("未配置的 provider 回 null（不是空串）", async () => {
+    vaultMocks.readStoredCredential.mockResolvedValue(undefined);
+    await expect(accessGatewayCredential(req({ key: "provider:none" }))).resolves.toBeNull();
+  });
+
+  it("secret:<NAME> 取命名 Secret 明文；空串是合法值、缺失才是 null", async () => {
+    vaultMocks.readSecrets.mockResolvedValue({ CF_ID: "", OTHER: "v" });
+    await expect(accessGatewayCredential(req({ key: "secret:CF_ID" }))).resolves.toBe("");
+    await expect(accessGatewayCredential(req({ key: "secret:MISSING" }))).resolves.toBeNull();
+  });
+
+  it("credentials:list / op=list 都回元信息清单，且不解密", async () => {
+    vaultMocks.listStoredCredentialMetas.mockResolvedValue([
+      { providerId: "anthropic", type: "oauth", expiresAt: 123 },
+    ]);
+    // expiresAt 属于金库内部元数据，不在 pi 的 CredentialInfo 契约里，必须剔掉。
+    await expect(accessGatewayCredential(req({ key: "credentials:list" }))).resolves.toBe(
+      JSON.stringify([{ providerId: "anthropic", type: "oauth" }]),
+    );
+    await expect(accessGatewayCredential(req({ key: "whatever", op: "list" }))).resolves.toContain("anthropic");
+    expect(vaultMocks.readStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it("op=write 走 modifyStoredCredential（共用金库串行锁，防并发刷新互相覆盖）", async () => {
+    const cred = { type: "oauth", access: "a", refresh: "r", expires: 1 };
+    vaultMocks.modifyStoredCredential.mockImplementation(async (_id: string, fn: (c: unknown) => Promise<unknown>) =>
+      fn(undefined),
+    );
+    await expect(
+      accessGatewayCredential(req({ key: "provider:anthropic", op: "write", value: JSON.stringify(cred) })),
+    ).resolves.toBe(JSON.stringify(cred));
+    expect(vaultMocks.modifyStoredCredential.mock.calls[0]?.[0]).toBe("anthropic");
+  });
+
+  it("op=write 的坏 JSON 在碰金库之前失败（绝不把半个对象落盘）", async () => {
+    await expect(
+      accessGatewayCredential(req({ key: "provider:x", op: "write", value: "{ broken" })),
+    ).rejects.toThrow();
+    await expect(accessGatewayCredential(req({ key: "provider:x", op: "write" }))).rejects.toThrow(/缺少 value/);
+    expect(vaultMocks.modifyStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it("op=delete 删 provider 凭据并回 null", async () => {
+    vaultMocks.deleteStoredCredential.mockResolvedValue(undefined);
+    await expect(accessGatewayCredential(req({ key: "provider:x", op: "delete" }))).resolves.toBeNull();
+    expect(vaultMocks.deleteStoredCredential).toHaveBeenCalledWith("x");
+  });
+
+  it("安全边界：拒绝改写/删除命名 Secret（那是用户手工维护、无撤销路径的资产）", async () => {
+    await expect(
+      accessGatewayCredential(req({ key: "secret:CF_ID", op: "write", value: "{}" })),
+    ).rejects.toThrow(/拒绝写入命名 Secret/);
+    await expect(accessGatewayCredential(req({ key: "secret:CF_ID", op: "delete" }))).rejects.toThrow(
+      /拒绝写入命名 Secret/,
+    );
+    expect(vaultMocks.modifyStoredCredential).not.toHaveBeenCalled();
+    expect(vaultMocks.deleteStoredCredential).not.toHaveBeenCalled();
+  });
+});
+
+// ── open 请求脱敏（KTD1）────────────────────────────────────────────────────────────
+
+describe("open 请求脱敏", () => {
+  it("摘掉 provider.apiKey 再跨进程，其余字段原样保留", async () => {
+    const transport = new FakePiGatewayTransport();
+    const request = makeRequest({
+      provider: { id: "custom", baseUrl: "https://x", apiKey: "sk-secret", models: [{ id: "m" }] },
+    });
+    const pending = openPiGatewaySession({
+      request,
+      onEvent: () => {},
+      deps: { createTransport: () => transport, readCredential: async () => null },
+    });
+    await Promise.resolve();
+
+    const sent = transport.firstOf("open")?.request as PiOpenRequest;
+    expect(sent.provider).toEqual({ id: "custom", baseUrl: "https://x", models: [{ id: "m" }] });
+    expect(transport.writes.join("")).not.toContain("sk-secret");
+    // 不得就地改调用方还在用的 prepared 对象（binary/in-process 分支与 trace 都还要读它）。
+    expect(request.provider?.apiKey).toBe("sk-secret");
+
+    transport.replyOk();
+    await pending;
   });
 });
