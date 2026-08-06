@@ -249,6 +249,21 @@ app.whenReady().then(async () => {
   });
 }
 
+// ── pi gateway worker 产物存在性 ─────────────────────────────────────────────────
+// 常驻 gateway 引擎的 worker 必须随包（asarUnpack 的 out/worker/**）。缺失的成因几乎只有
+// 一个：构建链里 build:worker 之后没串 build:pi-host（后者 emptyOutDir:false 依赖前者先跑，
+// 顺序对了但漏了第二步就会静默丢产物）。缺失的表现是 gateway 选路下开会话报「未找到入口」，
+// 而 binary/inproc 完全正常——只在切了引擎的用户那里暴露，故这里在打包态就拦。
+{
+  const unpackedHost = join(appBundle, "Contents", "Resources", "app.asar.unpacked", "out", "worker", "pi-host.js");
+  if (existsSync(unpackedHost)) {
+    console.log("  ✓ gateway worker 产物在场: app.asar.unpacked/out/worker/pi-host.js");
+  } else {
+    console.error("  ✗ 缺少 gateway worker 产物（检查构建链是否串了 build:pi-host）");
+    failures.push("pi-host.js 缺失");
+  }
+}
+
 if (failures.length) {
   console.error(`\n✗ ${failures.length} 项失败`);
   process.exit(1);
