@@ -17,6 +17,10 @@ export interface FakeCanvasCtx {
   drawImage: (...args: Call) => void;
   clearRect: (...args: Call) => void;
   setTransform: (...args: Call) => void;
+  /** 一律回「整张图都有内容」。宠物的透明尾帧探测(sheet.ts)要读像素,不给它像素就只能
+   * 走 catch 分支、退回固定帧数——那样探测这条通路在测试里等于没被跑过。返回全不透明
+   * 使探测结论 = 列数,与未探测时的行为一致,既有用例不受影响。 */
+  getImageData: (x: number, y: number, w: number, h: number) => { data: Uint8ClampedArray };
   calls: { drawImage: Call[]; clearRect: Call[]; setTransform: Call[] };
 }
 
@@ -38,6 +42,9 @@ if (typeof HTMLCanvasElement !== "undefined") {
         drawImage: (...args: Call) => void calls.drawImage.push(args),
         clearRect: (...args: Call) => void calls.clearRect.push(args),
         setTransform: (...args: Call) => void calls.setTransform.push(args),
+        getImageData: (_x: number, _y: number, w: number, h: number) => ({
+          data: new Uint8ClampedArray(Math.max(0, w * h * 4)).fill(255),
+        }),
       };
       ctxByCanvas.set(this, ctx);
     }

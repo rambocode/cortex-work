@@ -42,4 +42,18 @@ export function registerPetHandlers(): void {
         target.webContents.send("pet:enabled-changed", enabled);
     }
   });
+  // overlay 的缩放手柄同理:overlay 页面的 localStorage 与主窗口不同源,落盘只能由主窗口
+  // 做;不回写则下一次状态广播会带旧 size,把刚拖大的宠物顶回原大小。
+  ipcMain.on("pet:set-size", (e, size: unknown) => {
+    // 区间与 packages/views/cortex-desktop/pet/prefs.ts 的 PET_SIZE_MIN/MAX 对齐
+    // (main 不能 import views 层)。上限由 pet-overlay 窗口的固定像素尺寸决定,改一处要改两处。
+    if (typeof size !== "number" || !Number.isFinite(size) || size < 0.8 || size > 2) return;
+    const overlay = getPetOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || e.sender !== overlay.webContents) return;
+    if (cachedState) cachedState = { ...cachedState, size };
+    for (const target of BrowserWindow.getAllWindows()) {
+      if (!target.isDestroyed() && target.webContents !== overlay.webContents)
+        target.webContents.send("pet:size-changed", size);
+    }
+  });
 }

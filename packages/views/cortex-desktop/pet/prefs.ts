@@ -22,6 +22,16 @@ const LEGACY_KEYS = ["cortex_pet_kind", "cortex_pet_mode", "cortex_pet_walk", "c
 export const PET_SIZE_MIN = 0.8;
 export const PET_SIZE_MAX = 2;
 
+/**
+ * 把任意尺寸夹到合法区间并抹掉浮点毛刺(拖拽手柄算出来的是连续值)。
+ * 上限 2 不是审美取舍:pet-overlay 窗口按最大只宠物的像素尺寸固定开好(见 Pet.tsx 的
+ * OVERLAY_WINDOW_W/H),再大就会被窗口边界裁掉。
+ */
+export function clampPetSize(size: number): number {
+  if (!Number.isFinite(size)) return 1;
+  return Math.min(PET_SIZE_MAX, Math.max(PET_SIZE_MIN, Math.round(size * 100) / 100));
+}
+
 export interface PetPrefs {
   enabled: boolean;
   size: number;

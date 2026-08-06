@@ -6,7 +6,7 @@
 import type { PetState } from "@cortex-work/core";
 import type { PetSpriteSource } from "@cortex-work/core/desktop/petdex-types";
 import { PETDEX_CELL_H, PETDEX_CELL_W, PETDEX_FRAMES } from "@cortex-work/core/pet/grid";
-import { ONE_SHOT, ROW_FALLBACK, SLEEP_SLOWDOWN, resolveRow } from "./rows";
+import { MOVE_ROW_FALLBACK, ONE_SHOT, ROW_FALLBACK, SLEEP_SLOWDOWN, resolveRow } from "./rows";
 import { BUILTIN_CELL_H, BUILTIN_CELL_W, BUILTIN_SHEETS, builtinAnimFor } from "./sheets";
 
 /** 一次具体的取帧指令:去哪张图、取第几行、播几帧、多快。 */
@@ -35,8 +35,15 @@ const PETDEX_FRAME_MS = 180;
  * sprite 为 null(尚未选过图鉴宠物 / 还没解析出来)时回落到内置角色 —— 这条回落是
  * 首启与离线时宠物仍然可见的保证,不要为了「统一」把它去掉。
  * petdex sprite 的行数不统一,行号必须经降级链解析(见 rows.ts)。
+ *
+ * moveDir(拖动中的水平方向)优先于姿态:被拽着走的时候「在跑」比「在思考」更该被看见,
+ * 且它是纯展示层的临时覆写,不经状态机——拖动不该污染 agent 活动派生出来的真实姿态。
  */
-export function resolveSheet(sprite: PetSpriteSource | null, state: PetState): ResolvedSheet | null {
+export function resolveSheet(
+  sprite: PetSpriteSource | null,
+  state: PetState,
+  moveDir?: "left" | "right" | null,
+): ResolvedSheet | null {
   const slow = state === "sleeping" ? SLEEP_SLOWDOWN : 1;
 
   if (!sprite || sprite.origin === "builtin") {
@@ -55,7 +62,7 @@ export function resolveSheet(sprite: PetSpriteSource | null, state: PetState): R
   }
 
   if (!sprite.url || sprite.cols < 1 || sprite.rows < 1) return null;
-  const row = resolveRow(ROW_FALLBACK[state], sprite.rows);
+  const row = resolveRow(moveDir ? MOVE_ROW_FALLBACK[moveDir] : ROW_FALLBACK[state], sprite.rows);
   return {
     url: sprite.url,
     row,
@@ -65,7 +72,8 @@ export function resolveSheet(sprite: PetSpriteSource | null, state: PetState): R
     frameMs: PETDEX_FRAME_MS * slow,
     cellW: PETDEX_CELL_W,
     cellH: PETDEX_CELL_H,
-    oneShot: ONE_SHOT.has(state),
+    // 奔跑必须循环:一次性动画会在拖到第 6 帧时定住,宠物看起来像被拖着的一张贴纸。
+    oneShot: !moveDir && ONE_SHOT.has(state),
     // key 绑定到「图 + 行」而非姿态:多个姿态映射到同一行时(如 idle/typing 都可能落 0 行)
     // 不重置帧游标,呼吸保持连续不闪。
     key: `${sprite.id}:${row}`,

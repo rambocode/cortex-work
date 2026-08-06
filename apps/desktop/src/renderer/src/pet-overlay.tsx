@@ -9,6 +9,7 @@
 //
 // 状态来源:订阅主进程广播的 pet:sync-state(见 PetBridge.tsx → ipc/pet.ts),挂载时
 // 先 requestPetSync 要一次当前快照,应对"overlay 先于主窗口 PetBridge 挂载"的时序竞态。
+import { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { usePetStore } from "@cortex-work/core";
 import { Pet } from "@cortex-work/views/cortex-desktop";
@@ -61,10 +62,27 @@ if (bridge?.onPetSyncState) {
   bridge.requestPetSync?.();
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <Pet
-    windowFollowsPet
-    onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)}
-    onPoke={pokePet}
-  />,
-);
+/**
+ * 只为「悬停」多包的一层。这扇窗口 focusable:false 且整块 app-region:drag,拿不到任何
+ * 鼠标移动事件(CSS :hover / pointerEnter 全部失效,实测要右键点一下 ✕ 和缩放手柄才冒
+ * 出来),故由主进程轮询光标位置推过来,交给 Pet 自己判断是否落在宠物身上。
+ */
+function PetOverlayRoot() {
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  // 拖动方向同理:窗口被 OS 搬动,渲染进程连 pointerdown 都收不到,只有主进程看得见。
+  const [moveDir, setMoveDir] = useState<"left" | "right" | null>(null);
+  useEffect(() => bridge?.onPetOverlayCursor?.(setCursor), []);
+  useEffect(() => bridge?.onPetOverlayMoveDir?.(setMoveDir), []);
+  return (
+    <Pet
+      windowFollowsPet
+      externalCursor={cursor}
+      externalMoveDir={moveDir}
+      onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)}
+      onSizeChange={(size) => bridge?.setPetSize?.(size)}
+      onPoke={pokePet}
+    />
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(<PetOverlayRoot />);

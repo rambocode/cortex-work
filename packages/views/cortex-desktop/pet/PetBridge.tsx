@@ -89,9 +89,16 @@ export function PetBridge() {
       if (usePetStore.getState().enabled === enabled) return;
       patchPetPrefs({ enabled });
     });
+    // overlay 的缩放手柄拖完回写:主窗口是设置真源,由它落盘(overlay 页面的 localStorage
+    // 与主窗口不同源)。相等时跳过,避免 store→广播→回写的自激循环。
+    const offSizeChange = bridge.onPetSizeChange?.((size) => {
+      if (usePetStore.getState().size === size) return;
+      patchPetPrefs({ size });
+    });
     const offStore = usePetStore.subscribe((s) => bridge.reportPetState?.(snapshot(s)));
     return () => {
       offEnabledChange?.();
+      offSizeChange?.();
       offStore();
     };
   }, [bridge]);

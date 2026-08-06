@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { FakeBrowserWindow, fakeWindows } = vi.hoisted(() => {
+const { FakeBrowserWindow, fakeWindows, cursorPoint } = vi.hoisted(() => {
   type Listener = () => void;
 
   class FakeBrowserWindow {
     private listeners = new Map<string, Listener[]>();
     private destroyed = false;
     private visible = false;
-    webContents = {};
+    webContents = { send: vi.fn() };
     showInactive = vi.fn(() => {
       this.visible = true;
     });
@@ -55,7 +55,9 @@ const { FakeBrowserWindow, fakeWindows } = vi.hoisted(() => {
   }
 
   const fakeWindows: FakeBrowserWindow[] = [];
-  return { FakeBrowserWindow, fakeWindows };
+  // 光标全局坐标(测试用例按需改写),主进程轮询悬停时读它。
+  const cursorPoint = { x: 0, y: 0 };
+  return { FakeBrowserWindow, fakeWindows, cursorPoint };
 });
 
 vi.mock("electron", () => ({
@@ -63,6 +65,7 @@ vi.mock("electron", () => ({
   screen: {
     getPrimaryDisplay: () => ({ bounds: { x: 0, y: 0, width: 1440, height: 900 } }),
     getDisplayNearestPoint: () => ({ bounds: { x: 0, y: 0, width: 1440, height: 900 } }),
+    getCursorScreenPoint: () => cursorPoint,
   },
 }));
 vi.mock("@electron-toolkit/utils", () => ({ is: { dev: false } }));
@@ -124,5 +127,72 @@ describe("pet overlay visibility", () => {
 
     expect(ensurePetOverlayWindow()).toBe(win);
     expect(win.showInactive).not.toHaveBeenCalled();
+  });
+});
+
+// 这扇窗口 focusable:false + 整块 app-region:drag,渲染进程收不到任何鼠标移动事件
+// (:hover / pointerEnter 永远不触发,实测表现为「右键点一下 ✕ 和缩放手柄才冒出来」),
+// 悬停态只能由主进程轮询光标算出来推过去。
+describe("pet overlay 悬停探测(主进程轮询光标)", () => {
+  beforeEach(() => {
+    fakeWindows.length = 0;
+    cursorPoint.x = 0;
+    cursorPoint.y = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    destroyPetOverlayWindow();
+    vi.useRealTimers();
+  });
+
+  it("窗口显示后推送窗口内坐标,光标离开窗口推 null", () => {
+    ensurePetOverlayWindow();
+    const win = fakeWindows[0]!;
+    setPetOverlayVisibility(true);
+    win.emit("ready-to-show");
+
+    // 窗口 bounds 为 {0,0,260,304}:全局 (40,50) 落在窗口内 → 同名的窗口内坐标
+    cursorPoint.x = 40;
+    cursorPoint.y = 50;
+    vi.advanceTimersByTime(60);
+    expect(win.webContents.send).toHaveBeenLastCalledWith("pet:overlay-cursor", { x: 40, y: 50 });
+
+    cursorPoint.x = 900;
+    vi.advanceTimersByTime(60);
+    expect(win.webContents.send).toHaveBeenLastCalledWith("pet:overlay-cursor", null);
+  });
+
+  it("坐标没变时不重复发,免得 60ms 一条的 IPC 噪音", () => {
+    ensurePetOverlayWindow();
+    const win = fakeWindows[0]!;
+    setPetOverlayVisibility(true);
+    win.emit("ready-to-show");
+
+    cursorPoint.x = 10;
+    cursorPoint.y = 10;
+    vi.advanceTimersByTime(60);
+    const calls = win.webContents.send.mock.calls.length;
+    vi.advanceTimersByTime(300);
+
+    expect(win.webContents.send.mock.calls.length).toBe(calls);
+  });
+
+  it("宠物隐藏后停止轮询,并补一条 null 清掉渲染端的悬停态", () => {
+    ensurePetOverlayWindow();
+    const win = fakeWindows[0]!;
+    setPetOverlayVisibility(true);
+    win.emit("ready-to-show");
+    cursorPoint.x = 10;
+    cursorPoint.y = 10;
+    vi.advanceTimersByTime(60);
+
+    setPetOverlayVisibility(false);
+    expect(win.webContents.send).toHaveBeenLastCalledWith("pet:overlay-cursor", null);
+
+    const calls = win.webContents.send.mock.calls.length;
+    cursorPoint.x = 20;
+    vi.advanceTimersByTime(600);
+    expect(win.webContents.send.mock.calls.length).toBe(calls);
   });
 });

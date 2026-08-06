@@ -851,8 +851,20 @@ export interface DesktopBridge {
   setPetEnabled?(enabled: boolean): void;
   /** 主窗口订阅 overlay 发起的 enabled 设置变化。 */
   onPetEnabledChange?(cb: (enabled: boolean) => void): () => void;
+  /** overlay 右下角缩放手柄把最终尺寸回写主窗口真源(overlay 的 localStorage 与主窗口
+   * 不同源,落盘只能由主窗口做;不回写则下一次状态广播会带旧 size 把宠物顶回原大小)。 */
+  setPetSize?(size: number): void;
+  /** 主窗口订阅 overlay 发起的 size 设置变化。 */
+  onPetSizeChange?(cb: (size: number) => void): () => void;
   /** 订阅主进程广播的宠物状态快照(overlay 窗口用)。返回退订函数。 */
   onPetSyncState?(cb: (snapshot: PetStateSnapshot) => void): () => void;
+  /** 订阅主进程轮询推来的光标位置(overlay 窗口内 CSS 坐标,null=光标不在窗口内)。
+   * overlay 是 focusable:false 的 panel 且整块 app-region:drag,收不到鼠标移动事件,
+   * 悬停态只能这么算(详见 apps/desktop/src/main/pet-overlay-window.ts 的注释)。 */
+  onPetOverlayCursor?(cb: (point: { x: number; y: number } | null) => void): () => void;
+  /** 订阅主进程从窗口 moved 事件里看出来的拖动方向(null=没在动)。原生 app-region 拖拽
+   * 不经渲染进程,方向只有主进程看得见;宠物据此播朝向对应的奔跑帧。 */
+  onPetOverlayMoveDir?(cb: (dir: "left" | "right" | null) => void): () => void;
 
   // ── 公共宠物图鉴(petdex.dev)────────────────────────────────────────────────
   // 整段可选:Web 端为 undefined,图鉴入口据此降级为「渲染端直连」(petdex 的 CORS 全开,

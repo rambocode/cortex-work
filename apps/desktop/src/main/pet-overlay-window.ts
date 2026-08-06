@@ -34,6 +34,89 @@ let contentReady = false;
 export const OVERLAY_WINDOW_W = 260;
 export const OVERLAY_WINDOW_H = 304;
 
+// ── 悬停探测:为什么要由主进程轮询光标 ────────────────────────────────────────
+// 这扇窗口收不到鼠标**移动**事件,两个原因各自都足以致命:
+// ① focusable:false + type:"panel" —— 它永远不会成为 key window,而 macOS 只把
+//    mouseMoved 派发给 key window;
+// ② 宠物本体整块标了 `-webkit-app-region: drag` —— drag 区域上的移动被 OS 当作
+//    窗口拖拽吃掉,不会转成 renderer 的 pointermove。
+// 于是 CSS `:hover` 与 React 的 pointerEnter 在 overlay 里永远不更新,实测表现为
+// 「必须右键点一下,✕ 和缩放手柄才冒出来」(右键不参与窗口拖拽,会触发一次命中测试)。
+// 故这里轮询光标全局坐标,换算成窗口内 CSS 坐标推给渲染端,由它自己判断是否落在宠物
+// 身上(见 Pet.tsx 的 externalCursor)。窗口隐藏时不轮询,没有常驻开销。
+const CURSOR_POLL_MS = 60;
+let cursorTimer: ReturnType<typeof setInterval> | null = null;
+let lastCursor: { x: number; y: number } | null = null;
+
+/** 只在坐标变化时发,避免 60ms 一发的常量 IPC 噪音(光标静止时一条都不发)。 */
+function sendCursor(next: { x: number; y: number } | null): void {
+  if (next?.x === lastCursor?.x && next?.y === lastCursor?.y) return;
+  lastCursor = next;
+  if (win && !win.isDestroyed()) win.webContents.send("pet:overlay-cursor", next);
+}
+
+function pollCursor(): void {
+  const current = win && !win.isDestroyed() ? win : null;
+  if (!current || !current.isVisible()) {
+    sendCursor(null);
+    return;
+  }
+  // getCursorScreenPoint 与 getBounds 同为 DIP 坐标系(多显示器各自缩放已归一),
+  // 相减即窗口内 CSS 像素坐标,渲染端可直接与 getBoundingClientRect 比对。
+  const point = screen.getCursorScreenPoint();
+  const b = current.getBounds();
+  const inside =
+    point.x >= b.x && point.x < b.x + b.width && point.y >= b.y && point.y < b.y + b.height;
+  sendCursor(inside ? { x: point.x - b.x, y: point.y - b.y } : null);
+}
+
+// ── 拖动方向:同样只有主进程看得见 ────────────────────────────────────────────
+// 原生 app-region 拖拽全程不经渲染进程(它连 pointerdown 都收不到,窗口是被 OS 搬的),
+// 但主进程能从窗口自己的 moved 事件里看出往哪边走。把方向推给渲染端,宠物就能朝拖动
+// 方向播奔跑帧(petdex sprite 的行 1/2,见 views 的 rows.ts)。
+/** 停止移动多久算「不拖了」。太短会在拖动的微小停顿里反复起停,看起来一顿一顿。 */
+const MOVE_IDLE_MS = 180;
+let lastMoveX: number | null = null;
+let lastMoveDir: "left" | "right" | null = null;
+let moveIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function sendMoveDir(next: "left" | "right" | null): void {
+  if (next === lastMoveDir) return;
+  lastMoveDir = next;
+  if (win && !win.isDestroyed()) win.webContents.send("pet:overlay-move-dir", next);
+}
+
+/** 每次窗口位置变化时调用:横向位移定方向,停手后回落 null。 */
+function trackMove(x: number): void {
+  // 只看横向:纯上下拖没有左右之分,保持上一个方向比来回翻转自然。
+  if (lastMoveX !== null && Math.abs(x - lastMoveX) >= 1) sendMoveDir(x > lastMoveX ? "right" : "left");
+  lastMoveX = x;
+  if (moveIdleTimer) clearTimeout(moveIdleTimer);
+  moveIdleTimer = setTimeout(() => {
+    moveIdleTimer = null;
+    lastMoveX = null;
+    sendMoveDir(null);
+  }, MOVE_IDLE_MS);
+}
+
+function stopMoveTracking(): void {
+  if (moveIdleTimer) clearTimeout(moveIdleTimer);
+  moveIdleTimer = null;
+  lastMoveX = null;
+  sendMoveDir(null);
+}
+
+function startCursorPolling(): void {
+  if (cursorTimer) return;
+  cursorTimer = setInterval(pollCursor, CURSOR_POLL_MS);
+}
+
+function stopCursorPolling(): void {
+  if (cursorTimer) clearInterval(cursorTimer);
+  cursorTimer = null;
+  sendCursor(null); // 收尾一条,免得窗口再显示时渲染端还挂着上次的悬停态
+}
+
 // prod 下 html 可能落在 flat(../renderer/pet-overlay.html)或 nested(../renderer/src/pet-overlay.html);
 // 双路径 existsSync 探测兜底(漏抄会打包后白屏)。仿 notes-overlay.ts。
 function petOverlayHtml(): string {
@@ -86,6 +169,9 @@ function create(): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     focusable: false,
+    // 窗口不可聚焦,不加这个的话 macOS 会把落在非激活窗口上的第一次点击吞掉用于「激活窗口」,
+    // 表现为 ✕ / 缩放手柄要点两下才响应。
+    acceptFirstMouse: true,
     hasShadow: false,
     show: false,
     backgroundColor: "#00000000",
@@ -109,6 +195,8 @@ function create(): BrowserWindow {
   // 逐像素触发的 moved 事件把磁盘写爆——只在停止移动 300ms 后落盘一次。
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
   win.on("moved", () => {
+    // macOS 上 moved 在拖拽过程中连续触发,正好当"窗口在动"的信号用(见 trackMove)。
+    if (win && !win.isDestroyed()) trackMove(win.getBounds().x);
     if (persistTimer) clearTimeout(persistTimer);
     persistTimer = setTimeout(() => {
       if (win && !win.isDestroyed()) savePetPosition(win.getBounds());
@@ -118,7 +206,9 @@ function create(): BrowserWindow {
   // 该区域仍参与 macOS 命中测试并吞掉对后方应用的点击。
   win.once("ready-to-show", () => {
     contentReady = true;
-    if (visibilityRequested) win?.showInactive();
+    if (!visibilityRequested) return;
+    win?.showInactive();
+    startCursorPolling();
   });
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/pet-overlay.html`);
@@ -126,6 +216,8 @@ function create(): BrowserWindow {
     void win.loadFile(petOverlayHtml());
   }
   win.on("closed", () => {
+    stopCursorPolling();
+    stopMoveTracking();
     win = null;
     contentReady = false;
   });
@@ -142,7 +234,10 @@ function create(): BrowserWindow {
 export function ensurePetOverlayWindow(): BrowserWindow {
   const existing = win && !win.isDestroyed() ? win : null;
   if (existing) {
-    if (visibilityRequested && contentReady && !existing.isVisible()) existing.showInactive();
+    if (visibilityRequested && contentReady && !existing.isVisible()) {
+      existing.showInactive();
+      startCursorPolling();
+    }
     return existing;
   }
   return create();
@@ -154,10 +249,15 @@ export function setPetOverlayVisibility(visible: boolean): void {
   const current = win && !win.isDestroyed() ? win : null;
   if (!current) return;
   if (!visible) {
+    stopCursorPolling(); // 隐藏后没有悬停可言,别让定时器空转
+    stopMoveTracking();
     if (current.isVisible()) current.hide();
     return;
   }
-  if (contentReady && !current.isVisible()) current.showInactive();
+  if (contentReady && !current.isVisible()) {
+    current.showInactive();
+    startCursorPolling();
+  }
 }
 
 export function getPetOverlayWindow(): BrowserWindow | null {
@@ -165,6 +265,8 @@ export function getPetOverlayWindow(): BrowserWindow | null {
 }
 
 export function destroyPetOverlayWindow(): void {
+  stopCursorPolling();
+  stopMoveTracking();
   if (win && !win.isDestroyed()) win.destroy();
   win = null;
   visibilityRequested = false;

@@ -12,6 +12,8 @@
   },
   "hideTitle": "隐藏宠物(可在设置 → 宠物中重新打开)",
   "hideAria": "隐藏宠物",
+  "resizeTitle": "拖动调整宠物大小(方向键可微调)",
+  "resizeAria": "调整宠物大小",
   "kind": {
     "cat": {
       "name": "小柯",

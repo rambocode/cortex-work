@@ -6448,30 +6448,70 @@ button.sb-row {
   transform: translateX(-50%) translateY(0);
 }
 
-/* —— 悬停浮现的隐藏按钮 —— */
-.pet-x {
+/* —— 悬停浮现的两颗小钮:✕(左上角隐藏) / 缩放手柄(右下角) —— */
+/* 形态参考 hermes-studio 的 .web-pet-close/.web-pet-resize:22px 圆角方块、无描边、
+   半透明底 + 「外阴影 + inset 1px」双层阴影,悬停时朝宠物内侧微移 1px。
+   底色用固定 rgba 而非主题变量:宠物浮在任意桌面背景上,且 overlay 是独立页面,
+   拿不到 documentElement 上的 [data-theme](深色由下方规则覆盖,只对内嵌 Web 端生效)。 */
+.pet-x,
+.pet-resize {
   position: absolute;
-  top: -2px;
-  right: -2px;
   z-index: 2;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--text-3);
-  background: var(--bg-app);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  cursor: pointer;
+  border: 0;
+  border-radius: 8px;
+  color: rgba(32, 36, 45, 0.8);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.18),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.08);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
 }
-.pet:hover .pet-x { opacity: 1; }
-.pet-x:hover { color: var(--text-1); background: var(--bg-hover); }
+.pet-x {
+  top: -2px;
+  right: -2px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.pet-resize {
+  right: -2px;
+  bottom: -2px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.pet-resize svg { width: 12px; height: 12px; opacity: 0.78; }
+
+/* 浮现条件。**两套规则必须互斥,不能并存**:独立 pet-overlay 窗口收不到鼠标移动事件
+   (focusable:false + 整块 app-region:drag,见 Pet.tsx 的 externalCursor),而 Chromium 的
+   :hover 会卡在上一次命中测试的元素上——按一下让它命中后鼠标移开也不会撤销,按钮就此
+   赖着不走。故 overlay 形态(.is-window-pet)整体让位给主进程算出来的 .is-hovered。
+   .is-resizing 期间强制可见:指针捕获后光标通常已移出宠物盒子。 */
+.pet:not(.is-window-pet):hover .pet-x,
+.pet:not(.is-window-pet):hover .pet-resize,
+.pet.is-hovered .pet-x,
+.pet.is-hovered .pet-resize,
+.pet.is-resizing .pet-resize { opacity: 0.92; }
+.pet:not(.is-window-pet) .pet-x:hover { opacity: 1; transform: translate(-1px, 1px); }
+.pet:not(.is-window-pet) .pet-resize:hover { opacity: 1; transform: translate(-1px, -1px); }
+
+[data-theme="dark"] .pet-x,
+[data-theme="dark"] .pet-resize {
+  color: rgba(244, 247, 251, 0.82);
+  background: rgba(25, 28, 35, 0.78);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
 /* ---------- 个人工作区:设置弹出层(左 Tab + 右内容) ---------- */
 .pw-dlg-overlay {
   position: fixed;
@@ -7974,9 +8014,6 @@ button.sb-row {
 .pw-emoji-btn.is-active { background: #dcfce7; border-color: var(--accent); }
 
 /* 宠物尺寸滑杆 */
-.pw-pet-size { display: flex; align-items: center; gap: 10px; }
-.pw-pet-size input[type="range"] { flex: 1; max-width: 260px; accent-color: var(--accent); }
-.pw-pet-size-val { font-size: 12px; color: var(--text-2); min-width: 38px; font-variant-numeric: tabular-nums; }
 .pw-pet-reset {
   border: 1px solid var(--border-soft);
   background: none;

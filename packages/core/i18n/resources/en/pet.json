@@ -12,6 +12,8 @@
   },
   "hideTitle": "Hide pet (reopen it in Settings → Pet)",
   "hideAria": "Hide pet",
+  "resizeTitle": "Drag to resize the pet (arrow keys for fine tuning)",
+  "resizeAria": "Resize pet",
   "kind": {
     "cat": {
       "name": "Coco",

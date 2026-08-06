@@ -464,3 +464,61 @@ Date 构造函数对越界分量既不抛错也不产生 NaN，必须显式判�
 - 否（辅助功能 / 屏幕录制）→ dev 下可验，但授权归属 Electron.app，与正式版互相独立。
 
 顺带：`dist:dir` 仍然能验「未授权时能力是否正确地完全不注入」这类门控行为 —— 那与签名无关。
+
+## `focusable:false` 的 panel + 整块 `app-region:drag` = 渲染进程收不到任何鼠标移动事件
+
+**症状**：桌面宠物 overlay 窗口上的悬停 UI（✕ 隐藏按钮、右下角缩放手柄、悬停常显的状态
+气泡）全都要**右键点一下**才冒出来，鼠标单纯移上去毫无反应。看起来像 CSS `:hover` 写错了，
+其实 CSS 完全正确。
+
+**成因**：两个独立原因叠加，各自都足以让 `:hover` / `pointerEnter` 永不触发——
+① 窗口是 `focusable: false` + `type: "panel"`，它**永远不会成为 key window**，而 macOS 只把
+`mouseMoved` 事件派发给 key window；
+② 宠物本体整块标了 `-webkit-app-region: drag`，drag 区域上的鼠标移动被 OS 当作窗口拖拽消费掉，
+不会转成 renderer 的 `pointermove`。
+右键之所以"有效"，是因为它既不参与窗口拖拽、又是一次明确的鼠标按下，会触发一次命中测试，
+把 hover 状态更新一帧。**按下之后的拖拽（`mouseDragged`）是送达的**，所以"按住能拖"与
+"移上去没反应"可以同时成立——别用"拖拽正常"去否定这个结论。
+
+**解法**：主进程 `setInterval` 轮询 `screen.getCursorScreenPoint()`，减去 `win.getBounds()`
+得到窗口内 CSS 坐标（两者同为 DIP，多显示器缩放已归一），推给渲染端自己与
+`getBoundingClientRect()` 比对（见 `apps/desktop/src/main/pet-overlay-window.ts` 的
+`pollCursor` 与 `Pet.tsx` 的 `externalCursor`）。窗口隐藏时停轮询，坐标不变时不发 IPC。
+
+**不要改成"普通可聚焦窗口"来绕过**（参考实现 hermes-studio 就是这么做的：不设
+`focusable:false`、不用 app-region，改用 `screenX` + `setBounds` 自己搬窗口）。桌面宠物大部分
+时间浮在**别的 app** 前台，此时它同样不是 key window，hover 照样失灵；而可聚焦意味着点宠物
+会抢焦点、打断用户在别处的输入。轮询方案在这两种场景下都成立。
+
+**顺带**：`focusable:false` 的窗口要配 `acceptFirstMouse: true`，否则 macOS 会把落在非激活
+窗口上的第一次点击吞掉用于"激活窗口"，表现为按钮要点两下才响应。
+
+## sprite「每行帧数一样」是想当然：petdex 的 waving 行只有 4 帧，尾部是透明格子
+
+**症状**：agent 回复阶段宠物「偶尔不见了」——不是消失一整段，而是有节奏地闪。
+
+**成因**：`PETDEX_FRAMES = 6` 被当成所有行通用的帧数，但**每行的有效帧数并不相同**。
+逐格量 alpha（`magick x.webp -crop 192x208 +repage -format "%[fx:mean.a] " info:`）得到的
+真实分布，两只不同的 sprite 完全一致：
+
+| 行 | 0 idle | 1/2 running | 3 waving | 4 jumping | 5 failed | 6 waiting | 7 running | 8 review |
+|---|---|---|---|---|---|---|---|---|
+| 有效帧 | 6 | 8 | **4** | **5** | 8 | 6 | 6 | 6 |
+
+`replying` 落在行 3，于是每轮 6 帧里有 2 帧画的是空白（1.08s 一轮、闪 360ms）——正是
+「回复时偶尔不见」。`happy` 落在行 4 且是 oneShot，帧游标被钳在第 6 帧（透明），宠物会
+整整消失一次庆祝的时长（2.2s）。
+
+**注意这条推翻了 `grid.ts` 里原先写的实测结论**（「所有采样中每行都 ≥6 帧非空」）。那是
+按 60 张采样得出的，采样看的是**列数**而不是**每格是否有内容**，两件事。
+
+**解法**：运行时逐行探测（`views/cortex-desktop/pet/sheet.ts` 的 `measureRowFrames`）——
+整图一次缩绘到 `(cols×4)×(rows×4)`、一次 `getImageData` 读回，每格取 alpha 峰值判空，
+从右往左找最后一个非空列。一张图只量一次，按 url 缓存。能读像素的前提是
+`cortex-petdex://` 注册了 `corsEnabled` 且 `loadSheetImage` 设了 `crossOrigin="anonymous"`
+（画布不被污染）；读不到就退回固定帧数，不影响显示。
+
+**顺带修掉的一个隐性 bug**：`PetCanvas` 的 `useMemo` 依赖过 `sprite` **对象引用**，而
+overlay 每收到一次 `pet:sync-state` 都会把 IPC 反序列化出来的**新对象**写回 store —— 帧
+定时器会被 `clearInterval`/`setInterval` 反复重建，动画卡住（卡在透明帧上就是「不见了」）。
+依赖改成 sprite 的内容指纹。

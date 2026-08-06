@@ -1,5 +1,5 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PetSpriteSource } from "@cortex-work/core/desktop/petdex-types";
 import { PETDEX_CELL_H, PETDEX_CELL_W } from "@cortex-work/core/pet/grid";
 import { fakeCtxOf } from "../../test/setup";
@@ -50,7 +50,10 @@ function holdImageLoads(): () => void {
 }
 
 beforeEach(() => __clearSheetCache());
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks(); // 用例里 spy 过 getContext,不还原会串到后面的用例
+});
 
 describe("PetCanvas 取帧", () => {
   it("petdex:sy 按解析出的行号算", async () => {
@@ -75,6 +78,17 @@ describe("PetCanvas 取帧", () => {
     const { container } = render(<PetCanvas sprite={null} state="happy" width={110} />);
     const call = await firstDraw(canvasOf(container));
     expect(call[2]).toBe(0);
+  });
+
+  // 拖着宠物走时改播奔跑行(行 1 朝右 / 行 2 朝左),优先于姿态——被拽着走的时候
+  // 「在跑」比「在思考」更该被看见。
+  it("moveDir 覆写姿态的行:右→行 1、左→行 2", async () => {
+    const right = render(<PetCanvas sprite={petdex()} state="thinking" width={110} moveDir="right" />);
+    expect((await firstDraw(canvasOf(right.container)))[2]).toBe(1 * PETDEX_CELL_H);
+    cleanup();
+
+    const left = render(<PetCanvas sprite={petdex()} state="thinking" width={110} moveDir="left" />);
+    expect((await firstDraw(canvasOf(left.container)))[2]).toBe(2 * PETDEX_CELL_H);
   });
 });
 
@@ -118,6 +132,48 @@ describe("PetCanvas 播放", () => {
     await new Promise((r) => setTimeout(r, 250));
     // 所有绘制调用的 sx 都应停在第 0 帧
     for (const call of fakeCtxOf(canvas)!.calls.drawImage) expect(call[1]).toBe(0);
+  });
+
+  // 实测:8×9 的 petdex sprite 里 waving 行(replying 用的行 3)只有 4 帧,第 5、6 格全透明。
+  // 照固定的 6 帧播,每轮会有两帧画的是空白 =「agent 回复时宠物偶尔不见了」。
+  it("按探测出的有效帧数循环:行只有 4 帧时不会画到透明的第 5、6 帧", async () => {
+    // jsdom 的 Image 不真加载资源,naturalWidth/Height 恒为 0,探测会当「图还没就绪」
+    // 直接返回 null。补上真实网格尺寸,才走得到读像素那一步。
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(8 * PETDEX_CELL_W);
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(9 * PETDEX_CELL_H);
+    // 只覆盖 getImageData(让探测看到「每行只有前 4 格有内容」),其余仍走 setup.ts 的
+    // 假 ctx —— 否则 fakeCtxOf 记录不到绘制调用,断言无从下手。
+    const realGetContext = HTMLCanvasElement.prototype.getContext;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (
+      this: HTMLCanvasElement,
+      kind: string,
+    ) {
+      const ctx = (realGetContext as (k: string) => CanvasRenderingContext2D | null).call(this, kind);
+      if (ctx) {
+        (ctx as unknown as { getImageData: unknown }).getImageData = (
+          _x: number,
+          _y: number,
+          w: number,
+          h: number,
+        ) => {
+          const data = new Uint8ClampedArray(w * h * 4);
+          for (let py = 0; py < h; py += 1)
+            for (let px = 0; px < w; px += 1)
+              if (Math.floor(px / 4) < 4) data[(py * w + px) * 4 + 3] = 255; // 每格 4px 宽(PROBE)
+          return { data };
+        };
+      }
+      return ctx;
+    } as HTMLCanvasElement["getContext"]);
+
+    const { container } = render(<PetCanvas sprite={petdex()} state="replying" width={110} />);
+    const canvas = canvasOf(container);
+    await firstDraw(canvas);
+    // 一轮 6 帧 × 180ms;真跑满一轮才能证明它回绕在第 4 帧而不是第 6 帧
+    await waitFor(() => expect(fakeCtxOf(canvas)!.calls.drawImage.length).toBeGreaterThan(6), { timeout: 3000 });
+
+    const sxs = fakeCtxOf(canvas)!.calls.drawImage.map((c: unknown[]) => c[1] as number);
+    expect(Math.max(...sxs)).toBe(3 * PETDEX_CELL_W); // 最远只到第 4 帧,不碰透明的第 5、6 帧
   });
 
   it("非 frozen 会推进到下一帧", async () => {

@@ -1059,6 +1059,27 @@ const personal = {
     ipcRenderer.on("pet:enabled-changed", listener);
     return () => ipcRenderer.removeListener("pet:enabled-changed", listener);
   },
+  // 缩放手柄与关闭按钮同款回写通道:overlay 只能改自己内存里的镜像,落盘归主窗口。
+  setPetSize: (size: number): void => ipcRenderer.send("pet:set-size", size),
+  onPetSizeChange: (cb: (size: number) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, size: number) => cb(size);
+    ipcRenderer.on("pet:size-changed", listener);
+    return () => ipcRenderer.removeListener("pet:size-changed", listener);
+  },
+  // 主进程轮询推来的光标位置(窗口内 CSS 坐标,null=不在窗口内)。overlay 窗口收不到
+  // 鼠标移动事件,悬停态只能这么算,原因见 main/pet-overlay-window.ts 的注释。
+  onPetOverlayCursor: (cb: (point: { x: number; y: number } | null) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, point: { x: number; y: number } | null) => cb(point);
+    ipcRenderer.on("pet:overlay-cursor", listener);
+    return () => ipcRenderer.removeListener("pet:overlay-cursor", listener);
+  },
+  // 主进程从窗口 moved 事件里看出来的拖动方向(null=没在动)。原生 app-region 拖拽
+  // 全程不经渲染进程,方向只有主进程知道。
+  onPetOverlayMoveDir: (cb: (dir: "left" | "right" | null) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, dir: "left" | "right" | null) => cb(dir);
+    ipcRenderer.on("pet:overlay-move-dir", listener);
+    return () => ipcRenderer.removeListener("pet:overlay-move-dir", listener);
+  },
   onPetSyncState: (cb: (snapshot: PetStateSnapshot) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, snapshot: PetStateSnapshot) => cb(snapshot);
     ipcRenderer.on("pet:sync-state", listener);

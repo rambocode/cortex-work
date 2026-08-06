@@ -10,7 +10,7 @@ import type { PetdexCacheStats, PetdexEntry } from "@cortex-work/core/desktop/pe
 import { PetCanvas } from "../../pet/PetCanvas";
 import { PetdexGallery } from "../../pet/petdex/PetdexGallery";
 import { createPetdexSource } from "../../pet/petdexSource";
-import { PET_SIZE_MAX, PET_SIZE_MIN, patchPetPrefs } from "../../pet/prefs";
+import { patchPetPrefs } from "../../pet/prefs";
 import { builtinSpriteSource } from "../../pet/sheets";
 import { SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 
@@ -23,7 +23,6 @@ export function PetSettingsSection() {
   const bridge = useDesktopBridge();
   const sprite = usePetStore((s) => s.sprite);
   const enabled = usePetStore((s) => s.enabled);
-  const size = usePetStore((s) => s.size);
 
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -107,25 +106,8 @@ export function PetSettingsSection() {
           />
         </SBlock>
 
-        <SRow label={t("pet.size")}>
-          <div className="pw-pet-size">
-            <input
-              type="range"
-              min={PET_SIZE_MIN}
-              max={PET_SIZE_MAX}
-              step={0.05}
-              value={size}
-              onChange={(e) => patchPetPrefs({ size: Number(e.target.value) })}
-              aria-label={t("pet.sizeAria")}
-            />
-            <span className="pw-pet-size-val">{Math.round(size * 100)}%</span>
-            {size !== 1 ? (
-              <button className="pw-pet-reset" onClick={() => patchPetPrefs({ size: 1 })}>
-                {t("pet.reset")}
-              </button>
-            ) : null}
-          </div>
-        </SRow>
+        {/* 尺寸不在这里调:改为拖宠物本体右下角的缩放手柄(见 pet/Pet.tsx),
+            所见即所得,不用在设置弹窗与桌面之间来回对照。 */}
 
         {/* 缓存行只在桌面端出现:Web 直连 petdex,没有本地缓存可言。 */}
         {bridge?.petdex ? (

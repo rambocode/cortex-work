@@ -32,6 +32,18 @@ export const ROW_FALLBACK: Record<PetState, readonly number[]> = {
   sleeping: [0],
 };
 
+/**
+ * 拖动宠物时按方向播的奔跑行(行 1 朝右、行 2 朝左,见文件头的行语义表)。
+ * 缺行时退到通用 running(7),再退 idle —— 8 行的 sprite 仍有 1/2,这条链几乎总能命中。
+ *
+ * 只对 petdex sprite 有效:内置角色只有 idle/happy/sleeping 三张 sheet,没有奔跑资产,
+ * 拖动时保持原姿态(见 source.ts 的内置分支)。
+ */
+export const MOVE_ROW_FALLBACK: Record<"left" | "right", readonly number[]> = {
+  right: [1, 7, 0],
+  left: [2, 1, 7, 0],
+};
+
 /** 播到末帧就停住、不循环的姿态。它们是一次性反馈,循环播会显得抽搐。 */
 export const ONE_SHOT: ReadonlySet<PetState> = new Set<PetState>(["happy", "failed"]);
 
