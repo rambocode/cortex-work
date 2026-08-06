@@ -1,9 +1,55 @@
 import { resolve } from "path";
+import { createRequire } from "module";
+import { copyFileSync, createReadStream, mkdirSync } from "fs";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 const configuredRendererPort = Number(process.env.DESKTOP_RENDERER_PORT);
+
+// ── Silero VAD 静态资产(onnx 模型 / AudioWorklet / onnxruntime-web 的 wasm+mjs) ──
+// dev 由下方内联插件以 /vad/<name> 同源服务;build 平铺拷进 out/renderer/vad/,打包态
+// 进 asar 后经主进程 cortex-vad:// 协议供给(见 src/main/vad-assets.ts)。依赖声明在
+// packages/views(消费方是 views 的语音助手控制器),desktop 不直接依赖它们,故经 views
+// 的模块图定位真实文件路径(pnpm 隔离布局下不能裸 require.resolve)。
+// 不用 vite-plugin-static-copy:它对仓库外绝对路径 src 会把 node_modules/.pnpm/... 的
+// 完整目录结构复制进 dest(rename 也不生效),渲染端按 vad/<裸文件名> 请求即 404。
+const viewsRequire = createRequire(resolve("../../packages/views/package.json"));
+const vadWebDist = resolve(viewsRequire.resolve("@ricky0123/vad-web/package.json"), "../dist");
+// onnxruntime-web 的 exports 不放行 ./package.json,只能解析主入口(落在 dist/ 内)再取目录。
+const ortRequire = createRequire(viewsRequire.resolve("@ricky0123/vad-web/package.json"));
+const ortDist = resolve(ortRequire.resolve("onnxruntime-web"), "..");
+
+const VAD_ASSETS: Record<string, { src: string; mime: string }> = {
+  "silero_vad_v5.onnx": { src: `${vadWebDist}/silero_vad_v5.onnx`, mime: "application/octet-stream" },
+  "vad.worklet.bundle.min.js": { src: `${vadWebDist}/vad.worklet.bundle.min.js`, mime: "text/javascript" },
+  "ort-wasm-simd-threaded.wasm": { src: `${ortDist}/ort-wasm-simd-threaded.wasm`, mime: "application/wasm" },
+  "ort-wasm-simd-threaded.mjs": { src: `${ortDist}/ort-wasm-simd-threaded.mjs`, mime: "text/javascript" },
+};
+
+/** dev 服务 + build 平铺拷贝 VAD 资产的内联插件(仅挂 renderer 构建)。 */
+function vadAssetsPlugin(): Plugin {
+  return {
+    name: "cortex-vad-assets",
+    configureServer(server) {
+      server.middlewares.use("/vad", (req, res, next) => {
+        const name = decodeURIComponent((req.url ?? "").replace(/^\/+/, "").split("?")[0] ?? "");
+        const asset = VAD_ASSETS[name];
+        if (!asset) return next();
+        res.setHeader("content-type", asset.mime);
+        createReadStream(asset.src).pipe(res);
+      });
+    },
+    closeBundle() {
+      const dest = resolve("out/renderer/vad");
+      mkdirSync(dest, { recursive: true });
+      for (const [name, asset] of Object.entries(VAD_ASSETS)) {
+        copyFileSync(asset.src, resolve(dest, name));
+      }
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -51,7 +97,7 @@ export default defineConfig({
       port: Number.isFinite(configuredRendererPort) ? configuredRendererPort : 0,
       strictPort: false,
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), vadAssetsPlugin()],
     resolve: {
       alias: {
         "@": resolve("src/renderer/src"),

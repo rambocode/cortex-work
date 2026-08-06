@@ -25,6 +25,7 @@
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
     "@lezer/highlight": "^1.2.1",
+    "@ricky0123/vad-web": "^0.0.30",
     "@tiptap/core": "^3.27.2",
     "@tiptap/extension-image": "^3.27.2",
     "@tiptap/extension-list": "^3.27.2",

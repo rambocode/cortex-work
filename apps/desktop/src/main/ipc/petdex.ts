@@ -222,22 +222,11 @@ async function peekSprite(rawSlug: unknown): Promise<PetdexSpriteRef | null> {
   return meta ? refOf(meta) : null;
 }
 
-/**
- * 注册自定义协议的特权。**必须在 app.ready 之前、模块顶层调用。**
- *
- * 为什么不直接把本地绝对路径回传给渲染端:dev 下 pet-overlay 是 http://localhost 页面,
- * Chromium 禁止 http 页面加载 file:// 子资源(prod 的 file:// 页面反而可以)——那样会
- * 「本地开发白屏、打包正常」,是最难发现的一类问题。
- * corsEnabled:让渲染端可以给 <img crossOrigin="anonymous">,保持 canvas 不被污染。
- */
-export function registerPetdexScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: PETDEX_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
-    },
-  ]);
-}
+// 协议特权注册已收口到 ../protocol-schemes.ts 的 registerAppSchemes(整个进程只允许调用
+// registerSchemesAsPrivileged 一次,多协议必须合并注册)。选择自定义协议而非回传本地绝对
+// 路径的原因:dev 下 pet-overlay 是 http://localhost 页面,Chromium 禁止 http 页面加载
+// file:// 子资源(prod 的 file:// 页面反而可以)——那样会「本地开发白屏、打包正常」,
+// 是最难发现的一类问题。
 
 function registerProtocolHandler(): void {
   protocol.handle(PETDEX_SCHEME, async (request) => {

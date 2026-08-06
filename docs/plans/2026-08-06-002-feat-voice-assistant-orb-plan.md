@@ -55,10 +55,22 @@ skills 能力注入），无权限档语义，且唯一入口是默认未绑定�
 （TTS）→ 200ms 后回 listening`（连续对话回环；出错回 idle + hint 不回环）。
 **持续监听**：VAD 的 idle-timeout 已禁用（`maxIdleMs=∞`），无人说话不会自动退出聆听；
 结束聆听的唯一途径是用户显式操作（✕ 退出 / 热键提交 / 点球打断）。
+**断句引擎（`sileroVad.ts` 唯一入口）**：Silero 神经 VAD 优先（`@ricky0123/vad-web` v5 模型，
+AudioWorklet + onnxruntime-web；帧级人声概率，正/负阈值 0.5/0.35，`redemptionMs=1100`、
+`minSpeechMs=300` 与能量 VAD 语义对齐）。MicVAD **单例跨聆听轮复用**（模型只加载一次，
+每轮经 `resumeStream` 换接新录音流）；`pauseStream/resumeStream` 必须是 no-op/换流实现——
+默认实现会 stop 共享录音流的 tracks（红线）。初始化失败（资产缺失/超时）自动降级
+`vad.ts` 能量 VAD 并在会话内不再重试。资产链：`electron.vite.config.ts` 内联插件把
+onnx/worklet/ort-wasm 平铺进 `out/renderer/vad/`（dev 由中间件以 `/vad/` 同源服务）；
+打包态页面是 file://，fetch file:// 被 CORS 拦死 → 走 `main/vad-assets.ts` 的
+`cortex-vad://assets/` 只读协议（特权注册并入 `protocol-schemes.ts` 的单次
+`registerSchemesAsPrivileged`）。
 **降噪链**（保证 STT 准确性）：① `VoiceCapture.start` 显式开启 Chromium 内建
-echoCancellation / noiseSuppression / autoGainControl（作用于录音信号）；② VAD 判定链在
-AnalyserNode 前加高通 120Hz + 低通 4kHz 语音频带滤波（只影响判定,不触碰录音），环境噪声
-不再抬高自适应阈值或误触发。
+echoCancellation / noiseSuppression / autoGainControl（作用于录音信号）；② 能量 VAD（兜底
+路径）判定链在 AnalyserNode 前加高通 120Hz + 低通 4kHz 语音频带滤波（只影响判定,不触碰
+录音），环境噪声不再抬高自适应阈值或误触发；③ 转写解码偏置：`transcribeRecording` 恒发
+简体中文前导语（稳定简体输出、容许中英夹杂），LLM 纠错 prompt 做语义级修正（繁→简、
+同音字、英文术语保留原样）。
 点击球体：idle 唤醒 / speaking 打断朗读 / **thinking 打断本轮 agent 运行**（`actions.stop`，
 长时间思考不用干等）；热键：listening 立即提交 / speaking·thinking 打断 / idle 开麦；
 🎙 按钮同语义；✕ 退出（退出本身不杀在跑的 agent 轮，会话属于主窗口）。

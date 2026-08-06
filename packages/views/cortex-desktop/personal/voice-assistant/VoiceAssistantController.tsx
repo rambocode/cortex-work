@@ -29,7 +29,7 @@ import { setVoiceTurnListener } from "@cortex-work/core/personal/voiceTurn";
 import { DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
 import type { VoiceAssistantCommand, VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
 import { VoiceCapture, transcribeRecording } from "../chat/composer/voiceRecorder";
-import { DEFAULT_VAD_CONFIG, startVadMonitor } from "./vad";
+import { createVoiceVadMonitor } from "./sileroVad";
 import { initialVoiceAssistantState, transitionVoiceAssistant, type VoiceAssistantState } from "./state";
 
 // 连续对话回环间隔:TTS 播完 → 重新开麦之间留 200ms 缓冲(让扬声器尾音衰减,
@@ -187,15 +187,16 @@ export function VoiceAssistantController(): null {
       captureRef.current = capture;
       if (capture.mediaStream) {
         vadRef.current?.stop();
-        vadRef.current = startVadMonitor(
+        vadRef.current = null;
+        // 断句监视器:Silero 神经 VAD 优先,资产缺失/环境不支持自动降级能量 VAD
+        // (见 sileroVad.ts)。两个引擎都保持持续监听(无 idle-timeout):不因无人说话退出,
+        // 结束聆听的唯一途径是用户显式操作(✕ 退出 / 热键提交 / 点球打断)。
+        // 首轮初始化含模型加载,await 期间用户可能已退出/换轮,回来必须校验代际。
+        const monitor = await createVoiceVadMonitor(
           capture.mediaStream,
           (event) => {
             if (event === "speech-end") void submitRef.current?.();
-            // idle-timeout 已禁用(maxIdleMs=∞):语音助手保持持续监听,不因无人说话退出;
-            // 结束聆听的唯一途径是用户显式操作(✕ 退出 / 热键提交 / 点球打断)。
           },
-          // 持续监听:关闭「长时间未检测到语音」超时;其余判定参数沿用默认。
-          { ...DEFAULT_VAD_CONFIG, maxIdleMs: Number.POSITIVE_INFINITY },
           (rms) => {
             // 电平驱动语音球动画:RMS(近讲多在 0~0.12)放大到 0..1,节流 + 去抖后上报。
             const level = Math.min(1, rms * 8);
@@ -205,7 +206,13 @@ export function VoiceAssistantController(): null {
             lastLevelRef.current = { value: level, at: now };
             bridgeRef.current?.reportVoiceAssistantLevel?.(level);
           },
+          (message) => void bridgeRef.current?.logMessage?.("warn", message),
         );
+        if (attempt !== recordingAttemptRef.current || machineRef.current.phase !== "listening") {
+          monitor.stop();
+          return;
+        }
+        vadRef.current = monitor;
       }
     } catch (err) {
       stopCapture();

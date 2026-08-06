@@ -54,7 +54,9 @@ import {
 } from "./agent-trace-window";
 import { ensurePetOverlayWindow, destroyPetOverlayWindow, getPetOverlayWindow } from "./pet-overlay-window";
 import { registerPetHandlers } from "./ipc/pet";
-import { registerPetdexHandlers, registerPetdexScheme } from "./ipc/petdex";
+import { registerPetdexHandlers } from "./ipc/petdex";
+import { registerAppSchemes } from "./protocol-schemes";
+import { registerVadAssetProtocol } from "./vad-assets";
 import {
   resolveHotkeyRegistration,
   rebindCandidates,
@@ -136,9 +138,10 @@ installGlobalCrashGuards();
 // 只增不减、幂等,故对既有 spawn 行为无影响。
 ensureProcessPath();
 
-// petdex 图鉴的 cortex-petdex:// 只读协议:特权注册必须发生在 app.ready 之前,
-// 故放在模块顶层而非 whenReady 回调里(晚了 Electron 会拒绝注册)。
-registerPetdexScheme();
+// 全部自定义协议(cortex-petdex:// 图鉴 / cortex-vad:// Silero VAD 资产)的特权注册:
+// 必须发生在 app.ready 之前,故放在模块顶层而非 whenReady 回调里(晚了 Electron 会拒绝注册);
+// 且 registerSchemesAsPrivileged 全进程只能调一次,新协议一律并入 registerAppSchemes。
+registerAppSchemes();
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -637,6 +640,7 @@ if (!app.requestSingleInstanceLock()) {
     registerNotificationWindowHandlers();
     registerPetHandlers();
     registerPetdexHandlers(); // 公共宠物图鉴:拉取 + 磁盘缓存 + cortex-petdex:// 协议
+    registerVadAssetProtocol(); // Silero VAD 静态资产:打包态经 cortex-vad:// 供给(dev 走 http 同源)
     // 内置 agent-browser 默认启用。Chrome 检测/下载在后台进行，不阻塞主窗口和 agent 启动。
     void getPersistedState().then((state) => {
       syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);
