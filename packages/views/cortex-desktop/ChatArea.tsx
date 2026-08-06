@@ -3,11 +3,15 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Icon } from "@cortex-work/ui/icons";
-import { whoMeta, useDesktopBridge, usePersonalProfile } from "@cortex-work/core";
+import { whoMeta, useDesktopBridge, usePersonalProfile, usePersonalStore } from "@cortex-work/core";
+import { usePiArtifactsStore } from "@cortex-work/core/store/piArtifacts";
+import { SandboxedIframe } from "./personal/chat/artifacts/SandboxedIframe";
+import { MarkdownView } from "./personal/markdown/MarkdownView";
 import { petActivity } from "@cortex-work/core/pet";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact, Conversation, Message } from "@cortex-work/core/types";
 import { renderRich } from "./rich";
+import { getToolRenderer } from "./personal/chat/toolRenderers/registry";
 import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/chat/chatMarkdown";
 import { normalizeKnowledgeLinks } from "./personal/knowledge/KnowledgeDocRef";
 import { ChatImages } from "./personal/chat/ChatImages";
@@ -311,34 +315,124 @@ const AgentLogMessage = memo(function AgentLogMessage({
           </div>
           {!open ? null : (
           <ul>
-            {m.items.map((it, i) => (
-              <li key={i} className={it.ic === "running" ? "is-active" : ""}>
-                <span className="ic">
-                  {it.ic === "check" ? (
-                    <Icon.Check size={13} />
-                  ) : it.ic === "running" ? (
-                    <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
-                  ) : it.ic === "pending" ? (
-                    <span
-                      style={{ width: 7, height: 7, border: "1.5px dashed currentColor", borderRadius: "50%" }}
-                    />
-                  ) : it.ic === "dot" ? (
-                    <span
-                      style={{
-                        width: 5,
-                        height: 5,
-                        background: "currentColor",
-                        borderRadius: "50%",
-                        display: "inline-block",
-                      }}
-                    />
-                  ) : null}
-                </span>
-                <span>{renderRich(it.text)}</span>
-              </li>
-            ))}
+            {m.items.map((it, i) => {
+              // toolRenderers 注册表:带 toolName 且已注册的工具走自定义渲染(如 artifacts 的
+              // 可点击产物卡);渲染器接不住时经 fallback 回到默认文案,永不产生空行。
+              const CustomRenderer = it.toolName ? getToolRenderer(it.toolName) : undefined;
+              const defaultNode = <span>{renderRich(it.text)}</span>;
+              return (
+                <li key={i} className={it.ic === "running" ? "is-active" : ""}>
+                  <span className="ic">
+                    {it.ic === "check" ? (
+                      <Icon.Check size={13} />
+                    ) : it.ic === "running" ? (
+                      <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                    ) : it.ic === "pending" ? (
+                      <span
+                        style={{ width: 7, height: 7, border: "1.5px dashed currentColor", borderRadius: "50%" }}
+                      />
+                    ) : it.ic === "dot" ? (
+                      <span
+                        style={{
+                          width: 5,
+                          height: 5,
+                          background: "currentColor",
+                          borderRadius: "50%",
+                          display: "inline-block",
+                        }}
+                      />
+                    ) : null}
+                  </span>
+                  {CustomRenderer ? <CustomRenderer item={it} fallback={defaultNode} /> : defaultNode}
+                </li>
+              );
+            })}
           </ul>
           )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// pi 会话产物卡(piArtifact):在会话正文流里直接渲染产物本体——HTML/SVG 进沙箱 iframe、
+// markdown 渲染、其余等宽文本。卡片自含 content 快照(落盘可回看);version 变化经 key 重挂
+// iframe 实现 update 覆盖刷新。右上「侧栏打开」仅当 store 里还有该产物时显示(重启后 store
+// 为空,卡片仍可独立渲染)。默认展开;点头部可收起(滚长会话时减轻 iframe 开销)。
+const PiArtifactMessage = memo(function PiArtifactMessage({
+  m,
+  grouped,
+}: {
+  m: Extract<Message, { kind: "piArtifact" }>;
+  grouped: boolean;
+}) {
+  const bridge = useDesktopBridge();
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? !m.deleted;
+  const sessionId = usePersonalStore((s) => s.activeSessionId);
+  const inStore = usePiArtifactsStore((s) => !!(sessionId && s.sessions[sessionId]?.byName[m.filename]));
+  const requestOpen = usePiArtifactsStore((s) => s.requestOpen);
+  const onOpenExternal = useCallback((url: string) => void bridge?.openExternal?.(url), [bridge]);
+
+  return (
+    <div className={`msg ${grouped ? "is-grouped" : ""}`}>
+      <MessageAvatar who={m.who} />
+      <div className="m-body">
+        <MessageHeader who={m.who} time={m.time} />
+        <div className={`pw-pam${m.deleted ? " is-deleted" : ""}`}>
+          <div className="pw-pam-head" onClick={() => setUserOpen(!open)} role="button">
+            <Icon.Code size={13} />
+            <span className="pw-pam-name">{m.filename}</span>
+            {m.version > 1 && <span className="pw-pam-ver">v{m.version}</span>}
+            {m.deleted && <span className="pw-pam-del">已删除</span>}
+            <span className="spacer" />
+            {inStore && !m.deleted && (
+              <button
+                type="button"
+                className="pw-icon-btn"
+                title="在侧栏打开"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (sessionId) requestOpen(sessionId, m.filename);
+                }}
+              >
+                <Icon.Sidebar size={13} />
+              </button>
+            )}
+            <span className="al-chev" data-open={open}>
+              <Icon.Chevron size={11} />
+            </span>
+          </div>
+          {open && !m.deleted ? (
+            <div className="pw-pam-body">
+              {m.artifactKind === "html" ? (
+                <SandboxedIframe
+                  sandboxId={`pam-${m.uid ?? m.filename}`}
+                  mode="html"
+                  code={m.content}
+                  version={m.version}
+                  className="pw-pam-iframe"
+                  title={m.filename}
+                  onOpenExternal={onOpenExternal}
+                />
+              ) : m.artifactKind === "svg" ? (
+                <iframe
+                  key={`v${m.version}`}
+                  className="pw-pam-iframe"
+                  title={m.filename}
+                  sandbox=""
+                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;display:grid;place-items:center;min-height:100vh;background:#fff}svg{max-width:100%;max-height:100vh}</style></head><body>${m.content}</body></html>`}
+                />
+              ) : m.artifactKind === "markdown" ? (
+                // pw-todo-md 提供全仓 markdown 排版样式(标题/表格等),缺它渲染成裸文本。
+                <div className="pw-pam-md pw-todo-md">
+                  <MarkdownView content={m.content} />
+                </div>
+              ) : (
+                <pre className="pw-pam-pre">{m.content}</pre>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -850,6 +944,8 @@ export function MessageStream({
               return <AgentLogMessage key={key} m={m} grouped={grouped} collapsible={collapsibleLogs} />;
             case "todoList":
               return <TodoListMessage key={key} m={m} grouped={grouped} />;
+            case "piArtifact":
+              return <PiArtifactMessage key={key} m={m} grouped={grouped} />;
             case "turnUsage":
               return <TurnUsageMessage key={key} m={m} />;
             case "diff":

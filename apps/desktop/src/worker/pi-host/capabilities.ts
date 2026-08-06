@@ -33,6 +33,8 @@ import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { PiInProcDeps } from "../../main/agents/pi-inproc";
+import { createArtifactsTool } from "../../main/agents/pi-inproc/artifacts-tool";
+import { createJsReplTool } from "../../main/agents/pi-inproc/js-repl-tool";
 import { createPiNativeHooks, type PiApprovalRecord } from "../../main/agents/pi-inproc/native-hooks";
 import { createMcpInProcTools } from "../../main/agents/pi-mcp-inproc";
 import type { PiOpenRequest } from "../../main/ipc/types";
@@ -84,6 +86,16 @@ export async function buildWorkerDeps(
     onApprovalDecision: ctx.onApprovalDecision ?? defaultApprovalSink,
   });
 
+  // pi-web-ui 移植工具（按 renderer 传的开关注册;oneshot / 编排子会话不置 flag 天然不注入）。
+  // artifacts:纯 worker 内存态,常规注册即可。
+  // jsrepl:执行体在渲染进程,无 UI 出口时注册了也只会白烧一轮超时——「必然失败的工具比不给
+  // 更糟」（computer-use 同判例）,故加 hasUiOutlet 双保险;sentinel 缺省同样不注册（无防伪）。
+  const webUiTools: ToolDefinition[] = [];
+  if (prepared.enableArtifactsTool) webUiTools.push(createArtifactsTool());
+  if (prepared.enableJsReplTool && prepared.jsReplSentinel && ctx.hasUiOutlet()) {
+    webUiTools.push(createJsReplTool(prepared.jsReplSentinel));
+  }
+
   const { tools: mcpTools, dispose: disposeMcp } = await buildMcpTools(prepared.bridgeServers ?? []);
 
   // 磁盘 extension 的两个来源合并成一个槽（与主进程版逐字一致）：
@@ -100,7 +112,7 @@ export async function buildWorkerDeps(
 
   return {
     ...(ctx.resolveModel ? { resolveModel: ctx.resolveModel } : {}),
-    customTools: [...hooks.customTools, ...mcpTools],
+    customTools: [...hooks.customTools, ...webUiTools, ...mcpTools],
     extensionFactories: hooks.extensionFactories,
     ...(diskExtensionPaths.length ? { additionalExtensionPaths: diskExtensionPaths } : {}),
     onDispose: disposeMcp,

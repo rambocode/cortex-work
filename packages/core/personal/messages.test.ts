@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
+import { usePiArtifactsStore } from "../store/piArtifacts";
 import { useCortexUIStore } from "../store/ui";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
 import {
@@ -642,9 +643,9 @@ describe("同流折叠 foldCliEvent(纯函数)", () => {
     const log = asLog(messages[0]!);
     expect(log.active).toBe(true); // 未被打断、未 result,仍运行中
     expect(log.items).toEqual([
-      { ic: "check", text: "t1" },
-      { ic: "check", text: "t2" },
-      { ic: "running", text: "t3" },
+      { ic: "check", text: "t1", toolName: "t1" },
+      { ic: "check", text: "t2", toolName: "t2" },
+      { ic: "running", text: "t3", toolName: "t3" },
     ]);
   });
 
@@ -655,7 +656,7 @@ describe("同流折叠 foldCliEvent(纯函数)", () => {
     expect(messages.map((m) => m.kind)).toEqual(["agentLog", "text"]);
     const log = asLog(messages[0]!);
     expect(log.active).toBe(true); // 不再被 text 收尾
-    expect(log.items).toEqual([{ ic: "running", text: "t1" }]);
+    expect(log.items).toEqual([{ ic: "running", text: "t1", toolName: "t1" }]);
     expect(asText(messages[1]!).text).toBe("A");
   });
 
@@ -665,12 +666,14 @@ describe("同流折叠 foldCliEvent(纯函数)", () => {
     expect(asText(messages[0]!).text).toBe("段一段二");
   });
 
-  it("工具 detail 拼进步骤文案：name · detail", () => {
+  it("工具 detail 拼进步骤文案：name · detail;结构化 toolName/detail 并存(注册表数据源)", () => {
     const { messages } = foldAll([tool("Edit", "src/a.ts")]);
-    expect(asLog(messages[0]!).items).toEqual([{ ic: "running", text: "Edit · src/a.ts" }]);
+    expect(asLog(messages[0]!).items).toEqual([
+      { ic: "running", text: "Edit · src/a.ts", toolName: "Edit", detail: "src/a.ts" },
+    ]);
   });
 
-  it("finalizeAgentLog：全部 items 翻 check 并标记完成", () => {
+  it("finalizeAgentLog：全部 items 翻 check 并标记完成;spread 保留 toolName(防回归)", () => {
     const { messages, cursor } = foldAll([tool("t1"), tool("t2")]);
     const out = finalizeAgentLog(messages, cursor.logUid!);
     const log = asLog(out[0]!);
@@ -678,6 +681,8 @@ describe("同流折叠 foldCliEvent(纯函数)", () => {
     expect(log.completed).toBe(true);
     expect(log.title).toBe("Agent 执行完成");
     expect(log.items.every((it) => it.ic === "check")).toBe(true);
+    // 收尾的 map 必须用 spread 保留新字段——丢掉 toolName 注册表卡片会在完成后消失。
+    expect(log.items.map((it) => it.toolName)).toEqual(["t1", "t2"]);
   });
 });
 
@@ -1020,6 +1025,65 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(log).toMatchObject({ kind: "agentLog", active: true });
     // 工具卡片不进消息流。
     expect(cacheOf(qc).some((m) => m.kind === "agentLog")).toBe(false);
+  });
+
+  it("artifact 事件:产物进 store + 会话正文折叠 piArtifact 卡 + 过程流折叠已完成步骤;不自动弹面板", () => {
+    usePiArtifactsStore.setState({ sessions: {}, openReq: undefined });
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    usePersonalStore.setState({ activeSessionId: "s1" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "artifact",
+      action: "create",
+      filename: "chart.html",
+      content: "<h1>hi</h1>",
+    });
+    const art = usePiArtifactsStore.getState();
+    expect(art.sessions.s1!.byName["chart.html"]).toMatchObject({ content: "<h1>hi</h1>", version: 1, kind: "html" });
+    // 实机反馈:宽面板挤占中栏 → 产物改为会话内渲染,**不再自动弹侧栏**(openReq 只由用户点击触发)。
+    expect(art.openReq).toBeUndefined();
+    // 会话正文流出现自含内容的 piArtifact 持久卡。
+    const card = cacheOf(qc).find((m) => m.kind === "piArtifact");
+    expect(card).toMatchObject({ filename: "chart.html", content: "<h1>hi</h1>", artifactKind: "html", version: 1 });
+    // 过程流出现一条已完成的 artifacts 工具步骤（mapPiEvent 吞掉了 tool-start/tool-end,这是唯一来源）。
+    const log = processCacheOf(qc).find((m) => m.kind === "agentLog");
+    expect(log).toBeDefined();
+    expect(JSON.stringify(log)).toContain("chart.html");
+  });
+
+  it("artifact 卡:update 同名原地覆盖且 version 自增;delete 置 deleted 保留卡壳;落盘存活", () => {
+    usePiArtifactsStore.setState({ sessions: {}, openReq: undefined });
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "create", filename: "a.md", content: "v1" });
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "update", filename: "a.md", content: "v2" });
+    let cards = cacheOf(qc).filter((m) => m.kind === "piArtifact");
+    expect(cards).toHaveLength(1); // 原地覆盖,不追加新卡
+    expect(cards[0]).toMatchObject({ content: "v2", version: 2 });
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "delete", filename: "a.md" });
+    cards = cacheOf(qc).filter((m) => m.kind === "piArtifact");
+    expect(cards[0]).toMatchObject({ deleted: true });
+    // 删除后重建 → 追加新卡(按时间线,不复活旧卡)。
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "create", filename: "a.md", content: "v3" });
+    cards = cacheOf(qc).filter((m) => m.kind === "piArtifact");
+    expect(cards).toHaveLength(2);
+    expect(cards[1]).toMatchObject({ content: "v3", version: 1 });
+    expect((cards[1] as { deleted?: boolean }).deleted).toBeFalsy();
+    // 持久卡落盘存活(sanitizeForSave 黑名单机制)。
+    expect(sanitizeForSave(cacheOf(qc)).filter((m) => m.kind === "piArtifact")).toHaveLength(2);
+  });
+
+  it("artifact 事件:无活跃 run 仍进 store(产物比单轮 run 长寿);带错 runId 也不被代际守卫丢弃", () => {
+    usePiArtifactsStore.setState({ sessions: {}, openReq: undefined });
+    const qc = new QueryClient();
+    // 无 run:直接派发(会话恢复/竞态路径)。
+    usePersonalStore.setState({ sessions: [{ ...piSession, id: "s1" }], runningBySession: {}, activeSessionId: undefined });
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "create", filename: "late.md", content: "v1" });
+    expect(usePiArtifactsStore.getState().sessions.s1!.byName["late.md"]).toBeDefined();
+    // 带过期 runId:守卫豁免,快照仍应用。
+    setupPiRun(qc, "s1", "prun-new");
+    __handlePiEventForTest(qc, "s1", { type: "artifact", action: "update", filename: "late.md", content: "v2" }, "prun-old");
+    expect(usePiArtifactsStore.getState().sessions.s1!.byName["late.md"]!.content).toBe("v2");
   });
 
   it("tool-start + tool-end(同 toolCallId) 在过程流折叠为一张卡片并翻 check", () => {

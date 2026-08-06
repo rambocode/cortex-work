@@ -244,6 +244,7 @@ export class PiHost {
         // 但审批 hook 在 `hasUiOutlet()` 为 false 时压根不会走到 confirm）。
         ...(hasUiOutlet ? { onUiRequest: (req: PiUiRequest) => this.emitUiRequest(sessionId, req) } : {}),
         ...(request.askQuestionSentinel ? { askQuestionSentinel: request.askQuestionSentinel } : {}),
+        ...(request.jsReplSentinel ? { jsReplSentinel: request.jsReplSentinel } : {}),
         deps,
       });
       this.sessions.set(sessionId, { session, dispose });

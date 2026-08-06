@@ -1572,7 +1572,17 @@ export interface PiOpenRequest {
   // pi 的工具集在 open 时冻结、无运行时增删命令,故该值计入 extensionFingerprint ——
   // 中途切开关会让指纹漂移并触发会话重开,新工具集才真正加载。缺省视为 false。
   webSearch?: boolean;
+  // pi-web-ui 移植工具开关:artifacts 产物工具 / javascript_repl 沙箱执行工具。
+  // 仅聊天会话路径置 true;oneshot / 编排子会话不传即不注册。sentinel 等内部字段只在主进程侧
+  // types.ts 存在（本镜像不含,renderer 传了也会被 preparePiOpenRequest 入口 delete）。
+  enableArtifactsTool?: boolean;
+  enableJsReplTool?: boolean;
 }
+
+// pi-web-ui 移植工具的工具名常量（worker 注册、permissionMode 审批集、渲染端注册表共用,
+// 三处必须字面一致,故收口在 core 供两端 import）。
+export const ARTIFACTS_TOOL_NAME = "artifacts";
+export const JS_REPL_TOOL_NAME = "javascript_repl";
 
 // pi:open 的应答:回带 uiSessionId + pi 侧 sessionId（经 get_state 探测就绪时取得）。
 export interface PiOpenResult {
@@ -1609,6 +1619,9 @@ export type PiSessionEvent =
   // 扩展命令（如 /memory-index-sessions）经 ctx.ui.notify 的输出。pi 对扩展命令即时执行后提前返回、
   // 不跑 agent（无 agent_end）,其输出只走 notify（fire-and-forget）。主进程把它转成此事件呈现。
   | { type: "notify"; message: string; level?: "info" | "warning" | "error" }
+  // artifacts 自定义工具（pi-web-ui 移植）的产物变更快照,对应 tool-start/tool-end 被吞掉（todo 判例）。
+  // ⚠️ 契约:create/update 的 content 必须是「应用变更后的全量内容」,渲染层不做字符串替换。
+  | { type: "artifact"; action: "create" | "update" | "delete"; filename: string; content?: string }
   | { type: "crashed"; error?: string }; // 进程非正常退出（session 注入,非 RPC 事件）
 
 // pi extension 经 ctx.ui.* 发起的「需用户输入」请求（与 apps/desktop/src/main/ipc/types.ts 镜像）。
@@ -1625,7 +1638,11 @@ export type PiUiRequest =
   | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
   // cortex 内部判别式（**非** pi 协议 method）：pi 实发 method:"input"，title 携带本会话 sentinel + JSON 信封;
   // 主进程 handleLine 检出 sentinel 后归一为本变体（见 askquestion 工具）。回写仍走 {value}（答案 JSON）。
-  | { type: "extension_ui_request"; id: string; method: "askquestion"; envelope: AskQuestionEnvelope };
+  | { type: "extension_ui_request"; id: string; method: "askquestion"; envelope: AskQuestionEnvelope }
+  // cortex 内部判别式（askquestion 同款借道）：javascript_repl 请渲染端在沙箱 iframe 执行 JS。
+  // 渲染端契约:**不弹窗**（绝不能流进 PiToolConfirmDialog）、静默执行、code 视为不可信、
+  // 回写 {value} = JSON.stringify({ ok, output })。
+  | { type: "extension_ui_request"; id: string; method: "jsrepl"; envelope: JsReplEnvelope };
 
 // 回写给 pi 的 UI 应答（host → pi）。confirm→confirmed;select/input/editor→value;取消→cancelled。
 // askquestion 复用 {value}（答案 JSON）。
@@ -1649,6 +1666,12 @@ export interface AskQuestionGroup {
 }
 export interface AskQuestionEnvelope {
   groups: AskQuestionGroup[];
+}
+
+// javascript_repl 的「渲染端执行请求」信封（与 apps/desktop/src/main/ipc/types.ts 镜像）。
+export interface JsReplEnvelope {
+  title: string; // 一句话描述这段代码做什么（模型生成,仅用于过程流展示）
+  code: string; // 待执行 JS。⚠️ 不可信内容,只能进无 allow-same-origin 的沙箱 iframe
 }
 // 用户作答聚合,经 {value} 回写 pi（JSON.stringify）。每组互斥:value 取自选项 label 或自定义文本。
 export interface AskQuestionAnswer {

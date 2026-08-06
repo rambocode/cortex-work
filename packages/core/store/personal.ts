@@ -65,6 +65,7 @@ import {
 import type { WritingLlmSettings } from "../desktop/types";
 import { migratePiSettings, normalizeProviderProfile } from "../desktop/providers";
 import { fromAdapterPermissions } from "../personal/permissionMode";
+import { usePiArtifactsStore } from "./piArtifacts";
 import { migrateProfile } from "../personal/avatars";
 
 let seq = 0;
@@ -83,7 +84,9 @@ export type RightView =
   | "artifact"
   | "research"
   // 知识库文档预览（点会话正文里的 kb:// 引用打开）。
-  | "knowledge";
+  | "knowledge"
+  // pi 会话产物（artifacts 工具,pi-web-ui 移植;内存态,与落盘型 "artifact" 是两个概念）。
+  | "piArtifacts";
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan 模式下 agent 尝试被该模式禁止的工具(写/执行)时,
 // 在 composer 上方提示用户一键切「自动执行」并自动重发本轮(仅 plan 会触发,见 restrictedToolForMode)。
@@ -1064,7 +1067,9 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, archivedAt: undefined } : x)),
     })),
 
-  removeSession: (id) =>
+  removeSession: (id) => {
+    // 会话删除 = pi 产物（artifacts 工具）唯一的清理时机（pi crashed 不清,重开可续用副本）。
+    usePiArtifactsStore.getState().clearSession(id);
     set((s) => {
       const removingActiveSession = s.activeSessionId === id;
       const removedSession = removingActiveSession ? s.sessions.find((x) => x.id === id) : undefined;
@@ -1075,7 +1080,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         // 无项目会话的 projectId=undefined 也是有效上下文，不能回退到旧项目。
         activeProjectId: removingActiveSession && removedSession ? removedSession.projectId : s.activeProjectId,
       };
-    }),
+    });
+  },
 
   addTodo: (projectId, title, detailPath) => {
     const now = Date.now();

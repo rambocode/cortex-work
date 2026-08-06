@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ChatFileRef, ChatImageRef, Message, TodoListItem, TypingActivity } from "../types";
+import type { AgentLogItem, ChatFileRef, ChatImageRef, Message, TodoListItem, TypingActivity } from "../types";
 import type {
   AgentKind,
   ConversationArtifactRef,
@@ -33,6 +33,7 @@ import { checkImageSupport, providerConfigFingerprint } from "./modelCapabilitie
 import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, type VisionBlockHint } from "../store/personal";
+import { piArtifactKind, usePiArtifactsStore } from "../store/piArtifacts";
 import { petActivity, type RunBits } from "../pet";
 import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
@@ -927,16 +928,21 @@ export function foldCliEvent(
   if (ev.type === "tool") {
     const displayName = cleanToolName(ev.name);
     const itemText = ev.detail ? `${displayName} · ${ev.detail}` : displayName;
+    // 结构化字段与 text 拼接文案并存:text 是默认渲染回退,toolName/detail 供 views 的
+    // toolRenderers 注册表结构化取用（agentLog 不落盘,加字段无迁移问题）。
+    const newItem: AgentLogItem = {
+      ic: "running",
+      text: itemText,
+      toolName: ev.name,
+      ...(ev.detail ? { detail: ev.detail } : {}),
+    };
     // 并入当前 agentLog 卡片:既有 items 翻 check,追加新 running 项。
     if (cursor.lastKind === "tool" && cursor.logUid) {
       const next = messages.map((m) =>
         m.uid === cursor.logUid && m.kind === "agentLog"
           ? {
               ...m,
-              items: [
-                ...m.items.map((it) => ({ ...it, ic: "check" as const })),
-                { ic: "running" as const, text: itemText },
-              ],
+              items: [...m.items.map((it) => ({ ...it, ic: "check" as const })), newItem],
             }
           : m,
       );
@@ -951,7 +957,7 @@ export function foldCliEvent(
       title: t("chat:core.agentLogExecuting"),
       active: true,
       uid: logUid,
-      items: [{ ic: "running", text: itemText }],
+      items: [newItem],
     };
     return {
       messages: [...messages, logMsg],
@@ -1032,6 +1038,59 @@ function foldTodoIntoCache(qc: QueryClient, sessionId: string, run: RunState, ru
   // 游标打断(关键):清单卡落到数组尾部后,后续 text 必须开新块——否则 foldCliEvent 会按 textUid
   // 原地续写卡片**之前**的旧 text 块,视觉上正文长不到卡片之后。与 foldToolIntoProcess 同款处理。
   run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
+}
+
+// pi 产物卡折叠:artifact 事件 → **持久消息流**的 piArtifact 卡（会话内直接渲染产物本体）。
+// 同 filename 的**最后一张未删除卡**原地覆盖(content 全量替换 + version 自增,渲染端据 version
+// 重挂沙箱 iframe);没有可覆盖的卡则 append 新卡(含 delete 后重建——按时间线追加,不复活旧卡)。
+// delete 置 deleted(卡壳保留、预览撤下,保住「曾经生成过什么」的会话记录)。
+// 落盘由 sanitizeForSave 黑名单机制天然保留:卡片自含 content 快照,重启后 store 清空仍可回看。
+function foldPiArtifactIntoCache(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState | undefined,
+  ev: Extract<PiSessionEvent, { type: "artifact" }>,
+): void {
+  setMessages(qc, sessionId, (prev) => {
+    // 手写倒序查找(不用 findLastIndex:构建目标未必含 ES2023 lib)。
+    let idx = -1;
+    for (let i = prev.length - 1; i >= 0; i--) {
+      const m = prev[i]!;
+      if (m.kind === "piArtifact" && m.filename === ev.filename && !m.deleted) {
+        idx = i;
+        break;
+      }
+    }
+    if (ev.action === "delete") {
+      if (idx < 0) return prev;
+      const next = prev.slice();
+      next[idx] = { ...(prev[idx] as Extract<Message, { kind: "piArtifact" }>), deleted: true };
+      return next;
+    }
+    if (typeof ev.content !== "string") return prev; // 协议漂移防御,与 store reducer 同款
+    if (idx >= 0) {
+      const cur = prev[idx] as Extract<Message, { kind: "piArtifact" }>;
+      const next = prev.slice();
+      next[idx] = { ...cur, content: ev.content, version: cur.version + 1 };
+      return next;
+    }
+    return [
+      ...prev,
+      {
+        kind: "piArtifact",
+        who: run?.agent ?? "pi",
+        time: realHHMM(),
+        filename: ev.filename,
+        content: ev.content,
+        artifactKind: piArtifactKind(ev.filename),
+        version: 1,
+        uid: uid("pa"),
+      },
+    ];
+  });
+  // 游标打断(与 foldTodoIntoCache 同款):卡片落数组尾部后,后续 text 必须开新块,
+  // 否则会按 textUid 原地续写卡片之前的旧文本块,正文视觉上长不到卡片之后。
+  if (run) run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
 }
 
 // 跨流收尾:text 到达且过程流当前有打开的 agentLog 时,对 **process key** 收尾该卡片并清 logUid
@@ -1848,7 +1907,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   // 阶段4 代际守卫:事件带 runId 且与当前活跃轮不符 → 迟到/串台事件（崩溃重开/editResend 重入的
   // 旧轮事件），丢弃,不折叠进新轮。状态/瞬态事件（queue/compaction/crashed 等不折叠进 run）放行。
   const activeRunId = store.runningBySession[sessionId];
-  if (evRunId && activeRunId && evRunId !== activeRunId && ev.type !== "crashed") return;
+  // artifact 与 crashed 同享守卫豁免:产物是长寿会话态(比单轮 run 长命),事件带全量快照,
+  // 迟到应用最多是「短暂旧内容」,而丢弃则是产物永久缺失——宁可多收不可错丢。
+  if (evRunId && activeRunId && evRunId !== activeRunId && ev.type !== "crashed" && ev.type !== "artifact") return;
   // 任何新事件都说明本轮仍活跃 → 取消下面 error 分支挂的「防卡死」兜底收尾。
   // 例外 settled:它恰恰表示 agent 已彻底静默,若在此被当成「仍活跃」而取消兜底,就再没人收尾了
   // （run 永久卡「思考中」）。故跳过统一取消,交由下方 settled 分支自行判定并收尾。
@@ -1910,6 +1971,30 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         appendMsg(qc, sessionId, { kind: "text", who: "pi", time: realHHMM(), text, uid: uid("pi") });
         const a = piRunFor(sessionId);
         if (a) a.run.sawText = true;
+      }
+      return;
+    }
+    case "artifact": {
+      // artifacts 工具（pi-web-ui 移植）:单事件三消费——
+      // ① 产物快照进独立 store（放本段「不依赖活跃 run」的状态区:产物比单轮 run 长寿,
+      //    run 结算竞态下也不能丢;串场防护靠 sessionId 命名空间已足够）;
+      // ② 会话正文流折叠一张 piArtifact 持久卡（产物直接在会话里渲染,落盘可回看）。
+      //    有意**不自动弹侧栏**（实机反馈:宽面板挤占中栏体验差）——面板只在用户点击
+      //    卡片/步骤 pill 时经 requestOpen 打开;
+      // ③ 有活跃 run 时向过程流折叠一条已完成的工具步骤（mapPiEvent 吞掉了 artifacts 的
+      //    tool-start/tool-end,这里是过程可见性的唯一来源;toolRenderers 注册表据 toolName 出卡片）。
+      usePiArtifactsStore.getState().applyEvent(sessionId, ev);
+      const artifactRun = piRunFor(sessionId);
+      foldPiArtifactIntoCache(qc, sessionId, artifactRun?.run, ev);
+      if (artifactRun) {
+        const actionLabel = ev.action === "create" ? "创建产物" : ev.action === "update" ? "更新产物" : "删除产物";
+        foldToolIntoProcess(qc, sessionId, artifactRun.run, {
+          type: "tool",
+          name: "artifacts",
+          detail: `${actionLabel} ${ev.filename}`,
+        });
+        finalizeLastToolItem(qc, artifactRun.run, false);
+        artifactRun.run.stepCount = (artifactRun.run.stepCount ?? 0) + 1;
       }
       return;
     }
@@ -2345,6 +2430,11 @@ async function buildPiOpenForSession(
     toolWhitelist: piCaps.toolWhitelist,
     enableSampleTools: piCustom?.sampleTools || undefined,
     enableSampleCommands: piCustom?.sampleCommands || undefined,
+    // pi-web-ui 移植工具（artifacts 产物 / javascript_repl 沙箱执行）:聊天会话路径默认启用。
+    // 只在这里置 true——oneshot 与编排子会话不经本函数,天然不注入。jsrepl 的 sentinel 由主进程
+    // preparePiOpenRequest 生成,渲染端不传。
+    enableArtifactsTool: true,
+    enableJsReplTool: true,
     appendSystemPrompt: piSystemPrompt || undefined,
     thinkingLevel,
     // 会话级联网:主进程据此把研究引擎 MCP 并进桥接扩展。pi 工具集在 open 时冻结,
@@ -2651,6 +2741,8 @@ export function usePersonalPiUi(): void {
     if (!bridge?.onPiUiRequest) return;
     const off = bridge.onPiUiRequest((uiSessionId, request) => {
       // confirm（阶段3 模态）与 askquestion（输入框上方富卡片）入队渲染。
+      // ⚠️ jsrepl 有意不在下方任何分支:它由 views 的 useReplExecHost 独立订阅、静默沙箱执行
+      //（绝不能弹窗,也绝不能在这里回 cancelled——那会抢在执行宿主之前把 pi 侧结算掉）。
       if (request.method === "confirm" || request.method === "askquestion") {
         usePersonalStore.getState().pushPiUiRequest({ uiSessionId, request });
       } else if (request.method === "select" || request.method === "input" || request.method === "editor") {

@@ -18,6 +18,7 @@ import {
   CALENDAR_WRITE_TOOLS,
   COMPUTER_USE_WRITE_TOOLS,
   DEFAULT_PI_APPROVAL_TOOLS,
+  JS_REPL_TOOL_NAME,
   PI_PLAN_TOOL_WHITELIST,
   DEFAULT_EXEC_PERMISSION,
   type ApprovalPolicy,
@@ -97,7 +98,10 @@ export function derivePiCapabilities(
   if (approval === "ask") {
     const base = prefs?.approvalTools ?? DEFAULT_PI_APPROVAL_TOOLS;
     // 安全底线:审批集至少覆盖 write/edit/bash(否则空集经 pi-extensions 会放行全部工具)。
-    const need = ["write", "edit", "bash", ...guiNeeds, ...ALWAYS_APPROVE_TOOLS];
+    // javascript_repl 属执行类,同入 ask 档底线集;artifacts 只改会话内存态(与 todo_write 同级,
+    // 无外界副作用)豁免。auto 档二者都不强审:jsrepl 跑在渲染端沙箱 iframe(无 Node/文件系统,
+    // 仅剩 fetch 面),严格弱于 auto 档本就免审的 bash,gui_* 那条「操作真实桌面」红线不适用。
+    const need = ["write", "edit", "bash", JS_REPL_TOOL_NAME, ...guiNeeds, ...ALWAYS_APPROVE_TOOLS];
     const approvalTools = [...new Set([...base, ...need])];
     return { toolWhitelist: undefined, enableToolApproval: true, approvalTools };
   }

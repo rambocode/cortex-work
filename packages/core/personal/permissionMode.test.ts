@@ -30,11 +30,21 @@ describe("derivePiCapabilities(线格式 → pi 能力)", () => {
     expect(caps.enableToolApproval).toBe(false);
   });
 
-  it("执行审批 ask(询问后执行):开审批,审批集至少覆盖 write/edit/bash", () => {
+  it("执行审批 ask(询问后执行):开审批,审批集至少覆盖 write/edit/bash + javascript_repl", () => {
     const caps = derivePiCapabilities("full-auto", "ask");
     expect(caps.enableToolApproval).toBe(true);
     expect(caps.toolWhitelist).toBeUndefined();
-    expect(caps.approvalTools).toEqual(expect.arrayContaining(["write", "edit", "bash"]));
+    // javascript_repl 属执行类,进 ask 档底线集;artifacts 无外界副作用,豁免。
+    expect(caps.approvalTools).toEqual(expect.arrayContaining(["write", "edit", "bash", "javascript_repl"]));
+    expect(caps.approvalTools).not.toContain("artifacts");
+  });
+
+  it("auto 档不强审 javascript_repl(沙箱 iframe 严格弱于免审的 bash);plan 档两工具不在白名单被物理拦下", () => {
+    const auto = derivePiCapabilities("full-auto", "auto", undefined, false);
+    expect(auto.approvalTools).not.toContain("javascript_repl");
+    const plan = derivePiCapabilities("plan", "auto");
+    expect(plan.toolWhitelist).not.toContain("javascript_repl");
+    expect(plan.toolWhitelist).not.toContain("artifacts");
   });
 
   it("ask:合并用户自定义审批集 + 安全底线工具(去重)", () => {

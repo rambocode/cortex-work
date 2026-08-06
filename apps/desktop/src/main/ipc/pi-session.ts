@@ -185,6 +185,8 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   // 类型注释写了「renderer 不传」,但注释拦不住任何人,必须在边界上真删。
   delete prepared.customProviderEnv;
   delete prepared.computerUseEnv;
+  // jsReplSentinel 同为主进程内部字段:renderer 若能预置它,就能伪造 method:"jsrepl" 的触发前缀。
+  delete prepared.jsReplSentinel;
   // cwd 归一放在最前:空串历史上会让 spawn 继承 Electron 自己的工作目录;gateway 下 worker 的
   // 会话文件与工具根同样按它推导,语义保留。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
@@ -204,6 +206,9 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
   const askQuestionSentinel =
     prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
   prepared.askQuestionSentinel = askQuestionSentinel;
+  // jsrepl 的会话级 sentinel:仅在 renderer 请求启用该工具时生成（不启用就不给 normalize 分支
+  // 留任何可命中的前缀）。上方已 delete renderer 传入的同名字段,这里必为新生成值。
+  if (prepared.enableJsReplTool) prepared.jsReplSentinel = `@@CORTEX_JSREPL:${randomUUID()}@@`;
 
   try {
     const state = await getPersistedState();

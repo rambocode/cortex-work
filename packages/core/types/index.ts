@@ -63,6 +63,10 @@ export type AgentLogIcon = "check" | "running" | "pending" | "dot";
 export interface AgentLogItem {
   ic: AgentLogIcon;
   text: RichText;
+  /** 原始工具名(未 cleanToolName):views 的 toolRenderers 注册表据此选自定义卡片。缺省走默认渲染。 */
+  toolName?: string;
+  /** 工具入参摘要(与 text 里的拼接文案分离,供自定义渲染器结构化取用)。 */
+  detail?: string;
 }
 
 export interface DiffFileRef {
@@ -207,6 +211,21 @@ export type Message =
       todos: TodoListItem[];
       // run 仍在进行:in_progress 项显示 spinner;finalizeRun / 落盘时归一为 false。
       active?: boolean;
+      uid?: string;
+    }
+  | {
+      // pi 会话产物卡(artifacts 工具,pi-web-ui 移植):在**会话正文流**里直接渲染产物——
+      // HTML/SVG 进沙箱 iframe、markdown 渲染、其余等宽文本。同 filename 原地覆盖更新
+      // (version 递增,渲染端据此重挂 iframe);delete 置 deleted(保留卡壳,预览撤下)。
+      // 进持久消息流并落盘:卡片自含 content 快照,重启后 store 内存态清空也仍可回看。
+      kind: "piArtifact";
+      who: string;
+      time: string;
+      filename: string;
+      content: string;
+      artifactKind: "html" | "svg" | "markdown" | "text";
+      version: number;
+      deleted?: boolean;
       uid?: string;
     }
   | {

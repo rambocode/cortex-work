@@ -29,6 +29,7 @@ import { NewSessionLanding } from "../home/NewSessionLanding";
 import { AutomationView } from "../automation/AutomationView";
 import { WorkflowView } from "../workflow/WorkflowView";
 import { WritingWorkspace } from "../../writing/WritingWorkspace";
+import { usePiArtifactsStore } from "@cortex-work/core/store/piArtifacts";
 import { normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { useResearchBackgroundStore } from "@cortex-work/core/research/background-watch";
 import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
@@ -40,6 +41,11 @@ import { PiToolConfirmDialog } from "../chat/PiToolConfirmDialog";
 import { PersonalSettingsView } from "../settings/SettingsMenu";
 import { SessionSearchDialog } from "../sessions/SessionSearchDialog";
 import { useDelegateIntentListener } from "@cortex-work/core/personal/taskDelegate";
+import { registerBuiltinToolRenderers } from "../chat/toolRenderers/builtins";
+import { useReplExecHost } from "../chat/artifacts/useReplExecHost";
+
+// 工具步骤自定义渲染(artifacts 产物卡等):模块加载时注册一次,Map 引用稳定不破坏 memo。
+registerBuiltinToolRenderers();
 
 // 进入落地页(homeOpen 转真,含首屏挂载)即收起右栏:无项目时默认不显示,选项目
 // 不自动弹出。依赖只含 homeOpen,故 rightOpen 在落地页内被显式置真(点 Task / 顶栏
@@ -175,6 +181,9 @@ export function PersonalWorkspace({
   usePersonalPiEvents();
   // pi extension UI 请求（工具确认弹窗）订阅;bridge 无 onPiUiRequest 时空转。
   usePersonalPiUi();
+  // javascript_repl 沙箱执行宿主(method:"jsrepl" 的独立订阅者,不入确认弹窗流)。
+  // 必须挂在工作区常驻层:会话页随视图切换卸载,执行期间订阅不能断。
+  useReplExecHost(bridge);
   // 与 CLI 事件同处挂载:hydrate 后消费 Spotlight 意图,新建会话并发首条消息。
   useSpotlightHandoff();
   // 订阅自动化的 changed / run-event（驱动列表刷新 + 完成 toast）。bridge 不支持时内部空转。
@@ -215,6 +224,18 @@ export function PersonalWorkspace({
       }),
     [bridge, requestBrowserUrl, setRightOpen],
   );
+
+  // pi 会话产物「打开面板」信号(onBrowserOpenPanel 同款模式):artifacts 工具产出/步骤卡片点击
+  // 经 store 的 openReq nonce 驱动。仅当前活跃会话的请求生效——后台会话的产物不抢当前面板。
+  const piArtifactOpenReq = usePiArtifactsStore((s) => s.openReq);
+  const setRightView = usePersonalStore((s) => s.setRightView);
+  const activeSessionIdForArtifacts = usePersonalStore((s) => s.activeSessionId);
+  useEffect(() => {
+    if (!piArtifactOpenReq || piArtifactOpenReq.sessionId !== activeSessionIdForArtifacts) return;
+    setRightOpen(true);
+    setRightView("piArtifacts");
+    // activeFilename 已由 requestOpen 顺带写入 store,面板打开即显示目标产物。
+  }, [piArtifactOpenReq, activeSessionIdForArtifacts, setRightOpen, setRightView]);
 
   if (!bridge) {
     return (

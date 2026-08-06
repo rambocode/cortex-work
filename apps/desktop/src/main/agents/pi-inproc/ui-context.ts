@@ -13,7 +13,7 @@
 // in-process 除此之外还多一条：会话 `stop()` 时必须把所有挂起项按默认值结算（`cancelAll`），
 // 否则那些 Promise 连同它们持有的 agent loop 栈会一直留在主进程里（旧路径杀进程就自动清了）。
 
-import { sanitizeAskQuestionEnvelope } from "./rpc-shared";
+import { sanitizeAskQuestionEnvelope, sanitizeJsReplEnvelope } from "./rpc-shared";
 import { createLogger } from "../../log";
 import type { PiUiRequest, PiUiResponsePayload } from "../../ipc/types";
 
@@ -38,6 +38,12 @@ export interface PiUiBridgeOptions {
    * JSON 信封；命中即归一为 `method:"askquestion"`。与 `PiRpcSession.normalizeUiRequest` 同源。
    */
   askQuestionSentinel?: string;
+  /**
+   * javascript_repl 借道用的会话级 sentinel（askQuestionSentinel 同轨）。命中即归一为
+   * `method:"jsrepl"`——渲染端据此**静默**在沙箱 iframe 执行,绝不弹窗。sentinel 防的是
+   * 磁盘扩展/提示注入伪造裸 input 触发渲染端执行任意 JS。
+   */
+  jsReplSentinel?: string;
   /** 生成请求 id。默认 `crypto.randomUUID()`（与 pi rpc-mode 一致）；单测可注入确定序列。 */
   makeId?: () => string;
 }
@@ -73,7 +79,7 @@ interface PendingDialog {
  * **不 reject**）—— reject 会让扩展的 execute 抛错，而用户「点了取消」不该是错误。
  */
 export function createPiUiBridge(options: PiUiBridgeOptions): PiUiBridge {
-  const { onUiRequest, onNotify, askQuestionSentinel } = options;
+  const { onUiRequest, onNotify, askQuestionSentinel, jsReplSentinel } = options;
   const makeId = options.makeId ?? (() => globalThis.crypto.randomUUID());
   const pending = new Map<string, PendingDialog>();
 
@@ -134,15 +140,29 @@ export function createPiUiBridge(options: PiUiBridgeOptions): PiUiBridge {
    * **不静默吞**，便于 pi 版本漂移时定位。
    */
   function normalizeUiRequest(req: PiUiRequest): PiUiRequest {
-    if (!askQuestionSentinel || req.method !== "input" || typeof req.title !== "string") return req;
-    if (!req.title.startsWith(askQuestionSentinel)) return req;
-    const json = req.title.slice(askQuestionSentinel.length);
-    try {
-      const envelope = sanitizeAskQuestionEnvelope(JSON.parse(json));
-      if (envelope) return { type: "extension_ui_request", id: req.id, method: "askquestion", envelope };
-      log.warn("[pi-askquestion] 信封校验失败(空/越界/不可作答)，透传为裸 input");
-    } catch {
-      log.warn("[pi-askquestion] 信封 JSON 解析失败，透传为裸 input");
+    if (req.method !== "input" || typeof req.title !== "string") return req;
+    if (askQuestionSentinel && req.title.startsWith(askQuestionSentinel)) {
+      const json = req.title.slice(askQuestionSentinel.length);
+      try {
+        const envelope = sanitizeAskQuestionEnvelope(JSON.parse(json));
+        if (envelope) return { type: "extension_ui_request", id: req.id, method: "askquestion", envelope };
+        log.warn("[pi-askquestion] 信封校验失败(空/越界/不可作答)，透传为裸 input");
+      } catch {
+        log.warn("[pi-askquestion] 信封 JSON 解析失败，透传为裸 input");
+      }
+      return req;
+    }
+    // jsrepl 借道（askquestion 同款）:命中 sentinel → 归一为 method:"jsrepl"（渲染端静默沙箱执行）。
+    // 校验失败同样透传裸 input + 诊断（渲染端 cancelled 兜底），不静默吞。
+    if (jsReplSentinel && req.title.startsWith(jsReplSentinel)) {
+      const json = req.title.slice(jsReplSentinel.length);
+      try {
+        const envelope = sanitizeJsReplEnvelope(JSON.parse(json));
+        if (envelope) return { type: "extension_ui_request", id: req.id, method: "jsrepl", envelope };
+        log.warn("[pi-jsrepl] 信封校验失败(空 code/越界)，透传为裸 input");
+      } catch {
+        log.warn("[pi-jsrepl] 信封 JSON 解析失败，透传为裸 input");
+      }
     }
     return req;
   }

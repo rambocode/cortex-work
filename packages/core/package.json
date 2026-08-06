@@ -22,6 +22,7 @@
     "./cortex/mutations": "./cortex/mutations.ts",
     "./store/ui": "./store/ui.ts",
     "./store/personal": "./store/personal.ts",
+    "./store/piArtifacts": "./store/piArtifacts.ts",
     "./desktop/types": "./desktop/types.ts",
     "./desktop/petdex-types": "./desktop/petdex-types.ts",
     "./desktop/tasks-types": "./desktop/tasks-types.ts",

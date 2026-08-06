@@ -943,6 +943,14 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--bg-card); padding: 0 5px; border-radius: 4px;
   border: 1px solid var(--border-soft);
 }
+/* fenced 代码块内的 code 归零(与 .pw-todo-md pre code 同判例):上面的 inline-code 药丸样式
+   命中 pre 内的 <code> 会在外壳底色上再按行盒叠一层底(折行时一行一条浅底,实机反馈的双背景)。 */
+.msg .m-text pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+}
 .msg.is-me .m-head .who { color: var(--text-1); }
 
 /* 用户消息:右侧浅灰气泡;智能体消息保持左侧平铺(无气泡) */
@@ -4183,6 +4191,14 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-kbdoc) .pw-rp-resizer { display: block; }
+/* pi 会话产物面板(rightView:"piArtifacts")：同上那条宽度公式。HTML 产物(图表/仪表盘)在
+   320px 窄栏没有可用性;中栏保 660px 继续对话。缺这条规则的实机表现是「默认窄条只露一角、
+   拖拽条不显示,只能靠放大键全屏遮中栏」——三处联动(本规则 + isWidePanel + RP_LEFT_RESERVED_ARTIFACT)。 */
+.pw-prompts:has(.pw-pa-panel) {
+  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+}
+.pw-prompts:has(.pw-pa-panel) .pw-rp-resizer { display: block; }
 
 /* 产物面板放大:绝对定位铺满 .pw-upper,盖住中栏。
    为什么不是把 flex 宽度撑到 100%:那会让中栏被压到 min-width 后重排(消息气泡换行、
@@ -12629,3 +12645,52 @@ button.sb-row {
 /* 密钥控件(输入+保存/更换/清除按钮组)整体不拉伸,输入框 240px 留出按钮位。 */
 .pw-mediagen-cards .pw-secret-wrap { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .pw-mediagen-cards .pw-secret-wrap > .pw-set-input { width: 240px; }
+
+/* ── pi 会话产物面板（rightView:"piArtifacts",artifacts 工具产物预览）──────────────── */
+/* 面板纵向三段:pill 栏(多产物时) + 主体(iframe/markdown/文本)。主体必须 flex:1 + min-height:0,
+   否则 iframe 在 flex 容器里塌成 0 高(与浏览器面板同款陷阱)。 */
+.pw-pa-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-pa-empty { display: grid; place-items: center; flex: 1; color: var(--text-3); font-size: 13px; }
+.pw-pa-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.pw-pa-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; }
+.pw-pa-pill:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-pa-pill.is-active { background: var(--bg-app); border-color: var(--accent, var(--text-1)); color: var(--text-1); }
+.pw-pa-pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-pa-pill-ver { flex: none; font-size: 10px; color: var(--text-3); }
+.pw-pa-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-pa-html { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-pa-iframe { flex: 1; min-height: 0; width: 100%; border: none; background: #fff; }
+.pw-pa-html-foot { display: flex; align-items: flex-start; gap: 6px; padding: 4px 8px; border-top: 1px solid var(--border); }
+.pw-pa-html-foot > .pw-icon-btn { flex: none; margin-left: auto; }
+/* console 折叠条:错误态标红。展开体等宽、限高滚动。 */
+.pw-pa-console { flex: 1; min-width: 0; font-size: 12px; }
+.pw-pa-console-head { display: inline-flex; align-items: center; gap: 8px; border: none; background: transparent; color: var(--text-3); font-size: 12px; cursor: pointer; padding: 2px 4px; }
+.pw-pa-console.is-error .pw-pa-console-head { color: var(--danger, #d33); }
+.pw-pa-console-err { color: var(--danger, #d33); }
+.pw-pa-console-warn { color: var(--warning, #b80); }
+.pw-pa-console-body { margin: 4px 0 0; max-height: 180px; overflow: auto; padding: 6px 8px; border-radius: 8px; background: var(--bg-sunken, var(--bg-app)); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+.pw-pa-console-line.lv-error { color: var(--danger, #d33); }
+.pw-pa-console-line.lv-warn { color: var(--warning, #b80); }
+/* markdown / 文本视图:内边距 + 滚动。 */
+.pw-pa-md { flex: 1; min-height: 0; max-height: none; overflow: auto; padding: 12px 16px; }
+.pw-pa-text { position: relative; flex: 1; min-height: 0; overflow: auto; }
+.pw-pa-copy { position: absolute; top: 8px; right: 10px; }
+.pw-pa-pre { margin: 0; padding: 12px 16px; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+/* artifacts 工具的步骤卡(agentLog 内可点击 pill,点击跳右栏产物面板)。 */
+.pw-pa-step { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; max-width: 100%; }
+.pw-pa-step:hover { background: var(--bg-hover); color: var(--text-1); border-color: var(--accent, var(--text-1)); }
+.pw-pa-step > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ── pi 会话产物内联卡(消息流内直接渲染产物,kind:"piArtifact")──────────────────── */
+.pw-pam { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-app); max-width: 720px; }
+.pw-pam-head { display: flex; align-items: center; gap: 7px; padding: 7px 10px; cursor: pointer; user-select: none; color: var(--text-2); font-size: 12.5px; }
+.pw-pam-head:hover { background: var(--bg-hover); }
+.pw-pam-name { color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-pam-ver { flex: none; font-size: 10px; color: var(--text-3); }
+.pw-pam-del { flex: none; font-size: 11px; color: var(--text-3); }
+.pw-pam.is-deleted { opacity: 0.65; }
+.pw-pam-head > .spacer { flex: 1; }
+.pw-pam-body { border-top: 1px solid var(--border); }
+/* 内联沙箱预览:固定高度(消息流里不能无限高),内容自身可滚。 */
+.pw-pam-iframe { display: block; width: 100%; height: 360px; border: none; background: #fff; }
+.pw-pam-md { max-height: 420px; overflow: auto; padding: 10px 14px; }
+.pw-pam-pre { margin: 0; max-height: 320px; overflow: auto; padding: 10px 14px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }

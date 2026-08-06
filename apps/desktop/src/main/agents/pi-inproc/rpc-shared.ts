@@ -9,11 +9,13 @@
 // 解包，改名等于动 IPC 契约（R1）。
 
 import { normalizePiTodos, TODO_TOOL_NAME } from "../pi-extensions";
+import { ARTIFACTS_TOOL_NAME, type ArtifactDetails } from "./artifacts-tool";
 import { createLogger } from "../../log";
 import type {
   AskQuestionEnvelope,
   AskQuestionGroup,
   AskQuestionOption,
+  JsReplEnvelope,
   PiSessionEvent,
 } from "../../ipc/types";
 
@@ -171,6 +173,9 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
         const todos = normalizePiTodos(o.args);
         return todos.length > 0 ? { type: "todo", todos } : null;
       }
+      // artifacts 工具特判（todo 同款判例）:start 帧吞掉,end 帧从 result.details 派生 artifact
+      // 事件——过程流里的「产物卡片」由渲染端从 artifact 事件折叠,不走 tool-start/tool-end。
+      if (o.toolName === ARTIFACTS_TOOL_NAME) return null;
       const out: Extract<PiSessionEvent, { type: "tool-start" }> = {
         type: "tool-start",
         name: o.toolName,
@@ -186,6 +191,24 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       if (typeof o.toolName !== "string" || typeof o.toolCallId !== "string") return null;
       // todo_write 的 end 帧吞掉:start 侧已转成 todo 事件,无 tool-start 可配对。
       if (o.toolName === TODO_TOOL_NAME) return null;
+      // artifacts 工具:成功变更 → artifact 事件（快照在 result.details,这是对 pi 0.82.1
+      // 「emitToolExecutionEnd 原样透传 AgentToolResult.details」的依赖,contract 测试锁死;
+      // pi 升级若剥离 details,兜底方案见 artifacts-tool.ts 文件头）。失败(isError)或无快照
+      // (get / 形状漂移)一律吞掉——产物状态没变,不能发事件。逐字段重建保证结构可克隆。
+      if (o.toolName === ARTIFACTS_TOOL_NAME) {
+        if (o.isError) return null;
+        const details = (o.result as { details?: Partial<ArtifactDetails> } | null | undefined)?.details;
+        const artifact = details?.artifact;
+        if (!artifact || typeof artifact.filename !== "string") return null;
+        if (artifact.action !== "create" && artifact.action !== "update" && artifact.action !== "delete") return null;
+        const out: Extract<PiSessionEvent, { type: "artifact" }> = {
+          type: "artifact",
+          action: artifact.action,
+          filename: artifact.filename,
+        };
+        if (typeof artifact.content === "string") out.content = artifact.content;
+        return out;
+      }
       const out: Extract<PiSessionEvent, { type: "tool-end" }> = {
         type: "tool-end",
         name: o.toolName,
@@ -291,6 +314,20 @@ export function sanitizeAskQuestionEnvelope(parsed: unknown): AskQuestionEnvelop
     groups.push(group);
   }
   return { groups };
+}
+
+// javascript_repl 入站信封校验（askquestion 同款安全边界）:结构 + 尺寸上限,越界/畸形返回 null
+// （调用方退化为裸 input 透传 + 诊断）。code 上限与工具侧 JS_REPL_MAX_CODE_BYTES 对称。
+const JSREPL_MAX_TITLE = 500;
+const JSREPL_MAX_CODE = 256 * 1024;
+export function sanitizeJsReplEnvelope(parsed: unknown): JsReplEnvelope | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const { title, code } = parsed as { title?: unknown; code?: unknown };
+  if (typeof code !== "string" || !code || code.length > JSREPL_MAX_CODE) return null;
+  return {
+    title: typeof title === "string" ? title.slice(0, JSREPL_MAX_TITLE) : "",
+    code,
+  };
 }
 
 // pi prompt 命令的图片内容块（多模态:base64 + mime）。

@@ -78,6 +78,30 @@ describe("buildWorkerDeps · 原生能力", () => {
     expect(deps.customTools?.map((t) => t.name)).toContain("echo_upper");
     expect((deps.extensionFactories?.[0] as { name: string }).name).toBe("cortex-sample-commands");
   });
+
+  it("artifacts / javascript_repl 按 flag 注册;缺省一个都不进（oneshot/编排子会话路径）", async () => {
+    const off = await buildWorkerDeps(BASE, ctx());
+    expect(off.customTools?.map((t) => t.name)).not.toContain("artifacts");
+    expect(off.customTools?.map((t) => t.name)).not.toContain("javascript_repl");
+
+    const on = await buildWorkerDeps(
+      { ...BASE, enableArtifactsTool: true, enableJsReplTool: true, jsReplSentinel: "@@R@@" },
+      ctx(),
+    );
+    expect(on.customTools?.map((t) => t.name)).toContain("artifacts");
+    expect(on.customTools?.map((t) => t.name)).toContain("javascript_repl");
+  });
+
+  it("jsrepl 双保险:无 UI 出口或缺 sentinel 都不注册（必然失败的工具比不给更糟）", async () => {
+    const noOutlet = await buildWorkerDeps(
+      { ...BASE, enableJsReplTool: true, jsReplSentinel: "@@R@@" },
+      ctx({ hasUiOutlet: () => false }),
+    );
+    expect(noOutlet.customTools?.map((t) => t.name)).not.toContain("javascript_repl");
+
+    const noSentinel = await buildWorkerDeps({ ...BASE, enableJsReplTool: true }, ctx());
+    expect(noSentinel.customTools?.map((t) => t.name)).not.toContain("javascript_repl");
+  });
 });
 
 describe("buildWorkerDeps · Computer Use 的 grounding env", () => {

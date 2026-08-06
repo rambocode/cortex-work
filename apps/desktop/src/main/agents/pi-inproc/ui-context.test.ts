@@ -23,7 +23,9 @@ interface UiCtx {
   notify(message: string, type?: "info" | "warning" | "error"): void;
 }
 
-function setup(opts: { sentinel?: string; onUiRequest?: (r: PiUiRequest) => void } = {}) {
+function setup(
+  opts: { sentinel?: string; jsReplSentinel?: string; onUiRequest?: (r: PiUiRequest) => void } = {},
+) {
   const requests: PiUiRequest[] = [];
   const notes: Array<{ message: string; level: string }> = [];
   let n = 0;
@@ -35,6 +37,7 @@ function setup(opts: { sentinel?: string; onUiRequest?: (r: PiUiRequest) => void
       }),
     onNotify: (message, level) => notes.push({ message, level }),
     ...(opts.sentinel ? { askQuestionSentinel: opts.sentinel } : {}),
+    ...(opts.jsReplSentinel ? { jsReplSentinel: opts.jsReplSentinel } : {}),
     makeId: () => `id-${++n}`,
   });
   return { bridge, ctx: bridge.context as UiCtx, requests, notes };
@@ -175,6 +178,33 @@ describe("askquestion 借道", () => {
     const { ctx, requests } = setup({ sentinel });
     void ctx.input("普通输入");
     expect(requests[0]!.method).toBe("input");
+  });
+});
+
+describe("jsrepl 借道（askquestion 同轨）", () => {
+  const jsReplSentinel = "@@CORTEX_JSREPL:xyz@@";
+
+  it("命中 jsrepl sentinel 的 input 被归一为 method:jsrepl,三态回写照常", async () => {
+    const { bridge, ctx, requests } = setup({ jsReplSentinel });
+    const p = ctx.input(`${jsReplSentinel}${JSON.stringify({ title: "算数", code: "1+1" })}`);
+    const req = requests[0]!;
+    expect(req.method).toBe("jsrepl");
+    if (req.method !== "jsrepl") throw new Error("unreachable");
+    expect(req.envelope).toEqual({ title: "算数", code: "1+1" });
+    bridge.respond(req.id, { value: '{"ok":true,"output":"2"}' });
+    await expect(p).resolves.toBe('{"ok":true,"output":"2"}');
+  });
+
+  it("两个 sentinel 并存互不串道;jsrepl 信封坏掉透传裸 input", () => {
+    const askSentinel = "@@CORTEX_ASKQ:abc@@";
+    const { ctx, requests } = setup({ sentinel: askSentinel, jsReplSentinel });
+    void ctx.input(`${jsReplSentinel}${JSON.stringify({ title: "t", code: "x" })}`);
+    void ctx.input(`${askSentinel}${JSON.stringify({ groups: [{ question: "q", options: [{ label: "A" }] }] })}`);
+    void ctx.input(`${jsReplSentinel}{"title":"t"}`); // 缺 code → 校验失败
+    expect(requests[0]!.method).toBe("jsrepl");
+    expect(requests[1]!.method).toBe("askquestion");
+    expect(requests[2]!.method).toBe("input");
+    expect(logMocks.logger.warn).toHaveBeenCalled();
   });
 });
 

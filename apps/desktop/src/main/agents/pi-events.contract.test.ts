@@ -440,6 +440,75 @@ describe("工具执行事件的细节契约", () => {
       mapPiEvent({ type: "tool_execution_start", toolName: "todo_write", toolCallId: "call_t", args: { todos: [] } }),
     ).toBeNull();
   });
+
+  it("artifacts 特判：start 被吞；end 成功从 result.details 派生 artifact 事件（全量快照）", () => {
+    // 这条同时把「pi 0.82.1 emitToolExecutionEnd 原样透传 AgentToolResult.details」的依赖
+    // 锁进结构性测试——pi 升级若剥离 details，这里会先红（兜底方案见 artifacts-tool.ts 文件头）。
+    expect(
+      mapPiEvent({
+        type: "tool_execution_start",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        args: { command: "create", filename: "a.html", content: "<h1>hi</h1>" },
+      }),
+    ).toBeNull();
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        isError: false,
+        result: {
+          content: [{ type: "text", text: "Created a.html" }],
+          details: { artifact: { action: "create", filename: "a.html", content: "<h1>hi</h1>" } },
+        },
+      }),
+    ).toEqual({ type: "artifact", action: "create", filename: "a.html", content: "<h1>hi</h1>" });
+  });
+
+  it("artifacts 的 end 失败（isError）或无 details.artifact（get / 形状漂移）→ null，不产事件", () => {
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        isError: true,
+        result: { content: [{ type: "text", text: "Error: File a.html already exists" }] },
+      }),
+    ).toBeNull();
+    // get：状态未变更，details 为 undefined。
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        isError: false,
+        result: { content: [{ type: "text", text: "<h1>hi</h1>" }], details: undefined },
+      }),
+    ).toBeNull();
+    // 形状漂移（action 非法）同样吞掉。
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        isError: false,
+        result: { details: { artifact: { action: "rename", filename: "a.html" } } },
+      }),
+    ).toBeNull();
+  });
+
+  it("artifacts 的 delete 事件无 content 字段", () => {
+    expect(
+      mapPiEvent({
+        type: "tool_execution_end",
+        toolName: "artifacts",
+        toolCallId: "call_a",
+        isError: false,
+        result: { details: { artifact: { action: "delete", filename: "a.html" } } },
+      }),
+    ).toEqual({ type: "artifact", action: "delete", filename: "a.html" });
+  });
 });
 
 describe("忽略清单（与 pi.ts IGNORED_FRAME_TYPES 同源，改动须两边同步）", () => {

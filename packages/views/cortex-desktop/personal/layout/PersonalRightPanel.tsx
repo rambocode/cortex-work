@@ -9,7 +9,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
+import { usePiArtifactsStore } from "@cortex-work/core/store/piArtifacts";
 import { FilesView } from "../files/FilesView";
+import { PiArtifactsPanel } from "../chat/artifacts/PiArtifactsPanel";
 import { KnowledgeDocPanel } from "../knowledge/KnowledgeDocPanel";
 import { PromptPanel } from "../skills/PromptPanel";
 import { TasksView } from "../tasks/TasksView";
@@ -31,6 +33,8 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   artifact: "产物",
   research: "深度研究",
   knowledge: "知识库文档",
+  // pi 会话产物（artifacts 工具,内存态）——与落盘型 "artifact"(设计稿/演示文稿)是两个概念。
+  piArtifacts: "会话产物",
 };
 
 // 导出供测试引用,调参不破坏断言。
@@ -48,7 +52,8 @@ export const RP_LEFT_RESERVED_ARTIFACT = 660;
 /// knowledge 同档的理由：知识库文档常含宽表格，320px 窄栏里每列会被压成一列一个字。
 /// files 同档：文件预览态是与产物同款的 in-flow 展宽面板（中栏压缩自适应,非覆盖）。
 function isWidePanel(view: string): boolean {
-  return view === "artifact" || view === "research" || view === "knowledge";
+  // piArtifacts 同档:HTML 产物(仪表盘/图表)在 320px 窄栏里没有可用性。
+  return view === "artifact" || view === "research" || view === "knowledge" || view === "piArtifacts";
 }
 
 /// 拖拽调宽时给中栏保留的最小宽度（按当前视图档位）。
@@ -60,7 +65,7 @@ function reservedWidthForView(view: string): number {
 /// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。files 例外:文件打开预览态
 /// (filePreviewOpen)本就是覆盖中栏的宽层,与产物/知识库同权开放放大/收缩。
 function canMaximize(view: string, filePreviewOpen: boolean): boolean {
-  return view === "artifact" || view === "knowledge" || (view === "files" && filePreviewOpen);
+  return view === "artifact" || view === "knowledge" || view === "piArtifacts" || (view === "files" && filePreviewOpen);
 }
 
 export function PersonalRightPanel({
@@ -105,11 +110,17 @@ export function PersonalRightPanel({
     if (!canMaximize(view, filePreviewOpen) && maximized) setMaximized(false);
   }, [filePreviewOpen, maximized, setMaximized, view]);
 
+  // pi 会话产物:当前会话一个产物都没有(或产物全被删)时自动收起,同 artifact/research 语义。
+  const hasPiArtifacts = usePiArtifactsStore(
+    (s) => !!activeSessionId && (s.sessions[activeSessionId]?.order.length ?? 0) > 0,
+  );
+
   useEffect(() => {
     if (view === "artifact" && !activeArtifact) setRightOpen(false);
     // 研究面板同理：会话解除全部研究绑定后面板没有可展示的内容，自动收起而不是留一个空壳。
     if (view === "research" && !researchSessionId) setRightOpen(false);
-  }, [activeArtifact, researchSessionId, setRightOpen, view]);
+    if (view === "piArtifacts" && !hasPiArtifacts) setRightOpen(false);
+  }, [activeArtifact, hasPiArtifacts, researchSessionId, setRightOpen, view]);
   useEffect(() => () => cancelResizeRef.current?.(), []);
 
   const startResize = useCallback(
@@ -234,6 +245,8 @@ export function PersonalRightPanel({
         <NotesView onToast={onToast} />
       ) : view === "browser" ? (
         <BrowserView onToast={onToast} />
+      ) : view === "piArtifacts" ? (
+        <PiArtifactsPanel />
       ) : (
         <PromptPanel onToast={onToast} bare />
       )}

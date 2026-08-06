@@ -157,6 +157,8 @@ export interface PiInProcOpenOptions {
   onUiRequest?: (req: PiUiRequest) => void;
   /** askquestion 借道的会话级 sentinel（与旧路径同义，见 ui-context.ts）。 */
   askQuestionSentinel?: string;
+  /** javascript_repl 借道的会话级 sentinel（askQuestionSentinel 同轨，见 ui-context.ts）。 */
+  jsReplSentinel?: string;
   deps?: PiInProcDeps;
 }
 
@@ -619,7 +621,7 @@ export class PiInProcSession implements PiSessionEngine {
  * 工厂内部仍然是 `createAgentSessionFromServices` → `createAgentSession`，与 pi CLI 同一条路。
  */
 export async function openPiInProcSession(options: PiInProcOpenOptions): Promise<PiInProcSession> {
-  const { request: req, onEvent, onUiRequest, askQuestionSentinel, deps = {} } = options;
+  const { request: req, onEvent, onUiRequest, askQuestionSentinel, jsReplSentinel, deps = {} } = options;
   const mod = await (deps.loadModule ?? loadPiCodingAgent)();
 
   const cwd = req.cwd;
@@ -718,6 +720,7 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
     ...(onUiRequest ? { onUiRequest } : {}),
     onNotify: (message, level) => notifySlot.emit?.(message, level),
     ...(askQuestionSentinel ? { askQuestionSentinel } : {}),
+    ...(jsReplSentinel ? { jsReplSentinel } : {}),
   });
 
   const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, deps.onDispose);
