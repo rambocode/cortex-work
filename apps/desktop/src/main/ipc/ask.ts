@@ -14,10 +14,10 @@
 import { ipcMain, type WebContents } from "electron";
 import { existsSync } from "fs";
 import { homedir } from "os";
-import type { AgentKind, AskFollowupRequest, CliStreamEvent } from "./types";
+import type { AgentKind, AskFollowupRequest, CliStartRequest, CliStreamEvent } from "./types";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
-import { writePiExtension } from "../agents/pi-providers";
+import { startPiInProcOneShot } from "../agents/pi-inproc/oneshot";
 import { type AgentProcess, pipeStdoutLines, spawnEnvForDef, startAgentProcess } from "./cli";
 import { recordAgentTrace } from "./agent-trace";
 import { createLogger } from "../log";
@@ -58,16 +58,10 @@ export function registerAskHandlers(): void {
     // 用同一 cwd(codex 的 --cd 等据此)。无项目场景的 tool 安全由调用方 tightenTools 兜底(R9)。
     const cwd = req.cwd && existsSync(req.cwd) ? req.cwd : homedir();
 
-    // pi 自定义供应商:先生成 extension 文件,把路径塞进 buildArgs 入参供加 -e(复用 cli:start 逻辑)。
-    //
-    // ⚠️ 这条单发路径**刻意没有** assertOneShotProviderSupported 守卫(cli:start / oneshot /
-    // automation / workflow 那四处都有):本通道消费的是调用方直传的 `req.provider` 对象,
-    // 不走 providerId → resolvePiProviderInput 解析,自定义 Provider 的 id 根本进不来。
-    // 若日后本通道改为接收 providerId,必须同步补上守卫,否则会重演「pi 拿孤立 --model 换 provider」。
-    const piExtensionPath = req.agent === "pi" && req.provider ? writePiExtension(req.provider) : undefined;
-
-    // askId 同时充当 runId/sessionId(adapter buildArgs 需要这两个字段,但本通道不落盘、不 resume)。
-    const built = adapter.buildArgs({
+    // askId 同时充当 runId/sessionId(下游需要这两个字段,但本通道不落盘、不 resume)。
+    // provider 仍随请求带上:pi 的 in-process 单发经 resolveOneShotModel 兜到 provider.id 解析
+    // 模型/凭据(自定义 id 解析不出时响亮抛错,绝不静默换 provider)。
+    const askReq: CliStartRequest = {
       runId: req.askId,
       sessionId: req.askId,
       agent: req.agent,
@@ -76,14 +70,16 @@ export function registerAskHandlers(): void {
       model: req.model,
       appendSystemPrompt: req.appendSystemPrompt,
       effort: req.effort,
-      // 运行模式:claude/codex adapter 据此拼权限标志(pi 单发无 UI,plan 经 --tools 白名单生效)。
+      // 运行模式:claude/codex adapter 据此拼权限标志(pi 单发无 UI,plan 经工具白名单生效)。
       permissionMode: req.permissionMode,
       provider: req.provider,
-      piExtensionPath,
-    }, CODEX_MCP_CLEAR); // 追问为轻量单发:codex 清空 MCP(沿用 M1);claude/pi 忽略
+    };
+    // pi 无外部二进制:无条件走 in-process 单发(轻量追问不注入 MCP/todo),不经 buildArgs/spawn。
+    const isPi = req.agent === "pi";
+    const built = isPi ? undefined : adapter.buildArgs(askReq, CODEX_MCP_CLEAR); // 追问为轻量单发:codex 清空 MCP(沿用 M1);claude 忽略
     // tightenTools 与运行模式叠加:plan/accept-edits 已是非 bypass,剥离 bypass 对其 no-op;
-    // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。
-    const args = req.tightenTools ? tightenArgs(req.agent, built.args) : built.args;
+    // full-auto 仍剥离 bypass → 无项目会话安全(更严者优先)。pi 不在 TIGHTEN_FLAGS 内,无需处理。
+    const args = built ? (req.tightenTools ? tightenArgs(req.agent, built.args) : built.args) : [];
 
     recordAgentTrace({
       scope: "ask",
@@ -94,7 +90,7 @@ export function registerAskHandlers(): void {
       agent: req.agent,
       // model/effort:调试跟踪需能直读本轮用的模型与推理强度(缺省 = 未显式传,用 agent 自身默认)。
       data: {
-        cmd: built.cmd,
+        cmd: built?.cmd ?? "(pi in-process)",
         cwd,
         model: req.model ?? "(默认)",
         effort: req.effort ?? "(默认)",
@@ -102,11 +98,13 @@ export function registerAskHandlers(): void {
         promptPreview: promptPreview(req.prompt),
       },
     });
-    const proc = startAgentProcess(built.cmd, args, {
-      cwd,
-      env: spawnEnvForDef({ agent: req.agent, provider: req.provider }, adapter),
-      stdin: built.stdin, // claude/codex 经 stdin 投递 prompt(U4);pi 为 undefined
-    });
+    const proc = built
+      ? startAgentProcess(built.cmd, args, {
+          cwd,
+          env: spawnEnvForDef({ agent: req.agent }, adapter),
+          stdin: built.stdin, // claude/codex 经 stdin 投递 prompt(U4)
+        })
+      : startPiInProcOneShot(askReq, { cwd });
     running.set(req.askId, proc);
 
     // 本轮是否已发过终止 result(adapter 自发 或 主进程补发)。onExit/onError 据此避免重复终止信号,

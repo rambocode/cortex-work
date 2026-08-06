@@ -32,8 +32,10 @@ vi.mock("../agents", () => ({
   getAgentDef: mocks.getAgentDef,
 }));
 
-vi.mock("../agents/pi-providers", () => ({
-  writePiExtension: vi.fn(() => "/tmp/pi-extension.json"),
+// pi 单发引擎:runner.ts 对 pi 恒调 startPiInProcOneShot;整体替身避免拉起真实 pi 运行时
+//（本文件用例只覆盖 claude/codex 路径,pi 行为由 oneshot.test.ts 覆盖）。
+vi.mock("../agents/pi-inproc/oneshot", () => ({
+  startPiInProcOneShot: vi.fn(),
 }));
 
 vi.mock("../ipc/store", () => ({

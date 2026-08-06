@@ -5,7 +5,7 @@
  *   - startAgentProcess：返回伪 AgentProcess（可控 stdout 行流、exitHandler、kill）
  *   - pipeStdoutLines：截获 onLine 回调，测试中手动 push 行
  *   - parseLineEvents：根据 mock 行内容返回对应 CliStreamEvent
- *   - getPersistedState / getWorkspaceRoot / writePiExtension / getAgentDef：最小 mock
+ *   - getPersistedState / getWorkspaceRoot / getAgentDef：最小 mock
  *
  * 注意：run-prompt-headless 内部 await getPersistedState()（async），
  * 因此在 startAgentProcess 被调用之前需要 flush 微任务队列，
@@ -33,7 +33,6 @@ const mocks = vi.hoisted(() => ({
   parseLineEvents: vi.fn(),
   getPersistedState: vi.fn(),
   getWorkspaceRoot: vi.fn(),
-  writePiExtension: vi.fn(() => '/tmp/pi-ext.json'),
 }))
 
 vi.mock('../ipc/cli.js', () => ({
@@ -46,6 +45,8 @@ vi.mock('../ipc/cli.js', () => ({
 vi.mock('../agents/index.js', () => ({
   getAgentDef: mocks.getAgentDef,
   parseLineEvents: mocks.parseLineEvents,
+  // pi 分流判定用：本文件全部用例走 claude 的 spawn 路径。
+  baseAgentKindOf: (id: string) => id,
 }))
 
 vi.mock('../ipc/store.js', () => ({
@@ -54,20 +55,19 @@ vi.mock('../ipc/store.js', () => ({
 }))
 
 vi.mock('../agents/pi-providers.js', () => ({
-  writePiExtension: mocks.writePiExtension,
-  // resolvePiProviderInput 会经 pi-providers 取 safeId 归一化 providerId，故 mock 需带上它。
+  // isPiProviderId 的自定义列表回退会取 safeId 归一化 providerId，故 mock 需带上它。
   safeId: (id: string) => id,
 }))
 
-// provider 解析已收敛到主进程（Catalog + provider-prefs + 凭据金库）；本文件只测 headless
-// 流程，故整体替身，避免拉起金库与目录加载。
+// provider 解析已收敛到主进程；本文件只测 headless 流程，故整体替身。
+// 返回 null = providerId 不是 pi 供应商 → agent=providerId（本文件全部用例走 claude spawn 路径）。
 vi.mock('../providers/pi-provider-input.js', () => ({
-  resolvePiProviderInput: async (providerId: string) => ({
-    id: providerId,
-    baseUrl: 'https://api.example.com/v1',
-    apiKey: 'sk-test',
-    models: [],
-  }),
+  resolvePiProviderInput: async () => null,
+}))
+
+// isPiProviderId 的自定义供应商回退：整体替身成空列表，避免拉起真实存储。
+vi.mock('../providers/custom-providers.js', () => ({
+  listCustomProviders: async () => [],
 }))
 
 vi.mock('../ipc/mcp-config.js', () => ({

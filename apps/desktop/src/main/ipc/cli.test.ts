@@ -1,5 +1,5 @@
-// cli.ts 子进程单测：三种 agent（claude/codex/pi）统一走 child_process.spawn(cmd, args);
-// 以及 spawnEnvFor 的环境定制（pi 注入 CORTEX_PI_KEY、清 ELECTRON_RUN_AS_NODE）。
+// cli.ts 单测：claude/codex 走 child_process.spawn(cmd, args)；pi 无外部二进制,
+// 无条件走 in-process 单发(startPiInProcOneShot,此处 mock 成可驱动的假 AgentProcess)。
 // electron / child_process 在测试环境整体 mock。
 
 import { EventEmitter } from "node:events";
@@ -30,7 +30,6 @@ const m = vi.hoisted(() => ({
     (_settings: unknown, _sessionId?: unknown, _consumer?: unknown, _optIn?: unknown) =>
       null as unknown,
   ),
-  writeMcpBridgeExtension: vi.fn((_servers: unknown[], fileName: string) => `/tmp/${fileName}`),
 }));
 
 // mock ../log:避免加载真 electron-log,并断言 scoped logger 承接了原 console 调用。
@@ -72,14 +71,6 @@ vi.mock("../capabilities/research/inject", () => ({
     optIn?: unknown,
   ) => m.buildResearchMcpServerConfig(settings, sessionId, consumer, optIn),
 }));
-vi.mock("../agents/pi-mcp-bridge", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../agents/pi-mcp-bridge")>();
-  return {
-    ...actual,
-    writeMcpBridgeExtension: (servers: unknown[], fileName: string) =>
-      m.writeMcpBridgeExtension(servers, fileName),
-  };
-});
 
 // U2 claude 桥接接线单测:mock 掉 buildClaudeSkillBridge 本体(其自身行为已由 claude-bridge.test.ts
 // 覆盖),这里只验证 cli.ts 的守卫条件/降级路径是否正确调用它、正确写回 req.skillsBridgeDir。
@@ -128,9 +119,17 @@ vi.mock("./codex-ws-run", () => ({
   },
 }));
 
+// pi 单发引擎 mock：cli.ts 对 pi 恒调 startPiInProcOneShot（不 spawn）。测试里换成
+// 可驱动的假 AgentProcess（stdout/stderr 事件 + close/error），并记录 (req, opts) 供断言。
+const oneshotMock = vi.hoisted(() => vi.fn());
+vi.mock("../agents/pi-inproc/oneshot", () => ({
+  startPiInProcOneShot: (...args: unknown[]) => oneshotMock(...args),
+}));
+
 import {
   __runDelegateSubAgentForTest,
   detectAgents,
+  ensureProcessPath,
   envForCommand,
   mergePathWithPreferredDirs,
   nvmBinDirs,
@@ -142,7 +141,6 @@ import {
   spawnEnvForDef,
 } from "./cli";
 import { setLocalAgentProfilesLoader } from "../agents";
-import { PI_KEY_ENV } from "../agents/pi-providers";
 import { killAllDelegates, stopDelegateHost } from "../capabilities/delegate/server";
 
 // child_process.spawn 返回值的最小替身。
@@ -153,6 +151,29 @@ function fakeChild() {
     stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
     kill: vi.fn(),
   });
+}
+
+// pi 单发 mock 的驱动记录：每次 startPiInProcOneShot 调用产生一个可驱动的 fakeChild。
+const piProcs: Array<{ child: ReturnType<typeof fakeChild>; req: unknown; opts: unknown }> = [];
+
+// 把 fakeChild 包成 AgentProcess 形状（对应真实 oneshot 返回的垫层接口）。
+function wrapFakeAgentProc(child: ReturnType<typeof fakeChild>) {
+  return {
+    pid: undefined,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    onExit: (cb: (code: number | null) => void) => child.on("close", cb),
+    onError: (cb: (err: Error) => void) => child.on("error", cb),
+    kill: child.kill,
+  };
+}
+
+// 等待第 i 个 pi 单发被拉起（handler 内部有若干 await,给足微任务轮次）。
+async function nextPiProc(i = 0) {
+  for (let k = 0; k < 50 && piProcs.length <= i; k++) await Promise.resolve();
+  const entry = piProcs[i];
+  if (!entry) throw new Error(`pi 单发 #${i} 未被拉起`);
+  return entry;
 }
 
 beforeEach(() => {
@@ -175,10 +196,13 @@ beforeEach(() => {
   m.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   m.agentSessionExists.mockReset().mockReturnValue(true);
   m.buildResearchMcpServerConfig.mockReset().mockReturnValue(null);
-  m.writeMcpBridgeExtension
-    .mockReset()
-    .mockImplementation((_servers: unknown[], fileName: string) => `/tmp/${fileName}`);
   buildClaudeSkillBridgeMock.mockReset().mockReturnValue(undefined);
+  piProcs.length = 0;
+  oneshotMock.mockReset().mockImplementation((req: unknown, opts: unknown) => {
+    const child = fakeChild();
+    piProcs.push({ child, req, opts });
+    return wrapFakeAgentProc(child);
+  });
   designDelegateState.current = null;
   killAllDelegates();
   stopDelegateHost();
@@ -328,10 +352,8 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
 });
 
 describe("delegate 派生 agent 基础类型", () => {
-  it("派生 Pi 子 agent 继承 Pi 主会话 model/provider 并加载 provider extension", async () => {
+  it("派生 Pi 子 agent 继承 Pi 主会话 model/provider 并走 in-process 单发（不 spawn）", async () => {
     setLocalAgentProfilesLoader(() => [{ id: "my-pi", base: "pi" }]);
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     const controller = new AbortController();
     try {
       const done = __runDelegateSubAgentForTest(
@@ -362,9 +384,14 @@ describe("delegate 派生 agent 基础类型", () => {
         controller.signal,
       );
 
-      const args = spawnMock.mock.calls[0]?.[1] as string[];
-      expect(args).toEqual(expect.arrayContaining(["--model", "deepseek-v3", "--provider", "deepseek"]));
-      expect(args).toContain("-e");
+      const { child, req } = await nextPiProc(0);
+      // pi 子 agent 不经 spawn：模型/供应商随请求进 in-process 单发原生解析。
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(req).toMatchObject({
+        agent: "my-pi",
+        model: "deepseek-v3",
+        provider: expect.objectContaining({ id: "deepseek" }),
+      });
       child.emit("close", 0);
       await expect(done).resolves.toMatchObject({ ok: true });
     } finally {
@@ -610,9 +637,8 @@ describe("cli:start claude 原生 skill 桥接接线(U2)", () => {
 });
 
 describe("cli:start trace", () => {
-  it("pi slides 联网轮次把 research 合进同一个 MCP bridge", async () => {
+  it("pi slides 联网轮次把 research 合进同一份 bridgeServers", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-slides-research-"));
-    spawnMock.mockReturnValueOnce(fakeChild());
     const researchSettings = { enabled: true };
     m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: researchSettings } });
     m.buildResearchMcpServerConfig.mockReturnValue({
@@ -645,15 +671,17 @@ describe("cli:start trace", () => {
       "slides",
       true,
     );
-    expect(m.writeMcpBridgeExtension).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "cortex-research" })]),
-      "design-bridge-session-slides.js",
+    // 引擎收敛后不再落盘桥接 .js：research server 以结构化 bridgeServers 交给 in-process 单发。
+    expect(oneshotMock).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "slides:deck-1:run-1" }),
+      expect.objectContaining({
+        bridgeServers: expect.arrayContaining([expect.objectContaining({ id: "cortex-research" })]),
+      }),
     );
   });
 
   it("pi slides 缺省联网状态按 false 传给 research gate", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-slides-off-"));
-    spawnMock.mockReturnValueOnce(fakeChild());
     const researchSettings = { enabled: true };
     m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: researchSettings } });
     registerCliHandlers();
@@ -681,10 +709,8 @@ describe("cli:start trace", () => {
     );
   });
 
-  it("pi 委派轮次按需启动 delegate host 并注入 ask 工具桥接扩展", async () => {
+  it("pi 委派轮次按需启动 delegate host 并注入 ask 工具桥接（bridgeServers）", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     registerCliHandlers();
     const send = vi.fn();
 
@@ -706,10 +732,12 @@ describe("cli:start trace", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
 
-    const args = spawnMock.mock.calls[0]?.[1] as string[];
-    expect(args).toContain("-e");
-    expect(args.some((arg) => arg.includes("delegate-bridge-session-delegate.js"))).toBe(true);
-    expect(args).toContain("-a");
+    expect(oneshotMock).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-delegate" }),
+      expect.objectContaining({
+        bridgeServers: expect.arrayContaining([expect.objectContaining({ id: "cortex-delegate" })]),
+      }),
+    );
     expect(traceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         scope: "delegate",
@@ -719,9 +747,8 @@ describe("cli:start trace", () => {
     );
   });
 
-  it("pi 委派与 research 合并为一个桥接扩展,避免跨扩展工具重名", async () => {
+  it("pi 委派与 research 合并进同一份 bridgeServers（原生注册统一去重,避免工具重名）", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-pi-delegate-research-"));
-    spawnMock.mockReturnValueOnce(fakeChild());
     m.getPersistedState.mockResolvedValue({ generalSettings: { researchEngine: { enabled: true } } });
     m.buildResearchMcpServerConfig.mockReturnValue({
       id: "cortex-research",
@@ -750,23 +777,18 @@ describe("cli:start trace", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
 
-    expect(m.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
-    expect(m.writeMcpBridgeExtension).toHaveBeenCalledWith(
+    expect(oneshotMock).toHaveBeenCalledTimes(1);
+    const opts = oneshotMock.mock.calls[0]?.[1] as { bridgeServers: Array<{ id: string }> };
+    expect(opts.bridgeServers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "cortex-delegate" }),
         expect.objectContaining({ id: "cortex-research" }),
       ]),
-      "delegate-bridge-session-delegate-research.js",
     );
-    const args = spawnMock.mock.calls[0]?.[1] as string[];
-    const bridgeExtensionPaths = args.filter((arg, index) => args[index - 1] === "-e" && arg.includes("bridge-"));
-    expect(bridgeExtensionPaths).toHaveLength(1);
   });
 
   it("记录启动、解析事件、stderr 和退出 trace", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-cli-trace-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     registerCliHandlers();
     const send = vi.fn();
 
@@ -782,6 +804,7 @@ describe("cli:start trace", () => {
         },
       );
 
+      const { child } = await nextPiProc(0);
       child.stdout.emit("data", JSON.stringify({ type: "session", id: "pi-session" }) + "\n");
       child.stdout.emit(
         "data",
@@ -818,8 +841,6 @@ describe("cli:start trace", () => {
 describe("cli:oneshot trace", () => {
   it("记录 oneshot start/event/stderr/exit trace", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-oneshot-trace-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     registerCliHandlers();
 
     try {
@@ -831,7 +852,7 @@ describe("cli:oneshot trace", () => {
           prompt: "生成标题",
         },
       ) as Promise<string>;
-      await Promise.resolve();
+      const { child } = await nextPiProc(0);
 
       child.stdout.emit(
         "data",
@@ -869,8 +890,6 @@ describe("cli:start 活跃度看门狗(U5)", () => {
     vi.useFakeTimers();
     process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
     const cwd = mkdtempSync(join(tmpdir(), "cortex-wd-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     registerCliHandlers();
     const send = vi.fn();
@@ -879,8 +898,10 @@ describe("cli:start 活跃度看门狗(U5)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "wd-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
+      const { child } = await nextPiProc(0);
       vi.advanceTimersByTime(5001); // 超阈值,看门狗触发 proc.kill()
-      child.emit("close", null); // 子进程被信号杀后 close → onExit 补发 cli:exit
+      expect(child.kill).toHaveBeenCalled();
+      child.emit("close", null); // 单发被取消后以 code=null 收尾 → onExit 补发 cli:exit
       expect(send).toHaveBeenCalledWith(
         "cli:exit",
         expect.objectContaining({ runId: "wd-1", error: expect.stringContaining("超时") }),
@@ -897,8 +918,6 @@ describe("cli:start 活跃度看门狗(U5)", () => {
     vi.useFakeTimers();
     process.env.CORTEX_CLI_INACTIVITY_TIMEOUT_MS = "5000";
     const cwd = mkdtempSync(join(tmpdir(), "cortex-wd2-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     registerCliHandlers();
     const send = vi.fn();
@@ -907,6 +926,7 @@ describe("cli:start 活跃度看门狗(U5)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "wd-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
+      const { child } = await nextPiProc(0);
       vi.advanceTimersByTime(4000);
       child.stdout.emit("data", JSON.stringify({ type: "session", id: "x" }) + "\n"); // 活动,重置
       vi.advanceTimersByTime(4000); // 距上次活动仅 4s < 5s,不应触发
@@ -924,9 +944,6 @@ describe("cli:start 安全重试(U7)", () => {
   it("首事件前瞬态失败(非零退出 + 无输出)→ 退避后重试一次,不提前发终态", async () => {
     vi.useFakeTimers();
     const cwd = mkdtempSync(join(tmpdir(), "cortex-retry-"));
-    const child1 = fakeChild();
-    const child2 = fakeChild();
-    spawnMock.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     registerCliHandlers();
     const send = vi.fn();
@@ -935,15 +952,17 @@ describe("cli:start 安全重试(U7)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "rt-1", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
+      const { child: child1 } = await nextPiProc(0);
       child1.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态上游错误
       child1.emit("close", 1); // 非零退出,无任何输出 → 触发重试
-      // 立即广播 retry 事件;但重 spawn 有退避,尚未发生,也未发终态 cli:exit。
+      // 立即广播 retry 事件;但重启有退避,尚未发生,也未发终态 cli:exit。
       const retryEvent = send.mock.calls.find((c) => c[0] === "cli:event" && c[1]?.event?.type === "retry");
       expect(retryEvent?.[1].event).toMatchObject({ type: "retry", attempt: 1 });
-      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(oneshotMock).toHaveBeenCalledTimes(1);
       expect(send).not.toHaveBeenCalledWith("cli:exit", expect.anything());
-      vi.advanceTimersByTime(800); // 退避到期 → 第二次 spawn
-      expect(spawnMock).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(800); // 退避到期 → 第二次拉起
+      expect(oneshotMock).toHaveBeenCalledTimes(2);
+      const { child: child2 } = await nextPiProc(1);
       child2.emit("close", 0); // 第二次成功收尾 → 终态 cli:exit
       expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-1", code: 0 }));
     } finally {
@@ -956,8 +975,6 @@ describe("cli:start 安全重试(U7)", () => {
   it("取消(cli:kill)后即便子进程非零退出也不重试 —— 直接终态", async () => {
     vi.useFakeTimers();
     const cwd = mkdtempSync(join(tmpdir(), "cortex-retry3-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true as never);
     registerCliHandlers();
     const send = vi.fn();
@@ -966,11 +983,12 @@ describe("cli:start 安全重试(U7)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "rt-3", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
+      const { child } = await nextPiProc(0);
       ipcHandlers.get("cli:kill")?.({}, "rt-3"); // 用户取消
       child.stderr.emit("data", "fetch failed: ECONNRESET\n"); // 瞬态文本(诱导误重试)
-      child.emit("close", 1); // 捕获 SIGTERM 后非零退出
+      child.emit("close", 1); // 中断后仍以非零码收尾
       vi.advanceTimersByTime(800);
-      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(oneshotMock).toHaveBeenCalledTimes(1); // 未重试
       expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-3", code: 1 }));
     } finally {
       killSpy.mockRestore();
@@ -981,8 +999,6 @@ describe("cli:start 安全重试(U7)", () => {
 
   it("spawn 失败时 error+close 都触发,只发一次终态 cli:exit(settled 守卫)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-retry4-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     registerCliHandlers();
     const send = vi.fn();
     try {
@@ -990,8 +1006,9 @@ describe("cli:start 安全重试(U7)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "rt-4", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
-      child.emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
-      child.emit("close", null); // Node 在 error 后还会触发 close
+      const { child } = await nextPiProc(0);
+      child.emit("error", Object.assign(new Error("pi 运行时不可用"), { code: "ENOENT" }));
+      child.emit("close", null); // 启动失败后 error+close 都可能触发
       const exits = send.mock.calls.filter((c) => c[0] === "cli:exit" && c[1]?.runId === "rt-4");
       expect(exits).toHaveLength(1);
     } finally {
@@ -1001,8 +1018,6 @@ describe("cli:start 安全重试(U7)", () => {
 
   it("已产生可见文本后失败 → 不重试(直接终态)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "cortex-retry2-"));
-    const child = fakeChild();
-    spawnMock.mockReturnValueOnce(child);
     registerCliHandlers();
     const send = vi.fn();
     try {
@@ -1010,11 +1025,12 @@ describe("cli:start 安全重试(U7)", () => {
         { sender: { isDestroyed: () => false, send } },
         { runId: "rt-2", sessionId: "s", agent: "pi", cwd, prompt: "hi" },
       );
+      const { child } = await nextPiProc(0);
       // 先产出可见文本(pi text_delta),再非零退出。
       child.stdout.emit("data", JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } }) + "\n");
       child.stderr.emit("data", "fetch failed: ECONNRESET\n");
       child.emit("close", 1);
-      expect(spawnMock).toHaveBeenCalledTimes(1); // 未重试
+      expect(oneshotMock).toHaveBeenCalledTimes(1); // 未重试
       expect(send).toHaveBeenCalledWith("cli:exit", expect.objectContaining({ runId: "rt-2", code: 1 }));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -1253,43 +1269,42 @@ describe("resolveSpawnCwd 无项目会话兜底", () => {
   });
 });
 
+// GUI 启动（Finder/Dock,不经登录 shell）的主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm。
+// 走 spawnEnvFor 的路径本来就逐次补齐,但第三方库自己 spawn 时只认 process.env
+//（如 pi SDK 的 DefaultPackageManager 起 npm 装包）,故启动期一次性补齐。
+describe("ensureProcessPath", () => {
+  const original = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = original;
+  });
+
+  it("只增不减:原有目录一个不丢", () => {
+    process.env.PATH = "/original/bin:/another/bin";
+    ensureProcessPath();
+    const dirs = (process.env.PATH ?? "").split(":");
+    expect(dirs).toContain("/original/bin");
+    expect(dirs).toContain("/another/bin");
+  });
+
+  it("幂等:连调两次结果不变,也不会把补齐目录堆两遍", () => {
+    process.env.PATH = "/original/bin";
+    ensureProcessPath();
+    const once = process.env.PATH;
+    ensureProcessPath();
+    expect(process.env.PATH).toBe(once);
+    // 去重由 mergePathWithPreferredDirs 保证;这里额外守住「没有重复条目」这条性质。
+    const dirs = (process.env.PATH ?? "").split(":");
+    expect(new Set(dirs).size).toBe(dirs.length);
+  });
+});
+
 describe("spawnEnvFor", () => {
-  it("pi:不注入 ELECTRON_RUN_AS_NODE,注入 PI key", () => {
-    const env = spawnEnvFor({ agent: "pi", provider: { apiKey: "sk-test" } });
-    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
-    expect(env[PI_KEY_ENV]).toBe("sk-test");
-  });
-
-  it("pi 无供应商:无 PI key,也无 ELECTRON_RUN_AS_NODE", () => {
-    const env = spawnEnvFor({ agent: "pi" });
-    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
-    expect(env[PI_KEY_ENV]).toBeUndefined();
-  });
-
-  it("claude:基础 env,不含 PI key", () => {
+  // 引擎收敛后 pi 永不 spawn:曾经的 pi 专属注入(CORTEX_PI_KEY / customProviderEnv 白名单 /
+  // 清 ELECTRON_RUN_AS_NODE)随 binary 路径删除,claude/codex 只拿补齐 PATH 的基础 env。
+  it("claude/codex:基础 env,带补齐后的 PATH,无任何 pi 专属注入", () => {
     const env = spawnEnvFor({ agent: "claude" });
-    expect(env[PI_KEY_ENV]).toBeUndefined();
-  });
-
-  it("customProviderEnv 只接受 CORTEX_PI_SECRET_ 前缀的键(防注入任意环境变量)", () => {
-    // 回归防线:customProviderEnv 挂在 PiOpenRequest —— 那是 renderer 经 IPC 传来的载荷类型。
-    // 无过滤地 Object.assign 会让调用方覆盖 PATH / NODE_OPTIONS / CORTEX_PI_KEY,
-    // 因为它合并在 buildEnv() 之后。preparePiOpenRequest 会先 delete 这个字段,此处是第二道闸。
-    const before = spawnEnvFor({ agent: "pi", provider: { apiKey: "sk-real" } });
-    const env = spawnEnvFor({
-      agent: "pi",
-      provider: { apiKey: "sk-real" },
-      customProviderEnv: {
-        CORTEX_PI_SECRET_0: "sk-custom",
-        PATH: "/tmp/evil",
-        NODE_OPTIONS: "--require /tmp/x.js",
-        [PI_KEY_ENV]: "sk-hijacked",
-      },
-    });
-    expect(env.CORTEX_PI_SECRET_0).toBe("sk-custom");
-    expect(env.PATH).toBe(before.PATH);
-    expect(env.NODE_OPTIONS).toBe(before.NODE_OPTIONS);
-    expect(env[PI_KEY_ENV]).toBe("sk-real");
+    expect(env.PATH).toBeDefined();
+    expect(env.CORTEX_PI_KEY).toBeUndefined();
   });
 });
 
@@ -1302,7 +1317,7 @@ describe("spawnEnvForDef(M3-A 派生 env 注入)", () => {
 
   it("无 extraEnv 等价于 spawnEnvFor", () => {
     const env = spawnEnvForDef({ agent: "claude" }, {});
-    expect(env[PI_KEY_ENV]).toBeUndefined();
+    expect(env.CORTEX_PI_KEY).toBeUndefined();
     expect(env.PATH).toBeDefined();
   });
 });

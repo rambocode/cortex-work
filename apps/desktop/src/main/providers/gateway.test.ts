@@ -21,7 +21,7 @@ import type { CatalogModel, CatalogProvider, GatewayStreamEvent, ProviderCatalog
 import type { PiGatewayRuntime } from "./pi-runtime";
 
 // ── Catalog 替身 ─────────────────────────────────────────────────────────────
-// gateway.ts 经 catalog.ts → pi-locate 间接依赖 electron；node 环境下先把 catalog 整个换掉，
+// gateway.ts 经 catalog.ts 间接依赖 electron；node 环境下先把 catalog 整个换掉，
 // 顺带让每个用例都能自由摆布「Catalog 里有什么」。
 let catalog: ProviderCatalog | undefined;
 vi.mock("./catalog", () => ({ getProviderCatalog: () => catalog }));

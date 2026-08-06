@@ -4,7 +4,7 @@
 // 这样 window-all-closed 的 killAllCli() 不会误杀正在跑的定时任务。
 //
 // 与 cli:oneshot 同构（行缓冲 + text/result 聚合 + 末行 flush），但:
-//   · 支持 pi 自定义供应商（从持久化的 providerSettings 解析,关窗后仍可用）;
+//   · 支持 pi 供应商选择（providerId 透传给 in-process 单发原生解析,关窗后仍可用）;
 //   · 长超时（默认 10min,agent 任务远超 oneshot 的 60s）;
 //   · 启动后即返回 running run（不阻塞到执行完）,完成时经事件推送。
 
@@ -13,9 +13,7 @@ import type { AgentProcess } from "../ipc/cli";
 import { assertSpawnCwd, detectAgents, spawnEnvForDef, startAgentProcess } from "../ipc/cli";
 import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "../ipc/mcp-config";
-import { writePiExtension } from "../agents/pi-providers";
-import { resolvePiProviderInput } from "../providers/pi-provider-input";
-import { assertOneShotProviderSupported } from "../providers/custom-provider-runtime";
+import { startPiInProcOneShot } from "../agents/pi-inproc/oneshot";
 import { getWorkspaceRoot } from "../ipc/store";
 import type { AutomationMeta, AutomationRun, CliStartRequest } from "../ipc/types";
 import { broadcastChanged, broadcastRunEvent } from "./events";
@@ -46,19 +44,6 @@ export function killAllAutomations(): void {
   for (const proc of runningAutomations.values()) proc.kill();
   runningAutomations.clear();
   pending.clear();
-}
-
-// 据 providerId 解析出 pi extension 所需的 provider（endpoint + 密钥）。
-//
-// 阶段③ 收编：来源改为「Catalog + provider-prefs + 凭据金库」（resolvePiProviderInput）。
-// 旧实现读 PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让**每一次**
-// 定时自动化都解析不到 provider 而失败，且失败点在后台、用户不在场。
-async function resolveProvider(providerId: string): Promise<CliStartRequest["provider"] | null> {
-  // 自定义 Provider 本阶段只接了聊天 RPC 路径：命中即抛错，由 runner 的失败通道记进本次运行。
-  // 不拦的话解析得 null 后仍会 spawn，pi 走兜底链换 provider —— 后台执行、用户不在场，
-  // 最难被发现的一种静默错。
-  await assertOneShotProviderSupported(providerId);
-  return (await resolvePiProviderInput(providerId)) ?? null;
 }
 
 function makeRun(meta: AutomationMeta, trigger: AutomationRun["trigger"]): AutomationRun {
@@ -154,26 +139,16 @@ export async function runAutomation(
     return run;
   }
 
-  // 整个启动序列（pi provider 解析/写 extension、buildArgs、spawn）都纳入 try:
-  // writePiExtension 用同步 fs,磁盘满/权限错会抛 —— 必须经 finalize 解除 pending,
+  // 整个启动序列（buildArgs、spawn / pi 单发启动）都纳入 try:
+  // buildArgs / assertSpawnCwd 会同步抛 —— 必须经 finalize 解除 pending,
   // 否则该 automation 会永久卡在「运行中」假象,此后所有触发都被记 skipped。
   let proc: AgentProcess;
   try {
-    let provider: CliStartRequest["provider"];
-    let piExtensionPath: string | undefined;
-    // 兼容旧自动化档：providerId（新）回退 piChannelId（旧）。
+    // 兼容旧自动化档：providerId（新）回退 piChannelId（旧）。pi 的模型/凭据由 in-process
+    // 引擎的 resolveOneShotModel 按 providerId 原生解析（Catalog + 自定义 + 凭据金库）;
+    // 解析不出时响亮抛错并经本 try 的失败通道记进本次运行——后台执行、用户不在场,
+    // 静默换 provider 是最难被发现的一种错,绝不允许。
     const automationProviderId = meta.providerId ?? (meta as { piChannelId?: string }).piChannelId;
-    if (meta.agent === "pi" && automationProviderId) {
-      const resolved = await resolveProvider(automationProviderId);
-      if (!resolved) throw new Error(`pi 供应商「${automationProviderId}」未配置或已禁用`);
-      provider = resolved;
-      piExtensionPath = writePiExtension({
-        id: resolved.id,
-        baseUrl: resolved.baseUrl,
-        apiKey: resolved.apiKey,
-        models: resolved.models,
-      });
-    }
     const req: CliStartRequest = {
       runId: run.id,
       sessionId: run.id,
@@ -183,13 +158,17 @@ export async function runAutomation(
       model: meta.model,
       effort: meta.effort,
       useOwnSkills: meta.useOwnSkills,
-      provider,
-      piExtensionPath,
+      ...(meta.agent === "pi" && automationProviderId ? { providerId: automationProviderId } : {}),
     };
     const adapter = getAgentDef(meta.agent);
-    const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR); // 自动化后台批跑:codex 清空 MCP(沿用 M1);claude/pi 忽略
     assertSpawnCwd(cwd);
-    proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvForDef(req, adapter), stdin });
+    if (meta.agent === "pi") {
+      // pi 无外部二进制:无条件走 in-process 单发(后台任务不注入 MCP/todo)。
+      proc = startPiInProcOneShot(req, { cwd });
+    } else {
+      const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR); // 自动化后台批跑:codex 清空 MCP(沿用 M1);claude 忽略
+      proc = startAgentProcess(cmd, args, { cwd, env: spawnEnvForDef(req, adapter), stdin });
+    }
   } catch (err) {
     run.status = "error";
     run.error = err instanceof Error ? err.message : String(err);

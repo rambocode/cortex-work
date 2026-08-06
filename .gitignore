@@ -11,11 +11,6 @@ out/
 coverage/
 .worktrees
 
-# pi 的 bun 编译产物(二进制 + 旁置资产),由 apps/desktop/scripts/build-pi-binary.mjs 生成
-apps/desktop/resources/pi/
-# pi 编译产物缓存(按 pi版本-bun目标-bun版本 分目录),同上脚本生成,命中免重编
-apps/desktop/.pi-build-cache/
-
 # Cortex_Helper 的 swift 编译产物,由 apps/desktop/scripts/build-cortex-helper.mjs 生成
 apps/desktop/resources/Cortex_Helper/
 
@@ -44,3 +39,8 @@ apps/desktop/dist.bak-*/
 
 # 发布控制台的产物暂存目录与流程状态(scripts/release-ui)，跨进程持久化用,不入库
 .release-stage/
+
+# pi bun 二进制构建产物（构建链已随 gateway 收敛删除，但跨迁移更新的开发机磁盘上可能残留
+# 旧产物——2026-08-06 实测 git add -A 会把 77MB 二进制扫进提交，故保留忽略条目作防护）
+apps/desktop/resources/pi/
+apps/desktop/.pi-build-cache/

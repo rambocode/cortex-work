@@ -3,6 +3,7 @@
   "include": [
     "electron.vite.config.*",
     "electron.worker.config.*",
+    "electron.pi-host.config.*",
     "src/main/**/*",
     "src/preload/**/*",
     // Research Worker 跑在 utilityProcess 里，是 Node 侧代码（禁 import electron），

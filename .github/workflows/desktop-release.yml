@@ -4,7 +4,7 @@ run-name: Desktop Release ${{ github.ref_name }}
 # 私有库(闭源)的多架构构建/发布流水线。三个构建 job(macOS arm64 / macOS x64 / Windows x64)
 # 各自独立产出;正式发布时先创建 draft Release,三端将产物直接传入草稿,publish job 再合并
 # macOS 双架构 latest-mac.yml,校验通过后统一公开。非发布模式仍用 workflow artifact。按 mode 分档,门槛递增:
-#  - build-unsigned(默认 dispatch):只构建未签名包(bun/pnpm/electron-vite/electron-builder 打包),
+#  - build-unsigned(默认 dispatch):只构建未签名包(pnpm/electron-vite/electron-builder 打包),
 #    **不需要任何 secret**。用于先验证闭源库的自动构建链能否在 CI 跑通。
 #  - build-signed:构建 + Developer ID 签名 + Apple 公证 + 仓库外校验,不发布。需 5 个签名 secret。
 #  - publish-self(dispatch):构建 + 签名 + 公证 + 发到**本仓库** rambocode/cortex-work 的 Release。
@@ -126,13 +126,6 @@ jobs:
           node-version: "20"
           cache: pnpm
 
-      # build:pi 用 bun --compile 产出 pi 自包含二进制(resources/pi 被 gitignore,CI 须现场生成)。
-      # 固定 bun 版本,避免 pi 二进制因 bun 漂移而不可复现。
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.11"
-
       # 在拉取/执行第三方代码之前先校验 secret(本步只读非空、不外泄)。
       # build-unsigned 无需任何 secret;build-signed 需 5 个签名 secret;publish-* 另需 PAT。
       - name: Verify secrets
@@ -179,14 +172,14 @@ jobs:
           fi
           echo "Version match: $pkg_version"
 
-      # —— 无密钥步:安装依赖 + 预构建(build:pi 的 bun 编译 + electron-vite),不注入任何 secret。
+      # —— 无密钥步:安装依赖 + 预构建(electron-vite),不注入任何 secret。
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       # prepackage 链含 prebuild:notes:从 CHANGELOG 提取当前版本段 → build/release-notes.md,
       # 供后续 electron-builder（写入 latest-mac.yml）与 publish job 的 gh release（--notes-file）共用。
       # 仅 publish-release 严格:CHANGELOG 无当前版本段时让脚本非零退出、中止发布,避免静默丢 notes。
-      - name: Prepackage (build pi binary + renderer/main, arch=arm64)
+      - name: Prepackage (renderer/main, arch=arm64)
         env:
           CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
         run: pnpm --filter @cortex-work/desktop run prepackage:mac-arm64
@@ -273,8 +266,7 @@ jobs:
   build-macos-x64:
     name: Build (sign/publish per mode) — macOS x64
     needs: prepare-release
-    # arm64 硬件上交叉产出 x64:node-pty 自带 darwin-x64 prebuilds、pi 用 bun --target bun-darwin-x64
-    # 交叉编译,故不需要真正的 Intel runner。
+    # arm64 硬件上交叉产出 x64:node-pty 自带 darwin-x64 prebuilds,故不需要真正的 Intel runner。
     runs-on: macos-15
     timeout-minutes: 60
     environment: production-release
@@ -296,11 +288,6 @@ jobs:
         with:
           node-version: "20"
           cache: pnpm
-
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.11"
 
       - name: Verify secrets
         env:
@@ -348,7 +335,7 @@ jobs:
 
       # x64 包不含本地 Whisper 功能(prepare-whisper-runner.mjs v1 仅支持 darwin-arm64,
       # before-pack.cjs 已对此优雅降级、只告警不阻断),这是已知可接受的功能差异。
-      - name: Prepackage (build pi binary + renderer/main, arch=x64)
+      - name: Prepackage (renderer/main, arch=x64)
         env:
           CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
         run: pnpm --filter @cortex-work/desktop run prepackage:mac-x64
@@ -453,11 +440,6 @@ jobs:
           node-version: "20"
           cache: pnpm
 
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.11"
-
       - name: Assert tag matches package.json version
         if: github.event_name == 'push'
         shell: bash
@@ -474,7 +456,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Windows 包同样没有本地 Whisper 功能(v1 仅支持 darwin-arm64),已知可接受降级。
-      - name: Prepackage (build pi binary + renderer/main, arch=win32-x64)
+      - name: Prepackage (renderer/main, arch=win32-x64)
         run: pnpm --filter @cortex-work/desktop run prepackage:win-x64
 
       - name: Build (unsigned)

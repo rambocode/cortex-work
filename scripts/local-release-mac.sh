@@ -2,11 +2,11 @@
 # 本地复刻 CI desktop-release.yml 的 publish-release 流程（macOS arm64 + x64 双架构）。
 # 用途：CI Actions 预算受限时，在本机签名+公证+发布到 rambocode/cortex-work-release。
 #
-# 两个架构必须串行跑（不能并行/合并成一条 electron-builder 命令）：apps/desktop/scripts/
-# build-pi-binary.mjs 的输出目录 resources/pi/ 是单一共享目录，每次重建会清空重写，
-# 两个架构的 pi 二进制不能同时存在——只能"建 arm64 → 打包 → 建 x64 → 打包"顺序进行。
+# 两个架构仍串行跑（不并行/不合并成一条 electron-builder 命令）：本脚本与 release:ui 的
+# 阶段编排、断点续跑状态机都按串行设计（原先「resources/pi/ 单一共享目录」的理由已随
+# pi gateway 化删除而消失，是否可并行需单独评估，不要顺手放开）。
 # 发布只在最后做一次：合并两份 latest-mac.yml 后一次性上传，避免出现"一个架构的上传把
-# 另一个架构覆盖"的问题（这正是 v0.1.27 发布事故的根源）。
+# 另一个架构覆盖"的问题（这正是 v0.1.27 发布事故的根源；这半条与 pi 无关，任何时候都不得放开）。
 #
 # 前置：
 #   - Developer ID Application 证书已在登录钥匙串（identity: Jiangwei Lan (HQ537XMLJY)）
@@ -84,7 +84,7 @@ cp apps/desktop/dist/*-arm64.zip apps/desktop/dist/*-arm64.zip.blockmap "$STAGE/
 cp apps/desktop/dist/latest-mac.yml "$STAGE/latest-mac-arm64.yml"
 cp -r apps/desktop/build "$STAGE/build" # release-notes.md 供后面发布用
 
-# ── channel x64（重建 pi 二进制会覆盖 arm64 那份，必须在 arm64 产物已拷进 STAGE 之后再跑）──
+# ── channel x64（x64 的 prepackage 会重写 dist/ 与构建产物，必须在 arm64 产物已拷进 STAGE 之后再跑）──
 echo "── channel: macOS x64 ──"
 pnpm --filter @cortex-work/desktop run prepackage:mac-x64
 CSC_NAME="Jiangwei Lan (HQ537XMLJY)" pnpm --filter @cortex-work/desktop run build:mac-x64

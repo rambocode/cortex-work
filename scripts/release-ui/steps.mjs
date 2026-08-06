@@ -1,8 +1,8 @@
 // macOS 双架构发布流程的阶段定义。逐条对应 scripts/local-release-mac.sh，语义必须保持一致。
 //
-// 【顺序为什么不能动】两个架构必须串行:apps/desktop/scripts/build-pi-binary.mjs 的输出目录
-// resources/pi/ 是单一共享目录,每次重建清空重写,两架构的 pi 二进制无法并存。因此只能
-// 「建 arm64 → 打包 → 把产物拷走 → 建 x64 → 打包」。x64 的 prepackage 一旦跑起来,
+// 【顺序为什么不能动】两个架构仍串行:阶段编排与断点续跑状态机按串行设计(原先
+// 「resources/pi/ 单一共享目录」的理由已随 pi gateway 化删除而消失,是否可并行需单独评估)。
+// 只能「建 arm64 → 打包 → 把产物拷走 → 建 x64 → 打包」。x64 的 prepackage 一旦跑起来,
 // dist 里的 arm64 产物就不再可信——所以 arm64:stage 必须在 x64:prepackage 之前完成。
 //
 // 【发布为什么只做一次】合并两份 latest-mac.yml 后一次性上传。分两次传会出现「后一个架构的

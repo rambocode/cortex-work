@@ -46,8 +46,50 @@ const API_FACTORY: Record<string, string> = {
 /** 上一轮注册进去的 id 集合。用户删掉定义后要据此从注册表里摘除，否则会残留成幽灵供应商。 */
 let registeredIds = new Set<string>();
 
+/**
+ * 解析 headers 各值里的 `${secret:NAME}` 引用；缺引用的那一条整条丢弃。
+ *
+ * 为什么必须在这里解：旧的二进制路径把 `${secret:N}` 换成 `${CORTEX_PI_SECRET_<N>}` 占位符，
+ * 再经 spawn env 注入，由 pi 子进程里的 `resolve-config-value` 解出（`apiKey` 与 `headers` 都走它）。
+ * in-process 化之后既没有 spawn 也没有那层 env，不在此解就会把 `${secret:X}` **字面量**原样发到
+ * 上游，换来一次极难归因的 401/签名错误。
+ *
+ * 与 apiKey 的懒解析（`resolve()` 时才解密）不同：headers 是 pi provider 定义里的静态字段、
+ * 没有解析钩子，只能在构造时解出。取舍——密钥会驻留在 provider 对象里，暴露面比 apiKey 略大；
+ * 但 `syncCustomProvidersInto` 每次取注册表都会重建 provider，所以「改完 Secret 立即生效」不受影响。
+ *
+ * 缺引用整条丢弃，与 apiKey 的「绝不把带 `${secret:}` 的字面量当密钥发出去」同源：
+ * 发一个半解析的鉴权头比不发更糟——后者至少报「未授权」，前者报的是莫名其妙的错。
+ */
+function resolveHeaderSecrets(
+  headers: Record<string, unknown>,
+  secrets: Readonly<Record<string, string>>,
+  onDrop: (key: string, missing: string[]) => void,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value !== "string") {
+      out[key] = value;
+      continue;
+    }
+    const { text, missing } = resolveSecretRefs(value, secrets);
+    if (missing.length) {
+      onDrop(key, missing);
+      continue;
+    }
+    out[key] = text;
+  }
+  return out;
+}
+
 /** 能力字段完整才注册 —— 与 `parseCustomProvider` 同一把尺子，缺字段整条丢弃、绝不补默认值。 */
-function toModel(raw: unknown, providerId: string, baseUrl: string, providerApi: unknown): Record<string, unknown> | undefined {
+function toModel(
+  raw: unknown,
+  providerId: string,
+  baseUrl: string,
+  providerApi: unknown,
+  resolveHeaders: (headers: Record<string, unknown>) => Record<string, unknown>,
+): Record<string, unknown> | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const m = raw as Record<string, unknown>;
   const api = typeof m.api === "string" ? m.api : typeof providerApi === "string" ? providerApi : "";
@@ -74,7 +116,9 @@ function toModel(raw: unknown, providerId: string, baseUrl: string, providerApi:
     },
     contextWindow: m.contextWindow,
     maxTokens: m.maxTokens,
-    ...(m.headers && typeof m.headers === "object" ? { headers: m.headers } : {}),
+    ...(m.headers && typeof m.headers === "object"
+      ? { headers: resolveHeaders(m.headers as Record<string, unknown>) }
+      : {}),
     // compat 原样带上：它决定 role / max_tokens 字段名等线格式，丢了会让非 OpenAI 上游 400
     //（详见 capability-resolver.ts 里的实测记录）。
     ...(m.compat !== undefined ? { compat: m.compat } : {}),
@@ -102,8 +146,18 @@ async function buildProvider(
   const baseUrl = typeof parsed.baseUrl === "string" ? parsed.baseUrl : "";
   if (!/^https?:\/\//i.test(baseUrl)) return undefined;
 
+  // headers 里的 Secret 引用只在真的出现 `${secret:` 时才去读金库——readSecrets() 要过一次
+  // safeStorage 解密，绝大多数定义根本没有 headers 引用，不该为此付解密成本。
+  const secrets = /\$\{secret:/.test(definition.json) ? await readSecrets() : {};
+  const resolveHeaders = (headers: Record<string, unknown>): Record<string, unknown> =>
+    resolveHeaderSecrets(headers, secrets, (key, missing) => {
+      // 丢弃是刻意的（见 resolveHeaderSecrets 注释）；但必须留痕，否则用户只会看到一个
+      // 没有理由的 401，而 Secret 名字打错这种事从上游报错里完全看不出来。
+      log.warn(`自定义供应商 ${id} 的 header "${key}" 引用了不存在的 Secret（${missing.join(", ")}），该 header 已丢弃`);
+    });
+
   const models = (Array.isArray(parsed.models) ? parsed.models : [])
-    .map((m) => toModel(m, id, baseUrl, parsed.api))
+    .map((m) => toModel(m, id, baseUrl, parsed.api, resolveHeaders))
     .filter((m): m is Record<string, unknown> => !!m);
   if (!models.length) return undefined;
 
@@ -122,7 +176,9 @@ async function buildProvider(
       id,
       name,
       baseUrl,
-      ...(parsed.headers && typeof parsed.headers === "object" ? { headers: parsed.headers } : {}),
+      ...(parsed.headers && typeof parsed.headers === "object"
+        ? { headers: resolveHeaders(parsed.headers as Record<string, unknown>) }
+        : {}),
       auth: {
         apiKey: {
           name: `${name} API key`,

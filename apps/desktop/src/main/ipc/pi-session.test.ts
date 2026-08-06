@@ -1,6 +1,6 @@
 // pi-session.ts 单测:pi:* IPC 注册表 / 命令转发 / 事件回推 / 生命周期。
-// electron(ipcMain)、pi-rpc(spawn+会话)、pi-providers、cli(spawnEnvFor) 全 mock,
-// 纯逻辑校验:不真的 spawn 子进程。
+// electron(ipcMain)、pi-gateway(openPiGatewaySession)、provider 解析、cli 全 mock,
+// 纯逻辑校验:引擎已收敛,pi:open 无条件走 gateway,不存在任何选路分支。
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
@@ -29,46 +29,42 @@ const h = vi.hoisted(() => {
     getSessionStats: vi.fn().mockResolvedValue({ success: true, data: { messageCount: 3 } }),
     stop: vi.fn(),
     respondUi: vi.fn(),
-    onEvent: (_ev: unknown) => {}, // 构造时由 PiRpcSession mock 覆盖为真实回调（按实例存,支持多会话路由验证）
+    onEvent: (_ev: unknown) => {}, // 构造时由 openPiGatewaySession mock 覆盖为真实回调（按实例存,支持多会话路由验证）
     onUiRequest: (_req: unknown) => {}, // 同上,UI 请求路由用例据此 fire
   });
   const handlers = new Map<string, (...a: unknown[]) => unknown>();
   const onEventRef: { current: ((ev: unknown) => void) | null } = { current: null };
   const instances: ReturnType<typeof makeSession>[] = [];
-  // 必须用普通 function(可 new),箭头函数不可作构造器。
-  const PiRpcSession = vi.fn(function (
-    _transport: unknown,
-    onEvent: (ev: unknown) => void,
-    onUiRequest?: (req: unknown) => void,
-  ) {
-    onEventRef.current = onEvent; // 末个会话的回调（单会话用例用）
-    const inst = makeSession();
-    inst.onEvent = onEvent; // 按实例存,多会话路由用例据此分别 fire
-    if (onUiRequest) inst.onUiRequest = onUiRequest;
-    instances.push(inst);
-    return inst;
-  });
+  /** 每次 pi:open 传给 gateway 的 request（就是 prepared 后的 req 对象本身）。 */
+  const openRequests: PiOpenRequest[] = [];
+  const openPiGatewaySession = vi.fn(
+    async (options: {
+      request: PiOpenRequest;
+      onEvent: (ev: unknown, runId?: string) => void;
+      onUiRequest?: (req: unknown) => void;
+    }) => {
+      onEventRef.current = options.onEvent; // 末个会话的回调（单会话用例用）
+      const inst = makeSession();
+      inst.onEvent = options.onEvent; // 按实例存,多会话路由用例据此分别 fire
+      if (options.onUiRequest) inst.onUiRequest = options.onUiRequest;
+      instances.push(inst);
+      openRequests.push(options.request);
+      return inst;
+    },
+  );
   return {
     handlers,
     onEventRef,
     instances,
+    openRequests,
     makeSession,
-    PiRpcSession,
-    buildRpcArgs: vi.fn((_req: PiOpenRequest) => ["--mode", "rpc"]),
-    // 形参显式声明:让用例能按类型读 mock.calls（验证注入进子进程的 env）。
-    // 零参写法会把 calls 推成 [],取 [1] 直接类型错。
-    spawnPiRpc: vi.fn((_args: string[], _opts: { cwd?: string; env: NodeJS.ProcessEnv }) => ({})),
-    writePiExtension: vi.fn(() => "/ext/deepseek.js"),
-    writeApprovalExtension: vi.fn(() => "/ext/approval.js"),
-    writeCustomToolExtension: vi.fn(() => "/ext/sample-tools.js"),
-    writeSlashCommandExtension: vi.fn(() => "/ext/sample-commands.js"),
-    writeAskQuestionExtension: vi.fn(() => "/ext/askquestion.js"),
-    writeTodoExtension: vi.fn(() => "/ext/todo.js"),
+    openPiGatewaySession,
+    // 供应商解析:pi-session 只用它把 Catalog+prefs 的 endpoint 覆盖挂上 request.provider。
+    resolvePiProviderInput: vi.fn(async (_id: string): Promise<unknown> => undefined),
     assertSpawnCwd: vi.fn(),
     // cwd 归一(空串 → 当天无项目工作目录)。桩按「有值原样返回」实现,
     // 让既有用例断言的 cwd 不被改写;空值兜底本身由 cli.test.ts 覆盖。
     resolveSpawnCwd: vi.fn((cwd?: string) => cwd?.trim() || "/tmp/cortex-no-project"),
-    spawnEnvFor: vi.fn(() => ({})),
     readImageBytes: vi.fn(async () => ({ mimeType: "image/png", base64: "AAAA" })),
     recordAgentTrace: vi.fn(),
     recordStreamDelta: vi.fn(),
@@ -83,9 +79,8 @@ const h = vi.hoisted(() => {
     })),
     migrateLegacyAgentBrowserMcp: vi.fn((settings: unknown) => settings),
     collectBridgeServers: vi.fn((_servers?: unknown[], _browser?: unknown): unknown[] => []),
-    writeMcpBridgeExtension: vi.fn(() => "/ext/mcp-bridge.js"),
     // Computer Use 注入决策（五门控本身在 capabilities/computer-use/inject.test.ts 里测,
-    // 这里只验「决策结果如何流进 -e 批次与子进程 env」）。
+    // 这里只验「决策结果如何流进 inProcExtensionPaths + computerUseEnv」）。
     resolveComputerUse: vi.fn(async (): Promise<{ path: string | null; env: Record<string, string> }> => ({
       path: null,
       env: {},
@@ -97,23 +92,11 @@ vi.mock("electron", () => ({
   app: { getAppPath: () => "/fake/app", isPackaged: false },
   ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, fn) },
 }));
-vi.mock("../agents/pi-rpc", () => ({
-  buildRpcArgs: h.buildRpcArgs,
-  spawnPiRpc: h.spawnPiRpc,
-  PiRpcSession: h.PiRpcSession,
-}));
-vi.mock("../agents/pi-providers", () => ({ writePiExtension: h.writePiExtension }));
-vi.mock("../agents/pi-extensions", () => ({
-  writeApprovalExtension: h.writeApprovalExtension,
-  writeCustomToolExtension: h.writeCustomToolExtension,
-  writeSlashCommandExtension: h.writeSlashCommandExtension,
-  writeAskQuestionExtension: h.writeAskQuestionExtension,
-  writeTodoExtension: h.writeTodoExtension,
-}));
+vi.mock("../agents/pi-gateway/client", () => ({ openPiGatewaySession: h.openPiGatewaySession }));
+vi.mock("../providers/pi-provider-input", () => ({ resolvePiProviderInput: h.resolvePiProviderInput }));
 vi.mock("./cli", () => ({
   assertSpawnCwd: h.assertSpawnCwd,
   resolveSpawnCwd: h.resolveSpawnCwd,
-  spawnEnvFor: h.spawnEnvFor,
 }));
 vi.mock("./image", () => ({ readImageBytes: h.readImageBytes }));
 vi.mock("./agent-trace", () => ({ recordAgentTrace: h.recordAgentTrace, recordStreamDelta: h.recordStreamDelta }));
@@ -124,11 +107,11 @@ vi.mock("../capabilities/agent-browser/inject", () => ({
   buildAgentBrowserMcpServerConfig: h.buildAgentBrowserMcpServerConfig,
   migrateLegacyAgentBrowserMcp: h.migrateLegacyAgentBrowserMcp,
 }));
-vi.mock("../agents/pi-mcp-bridge", () => ({
-  collectBridgeServers: h.collectBridgeServers,
-  writeMcpBridgeExtension: h.writeMcpBridgeExtension,
+vi.mock("../agents/pi-mcp-bridge", () => ({ collectBridgeServers: h.collectBridgeServers }));
+vi.mock("../capabilities/computer-use/inject", () => ({
+  resolveComputerUse: h.resolveComputerUse,
+  GROUNDING_MODEL_ENV: "PI_COMPUSE_GROUNDING_MODEL",
 }));
-vi.mock("../capabilities/computer-use/inject", () => ({ resolveComputerUse: h.resolveComputerUse }));
 
 import {
   registerPiSessionHandlers,
@@ -157,16 +140,10 @@ beforeEach(() => {
   killAllPiSessions();
   h.handlers.clear();
   h.instances.length = 0;
+  h.openRequests.length = 0;
   h.onEventRef.current = null;
-  h.PiRpcSession.mockClear();
-  h.buildRpcArgs.mockClear();
-  h.spawnPiRpc.mockClear();
-  h.writePiExtension.mockClear();
-  h.writeApprovalExtension.mockClear();
-  h.writeCustomToolExtension.mockClear();
-  h.writeSlashCommandExtension.mockClear();
-  h.writeAskQuestionExtension.mockClear();
-  h.spawnEnvFor.mockClear();
+  h.openPiGatewaySession.mockClear();
+  h.resolvePiProviderInput.mockReset().mockResolvedValue(undefined);
   h.readImageBytes.mockClear();
   h.recordAgentTrace.mockClear();
   h.recordStreamDelta.mockClear();
@@ -181,7 +158,6 @@ beforeEach(() => {
   });
   h.migrateLegacyAgentBrowserMcp.mockReset().mockImplementation((settings) => settings);
   h.collectBridgeServers.mockReset().mockReturnValue([]);
-  h.writeMcpBridgeExtension.mockReset().mockReturnValue("/ext/mcp-bridge.js");
   h.resolveComputerUse.mockReset().mockResolvedValue({ path: null, env: {} });
   registerPiSessionHandlers();
 });
@@ -208,32 +184,28 @@ describe("registerPiSessionHandlers", () => {
   });
 });
 
-describe("pi:open MCP 桥接扩展(cortex 自有,替代 pi-mcp-adapter)", () => {
-  it("有桥接 server → 生成桥接扩展并加入 extraExtensionPaths", async () => {
+describe("pi:open MCP 桥接（结构化 bridgeServers 交给 worker,引擎收敛后不落盘 .js）", () => {
+  it("有桥接 server → 收进 request.bridgeServers 随 open 参数进 worker", async () => {
     h.getPersistedState.mockResolvedValue({
       generalSettings: { browserControl: { enabled: true }, mcp: { enabled: true, servers: [{ id: "fs" }] } },
     });
     const browser = { id: "cortex-browser", transport: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
     h.buildBrowserMcpServerConfig.mockReturnValue(browser);
-    h.collectBridgeServers.mockReturnValue([{ id: "fs", transport: "stdio", command: "/bin/fs" }, browser]);
+    const bridges = [{ id: "fs", transport: "stdio", command: "/bin/fs" }, browser];
+    h.collectBridgeServers.mockReturnValue(bridges);
     await open({ uiSessionId: "ub", cwd: "/proj" });
     // 汇总用户 server(总开关开)+ 浏览器 server 交给 collectBridgeServers。
     expect(h.collectBridgeServers).toHaveBeenCalledWith(
       [{ id: "fs" }, expect.objectContaining({ id: "agent-browser" })],
       browser,
     );
-    expect(h.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
-    // 生成的桥接扩展路径并入本会话的 extraExtensionPaths(供 buildRpcArgs 加 -e)。
-    const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
-    expect(req.extraExtensionPaths).toContain("/ext/mcp-bridge.js");
+    expect(h.openRequests[0]!.bridgeServers).toEqual(bridges);
   });
 
-  it("内置 agent-browser 不可用且无其它 server → 不生成桥接扩展", async () => {
+  it("内置 agent-browser 不可用且无其它 server → bridgeServers 为空数组", async () => {
     h.buildAgentBrowserMcpServerConfig.mockReturnValue(null);
     await open({ uiSessionId: "ub2", cwd: "/proj" }); // 默认 collectBridgeServers→[]
-    expect(h.writeMcpBridgeExtension).not.toHaveBeenCalled();
-    const req = h.buildRpcArgs.mock.calls[0][0] as PiOpenRequest;
-    expect(req.extraExtensionPaths).not.toContain("/ext/mcp-bridge.js");
+    expect(h.openRequests[0]!.bridgeServers).toEqual([]);
   });
 
   it("默认把内置 agent-browser 加入 Pi MCP 桥接", async () => {
@@ -245,7 +217,7 @@ describe("pi:open MCP 桥接扩展(cortex 自有,替代 pi-mcp-adapter)", () => 
       [expect.objectContaining({ id: "agent-browser" })],
       null,
     );
-    expect(h.writeMcpBridgeExtension).toHaveBeenCalledTimes(1);
+    expect(h.openRequests[0]!.bridgeServers).toEqual([expect.objectContaining({ id: "agent-browser" })]);
   });
 });
 
@@ -276,31 +248,51 @@ describe("pi:open", () => {
     );
   });
 
-  it("无 provider:仅 askquestion 常驻注入,buildRpcArgs+spawn+构造会话,就绪后回 sessionId,注册表 +1", async () => {
+  it("无条件走 gateway:openPiGatewaySession 建会话,askquestion sentinel 常驻注入,回 sessionId,注册表 +1", async () => {
     const { result } = await open();
-    expect(h.writePiExtension).not.toHaveBeenCalled();
-    expect(h.writeAskQuestionExtension).toHaveBeenCalledWith(expect.stringContaining("@@CORTEX_ASKQ"));
-    expect(h.buildRpcArgs).toHaveBeenCalledWith(expect.objectContaining({ uiSessionId: "u1", cwd: "/proj" }));
-    expect(h.spawnPiRpc).toHaveBeenCalledTimes(1);
+    expect(h.openPiGatewaySession).toHaveBeenCalledTimes(1);
+    const req = h.openRequests[0]!;
+    expect(req).toMatchObject({ uiSessionId: "u1", cwd: "/proj" });
+    // askquestion 借道的会话级高熵 sentinel 恒注入（worker 侧 native-hooks 消费）。
+    expect(req.askQuestionSentinel).toContain("@@CORTEX_ASKQ");
     expect(h.instances[0].ready).toHaveBeenCalled();
     expect(result).toEqual({ uiSessionId: "u1", sessionId: "sess-x" });
     expect(piSessionCount()).toBe(1);
+    // trace 里的引擎恒为 gateway。
+    expect(h.recordAgentTrace).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "open", data: expect.objectContaining({ engine: "gateway" }) }),
+    );
   });
 
-  it("有 provider:生成 extension + 回填 piExtensionPath + spawnEnvFor 收到 provider", async () => {
-    const provider = { id: "deepseek", baseUrl: "https://api.deepseek.com", apiKey: "sk-x", models: [] };
-    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/proj", provider };
-    await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(h.writePiExtension).toHaveBeenCalledWith(provider);
-    expect(req.piExtensionPath).toBe("/ext/deepseek.js"); // 被回填供 buildRpcArgs 读取
-    expect(h.spawnEnvFor).toHaveBeenCalledWith({ agent: "pi", provider });
+  it("providerId → resolvePiProviderInput 合成 endpoint 覆盖挂上 request.provider（baseUrl 覆盖通道）", async () => {
+    const provider = { id: "anthropic", baseUrl: "https://gw.example.com", models: [] };
+    h.resolvePiProviderInput.mockResolvedValue(provider);
+    await open({ uiSessionId: "u1", providerId: "anthropic" });
+    expect(h.resolvePiProviderInput).toHaveBeenCalledWith("anthropic");
+    expect(h.openRequests[0]!.provider).toBe(provider);
   });
 
-  it("ready 失败 → stop 子进程 + 不留注册表条目 + 抛错", async () => {
+  it("providerId 解析不出（自定义供应商）→ provider 留空,由 worker 侧模型解析响亮失败", async () => {
+    h.resolvePiProviderInput.mockResolvedValue(undefined);
+    await open({ uiSessionId: "u1", providerId: "my-custom" });
+    expect(h.openRequests[0]!.provider).toBeUndefined();
+    // providerId 原样透传给 worker。
+    expect(h.openRequests[0]!.providerId).toBe("my-custom");
+  });
+
+  it("调用方（编排子会话）直接给定 provider 时原样沿用,不再解析", async () => {
+    const provider = { id: "deepseek", baseUrl: "https://api.deepseek.com", models: [] };
+    await open({ uiSessionId: "u1", provider });
+    expect(h.resolvePiProviderInput).not.toHaveBeenCalled();
+    expect(h.openRequests[0]!.provider).toBe(provider);
+  });
+
+  it("ready 失败 → stop 会话 + 不留注册表条目 + 抛错", async () => {
     const bad = { ...h.makeSession(), ready: vi.fn().mockRejectedValue(new Error("pi 会话就绪超时")) };
-    h.PiRpcSession.mockImplementationOnce(function (_t: unknown, onEvent: (ev: unknown) => void) {
-      h.onEventRef.current = onEvent;
+    h.openPiGatewaySession.mockImplementationOnce(async (options) => {
+      h.onEventRef.current = options.onEvent;
       h.instances.push(bad);
+      h.openRequests.push(options.request);
       return bad;
     });
     await expect(open()).rejects.toThrow(/就绪超时/);
@@ -316,6 +308,19 @@ describe("pi:open", () => {
     expect(first.stop).toHaveBeenCalled();
     expect(second).not.toBe(first);
     expect(piSessionCount()).toBe(1);
+  });
+
+  it("安全:renderer 传来的 computerUseEnv / customProviderEnv 在边界上被清空", async () => {
+    const req: PiOpenRequest = {
+      uiSessionId: "u1",
+      cwd: "/proj",
+      computerUseEnv: { PATH: "/tmp/evil" },
+      customProviderEnv: { NODE_OPTIONS: "--require /tmp/x.js" },
+    };
+    await h.handlers.get("pi:open")!(fakeEvent(), req);
+    expect(h.openRequests[0]!.customProviderEnv).toBeUndefined();
+    // computerUseEnv 只可能由主进程的 Computer Use 决策重新填充（本用例门控未过 → 保持空）。
+    expect(h.openRequests[0]!.computerUseEnv).toBeUndefined();
   });
 });
 
@@ -372,7 +377,7 @@ describe("命令转发", () => {
     await expect(h.handlers.get("pi:abort")!({}, "missing")).rejects.toThrow(/不存在/);
   });
 
-  it("底层方法 reject（进程中途崩溃/超时）→ IPC handler 原样 rejection 传播给调用方", async () => {
+  it("底层方法 reject（worker 崩溃/超时）→ IPC handler 原样 rejection 传播给调用方", async () => {
     await open();
     h.instances[0].prompt.mockRejectedValueOnce(new Error("pi 进程退出 (code=1)"));
     await expect(h.handlers.get("pi:prompt")!({}, "u1", "x")).rejects.toThrow(/退出/);
@@ -429,7 +434,7 @@ describe("事件回推与生命周期", () => {
     expect(event.sender.send).not.toHaveBeenCalled();
   });
 
-  it("pi:close → stop 子进程 + 摘除注册表", async () => {
+  it("pi:close → stop 会话 + 摘除注册表", async () => {
     await open();
     const s = h.instances[0];
     await h.handlers.get("pi:close")!({}, "u1");
@@ -502,82 +507,60 @@ describe("extension UI channel（阶段3 U2）", () => {
   });
 });
 
-describe("阶段3 extension 装配（pi:open 按开关注入）", () => {
-  it("enableToolApproval → writeApprovalExtension + extraExtensionPaths 含其路径", async () => {
-    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p", enableToolApproval: true, approvalTools: ["bash"] };
-    await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(h.writeApprovalExtension).toHaveBeenCalledWith(["bash"]);
-    expect(req.extraExtensionPaths).toContain("/ext/approval.js");
-  });
-
-  it("三开关全开 → 三个样例 + askquestion/todo 常驻,extraExtensionPaths 五条", async () => {
+describe("能力字段透传（原生组装在 worker 侧,主进程只准备结构化请求）", () => {
+  it("审批/样例开关与 askquestion sentinel 原样进 open request,不再生成任何 .js 文件", async () => {
     const req: PiOpenRequest = {
       uiSessionId: "u1",
       cwd: "/p",
       enableToolApproval: true,
+      approvalTools: ["bash"],
       enableSampleTools: true,
       enableSampleCommands: true,
     };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(req.extraExtensionPaths).toEqual([
-      "/ext/approval.js",
-      "/ext/sample-tools.js",
-      "/ext/sample-commands.js",
-      "/ext/askquestion.js",
-      "/ext/todo.js",
-    ]);
+    const sent = h.openRequests[0]!;
+    expect(sent).toMatchObject({
+      enableToolApproval: true,
+      approvalTools: ["bash"],
+      enableSampleTools: true,
+      enableSampleCommands: true,
+    });
+    expect(sent.askQuestionSentinel).toContain("@@CORTEX_ASKQ");
   });
 
-  it("无开关 → 不生成样例 extension,但 askquestion/todo 常驻注入(askquestion 带每会话高熵 sentinel)", async () => {
-    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
-    await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(h.writeApprovalExtension).not.toHaveBeenCalled();
-    expect(h.writeAskQuestionExtension).toHaveBeenCalledWith(expect.stringContaining("@@CORTEX_ASKQ"));
-    expect(req.extraExtensionPaths).toEqual(["/ext/askquestion.js", "/ext/todo.js"]);
-  });
-
-  it("provider + 审批共存:provider extension 与审批 extension 都生成,互不影响", async () => {
-    const provider = { id: "deepseek", baseUrl: "https://api.deepseek.com", apiKey: "k", models: [] };
-    const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p", provider, enableToolApproval: true };
-    await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(h.writePiExtension).toHaveBeenCalledWith(provider); // provider 注入不动
-    expect(req.piExtensionPath).toBe("/ext/deepseek.js");
-    expect(req.extraExtensionPaths).toEqual(["/ext/approval.js", "/ext/askquestion.js", "/ext/todo.js"]);
+  it("调用方已带 askQuestionSentinel 时沿用,不重新生成（编排子会话复用主会话 sentinel）", async () => {
+    await open({ askQuestionSentinel: "@@CORTEX_ASKQ:fixed@@" });
+    expect(h.openRequests[0]!.askQuestionSentinel).toBe("@@CORTEX_ASKQ:fixed@@");
   });
 });
 
-// Computer Use 只在这条 RPC 路径注入（单发路径无审批 UI,刻意不给）。五门控判定本身在
-// capabilities/computer-use/inject.test.ts,这里只守「决策 → -e 批次 + 子进程 env」这段接线。
-describe("pi:open Computer Use 注入", () => {
+// Computer Use 只在这条聊天会话路径注入（单发路径无审批 UI,刻意不给）。五门控判定本身在
+// capabilities/computer-use/inject.test.ts,这里只守「决策 → inProcExtensionPaths + computerUseEnv」这段接线。
+describe("pi:open Computer Use 注入（gateway 语义）", () => {
   const PKG = "/home/u/.pi/agent/npm/node_modules/pi-computer-use";
 
-  it("门控通过 → 包路径进 extraExtensionPaths", async () => {
+  it("门控通过 → 包路径进 inProcExtensionPaths,grounding 键显式携带（缺省空串 = 删除语义）", async () => {
     h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
     const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(req.extraExtensionPaths).toContain(PKG);
+    const sent = h.openRequests[0]!;
+    expect(sent.inProcExtensionPaths).toEqual([PKG]);
+    // ⚠️ 常驻 worker 的 env 跨会话残留:注入轮必须显式带 grounding 键,空串 = worker 侧删除。
+    expect(sent.computerUseEnv).toEqual({ PI_COMPUSE_GROUNDING_MODEL: "" });
   });
 
-  it("门控不通过 → 路径不出现,原有 extension 批次不受影响", async () => {
+  it("grounding 模型有值 → 原样进 computerUseEnv 交 worker 落地", async () => {
+    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: { PI_COMPUSE_GROUNDING_MODEL: "qwen-vl-max" } });
+    await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" });
+    expect(h.openRequests[0]!.computerUseEnv).toEqual({ PI_COMPUSE_GROUNDING_MODEL: "qwen-vl-max" });
+  });
+
+  it("门控不通过 → 两个字段都缺省（一个字节不碰 worker 的 env）", async () => {
     h.resolveComputerUse.mockResolvedValue({ path: null, env: {} });
     const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(req.extraExtensionPaths).toEqual(["/ext/askquestion.js", "/ext/todo.js"]);
-    expect(req.computerUseEnv).toBeUndefined();
-  });
-
-  it("grounding 模型经 env 传到 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）", async () => {
-    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: { PI_COMPUSE_GROUNDING_MODEL: "qwen-vl-max" } });
-    await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" });
-    const spawnOpts = h.spawnPiRpc.mock.calls[0]![1];
-    expect(spawnOpts.env.PI_COMPUSE_GROUNDING_MODEL).toBe("qwen-vl-max");
-  });
-
-  it("无 grounding 配置 → 不往 env 里塞该变量", async () => {
-    h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
-    await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" });
-    const spawnOpts = h.spawnPiRpc.mock.calls[0]![1];
-    expect(spawnOpts.env.PI_COMPUSE_GROUNDING_MODEL).toBeUndefined();
+    expect(h.openRequests[0]!.inProcExtensionPaths).toBeUndefined();
+    expect(h.openRequests[0]!.computerUseEnv).toBeUndefined();
   });
 
   // 决策失败不该拖垮开会话——最坏是这一轮没有 GUI 工具。
@@ -586,7 +569,7 @@ describe("pi:open Computer Use 注入", () => {
     const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
     const res = (await h.handlers.get("pi:open")!(fakeEvent(), req)) as PiOpenResult;
     expect(res.sessionId).toBe("sess-x");
-    expect(req.extraExtensionPaths).not.toContain(PKG);
+    expect(h.openRequests[0]!.inProcExtensionPaths).toBeUndefined();
   });
 
   // 库存根闸只管市场扩展（settings 可被外部篡改）;内置能力的路径来自主进程自己的 marker,
@@ -596,7 +579,7 @@ describe("pi:open Computer Use 注入", () => {
     h.resolveComputerUse.mockResolvedValue({ path: PKG, env: {} });
     const req: PiOpenRequest = { uiSessionId: "u1", cwd: "/p" };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
-    expect(req.extraExtensionPaths).toContain(PKG);
+    expect(h.openRequests[0]!.inProcExtensionPaths).toEqual([PKG]);
     __setPiExtStoreRootForTest(null);
   });
 });
@@ -618,8 +601,9 @@ describe("阶段4 恢复:pi:switchSession + ready sessionFile", () => {
   it("pi:open 回带 ready 取得的 sessionFile", async () => {
     const sess = h.makeSession();
     sess.ready = vi.fn().mockResolvedValue({ sessionId: "s1", sessionFile: "/sessions/a.jsonl" });
-    h.PiRpcSession.mockImplementationOnce(function (_t: unknown, _onEvent: (ev: unknown) => void) {
+    h.openPiGatewaySession.mockImplementationOnce(async (options) => {
       h.instances.push(sess);
+      h.openRequests.push(options.request);
       return sess;
     });
     const result = (await h.handlers.get("pi:open")!(fakeEvent(), { uiSessionId: "u1", cwd: "/p" })) as {

@@ -2,7 +2,7 @@
 //   · text 多行按序发 ask:event;
 //   · ask:cancel kill + 删表 + 幂等;killAllAsk 全清;
 //   · 非零退出发携带 error 的 result 终止事件,不抛;
-//   · pi + provider:buildArgs 含 -e <extension> 且注入 PI key;无 provider 不加;
+//   · pi:无外部二进制,无条件走 in-process 单发(startPiInProcOneShot,mock 驱动);
 //   · tightenTools=true:claude/codex 去掉跳审批/bypass 标志(R9,显式标志);
 //   · 正常结束补发 result(FIX-1);终止后迟到 stdout 行不再发事件。
 // electron / child_process / fs 在测试环境整体 mock(仿 cli.test.ts)。
@@ -48,15 +48,13 @@ vi.mock("os", async (importOriginal) => ({
   homedir: () => "/home/test",
 }));
 
-// writePiExtension 会写盘:mock 成纯路径返回,断言只看「是否被装配 + 路径进了 args」。
-const writePiExtensionMock = vi.fn((p: { id: string }) => `/fake/ext/${p.id}.js`);
-vi.mock("../agents/pi-providers", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../agents/pi-providers")>();
-  return { ...actual, writePiExtension: (p: { id: string }) => writePiExtensionMock(p) };
-});
+// pi 单发引擎 mock:ask.ts 对 pi 恒调 startPiInProcOneShot(不 spawn),换成可驱动的假进程。
+const oneshotMock = vi.fn();
+vi.mock("../agents/pi-inproc/oneshot", () => ({
+  startPiInProcOneShot: (...args: unknown[]) => oneshotMock(...args),
+}));
 
 import { registerAskHandlers, killAllAsk, hasRunningAsk } from "./ask";
-import { PI_KEY_ENV } from "../agents/pi-providers";
 import type { AskFollowupRequest } from "./types";
 
 // child_process.spawn 返回值的最小替身(同 cli.test.ts)。
@@ -101,7 +99,7 @@ beforeEach(() => {
   spawnMock.mockImplementation(() => fakeChild());
   existsSyncMock.mockReset();
   existsSyncMock.mockImplementation(() => true);
-  writePiExtensionMock.mockClear();
+  oneshotMock.mockReset();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   registerAskHandlers();
 });
@@ -114,7 +112,19 @@ afterEach(() => {
 function startAsk(req: AskFollowupRequest) {
   const { sent, event } = fakeSender();
   const child = fakeChild();
-  spawnMock.mockReturnValueOnce(child);
+  if (req.agent === "pi") {
+    // pi 不 spawn:oneshot mock 返回 AgentProcess 形状的假进程,仍用同一个 fakeChild 驱动。
+    oneshotMock.mockReturnValueOnce({
+      pid: undefined,
+      stdout: child.stdout,
+      stderr: child.stderr,
+      onExit: (cb: (code: number | null) => void) => child.on("close", cb),
+      onError: (cb: (err: Error) => void) => child.on("error", cb),
+      kill: child.kill,
+    });
+  } else {
+    spawnMock.mockReturnValueOnce(child);
+  }
   void handlers.get("ask:start")!(event, req);
   return { sent, child };
 }
@@ -251,24 +261,29 @@ describe("正常结束的终止信号补发(FIX-1)", () => {
   });
 });
 
-describe("pi 自定义供应商装配(KTD6)", () => {
+describe("pi 走 in-process 单发（引擎收敛后不 spawn）", () => {
   const provider = { id: "qwen", baseUrl: "https://x", apiKey: "sk-pi", models: [{ id: "m1" }] };
 
-  it("有 provider:buildArgs 含 -e <extension> + --provider,且注入 PI key", () => {
-    startAsk({ askId: "ask-pi", agent: "pi", cwd: "/proj", prompt: "hi", provider });
-    expect(writePiExtensionMock).toHaveBeenCalledTimes(1);
-    const [, args, opts] = spawnMock.mock.calls[0]!;
-    expect(args).toContain("-e");
-    expect(args).toContain("/fake/ext/qwen.js");
-    expect(args).toContain("--provider");
-    expect((opts as { env: NodeJS.ProcessEnv }).env[PI_KEY_ENV]).toBe("sk-pi");
+  it("pi 恒调 startPiInProcOneShot,provider 随请求带上供原生解析,不经 child_process", () => {
+    const { sent, child } = startAsk({ askId: "ask-pi", agent: "pi", cwd: "/proj", prompt: "hi", provider });
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(oneshotMock).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "ask-pi", agent: "pi", prompt: "hi", provider }),
+      { cwd: "/proj" },
+    );
+    // 事件管线与 spawn 路径一致:pi JSONL 行照常解析转发。
+    child.stdout.emit(
+      "data",
+      JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "答" } }) + "\n",
+    );
+    child.emit("close", 0);
+    expect(askEvents(sent)).toContainEqual({ type: "text", delta: "答" });
   });
 
-  it("无 provider 的 pi 不生成 extension、不加 -e", () => {
+  it("无 provider 的 pi 同样走单发（用 pi 默认 provider 链）", () => {
     startAsk({ askId: "ask-pi2", agent: "pi", cwd: "/proj", prompt: "hi" });
-    expect(writePiExtensionMock).not.toHaveBeenCalled();
-    const [, args] = spawnMock.mock.calls[0]!;
-    expect(args).not.toContain("-e");
+    expect(oneshotMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });
 

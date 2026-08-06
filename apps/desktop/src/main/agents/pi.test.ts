@@ -1,23 +1,15 @@
-// pi adapter 单测：参数构造 + --mode json 行解析（事件形状取自
+// pi adapter 单测：--mode json 行解析 + 图片校验（事件形状取自
 // @earendil-works/pi-coding-agent 0.79.2 实测输出,已按 0.82.1 .d.ts 复核:基础 AgentEvent 九类
 // 未变,新增帧见 ignoredFrameTypes 用例）。
-// pi-locate 依赖 electron app,这里 mock 成固定路径避免引入运行时依赖。
+// 引擎收敛后 buildArgs 是抛错 stub(pi 永不 spawn),参数构造用例随 binary 路径删除;
+// validatePiImages 是 in-process 单发唯一的图片校验入口,坏图断言全部保留。
 
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
-vi.mock("./pi-locate", () => ({
-  resolvePiBinary: () => "/fake/resources/pi/pi",
-}));
-// pi.ts 经 ./pi-providers 引入 safeId,后者顶层 import electron app —— mock 掉避免加载真 electron。
-vi.mock("electron", () => ({ app: {} }));
-
-import { piDef, PiImageArgError } from "./pi";
-import type { CliStartRequest } from "../ipc/types";
-
-const BIN = "/fake/resources/pi/pi";
+import { piDef, PiImageArgError, validatePiImages } from "./pi";
 
 // 图片校验读真实文件（pi 侧同样按魔数嗅探）,故用真临时文件而非 mock fs —— mock 掉魔数检测
 // 等于把这条链路上唯一有价值的断言删掉。
@@ -41,206 +33,78 @@ function writeBytes(name: string, bytes: number[] | Buffer): string {
   return path;
 }
 
-const baseReq: CliStartRequest = {
-  runId: "r1",
-  sessionId: "s1",
-  agent: "pi",
-  cwd: "/tmp/proj",
-  prompt: "hello",
-};
-
-describe("piDef.buildArgs", () => {
-  it("首轮:二进制 cmd + --mode json + -p + --no-extensions + --no-skills,prompt 在末位", () => {
-    const { cmd, args } = piDef.buildArgs(baseReq);
-    expect(cmd).toBe(BIN);
-    expect(args[0]).toBe("--mode");
-    expect(args.join(" ")).toContain("--mode json");
-    expect(args).toContain("-p");
-    expect(args).toContain("--no-extensions");
-    expect(args).toContain("--no-skills");
-    expect(args.at(-1)).toBe("hello");
-    expect(args).not.toContain("--model");
-    expect(args).not.toContain("--session");
-    expect(args).not.toContain("--append-system-prompt");
+describe("piDef.buildArgs（抛错 stub）", () => {
+  it("任何调用都响亮抛错——pi 已无外部二进制,走到这里即接线错误", () => {
+    expect(() => piDef.buildArgs({ runId: "r1", sessionId: "s1", agent: "pi", cwd: "/tmp", prompt: "x" })).toThrow(
+      /不存在外部二进制/,
+    );
   });
 
-  it("插件 Skill:--no-skills 随 useOwnSkills gate（=true 时省略,放开 pi 原生发现,与 claude adapter 对齐）", () => {
-    // 缺省 / false → 关掉 pi 原生发现(与 claude 缺省加 --disable-slash-commands 同语义)。
-    expect(piDef.buildArgs(baseReq).args).toContain("--no-skills");
-    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: false }).args).toContain("--no-skills");
-    // true → 不加 --no-skills,pi 走自身原生 skill 发现(~/.pi/agent/skills、~/.agents/skills、
-    // 项目 .pi/skills / .agents/skills),与 claude/codex「各用自家原生目录」一致。
-    expect(piDef.buildArgs({ ...baseReq, useOwnSkills: true }).args).not.toContain("--no-skills");
-  });
-
-  it("插件 Skill:skillPaths 逐个 --skill 注入；缺省仅 --no-skills", () => {
-    expect(piDef.buildArgs(baseReq).args).not.toContain("--skill");
-    const { args } = piDef.buildArgs({ ...baseReq, skillPaths: ["/a/code-review", "/b/bug-hunt"] });
-    expect(args).toContain("--no-skills");
-    const joined = args.join(" ");
-    expect(joined).toContain("--skill /a/code-review");
-    expect(joined).toContain("--skill /b/bug-hunt");
-  });
-
-  it("插件 Skill:useOwnSkills=true 时原生发现 + --skill 注入并存（混合,与 claude 桥接同款）", () => {
-    const { args } = piDef.buildArgs({ ...baseReq, useOwnSkills: true, skillPaths: ["/a/code-review"] });
-    expect(args).not.toContain("--no-skills"); // 原生发现放开
-    expect(args.join(" ")).toContain("--skill /a/code-review"); // Cortex 已启用集合仍附加注入
-  });
-
-  it("运行模式 plan:json 单发注入 --tools 只读白名单,prompt 仍末位;非 plan 不注入", () => {
-    expect(piDef.buildArgs(baseReq).args).not.toContain("--tools"); // 缺省
-    expect(piDef.buildArgs({ ...baseReq, permissionMode: "accept-edits" }).args).not.toContain("--tools");
-    expect(piDef.buildArgs({ ...baseReq, permissionMode: "full-auto" }).args).not.toContain("--tools");
-    const { args } = piDef.buildArgs({ ...baseReq, permissionMode: "plan" });
-    expect(args.join(" ")).toContain("--tools read,grep,find,ls");
-    expect(args.at(-1)).toBe("hello");
-  });
-
-  it("运行模式 plan + 委派:--tools 只读白名单保留 ask_<role> 工具", () => {
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      permissionMode: "plan",
-      delegateRoles: [
-        { id: "Codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
-        { id: "Code Reviewer", label: "Code Reviewer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
-      ],
-    });
-    const toolArg = args[args.indexOf("--tools") + 1];
-    expect(toolArg).toContain("read,grep,find,ls");
-    expect(toolArg).toContain("browser_navigate");
-    expect(toolArg).toContain("ask_codex");
-    expect(toolArg).toContain("ask_code-reviewer");
-  });
-
-  it("多轮:model / resumeSessionId / appendSystemPrompt 各自透传,prompt 仍在末位", () => {
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      model: "openai/gpt-5.5",
-      resumeSessionId: "019ebe91-aaaa-7775-b82f-9810d333859a",
-      appendSystemPrompt: "Use concise Chinese.",
-    });
-    expect(args.join(" ")).toContain("--model openai/gpt-5.5");
-    expect(args.join(" ")).toContain("--session 019ebe91-aaaa-7775-b82f-9810d333859a");
-    expect(args.join(" ")).toContain("--append-system-prompt Use concise Chinese.");
-    expect(args.at(-1)).toBe("hello");
-  });
-
-  it("自定义供应商:piExtensionPath → -e/-a,provider.id → --provider", () => {
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      model: "deepseek-chat",
-      piExtensionPath: "/data/pi-providers/deepseek.js",
-      provider: { id: "deepseek", baseUrl: "https://api.deepseek.com/v1", models: [{ id: "deepseek-chat" }] },
-    });
-    expect(args.join(" ")).toContain("-e /data/pi-providers/deepseek.js");
-    expect(args).toContain("-a");
-    expect(args.join(" ")).toContain("--provider deepseek");
-    expect(args.join(" ")).toContain("--model deepseek-chat");
-    expect(args.at(-1)).toBe("hello");
-  });
-
-  it("无 piExtensionPath:不加 -e/-a/--provider（pi 用自身默认 provider）", () => {
-    const { args } = piDef.buildArgs(baseReq);
-    expect(args).not.toContain("-e");
-    expect(args).not.toContain("-a");
-    expect(args).not.toContain("--provider");
-  });
-
-  it("推理强度:pi 无对应 flag,effort 被忽略", () => {
-    const { args } = piDef.buildArgs({ ...baseReq, effort: "high" });
-    expect(args.join(" ")).not.toContain("effort");
-    expect(args.join(" ")).not.toContain("reasoning");
+  it("能力位保持:mcpInjection=none / imageDelivery=arg-at-path 等注册表形状不变", () => {
+    expect(piDef.id).toBe("pi");
+    expect(piDef.mcpInjection).toBe("none");
+    expect(piDef.imageDelivery).toBe("arg-at-path");
   });
 });
 
-describe("piDef.buildArgs 图片投递（pi 原生 @<path> 文件参数）", () => {
-  it("能力位声明为 arg-at-path(不再是 none)", () => {
-    expect(piDef.imageDelivery).toBe("arg-at-path");
-  });
-
-  it("无图片:参数与此前完全一致,不出现任何 @ 参数", () => {
-    const { args } = piDef.buildArgs(baseReq);
-    expect(args.some((a) => a.startsWith("@"))).toBe(false);
-    expect(args.at(-1)).toBe("hello");
-  });
-
-  it("单图:追加一个 @<path>,且排在 prompt 之前", () => {
+describe("validatePiImages（in-process 单发的图片校验入口）", () => {
+  it("单图:校验通过并返回魔数嗅探出的真实 MIME", () => {
     const png = writePng("one.png");
-    const { args } = piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/png" }] });
-    expect(args.at(-2)).toBe(`@${png}`);
-    expect(args.at(-1)).toBe("hello");
+    expect(validatePiImages([{ path: png, mimeType: "image/png" }])).toEqual([
+      { path: png, mimeType: "image/png" },
+    ]);
   });
 
   it("多图:数量与顺序逐一对应", () => {
     const a = writePng("a.png");
     const b = writeBytes("b.gif", [...Buffer.from("GIF89a"), 0, 0]);
     const c = writeBytes("c.jpg", [0xff, 0xd8, 0xff, 0xe0, 0, 0]);
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      images: [
+    expect(
+      validatePiImages([
         { path: a, mimeType: "image/png" },
         { path: b, mimeType: "image/gif" },
         { path: c, mimeType: "image/jpeg" },
-      ],
-    });
-    expect(args.filter((x) => x.startsWith("@"))).toEqual([`@${a}`, `@${b}`, `@${c}`]);
+      ]).map((i) => i.path),
+    ).toEqual([a, b, c]);
   });
 
-  it("WebP 与 image/jpg 别名都能通过（别名归一后与魔数一致）", () => {
+  it("WebP 与 image/jpg 别名都能通过（别名归一后与魔数一致,image/jpg → image/jpeg）", () => {
     const webp = writeBytes("d.webp", [...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WEBP")]);
     const jpg = writeBytes("e.jpg", [0xff, 0xd8, 0xff, 0xe0, 0, 0]);
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      images: [
+    expect(
+      validatePiImages([
         { path: webp, mimeType: "image/webp" },
         { path: jpg, mimeType: "image/jpg" },
-      ],
-    });
-    expect(args.filter((x) => x.startsWith("@"))).toEqual([`@${webp}`, `@${jpg}`]);
-  });
-
-  it("@<path> 不会紧跟在值型 flag 之后（pi 的 --append-system-prompt 会无条件吃掉下一个 arg）", () => {
-    const png = writePng("after-flag.png");
-    const { args } = piDef.buildArgs({
-      ...baseReq,
-      appendSystemPrompt: "S",
-      images: [{ path: png, mimeType: "image/png" }],
-    });
-    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("S");
-    expect(args.at(-2)).toBe(`@${png}`);
-  });
-
-  it("路径含空格/特殊字符:原样带 @ 前缀（spawn 传数组不过 shell,无需转义）", () => {
-    const png = writePng("with space & 中文.png");
-    const { args } = piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/png" }] });
-    expect(args.at(-2)).toBe(`@${png}`);
+      ]),
+    ).toEqual([
+      { path: webp, mimeType: "image/webp" },
+      { path: jpg, mimeType: "image/jpeg" },
+    ]);
   });
 
   it("路径不存在 → 结构化错误,不静默丢图", () => {
     expect(() =>
-      piDef.buildArgs({ ...baseReq, images: [{ path: join(imgDir, "nope.png"), mimeType: "image/png" }] }),
+      validatePiImages([{ path: join(imgDir, "nope.png"), mimeType: "image/png" }]),
     ).toThrow(PiImageArgError);
   });
 
-  it("空文件 → 报错（pi 侧会静默跳过空文件,那正是要避免的静默丢图）", () => {
-    const empty = writeBytes("empty.png", []);
+  const codeOf = (fn: () => unknown): string | undefined => {
     try {
-      piDef.buildArgs({ ...baseReq, images: [{ path: empty, mimeType: "image/png" }] });
-      expect.unreachable("应当抛错");
+      fn();
+      return undefined;
     } catch (e) {
-      expect((e as PiImageArgError).code).toBe("empty");
+      return (e as PiImageArgError).code;
     }
+  };
+
+  it("空文件 → empty（pi 侧会静默跳过空文件,那正是要避免的静默丢图）", () => {
+    const empty = writeBytes("empty.png", []);
+    expect(codeOf(() => validatePiImages([{ path: empty, mimeType: "image/png" }]))).toBe("empty");
   });
 
-  it("内容不是受支持的图片 → unsupported（否则 pi 会当文本文件读进 prompt）", () => {
+  it("内容不是受支持的图片 → unsupported（否则 pi 会当文本读进 prompt）", () => {
     const bad = writeBytes("bad.png", [...Buffer.from("not an image at all")]);
-    try {
-      piDef.buildArgs({ ...baseReq, images: [{ path: bad, mimeType: "image/png" }] });
-      expect.unreachable("应当抛错");
-    } catch (e) {
-      expect((e as PiImageArgError).code).toBe("unsupported");
-    }
+    expect(codeOf(() => validatePiImages([{ path: bad, mimeType: "image/png" }]))).toBe("unsupported");
   });
 
   it("动图 PNG(APNG) → unsupported（pi 判定其非图片,会退化成文本读取）", () => {
@@ -252,28 +116,12 @@ describe("piDef.buildArgs 图片投递（pi 原生 @<path> 文件参数）", () 
     buf.writeUInt32BE(8, 8 + 8 + 13 + 4);
     buf.write("acTL", 8 + 8 + 13 + 4 + 4, "ascii");
     const apng = writeBytes("anim.png", buf);
-    try {
-      piDef.buildArgs({ ...baseReq, images: [{ path: apng, mimeType: "image/png" }] });
-      expect.unreachable("应当抛错");
-    } catch (e) {
-      expect((e as PiImageArgError).code).toBe("unsupported");
-    }
+    expect(codeOf(() => validatePiImages([{ path: apng, mimeType: "image/png" }]))).toBe("unsupported");
   });
 
   it("声明 MIME 与实际内容不符 → mime-mismatch", () => {
     const png = writePng("mismatch.png");
-    try {
-      piDef.buildArgs({ ...baseReq, images: [{ path: png, mimeType: "image/webp" }] });
-      expect.unreachable("应当抛错");
-    } catch (e) {
-      expect((e as PiImageArgError).code).toBe("mime-mismatch");
-    }
-  });
-
-  it("以 @ 开头的 prompt 被加前导空格,避免被 pi 当成文件参数吞掉（实测会 exit 1 且无任何输出）", () => {
-    expect(piDef.buildArgs({ ...baseReq, prompt: "@张三 帮我看看" }).args.at(-1)).toBe(" @张三 帮我看看");
-    // 非 @ 开头一律原样,不引入任何多余空白。
-    expect(piDef.buildArgs({ ...baseReq, prompt: "看看 @张三 的意见" }).args.at(-1)).toBe("看看 @张三 的意见");
+    expect(codeOf(() => validatePiImages([{ path: png, mimeType: "image/webp" }]))).toBe("mime-mismatch");
   });
 
   it("超过 6 张 → too-many,整体拒绝", () => {
@@ -281,12 +129,7 @@ describe("piDef.buildArgs 图片投递（pi 原生 @<path> 文件参数）", () 
       path: writePng(`many-${i}.png`),
       mimeType: "image/png",
     }));
-    try {
-      piDef.buildArgs({ ...baseReq, images });
-      expect.unreachable("应当抛错");
-    } catch (e) {
-      expect((e as PiImageArgError).code).toBe("too-many");
-    }
+    expect(codeOf(() => validatePiImages(images))).toBe("too-many");
   });
 });
 

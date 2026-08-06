@@ -198,4 +198,74 @@ describe("syncCustomProvidersInto", () => {
     expect(models.set.size).toBe(1);
     expect(models.deleted).toEqual([]);
   });
+
+  // ── headers 里的 `${secret:}` 解析 ──────────────────────────────────────────
+  // 旧的二进制路径靠「`${secret:N}` → `${CORTEX_PI_SECRET_<N>}` 占位 + spawn env 注入」，
+  // 由 pi 子进程解出。in-process 后没有 spawn 与 env 这层，必须在构造 provider 时解，
+  // 否则 `${secret:X}` 字面量会原样发到上游，换来一次无从归因的 401。
+  describe("headers 的 Secret 引用", () => {
+    it("provider 级与 model 级 headers 都会被解析成真实值", async () => {
+      state.secrets = { GW_KEY: "sk-real", TENANT: "acme-42" };
+      state.defs = [
+        def("corp-gw", {
+          headers: { "X-Tenant": "${secret:TENANT}", "X-Static": "plain" },
+          models: [
+            {
+              id: "gpt-4o",
+              input: ["text"],
+              reasoning: false,
+              contextWindow: 1000,
+              maxTokens: 100,
+              cost: { input: 1, output: 2 },
+              headers: { Authorization: "Bearer ${secret:GW_KEY}" },
+            },
+          ],
+        }),
+      ];
+      const models = fakeModels();
+
+      await syncCustomProvidersInto(models);
+
+      const provider = models.set.get("corp-gw")!;
+      expect(provider.headers).toEqual({ "X-Tenant": "acme-42", "X-Static": "plain" });
+      const model = (provider.models as Record<string, unknown>[])[0];
+      expect(model.headers).toEqual({ Authorization: "Bearer sk-real" });
+    });
+
+    it("引用了不存在的 Secret → 该 header 整条丢弃，绝不发出带 ${secret:} 的字面量", async () => {
+      state.secrets = { GW_KEY: "sk-real" }; // 故意缺 MISSING_ONE
+      state.defs = [
+        def("corp-gw", {
+          headers: { "X-Bad": "${secret:MISSING_ONE}", "X-Good": "kept" },
+        }),
+      ];
+      const models = fakeModels();
+
+      await syncCustomProvidersInto(models);
+
+      const headers = models.set.get("corp-gw")!.headers as Record<string, string>;
+      expect(headers).toEqual({ "X-Good": "kept" });
+      // 半解析的鉴权头比不发更糟，这里断言的是「字面量绝不外泄」这条红线。
+      expect(JSON.stringify(headers)).not.toContain("${secret:");
+    });
+
+    it("没有 Secret 引用时不读金库（避免为绝大多数定义白付一次 safeStorage 解密）", async () => {
+      let reads = 0;
+      Object.defineProperty(state, "secrets", {
+        get() {
+          reads += 1;
+          return { GW_KEY: "sk-real" };
+        },
+        configurable: true,
+      });
+      // apiKey 的 `${secret:GW_KEY}` 会触发读取，故这里换成明文 apiKey、且不带 headers 引用。
+      state.defs = [def("corp-gw", { apiKey: "sk-plain", headers: { "X-Static": "plain" } })];
+      const models = fakeModels();
+
+      await syncCustomProvidersInto(models);
+
+      expect(reads).toBe(0);
+      expect(models.set.get("corp-gw")!.headers).toEqual({ "X-Static": "plain" });
+    });
+  });
 });

@@ -1,15 +1,13 @@
-// pi（@earendil-works/pi-coding-agent）内置兜底 agent 的 CLI adapter。
-// 命令形态（0.79.2 实测建立;flag 集合已复核至 0.82.1——dist/cli/args.js 里下列 flag 全部仍在、
-// 无签名变更。pi 已 bun 编译成自包含二进制,由 cli.ts 经 spawn 执行）：
-//   <pi 二进制> --mode json -p --no-extensions
-//             [--no-skills] [--skill p] [--tools read,grep,find,ls (plan 只读)]
-//             [--model m] [--session id] [--append-system-prompt s] [@image ...] <prompt>
-//   · adapter 产出 cmd=pi 二进制路径（resolvePiBinary）+ args；cli.ts 对三种 agent 统一 spawn。
-//   · -p 是非交互布尔 flag,prompt 不是它的值,而是命令行最后一个位置参数。
-//   · `@<path>` 是 pi 原生的文件参数（图片经魔数嗅探转成 initialImages）,详见 buildPiImageArgs。
-//   · --no-extensions 纯净启动；--no-skills 默认禁用 skills（useOwnSkills=true 时省略,
-//     与 claude adapter 对齐）；pi 原生支持 --append-system-prompt。
-// --mode json 输出 JSONL,每行一个事件：
+// pi（@earendil-works/pi-coding-agent）内置兜底 agent 的 adapter。
+//
+// ⚠️ 引擎已收敛：pi **不再存在外部二进制、永不 spawn**。单发路径由
+// `agents/pi-inproc/oneshot.ts` 在主进程内直接跑 `createAgentSession`,并把
+// `AgentSession.subscribe()` 的事件 `JSON.stringify` 成与旧 `pi --mode json` **完全同形**的
+// JSONL 行,交给下面这个 `parseLine` 原样解析 —— `CliStreamEvent` 契约因此保持不变。
+// 本文件保留的是三样纯函数资产：`parseLine`（事件解析）、`validatePiImages`（图片校验）、
+// `planToolWhitelist`（plan 只读白名单）；`buildArgs` 只剩注册表形状要求的响亮抛错 stub。
+//
+// JSONL 事件形态（0.79.2 实测建立;已复核至 0.82.1）：
 //   {type:"session",id}                                              → init
 //   {type:"message_update",assistantMessageEvent:{type:"text_delta",delta}} → text 增量
 //   {type:"message_update",assistantMessageEvent:{type:"thinking_delta",delta}} → thinking 增量
@@ -18,16 +16,14 @@
 //   {type:"message_end",message:{role:"assistant",stopReason,...}}   → 收尾(result)
 //   另有 agent_start/turn_start/turn_end/agent_end/message_start 等,一律忽略;
 //   message_update 的 text/thinking start-end、toolcall_* 子帧与 user 回显的 message_end
-//   也是已知忽略(见 isIgnoredFrame),与 pi-rpc.ts mapPiEvent 的忽略清单同源。
-// ⚠️ 陷阱：provider 失败时进程仍 exit 0,错误只体现在 message_end 的 stopReason:"error"
+//   也是已知忽略(见 isIgnoredFrame),与 pi-inproc/rpc-shared.ts mapPiEvent 的忽略清单同源。
+// ⚠️ 陷阱：provider 失败时「进程」仍以 0 收尾,错误只体现在 message_end 的 stopReason:"error"
 //    + errorMessage/diagnostics 上。故 result 由最后一条 assistant message_end 发出,
 //    agent_end 不发,避免覆盖掉这条错误结果。
 
 import { closeSync, openSync, readSync, statSync } from "fs";
 
 import { normalizePiTodos, TODO_TOOL_NAME } from "./pi-extensions";
-import { resolvePiBinary } from "./pi-locate";
-import { safeId } from "./pi-providers";
 import { PI_PLAN_TOOL_WHITELIST, type CliImageRef, type CliStartRequest, type CliStreamEvent } from "../ipc/types";
 import type { AgentDef } from "./index";
 
@@ -103,7 +99,12 @@ function safeDelegateToolId(id: string): string {
   return s || "role";
 }
 
-function planToolWhitelist(req: CliStartRequest): string[] {
+/**
+ * plan 只读档的工具白名单 = pi 官方只读配方 + 本轮委派协作者的 `ask_<id>` 工具。
+ * 导出供 in-process 单发路径（`pi-inproc/oneshot.ts`）复用：两条路的白名单必须同源，
+ * 否则切开关后「plan 档能用哪些工具」会悄悄不一致。
+ */
+export function planToolWhitelist(req: CliStartRequest): string[] {
   const delegateTools = (req.delegateRoles ?? []).map((role) => `ask_${safeDelegateToolId(role.id)}`);
   return [...PI_PLAN_TOOL_WHITELIST, ...delegateTools];
 }
@@ -234,15 +235,27 @@ function normalizeDeclaredMime(mime: string | undefined): string | undefined {
   return m === "image/jpg" ? "image/jpeg" : m;
 }
 
+/** 通过校验的一张图:绝对路径 + **魔数嗅探出的真实** MIME（不是调用方声明的那个）。 */
+export interface ValidatedPiImage {
+  path: string;
+  mimeType: string;
+}
+
 /**
- * 把 req.images 校验并转成 pi 的 `@<path>` 参数。任何一张图有问题都整体抛错,**绝不静默丢图**
+ * 校验 req.images 并解析出真实 MIME。任何一张图有问题都整体抛错,**绝不静默丢图**
  * ——静默丢图正是本次事故里 pi 侧 `(image omitted…)` 让用户误以为模型看过图的同款failure mode。
  *
  * 这里做真实 fs 读取（buildArgs 因此不再是严格纯函数）:pi 的 file-processor.js 在文件缺失时
  * 直接 `process.exit(1)`、在非图片文件上会当文本读进 prompt,两种都发生在子进程里、错误信息
  * 拿不回来,只能在 spawn 之前拦。
+ *
+ * 抽成独立函数是为了让**两条投递通道共用同一套校验**（迁移计划 U5）：
+ *   · 二进制路径 → `buildPiImageArgs()` 拼 `@<path>` 参数，由 pi 子进程自己读文件；
+ *   · in-process 路径 → `agents/pi-inproc/oneshot.ts` 按这里给出的 path/mimeType 读字节转
+ *     base64，喂 SDK 的 `prompt(msg, { images })`。
+ * 两条路的**错误码与文案必须逐字相同**，否则灰度开关一切换，同一张坏图给出的提示就变了。
  */
-export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
+export function validatePiImages(images: CliImageRef[] | undefined): ValidatedPiImage[] {
   if (!images?.length) return [];
   if (images.length > MAX_PI_IMAGES) {
     throw new PiImageArgError("too-many", `单轮最多发送 ${MAX_PI_IMAGES} 张图片，当前 ${images.length} 张`);
@@ -288,17 +301,8 @@ export function buildPiImageArgs(images: CliImageRef[] | undefined): string[] {
         path,
       );
     }
-    return `@${path}`;
+    return { path, mimeType: detected };
   });
-}
-
-// 以 `@` 开头的 prompt 会被 pi 的 args.js 当成文件参数吞掉（`arg.startsWith("@")` 分支在
-// 位置参数分支之前）,file-processor.js 找不到文件就 `process.exit(1)` —— 进程无任何 JSON 输出、
-// 管线只看到空退出。Cortex 的委派 UI 恰好用 `@协作者` 开头,实测必踩（真实二进制复现:
-// `Error: File not found: .../张三 帮我看看这段代码`）。pi 没有转义语法,只能加一个前导空格
-// 把它挤出 `@` 分支;对模型而言首字符空格无语义差异。
-function escapeLeadingAt(prompt: string): string {
-  return prompt.startsWith("@") ? ` ${prompt}` : prompt;
 }
 
 export const piDef: AgentDef = {
@@ -326,48 +330,14 @@ export const piDef: AgentDef = {
   sessionResume: "resume-only",
   imageDelivery: "arg-at-path",
   appendSystemPrompt: "native-flag",
-  buildArgs(req: CliStartRequest): { cmd: string; args: string[] } {
-    const args = [
-      "--mode",
-      "json",
-      "-p",
-      "--no-extensions",
-    ];
-    // 插件管理:--no-skills 随 useOwnSkills gate,与 claude adapter 的 --disable-slash-commands 对齐。
-    //   · useOwnSkills!==true(缺省/关闭）→ 加 --no-skills 关掉 pi 原生自动发现(会话级一键关);
-    //   · useOwnSkills===true → 省略 --no-skills,放开 pi 自身原生 skill 发现(~/.pi/agent/skills、
-    //     ~/.agents/skills、项目 .pi/skills / .agents/skills),让 pi 用「各自原生目录」,与
-    //     claude/codex 放开各自 CLI 原生发现的行为一致(修复三端不一致:此前 pi 恒关原生、只被
-    //     强喂系统配置目录路径,claude/codex 却已放开原生 → 表现为「pi 用系统配置、claude/codex 用自带」)。
-    // 无论开关,Cortex 已启用集合仍逐个 --skill 附加注入（实测 --no-skills 与显式 --skill 共存;
-    // 开启原生时二者并存 = 原生发现 + Cortex 桥接,与 claude「原生 + --add-dir 桥接」混合模型同构）。
-    if (req.useOwnSkills !== true) args.push("--no-skills");
-    for (const p of req.skillPaths ?? []) args.push("--skill", p);
-    // 运行模式 plan 档:只读工具白名单（pi 官方钦定 read-only 配方,物理上无 write/edit/bash）。
-    // json 单发(ask 追问/oneshot)无 UI,审批 hook 失效,故只有 plan 的工具白名单有意义;
-    // accept-edits/full-auto 在单发模式等价(不收窄工具)。RPC 长驻路径走 buildRpcArgs 的 toolWhitelist。
-    if (req.permissionMode === "plan") args.push("--tools", planToolWhitelist(req).join(","));
-    // 自定义供应商 + 委派桥接:cli.ts 已生成 extension 文件,这里多 `-e` 显式加载 + `-a` 整批信任
-    //（实测 --no-extensions 与多个显式 -e 共存,-a 只加一次,仿 pi-rpc.ts buildRpcArgs）。
-    //   · piExtensionPath = provider extension（apiKey 端点）
-    //   · extraExtensionPaths = 委派单发的 delegate 桥接（挂 ask_<id> 工具）等
-    const exts = [req.piExtensionPath, ...(req.extraExtensionPaths ?? [])].filter((p): p is string => !!p);
-    if (exts.length) {
-      for (const p of exts) args.push("-e", p);
-      args.push("-a");
-      // provider 名必须用 safeId（与 pi-providers.registerProvider 注册名同源,id 含空格/大写时才选得中）。
-      if (req.provider) args.push("--provider", safeId(req.provider.id));
-    }
-    if (req.model) args.push("--model", req.model);
-    if (req.resumeSessionId) args.push("--session", req.resumeSessionId);
-    if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
-    // 图片:`@<path>` 排在 prompt 之前（见上方 buildPiImageArgs 的注释:与 pi -h 的用法一致,
-    // 且必须避开值型 flag 的紧后位置——此处前一个 arg 已是 --append-system-prompt 的值,安全）。
-    args.push(...buildPiImageArgs(req.images));
-    // prompt 是位置参数,必须在最后。
-    args.push(escapeLeadingAt(req.prompt));
-    // cmd 是 pi 二进制路径,cli.ts 直接 spawn 它（独立 CLI 进程,不弹 macOS Dock）。
-    return { cmd: resolvePiBinary(), args };
+  // ⚠️ 响亮抛错的 stub：注册表形状（AgentDef）要求 buildArgs 存在，但 pi 已收敛为
+  // gateway/in-process 引擎，不存在外部二进制、永不 spawn。任何调用点走到这里都是接线错误
+  // （pi 的单发应改走 agents/pi-inproc/oneshot.ts 的 startPiInProcOneShot，长驻会话走
+  // pi-gateway/client.ts 的 openPiGatewaySession），必须立刻炸出来而不是静默拼一条废命令。
+  buildArgs(): { cmd: string; args: string[]; stdin?: string } {
+    throw new Error(
+      "pi 已收敛为 gateway/in-process 引擎，不存在外部二进制：单发请走 startPiInProcOneShot，长驻会话请走 openPiGatewaySession",
+    );
   },
 
   parseLine(line: string): CliStreamEvent | CliStreamEvent[] | null {

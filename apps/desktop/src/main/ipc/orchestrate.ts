@@ -27,6 +27,23 @@
 // 与 workflow runtime 的边界：
 //   三段编排等价于固定拓扑工作流，但有意不复用图执行器（chat 编排对单 runId/看门狗/typing
 //   有专属耦合，分层独立，防止未来误合并）。
+//
+// pi 引擎（已收敛，docs/plans/2026-08-06-001-refactor-pi-gateway-worker-plan.md）：
+//   `runPiStage` 无条件走 `openPiGatewaySession` —— 三段共享常驻 gateway worker，
+//   编排从 3~6 个进程降到 1 个。事件映射 / settle / 超时 / 取消 / 释放路径全部只依赖
+//   `PiSessionEngine` 契约。历史上的 binary（spawnPiRpc 子进程）与 in-process（主进程
+//   createAgentSession）两条选路已删除。
+//
+// ⚠️ 并发与资源释放：
+//   编排会**并发起多个 pi 会话**（多条链路 × 每条三段），如今共享同一个常驻 worker——
+//   旧 spawn 时代每段独立子进程、忘了清理也会自己退出；现在漏释放 = worker 里那份会话
+//   （agent loop / MCP 连接 / 挂起对话框）与主进程侧句柄永久驻留。三条防线：
+//     1. **会话内异常**由引擎层四道闸兜住（事件泵 try/catch、命令 run() 包裹、prompt 补发 error
+//        终态、stop() 解挂起对话框），一个会话炸掉不会冒进 agent loop 或主进程；
+//     2. **会话生命周期**统一交给 `orchestrationPiSessions` 租约表（agents/pi-inproc/session-pool.ts），
+//        它负责构造期竞态、abort→stop 的释放顺序、批量释放的逐项故障隔离；
+//     3. **段级终态**永远有兜底：超时定时器 + abort 监听 + 事件流 result/error，三者任一到达即
+//        settle 并释放会话，绝不存在「等一个永远不来的终态」。
 
 import { ipcMain } from "electron";
 import { randomUUID } from "crypto";
@@ -34,19 +51,24 @@ import type { AgentProcess } from "./cli";
 import {
   assertSpawnCwd,
   pipeStdoutLines,
-  spawnEnvFor,
   spawnEnvForDef,
   startAgentProcess,
 } from "./cli";
 import { getAgentDef, parseLineEvents } from "../agents";
-import { buildRpcArgs, PiRpcSession, spawnPiRpc } from "../agents/pi-rpc";
+// 纯类型 import(运行时擦除):不把 pi-inproc barrel 拖进本模块的运行时依赖图。
+import type { PiSessionEngine } from "../agents/pi-inproc";
+import { openPiGatewaySession } from "../agents/pi-gateway/client";
+import { createPiSessionPool } from "../agents/pi-inproc/session-pool";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
 import {
   clearTransientPiUiRequestsForSession,
   preparePiOpenRequest,
   registerTransientPiUiRequest,
 } from "./pi-session";
+import { createLogger } from "../log";
 import type { CliExitEvent, CliStartRequest, CliStreamEvent, PiOpenRequest, PiSessionEvent, PiUiRequest } from "./types";
+
+const log = createLogger("orchestrate");
 
 // ── 分段超时常量 ────────────────────────────────────────────────────────────
 // 意图理解与二次加工属于「轻量 prompt 转换」，60s 足够，过长说明出问题。
@@ -65,27 +87,52 @@ type OrchestrateStage = "intent" | "subagent" | "refine";
 // orchestrationProcs: 所有在途子进程（跨链路），供 killAllOrchestrations 统一终止。
 const activeOrchestrations = new Map<string, AbortController>();
 const orchestrationProcs = new Set<AgentProcess>();
-const orchestrationPiSessions = new Set<PiRpcSession>();
 
 /**
- * 终止所有在途编排子进程（应用退出 / stop-run 时调用）。
+ * 在途 pi 子会话（gateway handle）的租约表。
+ *
+ * 释放语义：`clearTransientPiUiRequestsForSession` → 摘表 → `stop()`。gateway 的 `stop()`
+ * 发 `closeSession`，worker 侧先 abort 在途 run 再停会话——取消/超时后子 agent 不会继续
+ * 在后台跑工具、烧 token，故这里不需要额外的 abortOnRelease。
+ */
+const orchestrationPiSessions = createPiSessionPool<PiSessionEngine>({
+  onBeforeRelease: (session) => clearTransientPiUiRequestsForSession(session),
+  onError: (phase, err) => {
+    log.warn("编排 pi 会话释放失败（已隔离，不影响其余会话）", {
+      phase,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  },
+});
+
+/**
+ * 终止所有在途编排子进程 / 子会话（应用退出 / stop-run 时调用）。
  * 对齐 killAllHeadlessPrompts / killAllCli 的统一语义。
  * 由 register.ts 导出，接入 app 退出钩子（与 killAllAutomations / killAllWorkflows 并列）。
+ *
+ * 逐项 try/catch 的理由：本函数跑在「不可失败」的退出路径上，而 `controller.abort()` 会**同步**
+ * 触发各链路的 abort 监听器（→ settle → 释放会话）。任何一条链路抛错都会让 for 循环中断，
+ * 剩下的链路连终止都没轮到。漏掉的不是「会自己退出的子进程」，而是常驻 worker 里
+ * 永久挂着的会话资源 —— 故这里必须逐项隔离。
  */
 export function killAllOrchestrations(): void {
   for (const controller of activeOrchestrations.values()) {
-    controller.abort();
+    try {
+      controller.abort();
+    } catch (err) {
+      log.warn("编排链路终止失败（已隔离）", { error: err instanceof Error ? err.message : String(err) });
+    }
   }
   for (const proc of orchestrationProcs) {
-    proc.kill();
+    try {
+      proc.kill();
+    } catch (err) {
+      log.warn("编排子进程终止失败（已隔离）", { error: err instanceof Error ? err.message : String(err) });
+    }
   }
-  for (const session of orchestrationPiSessions) {
-    clearTransientPiUiRequestsForSession(session);
-    session.stop();
-  }
+  orchestrationPiSessions.releaseAll();
   activeOrchestrations.clear();
   orchestrationProcs.clear();
-  orchestrationPiSessions.clear();
 }
 
 // ── 系统提示词 ──────────────────────────────────────────────────────────────
@@ -350,6 +397,7 @@ function mapPiToCliEvent(ev: PiSessionEvent): CliStreamEvent | null {
   }
 }
 
+
 async function runPiStage(opts: {
   stage: OrchestrateStage;
   prompt: string;
@@ -360,7 +408,7 @@ async function runPiStage(opts: {
   signal: AbortSignal;
   timeoutMs: number;
   onEvent: (ev: CliStreamEvent) => void;
-  onUiRequest: (session: PiRpcSession, req: PiUiRequest) => void;
+  onUiRequest: (session: PiSessionEngine, req: PiUiRequest) => void;
 }): Promise<StageRunResult> {
   const { stage, prompt, cwd, model, appendSystemPrompt, piOpen, signal, timeoutMs, onEvent, onUiRequest } = opts;
   if (signal.aborted) return { text: "", ok: false, error: "已取消" };
@@ -369,7 +417,9 @@ async function runPiStage(opts: {
   const uiSessionId = `orch-${spawnKey}`;
   let out = "";
   let settled = false;
-  let session: PiRpcSession | undefined;
+  // session 被 settle 与 onUiRequest 两个闭包共享（捕获的是变量而非值）：构造完成前它是
+  // undefined，此时到达的 UI 请求按旧路径同款守卫丢弃（会话 stop() 时的 cancelAll 会解锁 pi）。
+  let session: PiSessionEngine | undefined;
 
   return new Promise<StageRunResult>((resolve) => {
     const settle = (result: StageRunResult) => {
@@ -377,11 +427,8 @@ async function runPiStage(opts: {
       settled = true;
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
-      if (session) {
-        clearTransientPiUiRequestsForSession(session);
-        orchestrationPiSessions.delete(session);
-        session.stop();
-      }
+      // 释放（摘 UI 路由 → 摘表 → [abort] → stop）统一交给租约表，见 session-pool.ts。
+      if (session) orchestrationPiSessions.release(session);
       resolve({ ...result, text: result.text.trim() });
     };
 
@@ -408,6 +455,12 @@ async function runPiStage(opts: {
       onEvent({ ...ev, stage } as CliStreamEvent);
     };
 
+    // UI 请求出口。两条引擎路径共用同一个闭包，形状与守卫逐字相同。
+    const handleUiRequest = (uiReq: PiUiRequest) => {
+      if (!session) return;
+      onUiRequest(session, uiReq);
+    };
+
     void (async () => {
       try {
         const req = await preparePiOpenRequest({
@@ -418,36 +471,46 @@ async function runPiStage(opts: {
           appendSystemPrompt: stage === "subagent" ? piOpen?.appendSystemPrompt : undefined,
         });
         if (settled || signal.aborted) return;
-        const args = buildRpcArgs(req);
+
+        // cwd 路径闸：它守的是「能不能在这个目录里跑 agent」，与是否 spawn 无关。
         assertSpawnCwd(cwd);
-        // customProviderEnv 必须跟着一起传:preparePiOpenRequest 已为自定义 Provider 生成了
-        // 带 `${CORTEX_PI_SECRET_N}` 占位的 extension,漏掉 env 注入 pi 就解析不出这些变量,
-        // 编排子会话会以「Failed to resolve API key from environment variable」告终。
-        const transport = spawnPiRpc(args, {
-          cwd,
-          env: spawnEnvFor({ agent: "pi", provider: req.provider, customProviderEnv: req.customProviderEnv }),
+        // 无条件走 gateway：能力组装在常驻 worker 侧按 req 的结构化字段完成
+        // （与主会话同一套 capabilities.ts）。三段共享同一个常驻 runtime——
+        // 编排从 3~6 个进程降到 1 个，正是常驻化的主要收益场景。
+        const opened: PiSessionEngine = await openPiGatewaySession({
+          request: req,
+          onEvent: (ev) => handlePiEvent(ev),
+          onUiRequest: handleUiRequest,
         });
-        if (settled || signal.aborted) {
-          transport.kill();
+
+        // ── 领取会话（资源释放的关键点）───────────────────────────────────────────────
+        // `openPiGatewaySession()` 是 await 的，这段窗口里用户可能已点停止、或本段已超时 ——
+        // 那时 settle 早跑过、它手里的 `session` 还是 undefined，会话建好后就再也没有引用能停它，
+        // worker 侧那份会话资源会一直挂着。adopt() 在同步瞬间重判一次并就地释放，把这条缝补死。
+        // 不设 abortOnRelease：gateway 的 closeSession 在 worker 侧本就先 abort 再 stop，
+        // 主进程侧无需重复。
+        if (!orchestrationPiSessions.adopt(opened, { isStale: () => settled || signal.aborted })) {
           return;
         }
-        session = new PiRpcSession(
-          transport,
-          (ev) => handlePiEvent(ev),
-          (uiReq) => {
-            if (!session) return;
-            onUiRequest(session, uiReq);
+        session = opened;
+
+        await opened.ready();
+        if (settled || signal.aborted) return;
+
+        // prompt() 是 fire-and-forget：应答只是「受理 ack」，真正的终态由事件流的 result/error 表达。
+        // 刻意**不 await**：一旦本段因超时/取消先行 settle，`await` 会把整个 async 帧（连同已停止的
+        // 会话句柄）挂在这个 pending promise 上；回调形式让帧立即展开，且 settled 守卫保证迟到的
+        // ack/rejection 不会二次结算。语义与 `await` + `if (!resp.success)` 逐条等价。
+        void opened.prompt(piPromptWithAppend(prompt, appendSystemPrompt), spawnKey).then(
+          (resp) => {
+            if (settled || signal.aborted) return;
+            if (!resp.success) settle({ text: out, ok: false, error: resp.error ?? "pi prompt failed" });
           },
-          req.askQuestionSentinel,
+          (err: unknown) => {
+            if (settled || signal.aborted) return;
+            settle({ text: out, ok: false, error: err instanceof Error ? err.message : String(err) });
+          },
         );
-        orchestrationPiSessions.add(session);
-        await session.ready();
-        if (settled || signal.aborted) return;
-        const resp = await session.prompt(piPromptWithAppend(prompt, appendSystemPrompt), spawnKey);
-        if (settled || signal.aborted) return;
-        if (!resp.success) {
-          settle({ text: out, ok: false, error: resp.error ?? "pi prompt failed" });
-        }
       } catch (e) {
         settle({ text: out, ok: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -486,7 +549,7 @@ export function registerOrchestrateHandlers(): void {
     const sendStageStart = (stage: OrchestrateStage, stageLabel: string) => {
       sendEvent({ type: "thinking", delta: "", stage, stageLabel } as CliStreamEvent);
     };
-    const sendPiUiRequest = (piSession: PiRpcSession, request: PiUiRequest) => {
+    const sendPiUiRequest = (piSession: PiSessionEngine, request: PiUiRequest) => {
       registerTransientPiUiRequest(sessionId, request.id, piSession);
       if (!sender.isDestroyed()) {
         sender.send("pi:uiRequest", { uiSessionId: sessionId, request });

@@ -118,6 +118,8 @@ import { getDesktopBehavior, initDesktopBehavior, registerDesktopHandlers } from
 import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { installGlobalCrashGuards } from "./crash-guards";
+import { ensureProcessPath } from "./ipc/cli";
+import { primePiGatewayRuntime, shutdownPiGatewayRuntime } from "./agents/pi-gateway/client";
 import { installAppMenu } from "./app-menu";
 import { createLogger } from "./log";
 import { createMainWindowOptions } from "./main-window-geometry";
@@ -128,6 +130,12 @@ const log = createLogger("main");
 // → 主进程整体 SIGTRAP 退出。装在所有初始化之前,确保后续任何未捕获异常/拒绝只记日志、
 // 不杀进程(ipcMain.handle 链内的 reject 由 Electron 转发渲染端,不会到这里)。
 installGlobalCrashGuards();
+
+// PATH 补齐要早于任何 spawn / 包管理调用:GUI 启动（Finder/Dock,不经登录 shell）的主进程
+// PATH 里通常没有 nvm / homebrew 的 node 与 npm。走 spawnEnvFor 的路径本来就会经 buildEnv()
+// 补齐,但第三方库自己 spawn 时只认 process.env（如 pi SDK 的 DefaultPackageManager 起 npm 装包）。
+// 只增不减、幂等,故对既有 spawn 行为无影响。
+ensureProcessPath();
 
 const appIconPath = join(__dirname, "../../assets/cortex-neuron-icon.png");
 
@@ -618,6 +626,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    // pi gateway 预热（fire-and-forget）：常驻化的收益就在这里兑现——fork + 三包 ESM 加载
+    // （每会话冷启动的大头）在建窗前后台完成，用户首次开会话只剩 createAgentSession。
+    // 引擎已收敛为 gateway 单路径，无条件预热。
+    primePiGatewayRuntime();
+
     electronApp.setAppUserModelId("ai.cortex.work");
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(appIconPath);
     app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
@@ -821,6 +834,9 @@ if (!app.requestSingleInstanceLock()) {
     killAllCli();
     killAllAsk();
     killAllPiSessions();
+    // pi gateway 常驻 worker：会话已随上一行逐个 close，这里收掉进程本身。
+    // 窗口关闭即收（而不是留到 app 退出）：无窗口时不该有 pi runtime 挂着吃内存。
+    shutdownPiGatewayRuntime();
     killAllPty();
     closeAllWatchers();
     killAllOrchestrations(); // 编排链路随窗口关闭终止（chat 级进程，不同于 automation）
@@ -858,6 +874,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllCli();
     killAllAsk();
     killAllPiSessions();
+    shutdownPiGatewayRuntime(); // 常驻 worker 与 Research Worker 同理,不随主进程退出自动消失
     killAllPty();
     killAllResearchWorkers(); // Research Worker(utilityProcess)不随主进程退出自动消失,必须显式杀
     closeAllWatchers();

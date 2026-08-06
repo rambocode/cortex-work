@@ -1,19 +1,25 @@
 #!/usr/bin/env node
-// 从锁定版本的 @earendil-works/pi-ai 生成 apps/desktop/resources/pi/provider-catalog.json。
+// 从锁定版本的 @earendil-works/pi-ai 生成 apps/desktop/assets/provider-catalog.json。
 //
 // 为什么需要它：Cortex 曾自己维护一份「Provider → 模型能力」映射，并把它当作 models 传给 pi
 // extension，结果覆盖掉 pi 内置目录、把多模态模型降级成纯文本（图片被静默替换为占位文本）。
 // 修复的第一步就是**取消 Cortex 侧的能力再解释**：能力唯一来源是 pi 自己的内置目录，
 // 构建期原样抄出来，运行时只读。本脚本刻意不补任何默认值——猜默认值正是那次事故的根因。
 //
-// 与 pi 二进制的关系（重要）：
-//   Catalog 必须与随包 pi 二进制同版本、同批次生成，否则会出现「UI 说模型支持图片、
-//   实际二进制里没有该模型」的漂移。因此本脚本由 build-pi-binary.mjs 在**每一条**产出路径
-//   末尾调用（含 stamp 快路径与缓存命中路径），而不是只挂在某个 npm script 上——
-//   prepackage:mac-* 直接调用 build-pi-binary.mjs 而非 `pnpm build:pi`，只挂 script 会漏。
+// 产出位置（U4·R9 变更）：`assets/provider-catalog.json`。
+//   pi 的 bun 二进制与 `resources/pi/`（extraResources）已随 gateway 化删除；
+//   electron-builder 的 `files` 已包含 `assets/**`，放这里无需改打包配置即可随 asar 分发，
+//   dev 与打包态都由 `app.getAppPath()` 定位同一相对路径（见 src/main/providers/catalog.ts）。
+//   产物入库（非 gitignore）：它是确定性输出，入库后新克隆无需先跑构建即可类型检查/测试；
+//   每次构建都会原样重写，pi 版本不变时字节一致、git 保持干净。
+//
+// 版本一致性（**必须保留**）：Catalog 必须与运行时实际加载的那份 pi 同版本，否则会出现
+//   「UI 说模型支持图片、实际 pi 里没有该模型」的漂移。校验点有两处，缺一不可：
+//     · 构建期（本脚本 resolvePiPackages）：pi-ai 与 pi-coding-agent 的版本必须一致；
+//     · 运行时（catalog.ts）：catalog.piVersion 必须等于 node_modules 里 pi-coding-agent 的版本。
 //
 // 既是 CLI 也是模块：`node scripts/build-pi-catalog.mjs` 直接生成并写盘；
-// 单测 import `buildProviderCatalog()` 拿到同一份内存结果做断言（不写盘、不跑 bun 编译）。
+// 单测 import `buildProviderCatalog()` 拿到同一份内存结果做断言（不写盘）。
 // 任何失败（包解析不到、版本不一致、目录为空）都以非零退出，让构建整体失败。
 
 import { createHash } from "node:crypto";
@@ -24,7 +30,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = dirname(here); // apps/desktop
 const piPkgDir = join(desktopRoot, "node_modules/@earendil-works/pi-coding-agent");
-const outDir = join(desktopRoot, "resources/pi");
+// 与 src/main/providers/catalog.ts 的 CATALOG_REL_PATH 一一对应，改动必须同步。
+const outDir = join(desktopRoot, "assets");
 const outPath = join(outDir, "provider-catalog.json");
 
 /** Catalog 结构版本。改字段语义时必须 +1，运行时加载器会拒绝不认识的版本。 */
@@ -149,8 +156,10 @@ async function resolvePiPackages() {
   );
   const aiVersion = JSON.parse(readFileSync(join(aiPkgDir, "package.json"), "utf-8")).version;
 
-  // 版本必须与 pi-coding-agent 完全一致：二进制里 inline 的是 pi-coding-agent 依赖的那份
-  // pi-ai，若这里解析到另一个版本，生成的能力表就不是二进制实际持有的那份。
+  // 版本必须与 pi-coding-agent 完全一致：主进程运行时加载的是 pi-coding-agent 依赖的那份
+  // pi-ai（in-process 迁移后二者同在 node_modules 里，pnpm 解析到同一物理目录），
+  // 若这里解析到另一个版本，生成的能力表就不是运行时实际持有的那份。
+  // ⚠️ 这条校验是防「pi-ai 与 pi-coding-agent 版本漂移」的唯一构建期闸门，不得删除。
   if (aiVersion !== piVersion) {
     throw new Error(`版本不一致: pi-coding-agent@${piVersion} vs pi-ai@${aiVersion}。请对齐两者版本后重试。`);
   }

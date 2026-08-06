@@ -1,7 +1,7 @@
 // 工作流 AI 节点的无头 prompt 执行器。
 //
 // 设计要点（对照 automation/runner.ts 的「黄金参考」）：
-//   - 镜像 runner.ts 的 resolveProvider / writePiExtension / startAgentProcess / pipeStdoutLines 流程。
+//   - 镜像 runner.ts 的 startAgentProcess / pipeStdoutLines 流程（pi 走 in-process 单发,不 spawn）。
 //   - 【独立进程注册表】：模块内 Map<spawnKey, AgentProcess>，spawnKey = per-spawn UUID，
 //     绝不加入 cli.ts 的全局 `running` Map，避免 killAllCli/关窗 误杀正在运行的工作流 AI 节点（KTD3）。
 //   - 30分钟超时（AI_NODE_RESPONSE_TIMEOUT_MS）；超时 kill 子进程并 reject。
@@ -18,11 +18,12 @@ import {
   spawnEnvForDef,
   startAgentProcess,
 } from '../ipc/cli.js'
-import { getAgentDef, parseLineEvents } from '../agents/index.js'
+import { baseAgentKindOf, getAgentDef, parseLineEvents } from '../agents/index.js'
 import { CODEX_MCP_CLEAR } from '../ipc/mcp-config.js'
-import { writePiExtension } from '../agents/pi-providers.js'
+import { startPiInProcOneShot } from '../agents/pi-inproc/oneshot.js'
 import { resolvePiProviderInput } from '../providers/pi-provider-input.js'
-import { assertOneShotProviderSupported } from '../providers/custom-provider-runtime.js'
+import { listCustomProviders } from '../providers/custom-providers.js'
+import { safeId } from '../agents/pi-providers.js'
 import { getWorkspaceRoot } from '../ipc/store.js'
 import type { CliStartRequest, ReasoningEffort } from '../ipc/types.js'
 
@@ -51,14 +52,19 @@ export function killAllHeadlessPrompts(): void {
 }
 
 // ── Provider 解析 ───────────────────────────────────────────────────────────
-// 阶段③ 收编：来源改为「Catalog + provider-prefs + 凭据金库」。旧实现读
-// PersistedState.providerSettings —— §5 首启即删除该字段，继续读它会让工作流的每个 AI 节点
-// 都解析不到 provider 而失败（后台执行，用户不在场）。与 automation/runner.ts 同源。
-async function resolveProvider(providerId: string): Promise<CliStartRequest['provider'] | null> {
-  // 自定义 Provider 本阶段只接了聊天 RPC 路径：命中即抛错（同 automation/runner.ts）。
-  // 工作流 AI 节点同样是后台执行，静默换 provider 的代价比一次响亮失败大得多。
-  await assertOneShotProviderSupported(providerId)
-  return (await resolvePiProviderInput(providerId)) ?? null
+// 只用于判定「providerId 是不是一个 pi 供应商 id」（是 → agent='pi'）。pi 的模型/凭据
+// 由 in-process 单发的 resolveOneShotModel 按 providerId 原生解析（Catalog + 自定义 +
+// 凭据金库,解析不出时响亮抛错——后台执行、用户不在场,静默换 provider 绝不允许）。
+async function isPiProviderId(providerId: string): Promise<boolean> {
+  if (await resolvePiProviderInput(providerId)) return true
+  // 自定义供应商不在 Catalog 里,查自定义列表(引擎收敛后单发已原生支持自定义 Provider)。
+  // 列表读取失败按「不是 pi 供应商」处理:后续 getAgentDef(providerId) 会响亮报未知 agent。
+  try {
+    const wanted = safeId(providerId)
+    return (await listCustomProviders()).some((item) => safeId(item.id) === wanted)
+  } catch {
+    return false
+  }
 }
 
 // ── 对外接口 ──────────────────────────────────────────────────────────────────
@@ -116,26 +122,16 @@ export async function runPromptHeadless(
     throw new Error('runPromptHeadless: 调用前 signal 已取消')
   }
 
-  // 确定实际 agent（pi 通过 providerId 在 providerSettings 中找，非 pi 则 providerId 就是 agent id）
-  // 约定：如果 providerId 能在持久化 providers 列表中找到，则 agent='pi'；否则 agent=providerId
+  // 确定实际 agent：如果 providerId 是一个 pi 供应商 id（Catalog 或自定义），则 agent='pi'
+  // 且 providerId 随请求透传给 in-process 单发原生解析；否则 agent=providerId
+  //（内置 claude/codex/pi 或 M3-A 派生 id）。
   let agent: string = providerId
-  let provider: CliStartRequest['provider'] | undefined
-  let piExtensionPath: string | undefined
+  let piProviderId: string | undefined
 
-  // 尝试从 providerSettings 解析（pi 自定义供应商路径）
-  const resolved = await resolveProvider(providerId)
-  if (resolved) {
-    // providerId 是一个 pi 自定义供应商 id
+  if (await isPiProviderId(providerId)) {
     agent = 'pi'
-    provider = resolved
-    piExtensionPath = writePiExtension({
-      id: resolved.id,
-      baseUrl: resolved.baseUrl,
-      apiKey: resolved.apiKey,
-      models: resolved.models,
-    })
+    piProviderId = providerId
   }
-  // 否则 agent = providerId（内置 claude/codex/pi 或 M3-A 派生 id）
 
   const adapter = getAgentDef(agent)
 
@@ -162,8 +158,7 @@ export async function runPromptHeadless(
     prompt,
     model: model ?? undefined,
     effort,
-    provider,
-    piExtensionPath,
+    providerId: piProviderId,
   } as CliStartRequest
 
   // mode 字段：仅 claude adapter 消费（plan/agent 模式），其余 agent 的 buildArgs 忽略
@@ -174,12 +169,18 @@ export async function runPromptHeadless(
 
   assertSpawnCwd(workspaceRoot)
 
-  const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR)
-  const proc = startAgentProcess(cmd, args, {
-    cwd: workspaceRoot,
-    env: spawnEnvForDef(req, adapter),
-    stdin,
-  })
+  // pi 无外部二进制:无条件走 in-process 单发(AI 节点不注入 MCP/todo);其余 agent 照常 spawn。
+  let proc: AgentProcess
+  if (baseAgentKindOf(agent) === 'pi') {
+    proc = startPiInProcOneShot(req, { cwd: workspaceRoot })
+  } else {
+    const { cmd, args, stdin } = adapter.buildArgs(req, CODEX_MCP_CLEAR)
+    proc = startAgentProcess(cmd, args, {
+      cwd: workspaceRoot,
+      env: spawnEnvForDef(req, adapter),
+      stdin,
+    })
+  }
 
   // 注册到独立进程表（不进 cli.ts 的 running Map）
   headlessProcs.set(spawnKey, proc)

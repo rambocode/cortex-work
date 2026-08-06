@@ -11,14 +11,16 @@ vi.mock("../../log", () => ({
   createLogger: () => ({ debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }),
 }));
 
-// 市场那边的 spawn 不能真跑（会去 npm 拉包），但 parsePiList 是纯函数、要用真的：
-// 它是「pi list 输出 → 路径」这条契约的唯一实现，替身掉就等于没测。
-vi.mock("../../ipc/pi-extensions-market", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../../ipc/pi-extensions-market")>();
-  return { parsePiList: real.parsePiList, runPiCli: vi.fn() };
-});
+// U4·R8 后预装走市场模块的 in-process `DefaultPackageManager` 封装。这里替身掉那两个能力：
+// 真跑会去 npm 拉包并写用户的 ~/.pi。本文件只测「幂等 + marker」这层逻辑，
+// 包管理器本身的行为（回滚/超时/进度）由 ipc/pi-extensions-market.test.ts 覆盖。
+const pm = vi.hoisted(() => ({ resolve: vi.fn(), install: vi.fn() }));
+vi.mock("../../ipc/pi-extensions-market", () => ({
+  resolveInstalledPackagePath: pm.resolve,
+  installPiPackage: pm.install,
+}));
 
-import { ensureComputerUsePackage, peekComputerUsePackage, findComputerUsePath, __setRunnerForTest } from "./install";
+import { ensureComputerUsePackage, peekComputerUsePackage, findComputerUsePath } from "./install";
 import { COMPUTER_USE_SOURCE_REF } from "../../ipc/types";
 
 const realPlatform = process.platform;
@@ -33,20 +35,17 @@ let pkgRoot = "";
 let pkgDir = "";
 const markerFile = () => join(userData, "computer-use-package.json");
 
-// pi list 的真实输出形状（缩进 4 空格的绝对路径行）。
-const listOutput = (p: string) => `User packages:\n  ${COMPUTER_USE_SOURCE_REF}\n    ${p}\n`;
-const ok = (stdout: string) => ({ code: 0, stdout, stderr: "" });
-
 beforeEach(() => {
   setPlatform("darwin");
   userData = mkdtempSync(join(tmpdir(), "cu-userdata-"));
   pkgRoot = mkdtempSync(join(tmpdir(), "cu-pkg-"));
-  pkgDir = join(pkgRoot, "node_modules", "pi-computer-use");
+  pkgDir = join(pkgRoot, "npm", "node_modules", "pi-computer-use");
   mkdirSync(pkgDir, { recursive: true });
+  pm.resolve.mockResolvedValue(undefined);
+  pm.install.mockRejectedValue(new Error("未预期的安装调用"));
 });
 
 afterEach(() => {
-  __setRunnerForTest(null);
   Object.defineProperty(process, "platform", { value: realPlatform, configurable: true });
   rmSync(userData, { recursive: true, force: true });
   rmSync(pkgRoot, { recursive: true, force: true });
@@ -54,7 +53,7 @@ afterEach(() => {
 });
 
 describe("findComputerUsePath", () => {
-  it("从 pi list 路径集里认出 pi-computer-use", () => {
+  it("从落盘路径里认出 pi-computer-use", () => {
     expect(findComputerUsePath(["/a/node_modules/other", "/a/node_modules/pi-computer-use"])).toBe(
       "/a/node_modules/pi-computer-use",
     );
@@ -71,31 +70,22 @@ describe("findComputerUsePath", () => {
 });
 
 describe("ensureComputerUsePackage", () => {
-  it("首次:跑 install,从 pi list 定位路径并写 marker", async () => {
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(ok("No packages installed.")) // 装前 list：没有
-      .mockResolvedValueOnce(ok("")) // install
-      .mockResolvedValueOnce(ok(listOutput(pkgDir))); // 装后 list
-    __setRunnerForTest(runner);
+  it("首次:跑 install,拿到落盘路径并写 marker", async () => {
+    pm.install.mockResolvedValue(pkgDir);
 
     expect(await ensureComputerUsePackage()).toBe(pkgDir);
-    expect(runner.mock.calls[1]?.[0]).toEqual(["install", COMPUTER_USE_SOURCE_REF]);
+    expect(pm.install).toHaveBeenCalledWith(COMPUTER_USE_SOURCE_REF);
     const marker = JSON.parse(readFileSync(markerFile(), "utf-8"));
     expect(marker).toMatchObject({ sourceRef: COMPUTER_USE_SOURCE_REF, path: pkgDir });
   });
 
-  // 幂等是这个模块存在的主要理由：每次启动都预装，但装过就不该再 spawn 任何东西。
-  it("marker 命中且路径仍在 → 零 spawn", async () => {
-    writeFileSync(
-      markerFile(),
-      JSON.stringify({ sourceRef: COMPUTER_USE_SOURCE_REF, path: pkgDir, installedAt: 1 }),
-    );
-    const runner = vi.fn();
-    __setRunnerForTest(runner);
+  // 幂等是这个模块存在的主要理由：每次启动都预装，但装过就不该再碰包管理器。
+  it("marker 命中且路径仍在 → 零包管理调用", async () => {
+    writeFileSync(markerFile(), JSON.stringify({ sourceRef: COMPUTER_USE_SOURCE_REF, path: pkgDir, installedAt: 1 }));
 
     expect(await ensureComputerUsePackage()).toBe(pkgDir);
-    expect(runner).not.toHaveBeenCalled();
+    expect(pm.resolve).not.toHaveBeenCalled();
+    expect(pm.install).not.toHaveBeenCalled();
   });
 
   it("marker 指向的包被外部删掉 → 重新安装", async () => {
@@ -103,86 +93,65 @@ describe("ensureComputerUsePackage", () => {
       markerFile(),
       JSON.stringify({ sourceRef: COMPUTER_USE_SOURCE_REF, path: join(pkgDir, "gone"), installedAt: 1 }),
     );
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(ok("No packages installed."))
-      .mockResolvedValueOnce(ok(""))
-      .mockResolvedValueOnce(ok(listOutput(pkgDir)));
-    __setRunnerForTest(runner);
+    pm.install.mockResolvedValue(pkgDir);
 
     expect(await ensureComputerUsePackage()).toBe(pkgDir);
-    expect(runner).toHaveBeenCalled();
+    expect(pm.install).toHaveBeenCalled();
   });
 
   // 版本钉死在 sourceRef 里，bump 后旧 marker 必须失效，否则会一直用着老版本的包。
   it("sourceRef 变化（版本 bump）→ 旧 marker 失配,重新对账", async () => {
-    writeFileSync(
-      markerFile(),
-      JSON.stringify({ sourceRef: "npm:pi-computer-use@0.0.1", path: pkgDir, installedAt: 1 }),
-    );
-    // 库存里已有包 → 走「已装」分支，只 list 不 install。
-    const runner = vi.fn().mockResolvedValueOnce(ok(listOutput(pkgDir)));
-    __setRunnerForTest(runner);
+    writeFileSync(markerFile(), JSON.stringify({ sourceRef: "npm:pi-computer-use@0.0.1", path: pkgDir, installedAt: 1 }));
+    // npm 源按包名定址，同名不同版本也会被 getInstalledPath 命中 → 走「已装」分支，不重装。
+    pm.resolve.mockResolvedValue(pkgDir);
 
     expect(await ensureComputerUsePackage()).toBe(pkgDir);
-    expect(runner).toHaveBeenCalledTimes(1);
+    expect(pm.install).not.toHaveBeenCalled();
     expect(JSON.parse(readFileSync(markerFile(), "utf-8")).sourceRef).toBe(COMPUTER_USE_SOURCE_REF);
   });
 
   it("用户先前手动装过（marker 缺失但包在库存里）→ 只补 marker,不重复 install", async () => {
-    const runner = vi.fn().mockResolvedValueOnce(ok(listOutput(pkgDir)));
-    __setRunnerForTest(runner);
+    pm.resolve.mockResolvedValue(pkgDir);
 
     expect(await ensureComputerUsePackage()).toBe(pkgDir);
-    expect(runner).toHaveBeenCalledTimes(1);
-    expect(runner.mock.calls[0]?.[0]).toEqual(["list"]);
+    expect(pm.resolve).toHaveBeenCalledWith(COMPUTER_USE_SOURCE_REF);
+    expect(pm.install).not.toHaveBeenCalled();
   });
 
   // 失败不写 marker 是刻意的：下次启动要能自动重试（首启常见的失败原因是没网）。
   it("install 失败 → 返回 null 且不写 marker（下次启动重试）", async () => {
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(ok("No packages installed."))
-      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "network unreachable" });
-    __setRunnerForTest(runner);
+    pm.install.mockRejectedValue(new Error("network unreachable"));
 
     expect(await ensureComputerUsePackage()).toBeNull();
     expect(existsSync(markerFile())).toBe(false);
   });
 
-  it("install 报成功但 list 里找不到 → 返回 null 且不写 marker", async () => {
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(ok("No packages installed."))
-      .mockResolvedValueOnce(ok(""))
-      .mockResolvedValueOnce(ok("No packages installed."));
-    __setRunnerForTest(runner);
+  it("install 报成功但路径不是 pi-computer-use → 返回 null 且不写 marker", async () => {
+    pm.install.mockResolvedValue("/somewhere/else/pi-other");
 
     expect(await ensureComputerUsePackage()).toBeNull();
     expect(existsSync(markerFile())).toBe(false);
   });
 
-  it("runner 抛异常 → 吞掉返回 null（绝不冒泡拖垮 whenReady）", async () => {
-    __setRunnerForTest(vi.fn().mockRejectedValue(new Error("boom")));
+  // 运行时整体不可用（pi-coding-agent 加载失败）也必须降级成「不可用」，而不是拖垮启动。
+  it("包管理运行时不可用 → 吞掉返回 null（绝不冒泡拖垮 whenReady）", async () => {
+    pm.resolve.mockRejectedValue(new Error("pi 包管理运行时不可用"));
     expect(await ensureComputerUsePackage()).toBeNull();
   });
 
-  it("非 macOS → 直接 null,不 spawn", async () => {
+  it("非 macOS → 直接 null,不碰包管理器", async () => {
     setPlatform("win32");
-    const runner = vi.fn();
-    __setRunnerForTest(runner);
     expect(await ensureComputerUsePackage()).toBeNull();
-    expect(runner).not.toHaveBeenCalled();
+    expect(pm.resolve).not.toHaveBeenCalled();
+    expect(pm.install).not.toHaveBeenCalled();
   });
 
   // whenReady 的 fire-and-forget 与设置页「重试」可能同时触发。
   it("在途去重:并发调用只跑一遍 install", async () => {
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(ok("No packages installed."))
-      .mockResolvedValueOnce(ok(""))
-      .mockResolvedValueOnce(ok(listOutput(pkgDir)));
-    __setRunnerForTest(runner);
+    pm.install.mockImplementation(async () => {
+      await Promise.resolve();
+      return pkgDir;
+    });
 
     const [a, b, c] = await Promise.all([
       ensureComputerUsePackage(),
@@ -190,20 +159,15 @@ describe("ensureComputerUsePackage", () => {
       ensureComputerUsePackage(),
     ]);
     expect([a, b, c]).toEqual([pkgDir, pkgDir, pkgDir]);
-    expect(runner.mock.calls.filter((c2) => c2[0]?.[0] === "install")).toHaveLength(1);
+    expect(pm.install).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("peekComputerUsePackage", () => {
-  it("只读探测:marker 有效则回路径,且不 spawn", () => {
-    writeFileSync(
-      markerFile(),
-      JSON.stringify({ sourceRef: COMPUTER_USE_SOURCE_REF, path: pkgDir, installedAt: 1 }),
-    );
-    const runner = vi.fn();
-    __setRunnerForTest(runner);
+  it("只读探测:marker 有效则回路径,且不碰包管理器", () => {
+    writeFileSync(markerFile(), JSON.stringify({ sourceRef: COMPUTER_USE_SOURCE_REF, path: pkgDir, installedAt: 1 }));
     expect(peekComputerUsePackage()).toBe(pkgDir);
-    expect(runner).not.toHaveBeenCalled();
+    expect(pm.resolve).not.toHaveBeenCalled();
   });
 
   it("无 marker → null", () => {

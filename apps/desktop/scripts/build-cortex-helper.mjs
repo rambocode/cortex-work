@@ -2,7 +2,8 @@
 // 把 apps/desktop/native/Cortex_Helper(Swift 可执行包)用 `swift build -c release` 编译成
 // 单个原生二进制,产出到 apps/desktop/resources/Cortex_Helper/Cortex_Helper。
 // Cortex 打包时经 electron-builder 的 extraResources 落到 <App>/Contents/Resources/Cortex_Helper/,
-// 主进程 helper-client(U4)spawn 它。仿 build-pi-binary.mjs 的结构(幂等 stamp + 跨架构 + --force)。
+// 主进程 helper-client(U4)spawn 它。结构:幂等 stamp + 跨架构 + --force(沿用已删除的
+// build-pi-binary.mjs 的同款套路)。
 //
 // 平台:reply 功能是 macOS 专属(AX / CGEventTap / Vision / EventKit),仅在 darwin 上构建;
 // 非 darwin 直接跳过(prepackage:win-x64 不挂本脚本)。

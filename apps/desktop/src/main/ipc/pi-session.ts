@@ -1,6 +1,13 @@
-// pi RPC 长驻会话的 IPC 层。registry 维护 uiSessionId → PiRpcSession（= 一个 pi 子进程）,
+// pi 长驻会话的 IPC 层。registry 维护 uiSessionId → PiSessionEngine,
 // pi:open 建、pi:close 销;命令转发到会话方法,归一化事件经 pi:event 推回 renderer。
 // claude/codex 仍走 cli.ts 单发管线,与本通道互不影响。
+//
+// ── 引擎已收敛：无条件走 gateway ──────────────────────────────────────────────
+// `pi:open` 恒经 `openPiGatewaySession` 建会话：常驻 utilityProcess worker 持有多个
+// AgentSession —— `PiGatewaySession`（见 docs/plans/2026-08-06-001-refactor-pi-gateway-worker-plan.md，
+// fork + ESM 加载只付一次）。历史上的 binary（bun 二进制 + `--mode rpc` 手抄协议）与
+// inproc（主进程内 `createAgentSession`）两条选路已删除。本文件**不含任何引擎分支**：
+// registry、命令转发、UI 回写、清理路径全部只依赖 `PiSessionEngine` 契约。
 
 import { randomUUID } from "crypto";
 import { existsSync, promises as fsp } from "fs";
@@ -9,26 +16,20 @@ import { isAbsolute, join, resolve, sep } from "path";
 
 import { app, ipcMain, type WebContents } from "electron";
 
-import { buildRpcArgs, spawnPiRpc, PiRpcSession, type PiImageContent, type RpcResponse } from "../agents/pi-rpc";
+import type { PiImageContent, RpcResponse } from "../agents/pi-inproc/rpc-shared";
+import type { PiSessionEngine } from "../agents/pi-inproc";
+import { openPiGatewaySession } from "../agents/pi-gateway/client";
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
-import { writePiExtension } from "../agents/pi-providers";
-import { resolvePiSessionProvider } from "../providers/custom-provider-runtime";
-import {
-  writeApprovalExtension,
-  writeAskQuestionExtension,
-  writeCustomToolExtension,
-  writeSlashCommandExtension,
-  writeTodoExtension,
-} from "../agents/pi-extensions";
-import { assertSpawnCwd, resolveSpawnCwd, spawnEnvFor } from "./cli";
+import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { assertSpawnCwd, resolveSpawnCwd } from "./cli";
 import { getPersistedState } from "./store";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
-import { resolveComputerUse } from "../capabilities/computer-use/inject";
+import { GROUNDING_MODEL_ENV, resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
@@ -36,7 +37,7 @@ import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } fro
 import { buildAutomationMcpServerConfig, unregisterAutomationSession } from "../capabilities/automation/server";
 import { buildCalendarMcpServerConfig, unregisterCalendarSession } from "../capabilities/calendar/server";
 import { loadWorkflows } from "../workflow/store";
-import { collectBridgeServers, writeMcpBridgeExtension } from "../agents/pi-mcp-bridge";
+import { collectBridgeServers } from "../agents/pi-mcp-bridge";
 import type { PiOpenRequest, PiOpenResult, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "./types";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { createLogger } from "../log";
@@ -44,12 +45,12 @@ import { createLogger } from "../log";
 const log = createLogger("pi-session");
 
 interface SessionEntry {
-  session: PiRpcSession;
+  session: PiSessionEngine; // 引擎契约（gateway worker 内的 AgentSession 的主进程 handle）
   sender: WebContents; // 发起 open 的 renderer,事件回推目标（销毁则丢弃）
 }
 
 const sessions = new Map<string, SessionEntry>();
-type TransientPiUiSession = Pick<PiRpcSession, "respondUi">;
+type TransientPiUiSession = Pick<PiSessionEngine, "respondUi">;
 
 const transientUiSessions = new Map<string, TransientPiUiSession>();
 
@@ -127,14 +128,14 @@ async function buildPiImages(imagePaths: string[] | undefined): Promise<PiImageC
 }
 
 // 取会话;不存在即抛错（renderer 的 invoke 会收到 rejection）。
-function getSession(uiSessionId: string): PiRpcSession {
+function getSession(uiSessionId: string): PiSessionEngine {
   const entry = sessions.get(uiSessionId);
   if (!entry) throw new Error(`pi 会话不存在: ${uiSessionId}`);
   return entry.session;
 }
 
 // 命令转发:取会话 → 执行 → 命令级失败（success:false）转成 rejection,成功回 data。
-async function command(uiSessionId: string, fn: (s: PiRpcSession) => Promise<RpcResponse>): Promise<unknown> {
+async function command(uiSessionId: string, fn: (s: PiSessionEngine) => Promise<RpcResponse>): Promise<unknown> {
   const resp = await fn(getSession(uiSessionId));
   if (!resp.success) throw new Error(resp.error ?? "pi 命令失败");
   return resp.data;
@@ -178,56 +179,31 @@ export function filterLoadableExtensionPaths(paths: string[] | undefined): strin
 
 export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRequest> {
   const prepared = req;
-  // ⚠️ 安全:req 是 renderer 经 IPC 传来的对象,而下面这两个字段是**主进程内部填充**的
-  // 子进程环境变量。不先清空的话,renderer 可以直接传
-  // `customProviderEnv: { PATH: "/tmp/evil", NODE_OPTIONS: "--require /tmp/x.js" }` ——
-  // 它们在 spawnEnvFor 里以 Object.assign 合并在 buildEnv() **之后**,足以劫持 pi 子进程。
+  // ⚠️ 安全:req 是 renderer 经 IPC 传来的对象,而下面这两个字段是**主进程内部填充**的。
+  // computerUseEnv 会被 worker 原样写进自己的 process.env,customProviderEnv 是历史上
+  // binary 路径的 spawn env 注入口——不先清空的话,renderer 可以借它们注入任意环境变量。
   // 类型注释写了「renderer 不传」,但注释拦不住任何人,必须在边界上真删。
   delete prepared.customProviderEnv;
   delete prepared.computerUseEnv;
-  // cwd 归一放在最前:空串会让 spawn 继承 Electron 自己的工作目录
-  //(dev 下 = apps/desktop/,agent 产物写进程序目录)。见 cli.resolveSpawnCwd。
+  // cwd 归一放在最前:空串历史上会让 spawn 继承 Electron 自己的工作目录;gateway 下 worker 的
+  // 会话文件与工具根同样按它推导,语义保留。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
-  // 供应商解析:renderer 只给 providerId,endpoint 与密钥从「Catalog + provider-prefs + 凭据金库」取。
-  // 这里是 pi 主会话与三段编排子会话的共同入口,放这一处即两条路径都覆盖。
-  // 不接的话,§5 清掉 providerSettings 后 provider 恒为 undefined —— pi 会静默退回自己的默认
-  // provider,用户以为在用选定的模型,实际不是。
-  //
-  // 三段式解析（Catalog → 自定义 → 响亮失败）收在 resolvePiSessionProvider 里。解析不出时
-  // 它直接抛错 —— 本函数在 spawnPiRpc **之前**执行,故 pi 进程根本不会被拉起来,
-  // 用户拿到的是「供应商未配置」而不是 pi 兜底换模型后那句毫不相干的下游报错。
+  // 供应商解析:renderer 只给 providerId。gateway 下模型/凭据的**最终**解析在 worker 侧
+  // （credentials 经 RPC 回主进程取,见 pi-gateway 的 KTD1）,providerId 随 open 参数透传;
+  // 这里只把「Catalog + provider-prefs」合成的 endpoint 覆盖挂上 prepared.provider——
+  // worker 的 applyBaseUrlOverride 靠它登记 baseUrl 覆盖,漏掉即「设置里配好了自建网关,
+  // 请求却发官方地址」的静默失败。
+  // 自定义 Provider 在此解析不出（resolvePiProviderInput 只认 Catalog）→ provider 留空,
+  // worker 侧 resolveModel 会以「供应商没有可用模型」响亮失败,绝不静默换模型。
   if (!prepared.provider && prepared.providerId) {
-    const resolved = await resolvePiSessionProvider(prepared.providerId);
-    if (resolved.kind === "builtin") {
-      prepared.provider = resolved.provider;
-      prepared.piExtensionPath = resolved.extensionPath;
-    } else {
-      prepared.piExtensionPath = resolved.runtime.extensionPath;
-      // Secret 真值只走子进程 env（extension 文件里只有 ${CORTEX_PI_SECRET_N} 占位）。
-      prepared.customProviderEnv = resolved.runtime.secretEnv;
-      // 合成一个「只承载 id」的 provider:buildRpcArgs 据它下发 `--provider`,
-      // 没有它 pi 会拿到孤立的 --model 并走自己的兜底链选模型（本次事故的直接成因）。
-      // baseUrl/models 留空、apiKey 缺省 —— 真配置全在上面那份 extension 里,
-      // 且 spawnEnvFor 不会因此注入 CORTEX_PI_KEY。
-      prepared.provider = { id: resolved.runtime.providerId, baseUrl: "", models: [] };
-    }
-  } else if (prepared.provider) {
-    // provider 由调用方（编排子会话）直接给定时,沿用既有内建渲染路径。
-    prepared.piExtensionPath = writePiExtension(prepared.provider);
+    const provider = await resolvePiProviderInput(prepared.providerId);
+    if (provider) prepared.provider = provider;
   }
-
-  const extra: string[] = [...(prepared.extraExtensionPaths ?? [])];
-  if (prepared.enableToolApproval) extra.push(writeApprovalExtension(prepared.approvalTools));
-  if (prepared.enableSampleTools) extra.push(writeCustomToolExtension());
-  if (prepared.enableSampleCommands) extra.push(writeSlashCommandExtension());
+  // provider 由调用方（编排子会话）直接给定时原样沿用——worker 侧只消费 id 与 baseUrl。
 
   const askQuestionSentinel =
     prepared.askQuestionSentinel ?? `@@CORTEX_ASKQ:${randomUUID()}@@`;
   prepared.askQuestionSentinel = askQuestionSentinel;
-  extra.push(writeAskQuestionExtension(askQuestionSentinel));
-  // 任务清单工具 todo_write(常驻):pi 无原生 TodoWrite,经此补齐。事件在 pi-rpc.ts mapPiEvent
-  // 特判转成 todo 整表快照事件,渲染端折叠成任务清单卡片。
-  extra.push(writeTodoExtension());
 
   try {
     const state = await getPersistedState();
@@ -316,28 +292,31 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
       ...(calendarServer ? [calendarServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
-    const bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
-    if (bridgeServers.length) extra.push(writeMcpBridgeExtension(bridgeServers));
+    // 结构化桥接配置随 open 参数进 worker,由 capabilities.ts 原生注册成 customTools。
+    prepared.bridgeServers = collectBridgeServers(bridgeInputs, browserServer);
   } catch (e) {
-    log.warn(`MCP 桥接扩展生成失败: ${String(e)}`);
+    log.warn(`MCP 桥接配置收集失败: ${String(e)}`);
   }
 
   // Computer Use（pi-computer-use package,操作真实桌面 GUI）。
   // 独立 try 而非并进上面那块:它不是 MCP 桥接,混进去会让失败日志张冠李戴。
-  // 只在这条 RPC 路径注入——单发路径无审批 UI,详见 capabilities/computer-use/inject.ts 的说明。
+  // 只在这条聊天会话路径注入——单发路径无审批 UI,详见 capabilities/computer-use/inject.ts 的说明。
   try {
     const gs = (await getPersistedState()).generalSettings;
+    // pi 在常驻 worker 里，主进程写自己的 env 对它无效（两个 agent 独立发现的坑），
+    // 必须经 computerUseEnv 传过去由 worker 的 applyComputerUseEnv 落地。
+    // ⚠️ 常驻进程的 env **跨会话残留**：注入轮必须显式携带 grounding 键——有值 = 写，
+    // 空串 = 删（worker 侧语义），整个字段缺省 = 门控未过、一个字节不碰。少了空串这条，
+    // 用户清空设置后旧模型名会在 worker 里永久粘住。
     const cu = await resolveComputerUse(gs?.computerUse);
     if (cu.path) {
-      extra.push(cu.path);
-      // env 经 prepared 传到下面的 spawnPiRpc（pi 无对应 CLI flag,只能走环境变量）。
-      if (Object.keys(cu.env).length) prepared.computerUseEnv = cu.env;
+      prepared.inProcExtensionPaths = [cu.path];
+      prepared.computerUseEnv = { ...cu.env, [GROUNDING_MODEL_ENV]: cu.env[GROUNDING_MODEL_ENV] ?? "" };
     }
   } catch (e) {
     log.warn(`Computer Use 注入决策失败,本轮不注入: ${String(e)}`);
   }
 
-  prepared.extraExtensionPaths = extra;
   prepared.extensionPaths = filterLoadableExtensionPaths(prepared.extensionPaths);
   return prepared;
 }
@@ -351,11 +330,11 @@ export function registerPiSessionHandlers(): void {
       sessions.delete(req.uiSessionId);
     }
 
-    // 扩展准备(provider / 审批 / cwd 路径闸 / askquestion / MCP 桥接 / 市场扩展)统一抽进
-    // preparePiOpenRequest —— pi 主会话与三段编排子会话同走此函数,路径闸/审批等一处定义两处复用。
+    // 扩展准备(provider / cwd 路径闸 / askquestion / MCP 桥接 / 市场扩展)统一抽进
+    // preparePiOpenRequest —— pi 主会话与三段编排子会话同走此函数,路径闸/审批集等一处定义两处复用。
     const prepared = await preparePiOpenRequest(req);
-    const args = buildRpcArgs(prepared);
     assertSpawnCwd(prepared.cwd);
+
     recordAgentTrace({
       scope: "pi",
       phase: "open",
@@ -363,29 +342,21 @@ export function registerPiSessionHandlers(): void {
       sessionId: prepared.uiSessionId,
       agent: "pi",
       // model:调试跟踪需能直读会话启动模型(缺省 = pi 自身默认;运行时可经 pi:setModel 切换)。
-      data: { cwd: prepared.cwd, model: prepared.model ?? "(默认)", argCount: args.length, providerId: prepared.provider?.id },
-    });
-    const transport = spawnPiRpc(args, {
-      cwd: prepared.cwd,
-      // computerUseEnv 由 preparePiOpenRequest 填充（Computer Use 的 grounding 模型）;
-      // 后合并使其覆盖同名基础变量,缺省为空对象、不影响原行为。
-      // customProviderEnv 走 spawnEnvFor（而非在此后合并）:它与 CORTEX_PI_KEY 同属
-      // 「供应商密钥注入」职责,放一处便于日后统一审计。
-      env: {
-        ...spawnEnvFor({
-          agent: "pi",
-          provider: prepared.provider,
-          customProviderEnv: prepared.customProviderEnv,
-        }),
-        ...prepared.computerUseEnv,
+      data: {
+        cwd: prepared.cwd,
+        model: prepared.model ?? "(默认)",
+        engine: "gateway",
+        providerId: prepared.provider?.id,
       },
     });
-    const session = new PiRpcSession(
-      transport,
-      (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
-      (request) => emitUiRequest(prepared.uiSessionId, request),
-      prepared.askQuestionSentinel,
-    );
+
+    // 无条件走 gateway：能力组装在 worker 侧（capabilities.ts）按 prepared 里的结构化字段完成；
+    // hasUiOutlet 经 open 协议下发，由传了 onUiRequest 这一事实决定。
+    const session: PiSessionEngine = await openPiGatewaySession({
+      request: prepared,
+      onEvent: (ev, runId) => emitEvent(prepared.uiSessionId, ev, runId),
+      onUiRequest: (request) => emitUiRequest(prepared.uiSessionId, request),
+    });
     sessions.set(prepared.uiSessionId, { session, sender: event.sender });
 
     // renderer 只 reload 不关窗时,旧 WebContents 销毁但 Map 条目连同 sender 常驻——监听
@@ -412,7 +383,7 @@ export function registerPiSessionHandlers(): void {
     }
   });
 
-  // ── 运行时命令（均转发到对应 PiRpcSession 方法）──────────────────────────
+  // ── 运行时命令（均转发到对应 PiSessionEngine 方法）──────────────────────────
   ipcMain.handle("pi:prompt", (_e, uiSessionId: string, message: string, runId?: string, imagePaths?: string[]) =>
     command(uiSessionId, async (s) => {
       recordAgentTrace({

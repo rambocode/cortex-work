@@ -10,11 +10,15 @@
 // 用法：先 `pnpm --filter @cortex-work/desktop dist:dir`，再 `node scripts/verify-pi-ai-packaging.mjs`。
 // 任一检查失败即非零退出。
 //
-// 检查分两层：
+// 检查分三层：
 //  1. 静态：asar 里 pi-ai 入口与全部重型 SDK 依赖在场（防 files 排除清单误伤闭包）。
 //  2. 动态：起一个最小 Electron 主进程，从 asar 内真实 import providers/all 与各 api 实现
 //     ——api 模块急切引各家 SDK，其内部裸标识符以 asar 内文件为 parent 解析，
 //     与生产链路同一套 ESM 加载语义；缺任何传递依赖都会在此暴露为 ERR_MODULE_NOT_FOUND。
+//  3. in-process 护栏（迁移计划 R11）：pi 收敛为 gateway 引擎后，三包
+//     （pi-coding-agent / pi-agent-core / pi-tui）**必须**在 asar 内。这一层在**打包产物内**
+//     实跑一整轮 agent loop（工具真实执行），断言与 scripts/verify-pi-inprocess.mjs 同源、
+//     不重复实现。三包缺任何一个都直接判失败（bun 二进制形态已删除，没有回退可言）。
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const inProcVerifier = join(appDir, "scripts", "verify-pi-inprocess.mjs");
 const failures = [];
 
 function check(label, fn) {
@@ -93,11 +98,21 @@ for (const dep of [
   });
 }
 
-// 不该进包的 pi CLI 家族仍应被排除（体积守卫，防排除项回退成全量放行）。
-for (const dep of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@earendil-works/pi-agent-core"]) {
-  check(`asar 不含 ${dep}`, () => {
-    const prefix = `/node_modules/${dep}/`;
-    if (asarList.some((f) => f.startsWith(prefix))) throw new Error(`${prefix} 不该进 asar`);
+// pi 唯一执行形态是 gateway 引擎（worker 内 in-process 调 SDK），三包必须在 asar 内按包名可解析。
+// 曾经的自适应双态（迁移前守「不该进包」体积红线 / 迁移后守「进了包且真能跑」）随 bun 二进制
+// 形态删除而收敛为单态：缺包即失败，没有「走二进制所以不需要」的豁免。
+const hasInAsar = (dep) => asarList.some((f) => f.startsWith(`/node_modules/${dep}/`));
+
+for (const dep of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-core", "@earendil-works/pi-tui"]) {
+  check(`asar 含 ${dep}`, () => {
+    if (!hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 缺失（files 排除清单误伤？）`);
+  });
+}
+// 三包的隐藏依赖闭包。这两条是 R10 点名的「以纯 renderer 冗余为由被排除、实为主进程运行时
+// 依赖」的项，漏放开即首次使用时 ERR_MODULE_NOT_FOUND。
+for (const dep of ["@silvia-odwyer/photon-node", "highlight.js"]) {
+  check(`asar 含 in-process 隐藏依赖 ${dep}`, () => {
+    if (!hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 缺失（electron-builder.yml 排除项漏放开？）`);
   });
 }
 
@@ -152,6 +167,94 @@ app.whenReady().then(async () => {
     rmSync(harnessDir, { recursive: true, force: true });
   }
 });
+
+// ── 3. in-process 护栏：在 asar 内实跑一轮 agent loop（R11） ─────────────────
+
+if (!existsSync(inProcVerifier)) {
+  failures.push(`in-process 护栏: 找不到 ${inProcVerifier}`);
+  console.log(`  ✗ in-process 护栏 — 找不到 ${inProcVerifier}`);
+} else {
+  check("Electron 主进程可在 asar 内跑通 pi in-process agent loop", () => {
+    const harnessDir = mkdtempSync(join(tmpdir(), "pi-inproc-asar-test-"));
+    try {
+      // harness 只负责两件事：① 把「按包名解析」翻译成「在 asar 内定位 ESM 入口」；
+      // ② 调 verify-pi-inprocess.mjs 的同一套断言。断言逻辑刻意不在这里复制一份——
+      // 复制必然与开发态那份漂移，而漂移正是本护栏要防的东西。
+      //
+      // 为什么要自己解析入口：harness 在临时目录里，裸 import 会以临时目录为 parent 解析，
+      // 根本碰不到 asar。手动定位到 asar 内的入口文件后，包**内部**的裸标识符仍以 asar 内文件为
+      // parent 解析（与生产链路同一套 ESM 语义），传递依赖缺失照样暴露为 ERR_MODULE_NOT_FOUND。
+      writeFileSync(
+        join(harnessDir, "main.cjs"),
+        `
+const { app } = require("electron");
+const { pathToFileURL } = require("url");
+const path = require("path");
+const fs = require("fs");
+const ASAR = process.env.TEST_ASAR;
+const VERIFIER = process.env.TEST_VERIFIER;
+
+// 读包自身 package.json 的 exports["."].import（回退 default / main）定位 ESM 入口。
+// 三个 pi 包都是 "type":"module" 且 exports 只有 import 条件，不能用 require.resolve。
+function resolveInAsar(name) {
+  const dir = path.join(ASAR, "node_modules", ...name.split("/"));
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const dot = pkg.exports && pkg.exports["."];
+  const rel = (dot && (dot.import || dot.default)) || pkg.main || "index.js";
+  return pathToFileURL(path.join(dir, rel)).href;
+}
+
+app.whenReady().then(async () => {
+  try {
+    const mod = await import(pathToFileURL(VERIFIER).href);
+    const { ok } = await mod.runPiInProcessVerification({
+      importModule: (name) => import(resolveInAsar(name)),
+      log: (s) => console.log("      " + s),
+    });
+    console.log(ok ? "[INPROC-PASS]" : "[INPROC-FAIL]");
+    app.exit(ok ? 0 : 1);
+  } catch (err) {
+    console.error("[INPROC-FAIL]", (err && (err.stack || err.message)) || String(err));
+    app.exit(1);
+  }
+});
+`,
+      );
+      writeFileSync(join(harnessDir, "package.json"), JSON.stringify({ name: "pi-inproc-asar-test", main: "main.cjs" }));
+      const electronBin = join(appDir, "node_modules", ".bin", "electron");
+      const out = spawnSync(electronBin, [harnessDir], {
+        env: { ...process.env, TEST_ASAR: asarPath, TEST_VERIFIER: inProcVerifier },
+        encoding: "utf8",
+        // 比上一层宽：这里要真跑 grep/read/bash 三个工具 + 构造 AgentSession。
+        timeout: 180_000,
+      });
+      const stdout = `${out.stdout ?? ""}${out.stderr ?? ""}`;
+      // 逐行回显 harness 输出，失败时不用再去猜是哪一段断言挂了。
+      for (const line of stdout.split("\n")) if (line.trim()) console.log(`    ${line}`);
+      if (out.status !== 0 || !stdout.includes("[INPROC-PASS]")) {
+        throw new Error(`退出码 ${out.status}`);
+      }
+      return "PI_INPROC_RESULT=PASS";
+    } finally {
+      rmSync(harnessDir, { recursive: true, force: true });
+    }
+  });
+}
+
+// ── pi gateway worker 产物存在性 ─────────────────────────────────────────────────
+// 常驻 gateway 引擎的 worker 必须随包（asarUnpack 的 out/worker/**）。缺失的成因几乎只有
+// 一个：构建链里 build:worker 之后没串 build:pi-host（后者 emptyOutDir:false 依赖前者先跑，
+// 顺序对了但漏了第二步就会静默丢产物）。缺失的表现是 gateway 选路下开会话报「未找到入口」，
+// 而 binary/inproc 完全正常——只在切了引擎的用户那里暴露，故这里在打包态就拦。
+{
+  const unpackedHost = join(appBundle, "Contents", "Resources", "app.asar.unpacked", "out", "worker", "pi-host.js");
+  if (existsSync(unpackedHost)) {
+    console.log("  ✓ gateway worker 产物在场: app.asar.unpacked/out/worker/pi-host.js");
+  } else {
+    console.error("  ✗ 缺少 gateway worker 产物（检查构建链是否串了 build:pi-host）");
+    failures.push("pi-host.js 缺失");
+  }
+}
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} 项失败`);

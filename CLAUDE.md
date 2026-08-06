@@ -80,9 +80,13 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 
 ### Agent CLI 适配器
 
-`apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。每个 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`）。`ipc/cli.ts` 的 spawn / 流式管线对所有 agent 通用。`pi` 是由 `@earendil-works/pi-coding-agent` 经 bun `--compile` 打成的自包含单二进制（`scripts/build-pi-binary.mjs` → `resources/pi/pi`，`resolvePiBinary()` 定位），与其它 agent 一样用 `child_process.spawn` 启动。（曾用 `utilityProcess.fork` 直跑 npm 包，因纯 ESM 依赖闭包在 asar 里反复 `ERR_MODULE_NOT_FOUND` 而改为编译二进制。）
+`apps/desktop/src/main/agents/` 是多 agent（`claude` / `codex` / `pi`）适配注册表。`claude` / `codex` 的 adapter 提供两个纯函数：`buildArgs`（构造命令行）和 `parseLine`（解析一行 stdout 为归一化 `CliStreamEvent`），`ipc/cli.ts` 的 spawn / 流式管线对它们通用。
 
-「电脑操作」（Computer Use）由第三方 pi package `pi-computer-use` 供能，**默认启用**：首启后台 `pi install` 到 `~/.pi`，注入决策集中在 `capabilities/computer-use/inject.ts` 的五门控，且**只在聊天 RPC 路径**注入（单发路径无审批 UI）。`gui_*` 写工具在 `core/personal/permissionMode.ts` 里强制进审批集——包括「自动执行」档，这是不可让步的安全红线。
+**`pi` 不走 CLI 适配器，常驻 gateway worker 是唯一执行形态**（方案见 `docs/plans/2026-08-06-001-refactor-pi-gateway-worker-plan.md`）：长驻聊天会话与编排由主进程 fork 的**常驻 `utilityProcess` worker** 承载——`agents/pi-gateway/`（JSONL 协议 + 主进程客户端）⇄ `src/worker/pi-host/`（执行体，worker 内动态 import `@earendil-works/pi-coding-agent` 并调 `createAgentSession()`；构建 `electron.pi-host.config.ts` → `out/worker/pi-host.js`，三包 external 不 bundle）。多会话复用同一 worker，fork 与三包 ESM 加载只付一次（app 启动按需 `primePiGatewayRuntime()` 预热）；凭据经 RPC 回主进程 safeStorage 解密，密钥不常驻 worker；worker 崩溃 → 全会话上报 `crashed` + 懒重启。**单发路径走主进程 in-process oneshot**（`agents/pi-inproc/oneshot.ts`，gateway 化另案）。pi 没有进程 spawn 的 CLI 边界，故**没有 `buildArgs` / `parseLine`**，事件归一化成同一套 `PiSessionEvent`。
+
+**历史脉络（四段连读才完整，缺一段就会有人把它改回去）**：曾用 `utilityProcess.fork` 直跑 npm 包 → 因纯 ESM 依赖闭包在 asar 里反复 `ERR_MODULE_NOT_FOUND`，改为 bun 编译二进制 + spawn → 再改为主进程内动态 import（in-process，摆脱编译链与手抄协议，但 agent loop 占用主进程事件循环）→ 现收敛为**常驻 gateway worker**（把执行体挪回独立进程，性能/崩溃/内存隔离拿回来，包加载语义与 in-process 同款）。**后两段成立有两个前提，缺一即回到当年的 `ERR_MODULE_NOT_FOUND`**：① 动态 import 的 specifier 必须是**变量**（数组 `join("/")` 拼）并加 `/* @vite-ignore */`——写成字符串字面量会把整个纯 ESM 依赖图静默打进 CJS chunk；② `electron-builder.yml` 里 5 条排除（`pi-coding-agent` / `pi-agent-core` / `pi-tui` / `@silvia-odwyer` / `highlight.js`）必须保持放开，它们已从「renderer 冗余 / 二进制自带」变成**运行时依赖**。详见 `docs/lessons.md`。
+
+「电脑操作」（Computer Use）由第三方 pi package `pi-computer-use` 供能，**默认启用**：首启后台经 `DefaultPackageManager` 安装到 `~/.pi`（编程接口），注入决策集中在 `capabilities/computer-use/inject.ts` 的五门控，以原生 `customTools` / hook 形式注册进会话，且**只在聊天会话路径**注入（单发 oneshot 路径无审批 UI）。`gui_*` 写工具在 `core/personal/permissionMode.ts` 里强制进审批集——包括「自动执行」档，这是不可让步的安全红线。
 
 
 ## 代码质量约束（务必遵守）
@@ -112,6 +116,6 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 - **推荐用可视化发布控制台**：`pnpm release:ui` → http://localhost:5178 。它把 `local-release-mac.sh` 的直线流程拆成 11 个可单独重试的阶段（准备 / arm64 四步 / x64 四步 / 合并清单 / 上传），提供前置检查（CHANGELOG 版本段、tag 一致性与推送、证书、gh 登录、Apple 凭据）、实时日志流与 **Apple 公证队列监控**。
   - 失败后再点「开始发布」会**跳过已完成阶段、从断点续跑**——阶段状态落盘在 `.release-stage/<tag>.state.json`，产物暂存在 `.release-stage/<tag>/`，跨进程重启有效。这解决了 bash 脚本「一次公证超时就得重跑整轮双架构构建（20+ 分钟）」的问题。
   - 公证是全链唯一不受本机控制的一环：提交长时间停在 `In Progress` 是 Apple 侧排队，等即可；`Invalid` 才需要查产物。`electron-builder` 在这种情况下只会吐一句没有正文的 "Failed to notarize"，光看日志无法区分二者，所以要看队列面板。
-  - 阶段顺序不可调整：两架构必须串行（`resources/pi/` 是单一共享目录，重建即覆盖），且发布只在最后合并双架构清单后做一次（分次上传会互相覆盖，即 v0.1.27 事故根源）。
+  - 阶段顺序不可调整：两架构仍串行（`release:ui` 的阶段编排与断点续跑状态机按串行设计；原先「`resources/pi/` 单一共享目录」的理由已随 pi gateway 化删除该目录而消失，**但串行结论不因此自动放开**，是否可并行需单独评估），且发布只在最后合并双架构清单后做一次（分次上传会互相覆盖，即 v0.1.27 事故根源；**这半条与 pi 无关，任何时候都不得放开**）。同一条约束在 `apps/desktop/electron-builder.yml` 的 `mac.target` 处还有一份副本，改一处必须改两处。
   - 上传默认走 `gh release upload --clobber`。代理链路不稳、大文件反复被重置时，可用 `RELEASE_UPLOAD_VIA=curl pnpm release:ui` 切到 curl 兜底通道（支持失败降速，gh 不支持限速）。
   - **资产完整性判据必须看 `state`**：上传中断会在 release 上留下 `state="starter"` 的空壳，它带着完整的 name 与 size（GitHub 按 Content-Length 预写），只比对 name+size 会把「传失败的空壳」当成「已传好」而跳过，最终发布"成功"但用户下载 404（v0.1.49 实测踩到）。publish 阶段结束前有逐项护栏校验 名称/大小/state。

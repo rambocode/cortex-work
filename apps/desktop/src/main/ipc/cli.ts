@@ -11,11 +11,13 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
-import { PI_KEY_ENV, writePiExtension } from "../agents/pi-providers";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
-import { assertOneShotProviderSupported, CUSTOM_SECRET_ENV_PREFIX } from "../providers/custom-provider-runtime";
-import { writeTodoExtension } from "../agents/pi-extensions";
-import { mcpServerToBridge, writeMcpBridgeExtension, type BridgeServer } from "../agents/pi-mcp-bridge";
+// pi 单发的 in-process 引擎(U5;引擎收敛后是 pi 单发的唯一路径,永不 spawn)。它伪装成
+// AgentProcess,stdout 逐行吐出与旧 `pi --mode json` 同形的 JSONL,故本文件的流式管线
+// (parseLineEvents / 看门狗 / 安全重试 / trace / 委派清理)对 pi 与 claude/codex 完全一致
+// —— 差别只是「拿哪个 AgentProcess」。
+import { startPiInProcOneShot, type PiOneShotOptions } from "../agents/pi-inproc/oneshot";
+import { mcpServerToBridge, type BridgeServer } from "../agents/pi-mcp-bridge";
 import { recordAgentTrace, recordStreamDelta } from "./agent-trace";
 import { classifyAgentFailure, decideSafeRunRetry, DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS } from "./run-retry-policy";
 import { applyClaudeMcp, buildCodexMcpArgs, CODEX_MCP_CLEAR } from "./mcp-config";
@@ -114,8 +116,9 @@ function promptPreview(prompt: string | undefined): string | undefined {
   return prompt.length > 300 ? `${prompt.slice(0, 300)}…` : prompt;
 }
 
-// 封装子进程为统一接口。三种 agent 都走 child_process.spawn:claude/codex 是 PATH 上的
-// 外部 CLI,pi 是 bun 编译的自包含二进制(见 pi-locate.ts,不依赖 node_modules 解析)。
+// 封装子进程为统一接口。claude/codex 经 child_process.spawn 跑 PATH 上的外部 CLI;
+// pi 无外部二进制、永不 spawn —— pi-inproc/oneshot.ts 以「伪装成 AgentProcess」的形态
+// 接入同一条流式管线(这正是本接口存在的意义:管线只认形状,不认底下是不是真进程)。
 export interface AgentProcess {
   readonly pid: number | undefined;
   readonly stdout: NodeJS.ReadableStream | null;
@@ -215,8 +218,8 @@ export function pipeStdoutLines(
   };
 }
 
-// 启动 agent 子进程。三种 agent 统一走 child_process.spawn(cmd=可执行文件路径, args)。
-// pi 的 cmd 是 bun 编译的二进制(pi-locate.resolvePiBinary),claude/codex 是 PATH 上的命令。
+// 启动 agent 子进程(claude/codex;pi 不经此,见 startPiInProcOneShot)。
+// cmd=可执行文件路径或 PATH 上的命令,统一走 child_process.spawn。
 export function startAgentProcess(
   cmd: string,
   args: string[],
@@ -385,35 +388,34 @@ export function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: merged };
 }
 
-// 按 agent 定制子进程环境：pi 把选中通道的 API key 注入 CORTEX_PI_KEY（与生成的 extension
-// 里 apiKey:"$CORTEX_PI_KEY" 占位对应）；其余 agent 用基础 env。
-export function spawnEnvFor(req: {
-  agent: string;
-  provider?: { apiKey?: string };
-  // 自定义 Provider 的 `${secret:NAME}` 真值,形如 { CORTEX_PI_SECRET_0: "sk-..." }。
-  // 与生成的 extension 里 `${CORTEX_PI_SECRET_0}` 占位一一对应,由
-  // providers/custom-provider-runtime.ts 派生;明文只存在于子进程 env。
-  customProviderEnv?: Record<string, string>;
-}): NodeJS.ProcessEnv {
-  const env = buildEnv();
-  if (req.agent !== "pi") return env;
-  // 防御性清除可能残留的 ELECTRON_RUN_AS_NODE(pi 是独立二进制,不该带 Electron 标记)。
-  delete env.ELECTRON_RUN_AS_NODE;
-  if (req.provider?.apiKey) env[PI_KEY_ENV] = req.provider.apiKey;
-  // 第二道闸(第一道是 preparePiOpenRequest 开头的 delete):只接受 CORTEX_PI_SECRET_ 前缀的键。
-  // 这个 map 一路从 IPC 载荷类型上带过来,无过滤地 Object.assign 等于把「设任意环境变量」
-  // 的能力交给调用方 —— 它合并在 buildEnv() 之后,能覆盖 PATH / NODE_OPTIONS / CORTEX_PI_KEY。
-  // 白名单按前缀而非逐个枚举:序号 N 是运行时派生的,枚举不出来。
-  for (const [key, value] of Object.entries(req.customProviderEnv ?? {})) {
-    if (key.startsWith(CUSTOM_SECRET_ENV_PREFIX)) env[key] = value;
-  }
-  return env;
+/**
+ * 把补齐后的 PATH 写回 `process.env.PATH`，启动时调一次即可（幂等）。
+ *
+ * 为什么需要：GUI 启动的 Electron 主进程 PATH 里通常没有 nvm / homebrew 的 node 与 npm
+ * （从 Finder/Dock 拉起时不经登录 shell）。`spawnEnvFor` 这条路径靠 `buildEnv()` 逐次补齐，
+ * 但**不经过它**的第三方 spawn 就没人补——典型如 pi SDK 的 `DefaultPackageManager`，
+ * 它内部直接用 `process.env` 起 npm，装包会以「找不到 npm」失败。
+ *
+ * 早年那种「用到时临时改写 process.env.PATH、finally 还原」的写法能跑但脆：还原窗口期内
+ * 任何并发 spawn 都会读到被改的值，而主进程里 agent CLI / pty / helper / whisper 全在并发 spawn。
+ * 索性在启动期一次性补齐——PATH 只增不减（`mergePathWithPreferredDirs` 去重后拼接，
+ * extras 全部经过 `existsSync` 过滤），补齐后 `buildEnv()` 再算一次结果相同，故对既有路径无行为影响。
+ */
+export function ensureProcessPath(): void {
+  process.env.PATH = buildEnv().PATH;
+}
+
+// spawn 用的子进程环境。历史上这里还有 pi 专属段（CORTEX_PI_KEY 注入 + 自定义 Provider 的
+// `${secret:N}` 真值合并）——pi 收敛为 in-process/gateway 引擎、永不 spawn 后,那些注入随
+// binary 路径一起删除;claude/codex 只需要补齐 PATH 的基础 env。
+export function spawnEnvFor(_req: { agent: string }): NodeJS.ProcessEnv {
+  return buildEnv();
 }
 
 // 在 spawnEnvFor 基础上合并 def.extraEnv(M3-A:用户 JSON 派生 agent 注入的自定义 env)。
 // 内置 def 无 extraEnv,等价于 spawnEnvFor。profile 的 env 覆盖基础 env 同名键。
 export function spawnEnvForDef(
-  req: { agent: string; provider?: { apiKey?: string } },
+  req: { agent: string },
   def: { extraEnv?: Record<string, string> },
 ): NodeJS.ProcessEnv {
   const env = spawnEnvFor(req);
@@ -463,13 +465,14 @@ function runDelegateSubAgent(
     // pi 协作者走内置默认（可能 deactivated，R6 已知限制——v1 协作者建议用 claude/codex）。
     provider: roleBaseAgent === "pi" && parentIsPi ? parent.provider : undefined,
   };
-  // pi 子 agent 需 provider extension(apiKey)才能调模型。
-  if (roleBaseAgent === "pi" && req.provider) {
-    req.piExtensionPath = writePiExtension(req.provider);
-  }
-  // codex 子 agent 清空 MCP(裸 spawn);claude/pi 不接 mcpArgs。
+  // codex 子 agent 清空 MCP(裸 spawn);claude 不接 mcpArgs。
+  // pi 子 agent 不走 buildArgs/spawn(引擎收敛后 pi.buildArgs 是抛错 stub):
+  // 无条件走 in-process 单发,模型/凭据由 resolveOneShotModel 按 provider.id 原生解析,
+  // 不再需要 provider extension 文件。
+  const isPiSub = roleBaseAgent === "pi";
   const mcpArgs = roleBaseAgent === "codex" ? CODEX_MCP_CLEAR : undefined;
-  const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs);
+  const built = isPiSub ? undefined : adapter.buildArgs(req, mcpArgs);
+  const { cmd, args, stdin } = built ?? { cmd: "(pi in-process)", args: [] as string[], stdin: undefined };
 
   recordAgentTrace({
     scope: "delegate", phase: "start", summary: `${role.agent}[${role.label}] sub start`,
@@ -491,7 +494,12 @@ function runDelegateSubAgent(
   // 加载）写到 stderr——所有终端复现均成功，唯 Electron 主进程失败，需 codex 自身日志定位。
   const subEnv = spawnEnvForDef(req, adapter);
   if (roleBaseAgent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
-  const proc = startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
+  // pi 协作者无条件走 in-process 单发(图片校验在 oneshot 内部,错误码/文案与 buildArgs 时代一致);
+  // 刻意不注入 MCP 桥 / todo:子 agent 拿不到 delegate 工具是防递归的核心不变量,todo 事件在
+  // 委派流里也不渲染。claude/codex 原样 spawn。
+  const proc = isPiSub
+    ? startPiInProcOneShot(req, { cwd: parent.cwd })
+    : startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
 
   return new Promise((resolve) => {
     let out = "";
@@ -679,13 +687,11 @@ export function registerCliHandlers(): void {
     // cwd 归一必须在最前:后面产物身份校验、MCP 配置落盘、媒体/幻灯片能力都要用 req.cwd,
     // 只在 spawn 那一步兜底会让这些环节仍拿到空串(见 resolveSpawnCwd 的注释)。
     req.cwd = resolveSpawnCwd(req.cwd);
-    // 供应商解析:renderer 只给 providerId,endpoint 与密钥从「Catalog + provider-prefs + 凭据金库」取。
-    // 必须早于下方所有 writePiExtension / spawnEnvFor 的消费点（含 delegate 子 agent 继承 parent.provider）。
-    // 守卫与解析同条件:自定义 Provider 本阶段只接了聊天 RPC 路径,命中即响亮失败 ——
-    // 不拦的话解析得 undefined 后仍继续 spawn,pi 会拿着孤立的 --model 走兜底链换 provider
-    //（本次 azure 事故的形态）。req.provider 已由调用方给定时无需判定,也就不额外加异步跳。
+    // 供应商解析:renderer 只给 providerId。pi 单发的模型/凭据由 in-process 引擎的
+    // resolveOneShotModel 按 providerId 原生解析（Catalog + 自定义 + 凭据金库,解析不出时
+    // 响亮抛错,绝不让 pi 兜底换 provider）;这里合成的 provider 对象只供 delegate 子 agent
+    // 继承 provider.id（resolvePiProviderInput 只认 Catalog,自定义 id 得 undefined,无害）。
     if (!req.provider && req.providerId) {
-      await assertOneShotProviderSupported(req.providerId);
       req.provider = await resolvePiProviderInput(req.providerId);
     }
     assertConversationArtifactRequestShape(req.runId, req.artifactContext);
@@ -712,10 +718,6 @@ export function registerCliHandlers(): void {
     await assertAgentAvailable(req.agent);
     const sender = event.sender;
     const adapter = getAgentDef(req.agent);
-    // pi 选中了自定义供应商:先生成 extension 文件,把路径塞回 req 供 buildArgs 加 -e。
-    if (req.agent === "pi" && req.provider) {
-      req.piExtensionPath = writePiExtension(req.provider);
-    }
     // 续接失败回退(U4):带 resumeSessionId 但该会话在本机已不存在(被清理/换机)→ 清除,改为干净新建,
     // 而非带错 id spawn 失败。pi 无外部会话文件,agentSessionExists 恒 true,不触发。新建后的 init 事件
     // 会让渲染端更新存储的 agentSessionId。
@@ -956,12 +958,11 @@ export function registerCliHandlers(): void {
       }
     }
 
-    // ── pi 的 MCP 桥接:delegate、design-delegate、cortex-slides 与 research **必须合成一个扩展文件** ──
-    // pi 不进 builtinServers 注入块(mcpInjection==="none"),经 -e 扩展桥接注入;而 pi 的工具
-    // 去重只在单个扩展内生效 —— 两个扩展各自注册 ping 会直接报
-    //   Failed to load extension "…": Tool "ping" conflicts with "…"
-    // 使后加载的那个(slides)整体挂不上、工具全丢(实测)。writeMcpBridgeExtension 本就收数组,
-    // 故把本轮所有 server 合并进一个 bridge 文件,由其内部 registered 去重。
+    // ── pi 的 MCP 桥接:delegate、design-delegate、cortex-slides 与 research 合成一份结构化配置 ──
+    // pi 不进 builtinServers 注入块(mcpInjection==="none")。引擎收敛后不再落盘桥接 .js:
+    // 本轮全部 server 收进一个 bridgeServers 数组,经 PiOneShotOptions 交给 in-process 单发
+    // 原生注册(createMcpInProcTools 内部按工具名去重,与旧「单扩展内去重」同义,避免重名冲突)。
+    let piOneShot: Pick<PiOneShotOptions, "bridgeServers" | "todoTool"> | undefined;
     if (baseAgentKindOf(req.agent) === "pi") {
       // pi 的 adapter.mcpInjection==="none"，不会经过上面的 builtinServers 块。这里按轮重新读取
       // 设置并复用同一套 research gate；slides 走 cli:start 单发，每轮都会得到 fresh 工具集。
@@ -998,23 +999,12 @@ export function registerCliHandlers(): void {
       ].filter((c): c is McpServerConfig => c !== null);
       const bridges = [piDelegateBridge, ...piBridgeCfgs.map(mcpServerToBridge)]
         .filter((b): b is BridgeServer => b !== null);
-      if (bridges.length) {
-        const safeSid = req.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const bridgeKind =
-          req.runId.startsWith("design:") || slidesSessionActive || !piDelegateBridge ? "design" : "delegate";
-        req.extraExtensionPaths = [
-          ...(req.extraExtensionPaths ?? []),
-          writeMcpBridgeExtension(bridges, `${bridgeKind}-bridge-${safeSid}.js`),
-        ];
-      }
-      // 任务清单工具 todo_write:pi 无原生 TodoWrite,单发路径常驻注入(与 RPC 路径
-      // preparePiOpenRequest 对齐)。编排流(design:/slides:/writing:)跳过——其事件在渲染端
+      // 任务清单工具 todo_write:pi 无原生 TodoWrite,单发聊天路径常驻注入(与 RPC 路径的
+      // native-hooks 对齐)。编排流(design:/slides:/writing:)跳过——其事件在渲染端
       // 被前缀守卫拦截,不渲染 todo 卡,注入只会让 agent 白调工具。
       const isOrchestrationRun =
         req.runId.startsWith("design:") || req.runId.startsWith("slides:") || req.runId.startsWith("writing:");
-      if (!isOrchestrationRun) {
-        req.extraExtensionPaths = [...(req.extraExtensionPaths ?? []), writeTodoExtension()];
-      }
+      piOneShot = { bridgeServers: bridges, todoTool: !isOrchestrationRun };
     }
 
     const inactivityMs = resolveCliInactivityTimeoutMs();
@@ -1073,7 +1063,11 @@ export function registerCliHandlers(): void {
     }
 
     const retryMax = DEFAULT_SAFE_RUN_RETRY_MAX_ATTEMPTS;
-    const { cmd, args, stdin } = adapter.buildArgs(req, mcpArgs); // 未接入的 agent 在此抛错 → renderer 收到 rejection
+    // pi 不构造命令行(buildArgs 是抛错 stub):无条件走 in-process 单发。图片校验从 buildArgs
+    // 挪进了 oneshot 内部(startPiInProcOneShot → validatePiImages),错误码/文案不变。
+    const isPiRun = baseAgentKindOf(req.agent) === "pi";
+    const built = isPiRun ? undefined : adapter.buildArgs(req, mcpArgs); // 未接入的 agent 在此抛错 → renderer 收到 rejection
+    const { cmd, args, stdin } = built ?? { cmd: "(pi in-process)", args: [] as string[], stdin: undefined };
 
     // 单次 attempt(U7 安全重试):spawn + 流式管线 + 看门狗 + 收尾。attempt = 已重试次数(首跑 0)。
     // 顺序重试:旧 attempt 完全退出(onExit)后才发起下一次,故无并发在途事件、无需代际守卫;
@@ -1109,7 +1103,10 @@ export function registerCliHandlers(): void {
           promptPreview: promptPreview(req.prompt),
         },
       });
-      const proc = startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
+      // pi 无条件走 in-process 单发(带本轮 MCP 桥与 todo 注入);claude/codex 原样 spawn。
+      const proc = isPiRun
+        ? startPiInProcOneShot(req, { cwd: req.cwd, ...piOneShot })
+        : startAgentProcess(cmd, args, { cwd: req.cwd, env: spawnEnvForDef(req, adapter), stdin });
       running.set(req.runId, proc);
 
       // 本 attempt 的副作用/失败追踪(重试决策输入)。
@@ -1341,38 +1338,34 @@ export function registerCliHandlers(): void {
         providerId?: string;
       },
     ) => {
-      // oneshot（标题/日报）默认 claude。pi 选中了供应商（日报选 Pi）时挂载之:
-      // 生成 extension + --provider + 注入 key,与会话路径一致;未传 providerId 则裸 pi
-      // 跑（用 pi 自身默认 provider,如标题生成兜底）。claude/codex 不挂供应商。
-      //
-      // 阶段③ 收编:渲染端只给 providerId,endpoint 与密钥由主进程从
-      // 「Catalog + provider-prefs + 凭据金库」解析（resolvePiProviderInput）——
-      // 明文 apiKey 不再经 IPC 过桥。
+      // oneshot（标题/日报）默认 claude。pi 选中了供应商（日报选 Pi）时:providerId 直接进请求,
+      // 模型/凭据由 in-process 引擎的 resolveOneShotModel 原生解析（Catalog + 自定义 + 凭据金库,
+      // 解析不出响亮抛错）;未传 providerId 则裸 pi 跑（用 pi 自身默认 provider,如标题生成兜底）。
+      // claude/codex 不挂供应商。明文 apiKey 不经 IPC 过桥。
       const agent = req.agent ?? "claude";
       // 不传 cwd 时在用户主目录运行 —— 不加载项目上下文,更快更省（不叠加 workspaceRoot,
       // 那是交互会话/自动化的默认目录语义,oneshot 是轻量任务）。
       const cwd = req.cwd ?? homedir();
       await assertAgentAvailable(agent);
       const adapter = getAgentDef(agent);
-      // 单发路径尚未接入自定义 Provider,命中即响亮失败（同 cli:start 的守卫,理由见其注释）。
-      // 条件与下面的解析逐字相同,不给「不带 providerId 的 oneshot」新增异步跳。
-      if (agent === "pi" && req.providerId) await assertOneShotProviderSupported(req.providerId);
-      const provider =
-        agent === "pi" && req.providerId ? await resolvePiProviderInput(req.providerId) : undefined;
-      const piExtensionPath = provider ? writePiExtension(provider) : undefined;
-      const { cmd, args, stdin } = adapter.buildArgs(
-        {
-          runId: "oneshot",
-          sessionId: "oneshot",
-          agent,
-          cwd,
-          prompt: req.prompt,
-          model: req.model,
-          provider,
-          piExtensionPath,
-        },
-        CODEX_MCP_CLEAR, // 轻量任务:codex 清空 MCP(沿用 M1,避免加载用户重 MCP);claude/pi 忽略
-      );
+      const isPiOneshot = baseAgentKindOf(agent) === "pi";
+      const oneshotReq: CliStartRequest = {
+        runId: "oneshot",
+        sessionId: "oneshot",
+        agent,
+        cwd,
+        prompt: req.prompt,
+        model: req.model,
+        providerId: req.providerId,
+      };
+      // pi 不构造命令行(buildArgs 是抛错 stub),走 in-process 单发。
+      const built = isPiOneshot
+        ? undefined
+        : adapter.buildArgs(
+            oneshotReq,
+            CODEX_MCP_CLEAR, // 轻量任务:codex 清空 MCP(沿用 M1,避免加载用户重 MCP);claude 忽略
+          );
+      const { cmd, args, stdin } = built ?? { cmd: "(pi in-process)", args: [] as string[], stdin: undefined };
       assertSpawnCwd(cwd);
       recordAgentTrace({
         scope: "oneshot",
@@ -1384,11 +1377,10 @@ export function registerCliHandlers(): void {
         data: { cmd, cwd, model: req.model ?? "(默认)", argCount: args.length, promptPreview: promptPreview(req.prompt) },
       });
       return new Promise<string>((resolve, reject) => {
-        const proc = startAgentProcess(cmd, args, {
-          cwd,
-          env: spawnEnvForDef({ agent, provider }, adapter),
-          stdin,
-        });
+        // pi 无条件走 in-process 单发(轻量任务不注入 MCP/todo);claude/codex 原样 spawn。
+        const proc = isPiOneshot
+          ? startPiInProcOneShot(oneshotReq, { cwd })
+          : startAgentProcess(cmd, args, { cwd, env: spawnEnvForDef({ agent }, adapter), stdin });
         let out = "";
         let resultText = "";
         let failed: string | null = null;

@@ -3,7 +3,7 @@
 //
 // 背景:该模块在 pnpm install(onlyBuiltDependencies)阶段就地用 node-gyp 编译,但只按宿主机
 // 架构编一份,且它没有 prebuildify 式的多架构预编译产物兜底。CI 的 x64 打包 job 实际跑在 arm64
-// runner 上交叉产出 x64 包(build-pi-binary.mjs / node-pty 已这样处理),node-mac-permissions
+// runner 上交叉产出 x64 包(node-pty 已这样处理),node-mac-permissions
 // 缺这一环——不重编的话,打进 x64 dmg 的 permissions.node 实际是 arm64 架构,加载必崩。
 //
 // 实现选型:直接调用 node-gyp(而非 @electron/rebuild 的高层 rebuild() API)。
@@ -13,7 +13,7 @@
 // 不支持源码跨架构编译」一致(见 RebuildOptions.arch 的 JSDoc)。直接调用 node-gyp 传
 // --arch 则验证可靠:node-gyp 的 rebuildModule() 只在 platform 不匹配时拒绝跨编译,
 // arch 会原样透传给 clang 的 `-arch` 参数,Xcode 自带的 clang 是原生跨架构编译器,
-// 与 node-pty/build-pi-binary.mjs 已采用的交叉产出策略一致。
+// 与 node-pty 已采用的交叉产出策略一致。
 //
 //   node scripts/rebuild-native-modules.mjs --arch arm64   (默认取 process.arch)
 //   node scripts/rebuild-native-modules.mjs --arch x64

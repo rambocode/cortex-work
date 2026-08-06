@@ -1,4 +1,6 @@
-// 由 providerId 解析出喂给 `writePiExtension` 的 `PiProviderInput`（阶段③ 收编的配套件）。
+// 由 providerId 解析出 `PiProviderInput`（Catalog + prefs + 凭据金库的合成结果;阶段③ 收编的配套件）。
+// 引擎收敛后消费方是 `preparePiOpenRequest`（gateway 的 baseUrl 覆盖通道）与 cli:start
+//（delegate 子 agent 继承 provider.id）;历史上的 writePiExtension 落盘链路已随 binary 删除。
 //
 // 为什么需要它：旧链路是**渲染端**拍平出 `{id, baseUrl, apiKey, models}` 经
 // `CliStartRequest.provider` 传进来，源头是已废弃且含明文 apiKey 的 `PersistedState.providerSettings`。
@@ -9,8 +11,8 @@
 //   · 凭据金库（`credentials.ts`）   —— safeStorage 加密的 API Key
 // 于是解析必须发生在主进程，而不是让渲染端重新持有一份明文。
 //
-// ⚠️ 返回值里带明文 apiKey，**仅供主进程内部**流向 `spawnEnvFor`（注入 CORTEX_PI_KEY 环境变量）
-// 与 `writePiExtension`（只写 `$CORTEX_PI_KEY` 占位，不落明文）。绝不得经 IPC 外泄、进日志或 argv。
+// ⚠️ 返回值里带明文 apiKey，**仅供主进程内部**消费（gateway 客户端在跨进程前会剥掉它，
+// 见 pi-gateway/client.ts 的 sanitizeOpenRequest）。绝不得经 IPC 外泄、进日志或 argv。
 
 import { safeId } from "../agents/pi-providers";
 import type { PiProviderInput } from "../ipc/types";
