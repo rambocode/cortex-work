@@ -48,16 +48,23 @@ describe("createRpcCredentialStore · list", () => {
     await expect(createRpcCredentialStore(rpc).list()).resolves.toEqual([
       { providerId: "x", type: "api_key" },
     ]);
-    expect(rpc).toHaveBeenCalledWith(CREDENTIAL_KEY_LIST);
+    expect(rpc).toHaveBeenCalledWith(CREDENTIAL_KEY_LIST, "list");
 
     await expect(createRpcCredentialStore(async () => null).list()).resolves.toEqual([]);
     await expect(createRpcCredentialStore(async () => "{}").list()).resolves.toEqual([]);
   });
 });
 
-describe("createRpcCredentialStore · 写路径（当前只落内存）", () => {
-  it("modify 的新值在本 worker 内可见，且不再回主进程取", async () => {
-    const rpc = vi.fn(async () => JSON.stringify({ type: "api_key", key: "旧" }));
+describe("createRpcCredentialStore · 写路径（真写回主进程金库）", () => {
+  /** 读回旧值、写请求原样回显——模拟主进程金库不做归一化的常见情形。 */
+  function echoingVault(current: unknown) {
+    return vi.fn(async (_key: string, op?: string, value?: string) =>
+      op === "write" ? (value ?? null) : op === "delete" ? null : JSON.stringify(current),
+    );
+  }
+
+  it("modify 把新值写回主进程，且本会话后续读走覆盖层不再 RPC", async () => {
+    const rpc = echoingVault({ type: "api_key", key: "旧" });
     const store = createRpcCredentialStore(rpc);
 
     const next = await store.modify("anthropic", async (cur) => {
@@ -66,9 +73,54 @@ describe("createRpcCredentialStore · 写路径（当前只落内存）", () => 
     });
     expect(next).toEqual({ type: "api_key", key: "新" });
 
+    // 关键：真的发了 write（只落内存的话 OAuth 刷新结果会随进程消失 → 下次开会话被登出）。
+    expect(rpc).toHaveBeenCalledWith(
+      "provider:anthropic",
+      "write",
+      JSON.stringify({ type: "api_key", key: "新" }),
+    );
+
     rpc.mockClear();
     await expect(store.read("anthropic")).resolves.toEqual({ type: "api_key", key: "新" });
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("以主进程写回的那份为准（金库归一化不会与下次读产生漂移）", async () => {
+    // 金库补了一个字段：若以本地值为准，下次读会读到多出来的 env，前后不一致。
+    const rpc = vi.fn(async (_key: string, op?: string) =>
+      op === "write" ? JSON.stringify({ type: "api_key", key: "新", env: "ANTHROPIC_API_KEY" }) : null,
+    );
+    const store = createRpcCredentialStore(rpc);
+    const next = await store.modify("anthropic", async () => ({ type: "api_key", key: "新" }));
+    expect(next).toEqual({ type: "api_key", key: "新", env: "ANTHROPIC_API_KEY" });
+  });
+
+  it("写失败必须抛出，且不落覆盖层——否则本会话看似成功、下次开会话被登出且极难查", async () => {
+    const rpc = vi.fn(async (_key: string, op?: string) => {
+      if (op === "write") throw new Error("金库不可写");
+      return JSON.stringify({ type: "api_key", key: "旧" });
+    });
+    const store = createRpcCredentialStore(rpc);
+
+    await expect(store.modify("anthropic", async () => ({ type: "api_key", key: "新" }))).rejects.toThrow(
+      "金库不可写",
+    );
+    // 覆盖层没被污染：再读仍是主进程里的旧值，与金库真实状态一致。
+    await expect(store.read("anthropic")).resolves.toEqual({ type: "api_key", key: "旧" });
+  });
+
+  it("delete 真回主进程删，失败同样抛出（不能谎报已登出）", async () => {
+    const ok = echoingVault({ type: "api_key", key: "旧" });
+    const store = createRpcCredentialStore(ok);
+    await store.delete("anthropic");
+    expect(ok).toHaveBeenCalledWith("provider:anthropic", "delete");
+    await expect(store.read("anthropic")).resolves.toBeUndefined();
+
+    const bad = vi.fn(async (_k: string, op?: string) => {
+      if (op === "delete") throw new Error("删除失败");
+      return null;
+    });
+    await expect(createRpcCredentialStore(bad).delete("x")).rejects.toThrow("删除失败");
   });
 
   it("modify 回 undefined = 不改动，覆盖层不受影响", async () => {

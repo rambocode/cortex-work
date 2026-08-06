@@ -93,10 +93,18 @@ export class PiHost {
    */
   private disposeSettled: Promise<void> = Promise.resolve();
 
-  /** 在途凭据请求：requestId → resolver。超时或收到应答后即摘除。 */
+  /**
+   * 在途凭据请求：requestId → resolver。超时或收到应答后即摘除。
+   * `isWrite` 决定失败时是 reject 还是软着陆成 null（见 `credentialRpc` 的失败语义说明）。
+   */
   private readonly pendingCredentials = new Map<
     string,
-    { resolve: (value: string | null) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      resolve: (value: string | null) => void;
+      reject: (err: Error) => void;
+      isWrite: boolean;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
 
   private seq = 0;
@@ -265,24 +273,42 @@ export class PiHost {
 
   // ── 反向请求：凭据（KTD1）───────────────────────────────────────────────────────────
 
-  /** 交给 `createRpcCredentialStore` 的出口。绑定成箭头属性，避免 this 丢失。 */
-  private readonly credentialRpc: CredentialRpc = (key) =>
-    new Promise<string | null>((resolve) => {
+  /**
+   * 交给 `createRpcCredentialStore` 的出口。绑定成箭头属性，避免 this 丢失。
+   *
+   * **失败语义按 op 分叉**（这是本方法唯一不直观的地方）：
+   *   · `read` / `list` → 软着陆成 `null`，由上层当「未配置」处理。一次通道抖动不该打挂会话。
+   *   · `write` / `delete` → **抛出**。写路径静默失败比读失败危险得多：pi 会以为 OAuth
+   *     刷新已落盘，而金库里还是旧 token，下次开会话被登出且本会话一切正常，极难归因。
+   */
+  private readonly credentialRpc: CredentialRpc = (key, op = "read", value) =>
+    new Promise<string | null>((resolve, reject) => {
+      const isWrite = op === "write" || op === "delete";
+      const fail = (reason: string): void => {
+        if (isWrite) reject(new Error(`凭据${op === "write" ? "写入" : "删除"}失败：${reason}`));
+        else resolve(null);
+      };
       if (this.shuttingDown) {
-        resolve(null);
+        fail("worker 正在关闭");
         return;
       }
       const requestId = `cred-${++this.seq}`;
       // 超时兜底见 CREDENTIAL_TIMEOUT_MS 的注释：没有它，一次丢失的应答 = 永久挂起。
       const timer = setTimeout(() => {
         this.pendingCredentials.delete(requestId);
-        log.warn("凭据请求超时（按未配置处理）", { key });
-        resolve(null);
+        log.warn("凭据请求超时", { key, op });
+        fail("超时");
       }, CREDENTIAL_TIMEOUT_MS);
       // unref：这条定时器不该拖住 worker 退出。
       timer.unref?.();
-      this.pendingCredentials.set(requestId, { resolve, timer });
-      this.send({ kind: "credentialRequest", requestId, key });
+      this.pendingCredentials.set(requestId, { resolve, reject, isWrite, timer });
+      this.send({
+        kind: "credentialRequest",
+        requestId,
+        key,
+        ...(op === "read" ? {} : { op }),
+        ...(value === undefined ? {} : { value }),
+      });
     });
 
   private onCredentialResponse(requestId: string, value: string | null, error?: string): void {
@@ -295,8 +321,14 @@ export class PiHost {
     }
     this.pendingCredentials.delete(requestId);
     clearTimeout(pending.timer);
-    if (error) log.warn("凭据请求返回错误（按未配置处理）", { requestId, error });
-    pending.resolve(error ? null : value);
+    if (error) {
+      log.warn("凭据请求返回错误", { requestId, error });
+      // 写路径的错误必须冒给 pi（见 credentialRpc 的失败语义说明）；读路径按未配置软着陆。
+      if (pending.isWrite) pending.reject(new Error(error));
+      else pending.resolve(null);
+      return;
+    }
+    pending.resolve(value);
   }
 
   // ── shutdown ────────────────────────────────────────────────────────────────────────
@@ -324,9 +356,12 @@ export class PiHost {
     }
     this.session = null;
     // 解掉全部在途凭据请求：它们的 resolver 会随进程一起消失，不解则 pi 侧永久挂起。
+    // 读请求软着陆成 null；**写请求带 error 结算**——退出时未完成的写就是没写成，
+    // 让它静默变成「未配置」等于告诉 pi「写成功了」，正是要避免的那种谎报。
     for (const [, pending] of this.pendingCredentials) {
       clearTimeout(pending.timer);
-      pending.resolve(null);
+      if (pending.isWrite) pending.reject(new Error("worker 正在关闭，凭据写入未完成"));
+      else pending.resolve(null);
     }
     this.pendingCredentials.clear();
 
