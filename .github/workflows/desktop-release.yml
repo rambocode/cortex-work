@@ -228,6 +228,14 @@ jobs:
           xcrun stapler validate "$dmg_copy" \
             || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
+      # pi 打包态护栏(0.1.54 教训:护栏不在发布链上=没有护栏):依赖闭包比对 asar + asar 内
+      # 真实加载 + worker 真 fork。脚本自带仓库外隔离副本;不分签名档,unsigned 构建同样要验
+      # (验的是构建链与排除清单,与签名无关);只在 arm64 job 跑(失败类型为 JS 模块解析,与架构无关)。
+      - name: Verify pi packaging (closure / asar / worker)
+        run: |
+          product_name="$(node -p "require('./apps/desktop/package.json').productName")"
+          node apps/desktop/scripts/verify-pi-ai-packaging.mjs "apps/desktop/dist/mac-arm64/${product_name}.app"
+
       # latest-mac.yml 重命名为 latest-mac-arm64.yml,供 publish job 与 x64 清单合并。
       - name: Rename manifest for release transfer
         run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-arm64.yml

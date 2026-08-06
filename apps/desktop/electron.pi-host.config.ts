@@ -11,10 +11,13 @@
 // highlight.js…）被内联进 CJS chunk，然后在 asar 里反复 `ERR_MODULE_NOT_FOUND` ——
 // 当年就是因此被迫改用 bun 编译二进制的。
 //
-// 正确做法（2026-08-06 打包态实测已证）：三包 external + 运行时用**裸包名**动态 import。
-// worker 落在 `app.asar.unpacked/out/worker/`，裸包名照样能解析到 asar 内的包，
-// 不需要 unpack 三包，也不需要绝对路径 hack。加载点唯一：`main/agents/pi-inproc/runtime.ts`
+// 正确做法：三包 external + 运行时动态 import。加载点唯一：`main/agents/pi-inproc/runtime.ts`
 //（specifier 是数组 join 出来的**变量** + `@vite-ignore`，打包器完全不参与）。
+// ⚠️ 「worker 落在 app.asar.unpacked 也能用裸包名解析到 asar 内的包」是 0.1.54 被证伪的错误
+// 结论——当时的"实测"在仓库内 dist/ 做，ESM 解析向上摸到了仓库 node_modules 兜底；正式包
+// /Applications 下无兜底，unpacked 的父链走不进 app.asar，pi:open 全数 ERR_MODULE_NOT_FOUND。
+// 现行方案见 runtime.ts：检测到自身在 app.asar.unpacked 时按 exports 定位 asar 内入口、
+// 以 file URL import（包内部裸标识符仍以 asar 文件为 parent 正常解析）。
 //
 // 因此这里既 `ssr.noExternal: true`（把我们自己的 TS 源码与普通依赖 bundle 掉，让产物自包含），
 // 又用 `rollupOptions.external` 把 `@earendil-works/*` 显式挡在外面——两者并存不矛盾：

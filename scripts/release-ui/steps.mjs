@@ -155,6 +155,21 @@ export function buildSteps() {
       run: async (ctx) => verifySigned(ctx.run, path.join(ctx.repoRoot, "apps/desktop/dist/mac-arm64"), "-arm64.dmg"),
     },
     {
+      id: "arm64:pi-guard",
+      group: "macOS arm64",
+      title: "pi 打包态护栏（依赖闭包 / asar 加载 / worker 真 fork）",
+      // 0.1.54 教训:护栏脚本此前不在发布链上,全靠人肉记得手跑,结果带病发版。
+      // 脚本自带仓库外隔离(自 ditto 到临时目录),规避仓库 node_modules 兜底造成的假通过。
+      // 只跑 arm64:这类失败全是 JS 模块解析/排除清单问题,与架构无关;x64 的 Electron
+      // harness 在本机还要走 Rosetta,徒增时长不增覆盖。
+      run: async (ctx) => {
+        await ctx.run.exec("node", [
+          "apps/desktop/scripts/verify-pi-ai-packaging.mjs",
+          path.join(ctx.repoRoot, "apps/desktop/dist/mac-arm64", `${PRODUCT}.app`),
+        ]);
+      },
+    },
+    {
       id: "arm64:stage",
       group: "macOS arm64",
       title: "产物存入暂存目录",

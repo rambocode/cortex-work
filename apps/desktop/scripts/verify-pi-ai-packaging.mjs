@@ -20,9 +20,9 @@
 //     实跑一整轮 agent loop（工具真实执行），断言与 scripts/verify-pi-inprocess.mjs 同源、
 //     不重复实现。三包缺任何一个都直接判失败（bun 二进制形态已删除，没有回退可言）。
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,9 +59,20 @@ function findPackagedApp() {
   return apps[0];
 }
 
-const appBundle = findPackagedApp();
+// 支持显式传 .app 路径：`node scripts/verify-pi-ai-packaging.mjs /tmp/Cortex.app`；不传时取 dist/ 内最新产物。
+const sourceBundle = process.argv[2] ? resolve(process.argv[2]) : findPackagedApp();
+
+// ── 自带仓库外隔离（lessons.md 纪律的强制化，不再依赖调用者记得做）──────────────────────
+// 仓库内 dist 里的产物,asar/unpacked 文件向上解析能摸到仓库 node_modules 兜底,缺包也
+// 「看着能解析」——这个假象骗过验证两次(全 unpack 时代与 0.1.54 的「worker 裸包名可解析」)。
+// 故无论传入的 .app 在哪,一律先 ditto 到系统临时目录(仓库外)再验,让「跑错姿势」不可能发生。
+// 代价是每次多几秒复制,作为发布关卡可接受。
+const isolationDir = mkdtempSync(join(tmpdir(), "pi-verify-app-"));
+const appBundle = join(isolationDir, basename(sourceBundle));
+execFileSync("ditto", [sourceBundle, appBundle]);
 const asarPath = join(appBundle, "Contents", "Resources", "app.asar");
-console.log(`验证产物: ${appBundle}`);
+console.log(`验证产物: ${sourceBundle}`);
+console.log(`隔离副本: ${appBundle}`);
 
 // ── 1. 静态：asar 内容 ────────────────────────────────────────────────────────
 
@@ -108,11 +119,52 @@ for (const dep of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-agent-
     if (!hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 缺失（files 排除清单误伤？）`);
   });
 }
-// 三包的隐藏依赖闭包。这两条是 R10 点名的「以纯 renderer 冗余为由被排除、实为主进程运行时
-// 依赖」的项，漏放开即首次使用时 ERR_MODULE_NOT_FOUND。
-for (const dep of ["@silvia-odwyer/photon-node", "highlight.js"]) {
-  check(`asar 含 in-process 隐藏依赖 ${dep}`, () => {
-    if (!hasInAsar(dep)) throw new Error(`/node_modules/${dep}/ 缺失（electron-builder.yml 排除项漏放开？）`);
+// ── 依赖闭包自动比对（0.1.54 事故后从「抽样名单」升级）────────────────────────────────
+// 曾经这里只点名 photon-node 与 highlight.js 两条「隐藏依赖」——抽样名单注定滞后：
+// 0.1.54 就漏了同型的 marked（pi-tui 的直接依赖，被 files 当纯 renderer 冗余排除），
+// 正式包语音聊天报 "Cannot find package 'marked'"。判据必须是 lessons.md 那句：
+// **对运行时入口求一遍完整依赖闭包**。这里从仓库 node_modules 沿 pnpm 真实解析链算出
+// pi-coding-agent + pi-ai 的全部传递依赖，逐包断言在 asar 里——排除清单再误伤任何一个，
+// 打包态验证直接红。（不可解析的 optionalDependencies 是其它平台的变体包，跳过。）
+function piRuntimeClosure() {
+  const seen = new Set();
+  const resolvePkgDir = (name, fromDir) => {
+    let dir = fromDir;
+    for (;;) {
+      const cand = join(dir, "node_modules", ...name.split("/"));
+      if (existsSync(join(cand, "package.json"))) return realpathSync(cand);
+      const parent = dirname(dir);
+      if (parent === dir) return null;
+      dir = parent;
+    }
+  };
+  // 只走 dependencies:optionalDependencies 按 npm 约定允许缺席、消费方代码须自行兜底
+  // (实测 electron-builder 也确实不收 pi-coding-agent 的 @mariozechner/clipboard),
+  // 把 optional 算成硬缺失是误报。跳过的 optional 逐个打出来,不做静默截断。
+  const walk = (name, fromDir) => {
+    if (seen.has(name)) return;
+    const dir = resolvePkgDir(name, fromDir);
+    if (!dir) return; // 未安装的可选平台变体
+    seen.add(name);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    for (const dep of Object.keys(pkg.optionalDependencies ?? {})) {
+      console.log(`    · 跳过 optionalDependency ${name} → ${dep}（允许缺席）`);
+    }
+    for (const dep of Object.keys(pkg.dependencies ?? {})) walk(dep, dir);
+  };
+  walk("@earendil-works/pi-coding-agent", appDir);
+  walk("@earendil-works/pi-ai", appDir);
+  return [...seen].sort();
+}
+
+{
+  const closure = piRuntimeClosure();
+  const missing = closure.filter((dep) => !hasInAsar(dep));
+  check(`asar 完整覆盖 pi 运行时依赖闭包（${closure.length} 包）`, () => {
+    if (missing.length) {
+      throw new Error(`缺 ${missing.length} 包（electron-builder.yml files 排除项误伤？）: ${missing.join(", ")}`);
+    }
+    return `closure=${closure.length}`;
   });
 }
 
@@ -254,7 +306,71 @@ app.whenReady().then(async () => {
     console.error("  ✗ 缺少 gateway worker 产物（检查构建链是否串了 build:pi-host）");
     failures.push("pi-host.js 缺失");
   }
+
+  // ── worker 上下文实跑（0.1.54 事故的直接护栏）────────────────────────────────────────
+  // 上面几层全在**主进程**上下文验证，而 0.1.54 恰恰是 worker 独有的失败：pi-host 从
+  // app.asar.unpacked fork，裸包名 import 的父链走不进 app.asar/node_modules，主进程全绿、
+  // worker 全挂。这里用 utilityProcess 按生产同款参数真 fork 打包产物里的 pi-host.js——
+  // fork 即预热会加载三包，warmup 结果打到 stderr（见 host.ts startPiHostRuntimeWarmup），
+  // 断言收到 "[pi-host] warmup ok" 标记行。任何包在 worker 上下文解析失败都在这里红。
+  if (existsSync(unpackedHost)) {
+    check("pi-host worker 真 fork 后三包 warmup 成功", () => {
+      const harnessDir = mkdtempSync(join(tmpdir(), "pi-host-fork-test-"));
+      try {
+        writeFileSync(
+          join(harnessDir, "main.cjs"),
+          `
+const { app, utilityProcess } = require("electron");
+app.whenReady().then(() => {
+  // stdio 与生产 forkPiHostTransport 一致：stdin 必须 ignore（KTD2），stderr 收 warmup 标记行。
+  const child = utilityProcess.fork(process.env.TEST_PI_HOST, [], {
+    stdio: ["ignore", "pipe", "pipe"],
+    serviceName: "verify-pi-host",
+  });
+  let tail = "";
+  let done = false;
+  // finish 必须幂等：成功路径的 child.kill() 会触发 exit 事件再进一次 finish(false)。
+  const finish = (ok) => {
+    if (done) return;
+    done = true;
+    try { child.kill(); } catch {}
+    console.log(ok ? "[WORKER-PASS]" : "[WORKER-FAIL] stderr: " + tail.slice(-1500));
+    app.exit(ok ? 0 : 1);
+  };
+  const timer = setTimeout(() => finish(false), 150000);
+  child.stdout?.resume();
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => {
+    tail += chunk;
+    if (tail.includes("[pi-host] warmup ok")) { clearTimeout(timer); finish(true); }
+    else if (tail.includes("[pi-host] warmup failed")) { clearTimeout(timer); finish(false); }
+  });
+  child.on("exit", () => { clearTimeout(timer); finish(false); });
+});
+`,
+        );
+        writeFileSync(join(harnessDir, "package.json"), JSON.stringify({ name: "pi-host-fork-test", main: "main.cjs" }));
+        const electronBin = join(appDir, "node_modules", ".bin", "electron");
+        const out = spawnSync(electronBin, [harnessDir], {
+          env: { ...process.env, TEST_PI_HOST: unpackedHost },
+          encoding: "utf8",
+          // 三包纯 ESM 闭包冷加载 + 进程 fork，比主进程那层慢，放宽到 160s。
+          timeout: 160_000,
+        });
+        const stdout = `${out.stdout ?? ""}${out.stderr ?? ""}`;
+        if (out.status !== 0 || !stdout.includes("[WORKER-PASS]")) {
+          throw new Error(`退出码 ${out.status}: ${stdout.slice(0, 1200)}`);
+        }
+        return "PI_WORKER_RESULT=PASS";
+      } finally {
+        rmSync(harnessDir, { recursive: true, force: true });
+      }
+    });
+  }
 }
+
+// 隔离副本用完即删（失败也删:要复查产物应看 dist/ 或安装包本体,不是临时副本）。
+rmSync(isolationDir, { recursive: true, force: true });
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} 项失败`);

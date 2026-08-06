@@ -41,6 +41,12 @@ files:
   # 排除其中任何一个 = 首次进入聊天时 ERR_MODULE_NOT_FOUND。作用域整体排除
   # (!@earendil-works/**)正是让 0.1.52/0.1.53 正式包连接测试全数报「模型运行时不可用」的原因,
   # 而这类事故**只在正式包暴露**（开发态从仓库 node_modules 解析,永远看不到）。
+  # ⚠️ 「worker 从 unpacked 区发起的裸包名 import 可解析到 asar 内的包」是 0.1.54 被证伪的
+  #   错误结论——当时的"实测"在仓库内 dist/ 做,ESM 解析向上摸到了仓库 node_modules 兜底
+  #   (lessons.md 点名的假象);/Applications 下无兜底,unpacked 的父链走不进 app.asar,
+  #   0.1.54 正式包 pi:open 全数报「找不到 pi-coding-agent」。现行方案:pi-inproc/runtime.ts
+  #   检测到自身在 app.asar.unpacked 时按 exports 定位 app.asar/node_modules 内入口、
+  #   以 file URL import(包内部裸标识符仍以 asar 文件为 parent 正常解析)。
   # 已实测:三包在打包 app 的 asar 内按包名动态 import 成功,asar 因此约 +18MB。
   # 消费点:pi-ai 见 providers/pi-runtime.ts、providers/custom-provider-registry.ts;
   #        三包见 src/worker/pi-host/（gateway 执行体）与 agents/ 下的引擎层（oneshot）。
@@ -70,7 +76,12 @@ files:
   # （TUI 侧的语法高亮）。主进程并不用 TUI,但上游 exports 只有 `.` 与 `./rpc-entry`,import 图
   # 躲不开,asar 里必须留这份——否则首次 createAgentSession 即 ERR_MODULE_NOT_FOUND,且只在正式包暴露。
   # renderer 那份仍随 out/ bundle,二者并存(asar 这份是主进程必需,非冗余)。
-  - "!**/node_modules/marked/**"               # markdown 渲染
+  # ⚠️ marked **不再排除**(曾以「纯 renderer markdown 渲染,已 bundle 进 out/」为由排除):
+  # 它与 highlight.js 完全同型——是 @earendil-works/pi-tui 的**直接运行时依赖**
+  # (pi-tui/dist/components/markdown.js 顶层 import),经 pi-coding-agent 的 import 图进闭包。
+  # 0.1.54 正式包语音聊天(oneshot 路径)因此报 "Cannot find package 'marked'",只在正式包暴露。
+  # 判据(lessons.md):对运行时入口求完整依赖闭包,而非读排除项的历史注释;护栏脚本
+  # verify-pi-ai-packaging.mjs 现已自动求闭包逐包比对 asar,漏放开会在打包态验证直接失败。
   - "!**/node_modules/tailwind-merge/**"
   # ⚠️ LLM SDK 不再排除（曾以「core 引入,全部随 renderer bundle」为由排除过）:
   # 它们同时是 @earendil-works/pi-ai 的**运行时依赖**——主进程 pi-ai 的 api 实现按需

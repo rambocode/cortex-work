@@ -79,6 +79,9 @@ echo "── channel: macOS arm64 ──"
 CORTEX_NOTES_STRICT=1 pnpm --filter @cortex-work/desktop run prepackage:mac-arm64
 CSC_NAME="Jiangwei Lan (HQ537XMLJY)" pnpm --filter @cortex-work/desktop run build:mac-arm64
 verify_signed_app "apps/desktop/dist/mac-arm64" "apps/desktop/dist/*-arm64.dmg"
+# pi 打包态护栏(0.1.54 教训:护栏不在发布链上=没有护栏):依赖闭包比对 asar + asar 内真实加载 +
+# worker 真 fork。脚本自带仓库外隔离;只跑 arm64(失败类型为 JS 模块解析,与架构无关)。
+node apps/desktop/scripts/verify-pi-ai-packaging.mjs "apps/desktop/dist/mac-arm64/${PRODUCT}.app"
 cp apps/desktop/dist/*-arm64.dmg apps/desktop/dist/*-arm64.dmg.blockmap "$STAGE/"
 cp apps/desktop/dist/*-arm64.zip apps/desktop/dist/*-arm64.zip.blockmap "$STAGE/"
 cp apps/desktop/dist/latest-mac.yml "$STAGE/latest-mac-arm64.yml"

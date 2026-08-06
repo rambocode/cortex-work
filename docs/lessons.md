@@ -118,6 +118,48 @@ oneshot,bun 二进制已删除)。实测:三个 pi 包**留在 asar 内、不 un
 **所以当年的教训准确表述是「跨 asar 边界解析依赖不行」,而不是「asar 里不能跑纯 ESM」。**
 把后者当结论记住,就会拒绝掉一个本来可行的方案。
 
+---
+
+## gateway worker 从 unpacked fork → 裸包名 import 再次跨不过 asar 边界(0.1.54,重踩「pi 在 unpacked」那条)
+
+**现象**:0.1.54 正式包 pi 两条路径同时炸——聊天会话 `pi:open` 报
+`Cannot find package '@earendil-works/pi-coding-agent' imported from …/app.asar.unpacked/out/worker/pi-host.js`;
+语音聊天(主进程 oneshot)报 `Cannot find package 'marked' imported from …/app.asar/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`。
+dev 与仓库内 dist 全绿,只有 /Applications 下的正式包炸。
+
+**根因(两处独立)**:
+1. **worker 形态重新满足了「pi 在 unpacked」那条教训的失败条件**:pi-host 必须从
+   `app.asar.unpacked` fork(asar 内路径 `utilityProcess.fork` 静默失败,KTD3),于是它发起的
+   裸包名 import 候选链从 `app.asar.unpacked/out/worker` 向上——经过 `app.asar.unpacked`、
+   **不经过平行的 `app.asar`**,三包一个都解析不到。「主进程 in-process import 可行」(上一条翻案)
+   与「unpacked 子进程 import 不可行」(前一条教训)**都对**,判据只有一个:**看发起 import 的
+   那个文件在哪棵树里**。gateway 迁移把加载点从 asar 内(主进程)挪进 unpacked(worker),
+   等于从翻案条件退回失败条件,而当时没人回头对表。
+2. `marked` 被 files 排除清单误伤(见 in-process 那条的第 6 条追认)。
+
+**「实测可解析」为什么是假的**:迁移时的打包验证在**仓库内 dist/** 做——unpacked worker 向上
+找 node_modules 一路走出 `.app`、摸到 `<repo>/apps/desktop/node_modules` 兜底,「裸包名照样能
+解析」的结论就是这么来的。这正是「pi 在 unpacked」那条教训里**加粗写过的同一个假象**,
+第二次上当。打包依赖验证必须 `ditto` 到仓库外(/tmp)再跑,没有例外。
+
+**修法**(不走「全 unpack node_modules」的老解法,保持 asar 收益):
+`pi-inproc/runtime.ts` 的加载器检测到自身位于 `app.asar.unpacked` 时,按包的 `exports` 手动定位
+`app.asar/node_modules` 内的 ESM 入口,以 **file URL** import——入口文件在 asar 内,包内部的
+裸标识符便以 asar 文件为 parent、在同一棵树内正常解析(Electron 的 asar 补丁对 utilityProcess
+同样生效)。dev(无 unpacked 标记)与主进程路径不受影响。
+
+**护栏**(`verify-pi-ai-packaging.mjs`,此前几层全在主进程上下文验证,对 worker 独有的失败全盲):
+1. worker warmup 结果打 stderr 标记行(`[pi-host] warmup ok/failed`,host.ts);
+2. 护栏脚本用 utilityProcess 按生产同款参数**真 fork 打包产物里的 pi-host.js**,断言 warmup ok;
+3. pi 依赖闭包自动比对 asar(治 marked 这类排除清单误伤)。
+
+**流程层的两个补丁(否则以上全是摆设)**:
+1. **护栏不在发布链上=没有护栏**:该脚本 0.1.54 之前就存在,但 local-release-mac.sh、release:ui、
+   CI 里都没接它,全靠人肉记得手跑。现已在三条发布路径各加一道强制关卡(arm64 侧签名校验后),
+   失败即中止发布;只跑 arm64——这类失败全是 JS 模块解析问题,与架构无关。
+2. **仓库外隔离写进脚本本身**:脚本现在自己把 .app ditto 到系统临时目录再验,
+   「记得 ditto 到仓库外」不再是调用者的纪律,而是不可绕过的实现。
+
 **这条路成立有两个硬前提,缺一即回到当年的 `ERR_MODULE_NOT_FOUND`**:
 
 1. **动态 import 的 specifier 必须是变量**(数组 `join("/")` 拼)并加 `/* @vite-ignore */`。
@@ -134,6 +176,10 @@ oneshot,bun 二进制已删除)。实测:三个 pi 包**留在 asar 内、不 un
 实际上 photon 是 `pi-coding-agent` 的直接依赖(图像处理/截图缩放),highlight.js 经 `pi-tui` 进闭包。
 **判据必须是「对新的运行时入口求一遍完整依赖闭包」,而不是「读一遍排除项的注释」**——
 注释描述的是**写它那天的用途**,依赖关系变了它不会自己更新。
+> ⚠️ 0.1.54 追认第 6 条:`marked` 与 highlight.js 完全同型(pi-tui 的直接依赖,被当纯 renderer
+> markdown 渲染排除),正式包语音聊天报 `Cannot find package 'marked'`。抽样名单注定滞后,
+> 此后 `verify-pi-ai-packaging.mjs` 已改为**自动求 pi 依赖闭包逐包比对 asar**,排除清单再误伤
+> 任何一包都会在打包态验证直接红,不再依赖人肉点名。
 
 **体积账(实测)**:asar 因收进三包及其闭包约 **+18MB**;`resources/pi` 的二进制加旁置资产约 **−84MB**
 (该目录连同 `build-pi-binary.mjs`、CI 的 bun 工具链已随收尾删除);两相抵**净减约 66MB**。

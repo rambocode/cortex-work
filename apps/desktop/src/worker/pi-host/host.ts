@@ -85,9 +85,19 @@ export function startPiHostRuntimeWarmup(): void {
   const swallow = (err: unknown): void => {
     log.debug("pi 运行时预热失败（open 时会重试并响亮报错）", { error: errText(err) });
   };
-  void loadPiCodingAgent().catch(swallow);
-  void loadPiAgentCore().catch(swallow);
-  void loadPiAiCompat().catch(swallow);
+  const loads = [loadPiCodingAgent(), loadPiAgentCore(), loadPiAiCompat()];
+  for (const p of loads) void p.catch(swallow);
+  // 预热结果打一条 stderr 标记行：进主进程的 2KB 尾环便于崩溃归因，同时是打包态护栏
+  // （verify-pi-ai-packaging.mjs 真 fork 本 worker）断言「三包在 worker 上下文可加载」的锚点。
+  // 0.1.54 的教训：unpacked worker 的包解析失败若只静默吞掉，只会在用户首次 pi:open 时暴露。
+  void Promise.allSettled(loads).then((results) => {
+    const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    process.stderr.write(
+      firstFailure
+        ? `[pi-host] warmup failed: ${errText(firstFailure.reason)}\n`
+        : "[pi-host] warmup ok\n",
+    );
+  });
 }
 
 export interface PiHostOptions {

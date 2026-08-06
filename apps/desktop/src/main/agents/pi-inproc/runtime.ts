@@ -20,6 +20,10 @@
 // 接口镜像，正是本次迁移的核心收益之一：pi 升级带来的协议漂移变成 **TS 编译期错误**，
 // 而不是运行时「卡住 / 丢事件」。
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { createLogger } from "../../log";
 
 const log = createLogger("pi-inproc-runtime");
@@ -64,8 +68,68 @@ let piAiCompatPromise: Promise<PiAiCompatModule> | null = null;
 //（重、且 pi-coding-agent 顶层有 `setDefaultStreamFn` 之类的全局副作用）。
 type PiImporter = (specifier: string) => Promise<unknown>;
 
-/** 生产实现。见文件头 KTD1：specifier 必须是变量 + @vite-ignore。 */
-const realImporter: PiImporter = (specifier) => import(/* @vite-ignore */ specifier);
+// ── 打包态 worker 的解析兜底（0.1.54 事故，与 KTD1 同级不可让步）──────────────────────
+// 本文件同时被打进两个产物：主进程 bundle（app.asar/out/main）与 pi-host worker
+// （app.asar.unpacked/out/worker，KTD3 决定 fork 必须走 unpacked 真实文件）。
+// Node ESM 对裸包名的解析是从 parent 文件向上逐级找 node_modules——主进程 parent 在 asar 内,
+// 能命中 app.asar/node_modules；而 unpacked 目录的父链（app.asar.unpacked → Resources → …）
+// **永远经过不了 app.asar 内部**，worker 里裸包名 import 必然 ERR_MODULE_NOT_FOUND。
+// 此前「worker 裸包名可解析 asar」的实测结论是在仓库内 dist/ 验的：从那里向上能摸到仓库
+// node_modules 兜底（lessons.md 点名的假象）；/Applications 无兜底，0.1.54 正式包 pi:open
+// 全数报「找不到 pi-coding-agent」。
+// 兜底方式：检测到自身位于 app.asar.unpacked 时，按包的 exports 定位 app.asar/node_modules
+// 内的 ESM 入口，以 file URL import。包**内部**的裸标识符仍以 asar 内文件为 parent 解析
+// （Electron 对 fs/ESM 加载的 asar 补丁在 utilityProcess 同样生效），传递依赖照常工作。
+
+/** 定位 app.asar/node_modules；仅当本 bundle 落在 app.asar.unpacked 内（打包态 worker）才非空。 */
+function unpackedAsarNodeModules(): string | null {
+  const marker = `${path.sep}app.asar.unpacked${path.sep}`;
+  const idx = __dirname.indexOf(marker);
+  if (idx === -1) return null;
+  return path.join(__dirname.slice(0, idx), "app.asar", "node_modules");
+}
+
+/** exports 条目取真实文件：字符串直接用；条件对象按 import → default → node 递归取首个命中。 */
+function pickExportTarget(entry: unknown): string | null {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object") {
+    const rec = entry as Record<string, unknown>;
+    return pickExportTarget(rec.import) ?? pickExportTarget(rec.default) ?? pickExportTarget(rec.node);
+  }
+  return null;
+}
+
+/**
+ * 在 asar 的 node_modules 里手动解析 specifier 到入口文件绝对路径。
+ * 只需覆盖本文件顶部三种形态：scoped 包名 + 至多一段静态子路径（如 "@earendil-works/pi-ai/compat"），
+ * 刻意不实现通配 exports 等完整 ESM 解析语义——多余的通用性只会掩盖真实的解析失败。
+ */
+function resolvePiEntryInAsar(nodeModulesRoot: string, specifier: string): string {
+  const segments = specifier.split("/");
+  const name = segments.slice(0, 2).join("/");
+  const subpath = segments.length > 2 ? `./${segments.slice(2).join("/")}` : ".";
+  const pkgDir = path.join(nodeModulesRoot, ...name.split("/"));
+  const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8")) as {
+    exports?: Record<string, unknown>;
+    main?: string;
+  };
+  const target =
+    pickExportTarget(pkg.exports?.[subpath]) ?? (subpath === "." ? (pkg.main ?? "index.js") : null);
+  if (!target) {
+    throw new Error(`无法从 ${pkgDir} 的 exports 解析子路径 ${subpath}`);
+  }
+  return path.join(pkgDir, target);
+}
+
+/** 生产实现。见文件头 KTD1：specifier 必须是变量 + @vite-ignore；unpacked worker 走 asar 兜底。 */
+const realImporter: PiImporter = async (specifier) => {
+  const asarNodeModules = unpackedAsarNodeModules();
+  if (asarNodeModules) {
+    const entry = pathToFileURL(resolvePiEntryInAsar(asarNodeModules, specifier)).href;
+    return import(/* @vite-ignore */ entry);
+  }
+  return import(/* @vite-ignore */ specifier);
+};
 
 let importer: PiImporter = realImporter;
 
