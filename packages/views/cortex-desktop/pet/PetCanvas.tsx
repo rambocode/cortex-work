@@ -9,7 +9,7 @@
 // 在常驻的 overlay 窗口里白烧电;而且 rAF 在窗口不可见时被节流成不可预期的大 dt,反而要
 // 自己做时间累加判帧。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PetState } from "@cortex-work/core";
 import type { PetSpriteSource } from "@cortex-work/core/desktop/petdex-types";
 import { resolveSheet, type ResolvedSheet } from "./source";
@@ -32,27 +32,41 @@ const MAX_DPR = 3;
 
 export function PetCanvas({ sprite, state, width, frozen, onSize }: PetCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  // 已解码的图连同它的来源 url 一起存 —— 只有图才知道自己是哪张 sheet 的,下面的配对判断
+  // 依赖它(单存 HTMLImageElement 无法回答「手里这张是不是当前该画的那张」)。
+  const [loaded, setLoaded] = useState<{ url: string; img: HTMLImageElement } | null>(null);
   const frameRef = useRef(0);
 
-  const sheet: ResolvedSheet | null = resolveSheet(sprite, state);
+  // 稳定 sheet 引用:resolveSheet 每次调用都返回新对象,直接进 useCallback / useEffect 依赖
+  // 会让帧定时器在每次重渲染时被清掉重建 —— 悬停视差的 setTilt 是高频重渲染源,那样动画会
+  // 永远卡在第 0 帧。
+  const sheet: ResolvedSheet | null = useMemo(() => resolveSheet(sprite, state), [sprite, state]);
   const height = sheet ? Math.round((width * sheet.cellH) / sheet.cellW) : Math.round(width);
 
   // 资产加载。url 变了才重载;卸载后用 alive 挡掉迟到的 setState。
+  // 解码失败(img 为 null)时刻意不清空 loaded:保留上一张图让画面冻结,好过整只宠物变空白。
   const url = sheet?.url;
   useEffect(() => {
     if (!url) {
-      setImg(null);
+      setLoaded(null);
       return;
     }
     let alive = true;
-    void loadSheetImage(url).then((loaded) => {
-      if (alive) setImg(loaded);
+    void loadSheetImage(url).then((img) => {
+      if (alive && img) setLoaded({ url, img });
     });
     return () => {
       alive = false;
     };
   }, [url]);
+
+  // ⚠️ 图与 sheet 必须成对使用,不匹配一律当「还没就绪」。
+  // 内置角色**每个动作是一张独立的 sheet 且帧数不同**(idle 4 / happy 5 / sleeping 3),
+  // 切姿态时 sheet 立刻变、新图还在异步解码。若拿旧图配新 sheet 的帧数取帧,帧游标会走到
+  // 旧图宽度之外,drawImage 画出一片空白 =「宠物凭空消失一下」;happy 还是 oneShot,游标被
+  // 钳在末帧不回绕,空白会一直挂到新图 onload。故解码完成前不画也不推帧,画面冻结在上一帧,
+  // 视觉上是无缝换动作。
+  const img = sheet && loaded?.url === sheet.url ? loaded.img : null;
 
   // 换到不同的取帧指令时帧游标归零:一次性动画(happy/failed)必须从第 0 帧起播,
   // 否则会接在上一个动作的中间帧上,看起来像跳帧。

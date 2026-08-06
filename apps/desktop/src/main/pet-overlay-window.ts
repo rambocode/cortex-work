@@ -28,8 +28,11 @@ let contentReady = false;
 
 // 与 packages/views/cortex-desktop/pet/Pet.tsx 里的同名常量保持一致(该文件据此把
 // 宠物居中定位在窗口内)。
+// 高度按「最大只宠物 + 状态气泡」定:petdex 造型在 size=2 时是 220×238,居中后上方还剩
+// (304-238)/2 = 33px,刚好容得下 .pet-tip(约 25px + 6px 间距)。窗口是 transparent 的,
+// 这块留白不可见,但少了它气泡会被窗口边界裁掉——状态提示等于没有。
 export const OVERLAY_WINDOW_W = 260;
-export const OVERLAY_WINDOW_H = 240;
+export const OVERLAY_WINDOW_H = 304;
 
 // prod 下 html 可能落在 flat(../renderer/pet-overlay.html)或 nested(../renderer/src/pet-overlay.html);
 // 双路径 existsSync 探测兜底(漏抄会打包后白屏)。仿 notes-overlay.ts。
@@ -45,6 +48,24 @@ function defaultPosition(): { x: number; y: number } {
   return {
     x: bounds.x + bounds.width - OVERLAY_WINDOW_W - 18,
     y: bounds.y + bounds.height - OVERLAY_WINDOW_H - 64,
+  };
+}
+
+/**
+ * 把记忆位置钳回它所在那块显示器的可视范围。两个必要场景:
+ * ① 换显示器 / 改分辨率后,旧坐标可能整个落在屏幕外 —— 宠物就此"消失",用户无从找回;
+ * ② OVERLAY_WINDOW_H 变化时(如本次为状态气泡加高),贴着屏幕底边的旧位置会让窗口底部
+ *    被切掉。持久化里只存 {x,y} 没有旧尺寸,做不了精确迁移,钳一下是最省事的兜底。
+ * 用 bounds 而非 workArea:宠物是 alwaysOnTop 的 panel,本就允许浮在 Dock / 菜单栏之上,
+ * 按 workArea 钳会把它从 Dock 区域挤出来,与 defaultPosition 的取值口径也不一致。
+ */
+function clampToDisplay(x: number, y: number): { x: number; y: number } {
+  const px = Math.round(x);
+  const py = Math.round(y);
+  const { bounds } = screen.getDisplayNearestPoint({ x: px, y: py });
+  return {
+    x: Math.min(Math.max(bounds.x, px), bounds.x + bounds.width - OVERLAY_WINDOW_W),
+    y: Math.min(Math.max(bounds.y, py), bounds.y + bounds.height - OVERLAY_WINDOW_H),
   };
 }
 
@@ -111,7 +132,9 @@ function create(): BrowserWindow {
   // 用上次记忆的位置覆盖默认位置(异步读盘,不阻塞建窗;读到之前用默认右下角兜底,
   // 多数情况下 ready-to-show 尚未触发,不会有肉眼可见的"跳一下")。
   void loadPetPosition().then((pos) => {
-    if (pos && win && !win.isDestroyed()) win.setPosition(Math.round(pos.x), Math.round(pos.y));
+    if (!pos || !win || win.isDestroyed()) return;
+    const safe = clampToDisplay(pos.x, pos.y);
+    win.setPosition(safe.x, safe.y);
   });
   return win;
 }

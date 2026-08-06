@@ -6410,6 +6410,44 @@ button.sb-row {
   100% { opacity: 0; transform: translate(6px, -14px) scale(1.15); }
 }
 
+/* —— 状态气泡 —— */
+/* 为什么自绘而不用原生 title:独立 pet-overlay 窗口 focusable:false(鼠标移入不激活)、
+   尺寸只有 260×288,Chromium 的 tooltip 要么不触发、要么被窗口边界裁掉,用户实际看不到
+   任何状态提示。定位在宠物正上方(overlay 窗口的顶部留白就是给它的,见 Pet.tsx 的
+   OVERLAY_WINDOW_H 注释);pointer-events:none 保证它不吃掉宠物本体的点击与原生拖拽。
+   nowrap + ellipsis:petdex 宠物的 displayName 长度不可控,换行会顶破窗口顶边。 */
+.pet-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  z-index: 3;
+  max-width: 236px;
+  padding: 3px 8px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-1);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s;
+}
+.pet-tip.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* —— 悬停浮现的隐藏按钮 —— */
 .pet-x {
   position: absolute;

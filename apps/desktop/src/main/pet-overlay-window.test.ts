@@ -17,7 +17,7 @@ const { FakeBrowserWindow, fakeWindows } = vi.hoisted(() => {
     setAlwaysOnTop = vi.fn();
     setVisibleOnAllWorkspaces = vi.fn();
     setPosition = vi.fn();
-    getBounds = vi.fn(() => ({ x: 0, y: 0, width: 260, height: 240 }));
+    getBounds = vi.fn(() => ({ x: 0, y: 0, width: 260, height: 304 }));
     excludedFromShownWindowsMenu = false;
 
     constructor(_options: Record<string, unknown>) {
@@ -62,6 +62,7 @@ vi.mock("electron", () => ({
   BrowserWindow: FakeBrowserWindow,
   screen: {
     getPrimaryDisplay: () => ({ bounds: { x: 0, y: 0, width: 1440, height: 900 } }),
+    getDisplayNearestPoint: () => ({ bounds: { x: 0, y: 0, width: 1440, height: 900 } }),
   },
 }));
 vi.mock("@electron-toolkit/utils", () => ({ is: { dev: false } }));

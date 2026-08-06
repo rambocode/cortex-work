@@ -26,6 +26,29 @@ async function firstDraw(canvas: HTMLCanvasElement) {
   return fakeCtxOf(canvas)!.calls.drawImage.at(-1)!;
 }
 
+/**
+ * 暂停 Image 的 load 回调(test/setup.ts 默认在微任务里立刻触发),用来制造
+ * 「新图还在解码」的中间态。返回的函数恢复原行为并补发期间挂起的 load。
+ */
+function holdImageLoads(): () => void {
+  const pending: HTMLImageElement[] = [];
+  const original = Object.getOwnPropertyDescriptor(Image.prototype, "src")!;
+  Object.defineProperty(Image.prototype, "src", {
+    configurable: true,
+    set(this: HTMLImageElement, value: string) {
+      this.setAttribute("src", value);
+      pending.push(this);
+    },
+    get(this: HTMLImageElement) {
+      return this.getAttribute("src") ?? "";
+    },
+  });
+  return () => {
+    Object.defineProperty(Image.prototype, "src", original);
+    for (const img of pending.splice(0)) img.dispatchEvent(new Event("load"));
+  };
+}
+
 beforeEach(() => __clearSheetCache());
 afterEach(cleanup);
 
@@ -105,6 +128,30 @@ describe("PetCanvas 播放", () => {
       () => expect(fakeCtxOf(canvas)!.calls.drawImage.some((c: unknown[]) => c[1] === PETDEX_CELL_W)).toBe(true),
       { timeout: 1500 },
     );
+  });
+
+  // 回归:内置角色**每个动作是一张独立 sheet 且帧数不同**(idle 4 / happy 5 / sleeping 3)。
+  // 修复前,切姿态时会拿还没换掉的旧图配新 sheet 的帧数取帧 —— 帧游标走到旧图宽度之外,
+  // drawImage 画出一片空白,表现为「宠物短暂消失」;happy 是 oneShot,游标被钳在末帧不回绕,
+  // 空白会一直挂到新图 onload。正确行为是新图就绪前一帧都不画,画面冻结在上一帧。
+  it("换动作期间新图未就绪则一帧都不画(不拿旧图凑新 sheet 的帧数)", async () => {
+    const { container, rerender } = render(<PetCanvas sprite={null} state="idle" width={110} />);
+    const canvas = canvasOf(container);
+    await firstDraw(canvas);
+    const drawnBefore = fakeCtxOf(canvas)!.calls.drawImage.length;
+
+    const release = holdImageLoads();
+    try {
+      rerender(<PetCanvas sprite={null} state="happy" width={110} />);
+      // 跨过 happy 的多个帧间隔(1000/6 ≈ 167ms),确认定时器也没在旧图上推帧。
+      await new Promise((r) => setTimeout(r, 400));
+      expect(fakeCtxOf(canvas)!.calls.drawImage.length).toBe(drawnBefore);
+    } finally {
+      release();
+    }
+    // 新图到位后恢复绘制,且是从第 0 帧起播(一次性动画不能被吃掉开头)。
+    await waitFor(() => expect(fakeCtxOf(canvas)!.calls.drawImage.length).toBeGreaterThan(drawnBefore));
+    expect(fakeCtxOf(canvas)!.calls.drawImage.at(-1)![1]).toBe(0);
   });
 
   it("sprite 不可用时不画(渲染空白而不是画坏图)", async () => {

@@ -32,11 +32,16 @@ const POS_KEY = "cortex_pet_pos";
 /** 宠物在 scale=1 时的设计宽度。高度按 sprite 的格子宽高比推算,故随来源变化。 */
 const PET_W = 110;
 
+/** 状态气泡在一次姿态变化后的可见时长(毫秒)。到点淡出,不常驻遮挡桌面。 */
+const TIP_MS = 3200;
+
 // 独立 pet-overlay 窗口的固定尺寸(windowFollowsPet 模式下把宠物居中定位在这个尺寸里)。
 // 必须与 apps/desktop/src/main/pet-overlay-window.ts 里的同名常量保持一致——那边是
 // 窗口的真实像素尺寸,这边只是拿来算居中偏移,两处对不上宠物会在窗口里显示偏移。
+// 高度比最大只宠物(petdex size=2 时 220×238)多出的部分是留给上方 .pet-tip 状态气泡的:
+// 窗口 transparent,这块留白不可见,但少了它气泡会被窗口边界裁掉。
 const OVERLAY_WINDOW_W = 260;
-const OVERLAY_WINDOW_H = 240;
+const OVERLAY_WINDOW_H = 304;
 
 function clampPos(p: { x: number; y: number }, w: number, h: number): { x: number; y: number } {
   return {
@@ -84,10 +89,28 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
   const [petH, setPetH] = useState(Math.round((PET_W * 100) / 110) * size);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [tilt, setTilt] = useState<{ rx: number; ry: number } | null>(null);
+  // 气泡的两个独立显示来源:姿态刚变过(自动淡出)/ 鼠标正悬停(常显)。
+  const [tipFlash, setTipFlash] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const onCanvasSize = useCallback((s: { width: number; height: number }) => setPetH(s.height), []);
+
+  // 会话状态一变就主动冒一次气泡。
+  // 为什么不用原生 title:独立 pet-overlay 窗口 focusable:false(鼠标移入不激活窗口)、
+  // 尺寸又只有 260×288,Chromium 的 tooltip 要么不触发、要么被窗口边界裁掉,用户实际
+  // 看不到任何状态提示;而且 tooltip 要悬停约 1s 才出,表达不了「状态刚刚变了」。
+  // 首次挂载不弹:开机就冒一句「在待命」纯属噪音,故用 ref 记住上一个姿态跳过首帧。
+  const prevStateRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    prevStateRef.current = state;
+    if (prev === null || prev === state) return;
+    setTipFlash(true);
+    const timer = setTimeout(() => setTipFlash(false), TIP_MS);
+    return () => clearTimeout(timer);
+  }, [state]);
 
   // 记忆位置在拿到真实尺寸后才读:夹取需要宽高,提前读会按错误的盒子夹一次。
   useEffect(() => {
@@ -181,6 +204,7 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
   const stateLabel = (PET_STATES as readonly string[]).includes(state)
     ? t(`state.${state}`, { name: petName })
     : undefined;
+  const tipOpen = Boolean(stateLabel) && (tipFlash || hovered);
 
   // 定位:windowFollowsPet 模式下固定居中在 overlay 窗口里(挪动窗口本身,不挪 CSS);
   // 其余情况用记忆位置(无则 CSS 默认右下)。
@@ -204,13 +228,24 @@ export function Pet({ windowFollowsPet = false, onEnabledChange, onPoke }: PetPr
       ref={rootRef}
       className={`pet ${dragRef.current?.moved ? "is-dragging" : ""}`}
       data-state={state}
-      title={stateLabel}
       style={{ width: petW, height: petH, ...posStyle, ...dragRegionStyle }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={() => setTilt(null)}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => {
+        setTilt(null);
+        setHovered(false);
+      }}
     >
+      {/* 状态气泡。role=status + aria-live 顶替了原先 title 提供的无障碍名;
+          常驻在 DOM 里(靠 class 切换显隐)而不是条件渲染,否则每次都是新节点、
+          CSS 过渡不会播,气泡会硬闪。 */}
+      {stateLabel ? (
+        <div className={`pet-tip ${tipOpen ? "is-open" : ""}`} role="status" aria-live="polite">
+          {stateLabel}
+        </div>
+      ) : null}
       <button
         className="pet-x"
         title={t("hideTitle")}

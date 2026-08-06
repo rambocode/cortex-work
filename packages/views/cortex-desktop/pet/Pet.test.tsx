@@ -39,6 +39,39 @@ describe("Pet", () => {
     expect(container.querySelector(".pet")).toBeNull();
   });
 
+  // 原生 title 在独立 overlay 窗口里几乎不可用(窗口 focusable:false、尺寸小到会把
+  // tooltip 裁掉),状态提示改为自绘气泡,由姿态变化主动触发。
+  describe("状态气泡", () => {
+    it("首次挂载不弹——开机就冒一句「在待命」是噪音", () => {
+      const { container } = render(<Pet />);
+      expect(container.querySelector(".pet-tip")?.className).not.toContain("is-open");
+    });
+
+    it("姿态变化时冒泡,并在 TIP_MS 后自动收起", () => {
+      vi.useFakeTimers();
+      const { container } = render(<Pet />);
+
+      act(() => usePetStore.setState({ state: "thinking" }));
+      const tip = container.querySelector(".pet-tip") as HTMLElement;
+      expect(tip.className).toContain("is-open");
+      expect(tip.textContent).toContain("思考");
+
+      act(() => vi.advanceTimersByTime(3200));
+      expect(container.querySelector(".pet-tip")?.className).not.toContain("is-open");
+    });
+
+    it("悬停时常显,移开即收", () => {
+      const { container } = render(<Pet />);
+      const pet = container.querySelector(".pet") as HTMLElement;
+
+      fireEvent.pointerEnter(pet);
+      expect(container.querySelector(".pet-tip")?.className).toContain("is-open");
+
+      fireEvent.pointerLeave(pet);
+      expect(container.querySelector(".pet-tip")?.className).not.toContain("is-open");
+    });
+  });
+
   it("点击(非拖拽)置庆祝位,由状态机派生成 happy——不直接写 store", () => {
     const { container } = render(<Pet />);
     const pet = container.querySelector(".pet") as HTMLElement;
@@ -114,9 +147,9 @@ describe("Pet", () => {
       localStorage.setItem("cortex_pet_pos", JSON.stringify({ x: 1, y: 2 }));
       const { container } = render(<Pet windowFollowsPet />);
       const pet = container.querySelector(".pet") as HTMLElement;
-      // OVERLAY_WINDOW_W/H = 260/240,size=1 时宠物 110x100,居中偏移 = (260-110)/2, (240-100)/2
+      // OVERLAY_WINDOW_W/H = 260/304,size=1 时宠物 110x100,居中偏移 = (260-110)/2, (304-100)/2
       expect(parseFloat(pet.style.left)).toBe(75);
-      expect(parseFloat(pet.style.top)).toBe(70);
+      expect(parseFloat(pet.style.top)).toBe(102);
     });
 
     // 根节点应标 -webkit-app-region:drag、关闭按钮标 no-drag(原生窗口拖拽,不接管点击的
