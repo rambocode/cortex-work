@@ -14,6 +14,8 @@
   "hideAria": "Hide pet",
   "resizeTitle": "Drag to resize the pet (arrow keys for fine tuning)",
   "resizeAria": "Resize pet",
+  "voiceTitle": "Start voice assistant (pet hides, orb takes over this window)",
+  "voiceAria": "Start voice assistant",
   "kind": {
     "cat": {
       "name": "Coco",

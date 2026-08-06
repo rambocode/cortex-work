@@ -86,6 +86,9 @@ export interface PetProps {
   /** 缩放手柄拖完后的最终尺寸。同 onEnabledChange:overlay 的 localStorage 与主窗口
    * 不同源,落盘只能由主窗口做,故独立 overlay 模式必须传,内嵌模式不传(组件自己落盘)。 */
   onSizeChange?: (size: number) => void;
+  /** 悬停 🎙 按钮:启动语音助手(宠物隐藏、同窗口切语音球)。仅桌面 overlay 传;
+   * 不传则按钮不渲染(Web 内嵌无语音助手)。 */
+  onVoiceActivate?: () => void;
   /** 仅 windowFollowsPet 模式:主进程轮询推来的光标位置(窗口内 CSS 坐标,null=不在窗口内)。
    * 这扇窗口是 focusable:false 的 panel 且整块 app-region:drag,拿不到任何鼠标移动事件,
    * :hover / pointerEnter 永远不触发(实测:必须右键点一下 ✕ 和手柄才冒出来),悬停态只能
@@ -101,6 +104,7 @@ export function Pet({
   onEnabledChange,
   onPoke,
   onSizeChange,
+  onVoiceActivate,
   externalCursor,
   externalMoveDir,
 }: PetProps = {}) {
@@ -461,6 +465,24 @@ export function Pet({
         <div className={`pet-tip ${tipOpen ? "is-open" : ""}`} role="status" aria-live="polite">
           {stateLabel}
         </div>
+      ) : null}
+      {/* 语音助手入口:与 ✕/缩放手柄同款悬停浮现的 no-drag 浮动钮(左上角)。 */}
+      {onVoiceActivate ? (
+        <button
+          className="pet-mic"
+          type="button"
+          title={t("voiceTitle")}
+          aria-label={t("voiceAria")}
+          style={noDragRegionStyle}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onVoiceActivate();
+          }}
+        >
+          🎙
+        </button>
       ) : null}
       <button
         className="pet-x"

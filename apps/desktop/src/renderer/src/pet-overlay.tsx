@@ -12,7 +12,8 @@
 import { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { usePetStore } from "@cortex-work/core";
-import { Pet } from "@cortex-work/views/cortex-desktop";
+import type { VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
+import { Pet, VoiceOrb } from "@cortex-work/views/cortex-desktop";
 import "./pet-overlay.css";
 
 const bridge = window.desktopAPI?.personal;
@@ -71,8 +72,30 @@ function PetOverlayRoot() {
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   // 拖动方向同理:窗口被 OS 搬动,渲染进程连 pointerdown 都收不到,只有主进程看得见。
   const [moveDir, setMoveDir] = useState<"left" | "right" | null>(null);
+  // 语音助手模式:窗口双模式互斥(pet ↔ voice),真源在主进程 pet-overlay-window 的
+  // setPetOverlayMode——切换即刻推送,不等控制器快照(见 bridge.onVoiceAssistantMode 注释)。
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceAssistantSnapshot | null>(null);
+  const [voiceLevel, setVoiceLevel] = useState(0);
   useEffect(() => bridge?.onPetOverlayCursor?.(setCursor), []);
   useEffect(() => bridge?.onPetOverlayMoveDir?.(setMoveDir), []);
+  useEffect(() => bridge?.onVoiceAssistantMode?.((mode) => setVoiceMode(mode === "voice")), []);
+  useEffect(() => bridge?.onVoiceAssistantSyncState?.(setVoiceSnapshot), []);
+  useEffect(() => bridge?.onVoiceAssistantLevel?.(setVoiceLevel), []);
+  // 挂载时回放一次模式与快照,应对「overlay 晚于 voice 激活挂载」的时序竞态。
+  useEffect(() => {
+    bridge?.requestVoiceAssistantSync?.();
+  }, []);
+  if (voiceMode) {
+    return (
+      <VoiceOrb
+        snapshot={voiceSnapshot}
+        level={voiceLevel}
+        cursor={cursor}
+        onControl={(action) => bridge?.voiceAssistantControl?.(action)}
+      />
+    );
+  }
   return (
     <Pet
       windowFollowsPet
@@ -81,6 +104,7 @@ function PetOverlayRoot() {
       onEnabledChange={(enabled) => bridge?.setPetEnabled?.(enabled)}
       onSizeChange={(size) => bridge?.setPetSize?.(size)}
       onPoke={pokePet}
+      onVoiceActivate={() => void bridge?.voiceAssistantActivate?.("pet")}
     />
   );
 }

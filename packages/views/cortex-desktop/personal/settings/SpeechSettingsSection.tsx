@@ -149,25 +149,7 @@ export function SpeechSettingsSection() {
 
       <SpeechCard title={t("speech.chatCard")} icon={<Icon.Comment size={15} />} className="pw-speech-card--chat">
         <SpeechTtsPanel />
-        <ModelRefField
-          label={t("speech.chatModel")}
-          value={
-            voice.chatProviderId && voice.chatModelId
-              ? { providerId: voice.chatProviderId, modelId: voice.chatModelId }
-              : undefined
-          }
-          onChange={(ref) => setVoiceSettings({ chatProviderId: ref.providerId, chatModelId: ref.modelId })}
-          hint={t("speech.chatModelHint")}
-        />
-        {voice.chatProviderId && voice.chatModelId ? (
-          <button
-            className="btn pw-pi-add-btn"
-            type="button"
-            onClick={() => setVoiceSettings({ chatProviderId: "", chatModelId: "" })}
-          >
-            {t("speech.chatModelFollowLast")}
-          </button>
-        ) : null}
+        {/* 语音助手不再有专用模型:轮次走主窗口会话发送管线,模型/Agent 跟随会话本身。 */}
         <SBlock label={t("speech.chatPrompt")} desc={t("speech.chatPromptDesc")}>
           <textarea
             className="pw-set-input"

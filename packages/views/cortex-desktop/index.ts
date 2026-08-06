@@ -17,3 +17,4 @@ export type { NotificationCardProps } from "./NotificationCard";
 // PetBridge 挂在主窗口 CortexDesktopView 里,只转发 usePetStore 变化,不渲染宠物本体。
 export { Pet } from "./pet/Pet";
 export { PetBridge } from "./pet/PetBridge";
+export { VoiceOrb, VOICE_OVERLAY_W, VOICE_OVERLAY_H } from "./personal/voice-assistant/VoiceOrb";

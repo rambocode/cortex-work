@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 // 语音浮层(语音聊天/听写栏)窄桥拆到 voice.ts:桥面收窄的边界说明见该文件头注释。
-import { dictation, voiceChat } from "./voice";
+import { dictation } from "./voice";
 // Provider Catalog / 认证 / Gateway 的跨进程契约（通道名常量 + 类型）。通道名一律走
 // PROVIDER_IPC，不再手写字符串——两侧写歪会表现为「invoke 永远挂起且无报错」。
 import { PROVIDER_IPC } from "../main/providers/contract";
@@ -117,6 +117,9 @@ import type {
   ReplyBubbleVoiceCommand,
   ReplyBubbleVoiceResult,
   PetStateSnapshot,
+  VoiceAssistantSnapshot,
+  VoiceAssistantCommand,
+  VoiceAssistantControlAction,
   AgentBrowserRuntimeStatus,
   ComputerUsePermissionKind,
   ComputerUseStatus,
@@ -1085,6 +1088,45 @@ const personal = {
     ipcRenderer.on("pet:sync-state", listener);
     return () => ipcRenderer.removeListener("pet:sync-state", listener);
   },
+  // ── 语音助手(语音球,与宠物共用 pet-overlay 窗口互斥显示)────────────────────
+  // 管线在主窗口 headless 控制器,overlay 纯展示;契约见 main/ipc/voice-assistant.ts
+  // 与 core/desktop/bridge.ts 的同名段注释。
+  voiceAssistantActivate: (reason: "hotkey" | "pet" | "settings"): Promise<void> =>
+    ipcRenderer.invoke("voiceAssistant:activate", reason),
+  voiceAssistantDeactivate: (): Promise<void> => ipcRenderer.invoke("voiceAssistant:deactivate"),
+  reportVoiceAssistantState: (snapshot: VoiceAssistantSnapshot): void =>
+    ipcRenderer.send("voiceAssistant:report-state", snapshot),
+  reportVoiceAssistantLevel: (level: number): void => ipcRenderer.send("voiceAssistant:level", level),
+  onVoiceAssistantCommand: (cb: (command: VoiceAssistantCommand) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, command: VoiceAssistantCommand) => cb(command);
+    ipcRenderer.on("voiceAssistant:command", listener);
+    return () => ipcRenderer.removeListener("voiceAssistant:command", listener);
+  },
+  voiceAssistantControl: (action: VoiceAssistantControlAction): void =>
+    ipcRenderer.send("voiceAssistant:control", action),
+  onVoiceAssistantMode: (cb: (mode: "pet" | "voice") => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, mode: "pet" | "voice") => cb(mode);
+    ipcRenderer.on("voiceAssistant:mode", listener);
+    return () => ipcRenderer.removeListener("voiceAssistant:mode", listener);
+  },
+  onVoiceAssistantSyncState: (cb: (snapshot: VoiceAssistantSnapshot) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, snapshot: VoiceAssistantSnapshot) => cb(snapshot);
+    ipcRenderer.on("voiceAssistant:sync-state", listener);
+    return () => ipcRenderer.removeListener("voiceAssistant:sync-state", listener);
+  },
+  onVoiceAssistantLevel: (cb: (level: number) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, level: number) => cb(level);
+    ipcRenderer.on("voiceAssistant:level", listener);
+    return () => ipcRenderer.removeListener("voiceAssistant:level", listener);
+  },
+  requestVoiceAssistantSync: (): void => ipcRenderer.send("voiceAssistant:request-sync"),
+  // 截图返回临时 PNG 路径(0600,主进程 10 分钟后清理);不可用/未授权时抛错,
+  // 桥面归一成 null 由控制器降级(语音轮去图重发)。
+  voiceAssistantCaptureScreen: (): Promise<string | null> =>
+    ipcRenderer.invoke("voiceAssistant:captureScreen").then(
+      (r: { path: string } | null) => r?.path ?? null,
+      () => null,
+    ),
   // ── 深度研究引擎（CRE）子域 ────────────────────────────────────────────────
   // 必须挂在 personal 下：渲染端经 CoreProvider 注入的 DesktopBridge 就是这个对象，
   // 挂到 desktopAPI 顶层的话 views 侧的 bridge?.research 永远是 undefined。
@@ -1216,7 +1258,6 @@ const desktopAPI = {
   notesOverlay,
   notification,
   replyBubble,
-  voiceChat,
   dictation,
   projectsWindow,
   consumeNotesHotkeyDegraded,

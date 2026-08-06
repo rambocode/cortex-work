@@ -45,8 +45,6 @@ describe("语音功能默认设置", () => {
       dictationToggleHotkey: "",
       dictationBarAlwaysVisible: false,
       dictationDictionary: [],
-      chatProviderId: "",
-      chatModelId: "",
       chatPrompt: "",
       transcriptPolish: true,
       polishProviderId: "",

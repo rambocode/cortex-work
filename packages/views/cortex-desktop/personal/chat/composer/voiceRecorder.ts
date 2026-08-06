@@ -54,10 +54,19 @@ export class VoiceCapture {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       throw new Error("当前浏览器不支持录音");
     }
+    // 显式开启浏览器内建的三件套降噪链(回声消除/噪声抑制/自动增益):Chromium 的
+    // noiseSuppression 是语音级降噪(RNNoise 同源),对 STT 准确率、VAD 稳定性与
+    // 扬声器回声(语音助手 TTS 半双工切换的尾音)都有实益;不同 Electron 版本的默认值
+    // 不保证一致,显式声明避免升级后静默漂移。
+    const audioBase: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
     // 指定设备用 exact 保证用户选择生效；设备被拔出/权限变更时仅对约束不满足回退默认，
     // 其它错误（如用户拒绝权限）必须原样抛出，不能静默绕过用户决定。
     const constraints: MediaStreamConstraints = {
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: deviceId ? { ...audioBase, deviceId: { exact: deviceId } } : audioBase,
     };
     let stream: MediaStream;
     try {
@@ -66,7 +75,7 @@ export class VoiceCapture {
       if (!deviceId || !(error instanceof DOMException) || error.name !== "OverconstrainedError") {
         throw error;
       }
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: audioBase });
     }
     this.stream = stream;
     this.chunks = [];
@@ -127,6 +136,12 @@ export class VoiceCapture {
  * 按 asrSettings.protocol 路由本地 whisper / 在线 ASR）转写，返回识别文本。
  * 抛错交由宿主处理（toast / 失败结果）。
  */
+/** 转写解码偏置的固定前导语。whisper 的 initial_prompt 同时决定输出用字——不给引导时
+ * 中文语音会随机吐繁体;一句简体引导语能把输出稳定拉回简体,并声明「可能夹杂英文」
+ * 让中英混说时英文词保留原文。对纯英文输入无副作用(prompt 只是解码偏置,不会被拼进
+ * 转写结果);在线 OpenAI 兼容 ASR 的 prompt 参数同语义。 */
+export const TRANSCRIBE_BIAS_PROMPT = "以下是普通话的句子，用简体中文转写，可能夹杂英文单词。";
+
 export async function transcribeRecording(
   bridge: Pick<DesktopBridge, "transcribeSpeech">,
   asr: AsrSettings,
@@ -143,8 +158,8 @@ export async function transcribeRecording(
       model: asr.model,
       // language 空串/"auto" → 不传（让服务端自动检测；OpenAI 兼容接口省略 language 表示 auto）
       language: asr.language && asr.language !== "auto" ? asr.language : undefined,
-      // 词典 prompt 与 ASR 端点统一约定为解码偏置；空白值不发送，避免污染线上请求。
-      prompt: opts?.prompt?.trim() || undefined,
+      // 解码偏置 = 简体前导语 + 调用方词典(听写词典等);前导语恒发送以稳定简体输出。
+      prompt: [TRANSCRIBE_BIAS_PROMPT, opts?.prompt?.trim()].filter(Boolean).join(""),
       fileName: "recording.wav",
       mimeType: "audio/wav",
       audio,

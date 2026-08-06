@@ -69,16 +69,14 @@ import {
   applyVoiceHotkeys,
   getVoiceChatScreenContextPid,
   setDictationResultHandler,
-  setVoiceChatScreenContextPid,
   setVoiceHotkeyCallbacks,
   setVoiceScreenshotProvider,
-  toggleVoiceChatFromHotkey,
 } from "./ipc/voice";
+import { setVoiceAssistantWiring, toggleVoiceAssistantFromHotkey } from "./ipc/voice-assistant";
 import { DictationController } from "./voice/dictation-controller";
 import { polishTranscriptIfEnabled } from "./capabilities/whisper/polish";
 import { destroyDictationWindow, pushDictationBarState } from "./voice/dictation-window";
 import { mapAcceleratorToMacKeyCode } from "./voice/accelerator-keycode";
-import { getVoiceChatWindow } from "./voice/voice-chat-window";
 // 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
 import { ReplyHelperClient } from "./reply/helper-client";
 import { resolveReplyHelperBinary } from "./reply/helper-locate";
@@ -181,46 +179,8 @@ function registerNotesHotkey(accelerator: string): HotkeyRegistration {
 let replyHelper: ReplyHelperClient | null = null;
 let replyFallbackRegistered = false;
 let dictationController: DictationController | null = null;
-// 首次聊天键需要异步读取原前台窗口；其间后续按键只能登记为停止请求，不能并发读取并覆盖
-// 已冻结的 pid。这样「快按两次」也能在浮层加载完成后稳定地开始再停止。
-let openingVoiceChatPromise: Promise<void> | null = null;
-let pendingVoiceChatStop = false;
-
-/** 在浮层获得焦点前冻结原前台 app 的 pid，供可选屏幕上下文准确截图。 */
-function openVoiceChatFromHotkey(): Promise<void> {
-  // 第二次按聊天键是「停止并提交」，此时浮层已经是前台窗口。绝不能重新冻结 pid，
-  // 否则会把首次唤起时正确保存的原应用上下文替换成 Cortex 自己。
-  if (getVoiceChatWindow()?.isVisible()) {
-    toggleVoiceChatFromHotkey();
-    return Promise.resolve();
-  }
-
-  if (openingVoiceChatPromise) {
-    pendingVoiceChatStop = true;
-    return openingVoiceChatPromise;
-  }
-
-  const opening = (async (): Promise<void> => {
-    try {
-      const snapshot = replyHelper ? await replyHelper.axCapture() : null;
-      const pid = snapshot && typeof snapshot.pid === "number" ? snapshot.pid : null;
-      setVoiceChatScreenContextPid(pid);
-    } catch {
-      // 没有 AX 权限时仍允许打开聊天；截图请求会返回可见错误而非错误截取 Cortex 浮层。
-      setVoiceChatScreenContextPid(null);
-    }
-    toggleVoiceChatFromHotkey();
-    if (pendingVoiceChatStop) {
-      pendingVoiceChatStop = false;
-      toggleVoiceChatFromHotkey();
-    }
-  })();
-  openingVoiceChatPromise = opening;
-  void opening.finally(() => {
-    if (openingVoiceChatPromise === opening) openingVoiceChatPromise = null;
-  });
-  return opening;
-}
+// 语音聊天键现在指向语音助手(pet-overlay 窗口的语音球):唤起前的前台 pid 冻结、
+// 快速连按守卫都内聚在 ipc/voice-assistant.ts 的 activate 流程里。
 
 // 注册 reply 兜底 accelerator（KTD7）：辅助功能未授权 / helper 降级时以此组合键手动触发起草。幂等。
 function registerReplyFallbackHotkey(): void {
@@ -655,9 +615,18 @@ if (!app.requestSingleInstanceLock()) {
       update: { beforeInstall: markRealQuit },
       agentTraceDevMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"],
     });
-    // 阶段 4 接上聊天键；dictationToggle 回调仍由阶段 5 另行安装。setter 只替换给定字段，
-    // 不会重复 ipcMain.handle 或短暂解除本阶段已生效的 globalShortcut。
-    setVoiceHotkeyCallbacks({ onChatHotkey: () => void openVoiceChatFromHotkey() });
+    // 聊天键 → 语音助手(未激活唤起并聆听;已激活由主窗口控制器裁决提交/打断)。
+    // setter 只替换给定字段，不会重复 ipcMain.handle 或短暂解除已生效的 globalShortcut。
+    setVoiceHotkeyCallbacks({ onChatHotkey: () => toggleVoiceAssistantFromHotkey() });
+    // 语音助手依赖装配:主窗口引用 lazy 取(建窗在后),前台 pid 冻结复用 reply helper 的
+    // AX 快照(无 helper / 无权限时返回 null,截图会显式失败而不是错截 Cortex 自己)。
+    setVoiceAssistantWiring({
+      getMainWindow: () => mainWindow,
+      captureForegroundPid: async () => {
+        const snapshot = replyHelper ? await replyHelper.axCapture() : null;
+        return snapshot && typeof snapshot.pid === "number" ? snapshot.pid : null;
+      },
+    });
     registerAgentTraceWindowHandlers({ devMode: is.dev && !!process.env["ELECTRON_RENDERER_URL"] });
     registerDesktopHandlers();
     registerLogHandlers();

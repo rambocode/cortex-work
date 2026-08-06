@@ -64,6 +64,7 @@ import {
 } from "./pi-session";
 import { derivePiCapabilities, toAdapterPermissions } from "./permissionMode";
 import { speakText } from "./tts";
+import { emitVoiceTurnEnd } from "./voiceTurn";
 import { parseMentions } from "./mention";
 import { normalizeLoadedChat, sanitizeBranchGroups, type BranchGroup, type LoadedChat } from "./branches";
 import {
@@ -1620,9 +1621,12 @@ function finalizeRun(
   // 运行模式拦截:本轮若有被 plan/accept-edits 拦下的工具尝试**且本轮失败**,挂切档提示。
   maybeEmitModeBlockHint(run, !runOk);
 
+  // 语音助手回合钩子：语音助手激活时由它接管本轮朗读（返回 true 则跳过下方 autoSpeak，
+  // 防同一轮回复被读两遍）。未激活时是 no-op。
+  const voiceHandled = emitVoiceTurnEnd({ sessionId, ok: runOk, text: run.buffer });
   // TTS：开启自动朗读时,把这一轮的回复读出来（失败静默,不影响会话）。
   const tts = usePersonalStore.getState().ttsSettings;
-  if (tts.autoSpeak && run.gotResult && run.buffer.trim()) {
+  if (!voiceHandled && tts.autoSpeak && run.gotResult && run.buffer.trim()) {
     speakText(bridgeRef, tts, run.buffer, { allowFallback: true }).catch(() => {
       // TTS 端点不可用等,静默跳过
     });
@@ -2369,6 +2373,8 @@ function failPiTurn(qc: QueryClient, sessionId: string, runId: string, err: unkn
   usePersonalStore.getState().setRunning(sessionId, undefined);
   usePersonalStore.getState().setPiRuntime(sessionId, undefined);
   petActivity.endRun(runId, false); // 启动/受理失败是确凿的失败
+  // 语音助手回合钩子：失败旁路不经 finalizeRun，也要通知（否则语音球停在 thinking 态）。
+  emitVoiceTurnEnd({ sessionId, ok: false, text: "" });
   flushChat(qc, sessionId);
 }
 
@@ -3440,6 +3446,8 @@ export function usePersonalActions(): PersonalActions {
           usePersonalStore.getState().setRunning(cur.sessionId, undefined);
           if (cur.orchestrated) cancelPendingPiUiForSession(bridge, cur.sessionId);
           petActivity.endRun(runId, false); // 启动/静默超时属终态失败
+          // 语音助手回合钩子：看门狗超时不经 finalizeRun，也要通知（否则语音球停在 thinking 态）。
+          emitVoiceTurnEnd({ sessionId: cur.sessionId, ok: false, text: "" });
           flushChat(qc, cur.sessionId);
           // 深化:启动/静默超时属终态失败,回落该 session 的 deepening 闪记（普通会话 no-op）。
           void applyDeepenFinalize(bridge, {

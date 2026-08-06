@@ -14,6 +14,8 @@
   "hideAria": "隐藏宠物",
   "resizeTitle": "拖动调整宠物大小(方向键可微调)",
   "resizeAria": "调整宠物大小",
+  "voiceTitle": "启动语音助手(宠物隐藏,同窗口显示语音球)",
+  "voiceAria": "启动语音助手",
   "kind": {
     "cat": {
       "name": "小柯",

@@ -25,6 +25,7 @@ import { SectionPage } from "./Sections";
 import { PersonalWorkspace } from "./personal/layout/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
 import { PetBridge } from "./pet/PetBridge";
+import { VoiceAssistantController } from "./personal/voice-assistant/VoiceAssistantController";
 import { useTweaksPersistence } from "./useTweaksPersistence";
 
 const SECTION_TITLE_KEY: Partial<Record<string, string>> = {
@@ -187,6 +188,9 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
               桌面端额外负责把状态转发给独立的 pet-overlay 窗口。
               宠物本体只在 Web 端内嵌渲染;桌面端已挪去 overlay 窗口(可在整屏任意位置显示)。 */}
           <PetBridge />
+          {/* 语音助手 headless 控制器:管线(录音/STT/send/TTS)在主窗口,语音球在
+              pet-overlay 窗口纯展示。桥无语音助手能力(Web)时内部整体降级为 no-op。 */}
+          <VoiceAssistantController />
           {desktopBridge ? null : <Pet />}
         </div>
       </div>

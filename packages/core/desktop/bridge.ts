@@ -112,6 +112,9 @@ import type {
   ReplyRelearnResult,
   ReplySyncSnapshot,
   PetStateSnapshot,
+  VoiceAssistantSnapshot,
+  VoiceAssistantCommand,
+  VoiceAssistantControlAction,
   PushSettings,
   AgentBrowserRuntimeStatus,
   KnowledgeBaseSettings,
@@ -865,6 +868,36 @@ export interface DesktopBridge {
   /** 订阅主进程从窗口 moved 事件里看出来的拖动方向(null=没在动)。原生 app-region 拖拽
    * 不经渲染进程,方向只有主进程看得见;宠物据此播朝向对应的奔跑帧。 */
   onPetOverlayMoveDir?(cb: (dir: "left" | "right" | null) => void): () => void;
+
+  // ── 语音助手(语音球,与宠物共用 pet-overlay 窗口互斥显示)──────────────────
+  // 架构与宠物同构:录音/VAD/STT/发送(usePersonalActions().send,带全部能力注入)/TTS
+  // 全在主窗口的 headless 控制器(views/personal/voice-assistant/VoiceAssistantController);
+  // overlay 只镜像快照渲染语音球并把点击发回。IPC 域 voiceAssistant:*,契约见
+  // apps/desktop/src/main/ipc/voice-assistant.ts。整段可选:Web 端 undefined 整体降级。
+  /** 激活语音助手：pet-overlay 窗口切 voice 模式(宠物隐藏、窗口变大并强制显示)。 */
+  voiceAssistantActivate?(reason: "hotkey" | "pet" | "settings"): Promise<void>;
+  /** 退出语音助手：窗口切回 pet 模式,按宠物 enabled 决定显隐。 */
+  voiceAssistantDeactivate?(): Promise<void>;
+  /** 主窗口控制器上报状态快照(主进程缓存并转发 overlay)。 */
+  reportVoiceAssistantState?(snapshot: VoiceAssistantSnapshot): void;
+  /** 主窗口控制器上报麦克风电平(30Hz 节流,主进程只转发不缓存)。 */
+  reportVoiceAssistantLevel?(level: number): void;
+  /** 主窗口订阅主进程下发的指令(热键/overlay 点击归一为 command)。返回退订函数。 */
+  onVoiceAssistantCommand?(cb: (command: VoiceAssistantCommand) => void): () => void;
+  /** overlay 语音球发起控制动作(经主进程转发主窗口;exit 同时走 deactivate 流程)。 */
+  voiceAssistantControl?(action: VoiceAssistantControlAction): void;
+  /** overlay 订阅窗口模式切换(pet↔voice,主进程 setPetOverlayMode 时即刻推送,
+   * 不必等控制器快照——切换瞬间就要把 Pet 换成语音球,反之亦然)。返回退订函数。 */
+  onVoiceAssistantMode?(cb: (mode: "pet" | "voice") => void): () => void;
+  /** overlay 订阅状态快照广播。返回退订函数。 */
+  onVoiceAssistantSyncState?(cb: (snapshot: VoiceAssistantSnapshot) => void): () => void;
+  /** overlay 订阅电平流。返回退订函数。 */
+  onVoiceAssistantLevel?(cb: (level: number) => void): () => void;
+  /** overlay 挂载时主动请求一次快照回放(应对「谁先挂载」的时序竞态,同 requestPetSync)。 */
+  requestVoiceAssistantSync?(): void;
+  /** 截取激活前冻结的前台窗口(屏幕上下文,chatScreenContext 开时随语音轮附图)。
+   * 返回临时 PNG 路径(0600 权限,主进程 10 分钟后清理),null=不可用/未授权。 */
+  voiceAssistantCaptureScreen?(): Promise<string | null>;
 
   // ── 公共宠物图鉴(petdex.dev)────────────────────────────────────────────────
   // 整段可选:Web 端为 undefined,图鉴入口据此降级为「渲染端直连」(petdex 的 CORS 全开,

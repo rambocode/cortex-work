@@ -5,13 +5,6 @@ const mocks = vi.hoisted(() => ({
   register: vi.fn<(accelerator: string, callback: () => void) => boolean>(() => true),
   unregister: vi.fn<(accelerator: string) => void>(),
   unregisterAll: vi.fn(),
-  openVoiceChatWindow: vi.fn(),
-  closeVoiceChatWindow: vi.fn(),
-  getVoiceChatWindow: vi.fn(() => null),
-  sendVoiceChatCommand: vi.fn(),
-  loadChat: vi.fn(async () => []),
-  saveChat: vi.fn(async () => {}),
-  updatePersistedState: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -24,17 +17,6 @@ vi.mock("electron", () => ({
     unregisterAll: mocks.unregisterAll,
   },
 }));
-vi.mock("../voice/voice-chat-window", () => ({
-  openVoiceChatWindow: mocks.openVoiceChatWindow,
-  closeVoiceChatWindow: mocks.closeVoiceChatWindow,
-  getVoiceChatWindow: mocks.getVoiceChatWindow,
-  sendVoiceChatCommand: mocks.sendVoiceChatCommand,
-}));
-vi.mock("./chat", () => ({
-  loadChat: mocks.loadChat,
-  saveChat: mocks.saveChat,
-}));
-vi.mock("./store", () => ({ updatePersistedState: mocks.updatePersistedState }));
 
 import { registerVoiceHandlers, setDictationResultHandler, setVoiceHotkeyCallbacks } from "./voice";
 import type { VoiceHotkeyResults } from "../voice/hotkeys";
@@ -52,15 +34,6 @@ describe("voice:setHotkeys", () => {
     mocks.register.mockReset().mockReturnValue(true);
     mocks.unregister.mockReset();
     mocks.unregisterAll.mockReset();
-    mocks.openVoiceChatWindow.mockReset();
-    mocks.closeVoiceChatWindow.mockReset();
-    mocks.getVoiceChatWindow.mockReset().mockReturnValue(null);
-    mocks.sendVoiceChatCommand.mockReset();
-    mocks.loadChat.mockReset().mockResolvedValue([]);
-    mocks.saveChat.mockReset().mockResolvedValue(undefined);
-    mocks.updatePersistedState.mockReset().mockImplementation(async (mutate) =>
-      mutate({ version: 1, projects: [], sessions: [] }),
-    );
     registerVoiceHandlers();
     // registerVoiceHandlers 在真实主进程只会调用一次；测试复用模块实例前先通过正式
     // IPC 路径解除上例留下的状态，再清空 spy，避免引入仅供测试的生产重置入口。
@@ -102,67 +75,6 @@ describe("voice:setHotkeys", () => {
     expect(onChatHotkey).toHaveBeenCalledOnce();
     expect(onDictationToggleHotkey).toHaveBeenCalledOnce();
     expect(mocks.handlers.size).toBe(handlerCountBefore);
-  });
-
-  it("语音聊天窗的打开、关闭与全局键切换均经专用 IPC 域处理", () => {
-    const open = mocks.handlers.get("voice:openChat");
-    const close = mocks.handlers.get("voice:closeChat");
-
-    open?.({});
-    close?.({});
-
-    expect(mocks.openVoiceChatWindow).toHaveBeenCalledOnce();
-    expect(mocks.closeVoiceChatWindow).toHaveBeenCalledOnce();
-  });
-
-  it("语音聊天历史 IPC 只能读写固定 voice-chat 会话", async () => {
-    const load = mocks.handlers.get("voice-chat:load")!;
-    const save = mocks.handlers.get("voice-chat:save")!;
-    const messages = [{ kind: "text", who: "me", time: "10:30", text: "你好" }];
-
-    await expect(load({}, "other-session")).rejects.toThrow("voice-chat");
-    await expect(save({}, "voice-chat", { not: "an array" })).rejects.toThrow("消息列表");
-    await expect(load({}, "voice-chat")).resolves.toEqual([]);
-    await expect(save({}, "voice-chat", messages)).resolves.toBeUndefined();
-
-    expect(mocks.loadChat).toHaveBeenCalledWith("voice-chat");
-    expect(mocks.saveChat).toHaveBeenCalledWith("voice-chat", messages);
-  });
-
-  it("保存语音聊天时创建或刷新主窗口可加载的固定会话元数据", async () => {
-    const save = mocks.handlers.get("voice-chat:save")!;
-    const messages = [{ kind: "text", who: "me", time: "10:30", text: "你好" }];
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
-
-    await save({}, "voice-chat", messages);
-
-    expect(mocks.updatePersistedState).toHaveBeenCalledOnce();
-    const mutate = mocks.updatePersistedState.mock.calls[0]![0] as (state: Record<string, unknown>) => Record<string, unknown>;
-    const created = mutate({ version: 1, projects: [], sessions: [], lastAgent: "pi", lastModel: "gpt-4.1" });
-    expect(created.sessions).toEqual([
-      expect.objectContaining({
-        id: "voice-chat",
-        title: "语音聊天",
-        agent: "pi",
-        model: "gpt-4.1",
-        useOwnSkills: true,
-        createdAt: 1_700_000_000_000,
-        updatedAt: 1_700_000_000_000,
-      }),
-    ]);
-
-    const existing = {
-      id: "voice-chat",
-      title: "我改过的标题",
-      agent: "claude",
-      model: "sonnet",
-      createdAt: 10,
-      updatedAt: 20,
-      archivedAt: 30,
-    };
-    const updated = mutate({ version: 1, projects: [], sessions: [existing] });
-    expect(updated.sessions).toEqual([{ ...existing, updatedAt: 1_700_000_000_000 }]);
-    now.mockRestore();
   });
 
   it("下一次设置前只精确注销上一组语音键，不调用 unregisterAll", () => {

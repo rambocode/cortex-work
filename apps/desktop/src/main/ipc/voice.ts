@@ -1,8 +1,9 @@
-// 语音聊天 / 听写的主进程快捷键入口。
+// 语音助手 / 听写的主进程快捷键入口(语音助手的窗口/状态编排在 ipc/voice-assistant.ts,
+// 本文件只管热键注册事务、听写结果、截图 provider 与前台 pid 冻结)。
 //
-// globalShortcut 只适合 keydown 型触发，因此本阶段只注册语音聊天和「切换听写」；
-// 按住听写将在后续阶段由 Cortex_Helper 的 keyDown/keyUp event tap 接管。三个配置仍在
-// 一次 IPC 中整体校验，保证未来启用按住听写时不会接手一组已冲突的用户设置。
+// globalShortcut 只适合 keydown 型触发，因此只注册语音助手键和「切换听写」；
+// 按住听写由 Cortex_Helper 的 keyDown/keyUp event tap 接管。三个配置仍在
+// 一次 IPC 中整体校验，保证不会接手一组已冲突的用户设置。
 
 import { globalShortcut, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
@@ -15,20 +16,9 @@ import {
   type VoiceHotkeyResults,
   type VoiceHotkeyField,
 } from "../voice/hotkeys";
-import {
-  closeVoiceChatWindow,
-  getVoiceChatWindow,
-  openVoiceChatWindow,
-  sendVoiceChatCommand,
-} from "../voice/voice-chat-window";
-import { loadChat, saveChat } from "./chat";
-import { updatePersistedState } from "./store";
-import type { PersistedState, SessionMeta } from "./types";
-
 export const VOICE_HOTKEY_INPUT_INVALID_TOAST = "语音快捷键输入无效";
 export const VOICE_HOTKEY_OCCUPIED_TOAST = "语音快捷键已被系统占用";
 export const VOICE_HOTKEY_RESTORED_TOAST = "语音快捷键未生效，已恢复原设置";
-export const VOICE_CHAT_SESSION_ID = "voice-chat";
 
 type GlobalVoiceHotkeyField = "chatHotkey" | "dictationToggleHotkey";
 
@@ -59,8 +49,8 @@ let callbacks: Required<VoiceHotkeyCallbacks> = {
 };
 let dictationResultHandler: ((result: DictationResultPayload) => Promise<void> | void) | null = null;
 let screenshotProvider: (() => Promise<Record<string, unknown>>) | null = null;
-// 全局热键唤起前由 main 捕获的前台应用 pid；浮层 focus 后 frontmost 会变成 Cortex，
-// 因而截图必须使用这个快照而不是在 renderer 提交时重新猜测。
+// 语音助手唤起前由 main 捕获的前台应用 pid；语音球窗口出现后 frontmost 语义已被污染，
+// 因而截图必须使用这个快照而不是在提交时重新猜测(写入方在 ipc/voice-assistant.ts)。
 let voiceChatScreenContextPid: number | null = null;
 
 const GLOBAL_FIELDS: readonly GlobalVoiceHotkeyField[] = ["chatHotkey", "dictationToggleHotkey"];
@@ -75,72 +65,10 @@ export function registerVoiceHandlers(nextCallbacks: VoiceHotkeyCallbacks = {}):
     if (!isVoiceHotkeyInput(input)) return invalidInputResults();
     return applyVoiceHotkeys(input);
   });
-  ipcMain.handle("voice:openChat", (): void => {
-    // 非全局热键入口没有「打开前的原应用」快照，宁可让截图显式失败也不能复用上一轮 pid。
-    voiceChatScreenContextPid = null;
-    openVoiceChatWindow();
-    sendVoiceChatCommand("focus");
-  });
-  ipcMain.handle("voice:closeChat", (): void => closeVoiceChatWindow());
-  ipcMain.handle("voice-chat:captureScreen", async (): Promise<{ path: string; mimeType: "image/png" }> => {
-    if (!screenshotProvider) throw new Error("屏幕上下文暂不可用");
-    const screenshot = await screenshotProvider();
-    if (screenshot.ok !== true || screenshot.mimeType !== "image/png" || typeof screenshot.pngBase64 !== "string") {
-      throw new Error(typeof screenshot.error === "string" ? screenshot.error : "屏幕截图失败");
-    }
-    const path = join(tmpdir(), `cortex-voice-${randomUUID()}.png`);
-    await fsp.writeFile(path, Buffer.from(screenshot.pngBase64, "base64"), { mode: 0o600 });
-    // CLI 已在启动时读取附件；延迟清理避免临时图长期保留潜在敏感屏幕内容。
-    setTimeout(() => void fsp.unlink(path).catch(() => undefined), 10 * 60_000).unref?.();
-    return { path, mimeType: "image/png" };
-  });
   ipcMain.handle("dictation:result", async (_event, payload: unknown): Promise<void> => {
     const result = parseDictationResult(payload);
     if (result) await dictationResultHandler?.(result);
   });
-  // 浮层只可接触固定语音会话，不能借 preload 读取或覆盖任意个人聊天记录。
-  ipcMain.handle("voice-chat:load", async (_event, sessionId: unknown): Promise<unknown> => {
-    assertVoiceChatSessionId(sessionId);
-    return loadChat(VOICE_CHAT_SESSION_ID);
-  });
-  ipcMain.handle("voice-chat:save", async (_event, sessionId: unknown, messages: unknown): Promise<void> => {
-    assertVoiceChatSessionId(sessionId);
-    if (!Array.isArray(messages)) throw new Error("语音聊天消息列表必须是数组");
-    await saveChat(VOICE_CHAT_SESSION_ID, messages);
-    // 语音浮层没有全量 store:save 权限；因此主进程在权威态上维护这条固定会话的列表元数据，
-    // 主窗口下次 hydrate 时即可用通常的 SessionMeta 路径加载历史，而不会出现孤立 chat 文件。
-    await updatePersistedState((state) => upsertVoiceChatSession(state));
-  });
-}
-
-/**
- * 为专用 `voice-chat` 消息文件维护主窗口会话列表所需的最小 SessionMeta。
- * 已有记录只刷新活跃时间，保留用户可能编辑过的标题、归档状态和既有 agent 元数据；新记录则
- * 沿用最后选择的 agent/model，缺省回退合法内置 agent `codex`，与普通 SessionMeta 结构兼容。
- */
-export function upsertVoiceChatSession(state: PersistedState, now = Date.now()): PersistedState {
-  const existing = state.sessions.find((session) => session.id === VOICE_CHAT_SESSION_ID);
-  if (existing) {
-    return {
-      ...state,
-      sessions: state.sessions.map((session) =>
-        session.id === VOICE_CHAT_SESSION_ID ? { ...session, updatedAt: now } : session,
-      ),
-    };
-  }
-
-  const session: SessionMeta = {
-    id: VOICE_CHAT_SESSION_ID,
-    title: "语音聊天",
-    agent: state.lastAgent ?? "codex",
-    model: state.lastModel,
-    providerId: state.lastProviderId,
-    // 与主窗口 createSession 的默认值保持一致，避免复用固定会话时意外关闭 agent 自带 skills。
-    useOwnSkills: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-  return { ...state, sessions: [...state.sessions, session] };
 }
 
 /**
@@ -167,28 +95,27 @@ export function setVoiceScreenshotProvider(provider: (() => Promise<Record<strin
   screenshotProvider = provider;
 }
 
+/** 截取激活前冻结的前台窗口,写 0600 临时 PNG(10 分钟后清理)。语音助手经
+ * voiceAssistant:captureScreen 复用同一实现(provider 与冻结 pid 均在本模块)。 */
+export async function captureVoiceScreenshot(): Promise<{ path: string; mimeType: "image/png" }> {
+  if (!screenshotProvider) throw new Error("屏幕上下文暂不可用");
+  const screenshot = await screenshotProvider();
+  if (screenshot.ok !== true || screenshot.mimeType !== "image/png" || typeof screenshot.pngBase64 !== "string") {
+    throw new Error(typeof screenshot.error === "string" ? screenshot.error : "屏幕截图失败");
+  }
+  const path = join(tmpdir(), `cortex-voice-${randomUUID()}.png`);
+  await fsp.writeFile(path, Buffer.from(screenshot.pngBase64, "base64"), { mode: 0o600 });
+  // 附件在发送时即被读取；延迟清理避免临时图长期保留潜在敏感屏幕内容。
+  setTimeout(() => void fsp.unlink(path).catch(() => undefined), 10 * 60_000).unref?.();
+  return { path, mimeType: "image/png" };
+}
+
 export function setVoiceChatScreenContextPid(pid: number | null): void {
   voiceChatScreenContextPid = pid;
 }
 
 export function getVoiceChatScreenContextPid(): number | null {
   return voiceChatScreenContextPid;
-}
-
-/** 全局聊天键第一次打开并录音；浮层可见时再次按下即要求 renderer 停录并提交。 */
-export function toggleVoiceChatFromHotkey(): void {
-  const active = getVoiceChatWindow();
-  if (active?.isVisible()) {
-    sendVoiceChatCommand("stopAndSubmit");
-    return;
-  }
-  openVoiceChatWindow();
-  sendVoiceChatCommand("startListening");
-}
-
-/** 专用 bridge 仍传入固定 ID；主进程二次验证，防止隔离窗口构造任意聊天文件访问。 */
-function assertVoiceChatSessionId(sessionId: unknown): asserts sessionId is typeof VOICE_CHAT_SESSION_ID {
-  if (sessionId !== VOICE_CHAT_SESSION_ID) throw new Error("语音聊天只能访问 voice-chat 会话");
 }
 
 /**

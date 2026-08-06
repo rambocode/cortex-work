@@ -108,13 +108,13 @@ describe("设置入口与整页设置视图", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
-  it("统一「语音」分区聚合聊天、听写与模型管理，旧语音转文字入口不再出现", () => {
+  it("统一「语音」分区聚合语音助手、听写与模型管理，旧语音转文字入口不再出现", () => {
     usePersonalStore.setState({ settingsOpen: true });
     renderUI(<PersonalSettingsView />);
 
     fireEvent.click(screen.getByRole("button", { name: "语音" }));
 
-    expect(screen.getByText("语音聊天")).toBeInTheDocument();
+    expect(screen.getByText("语音助手")).toBeInTheDocument();
     expect(screen.getByText("模型管理")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "语音转文字" })).toBeNull();
   });
@@ -434,7 +434,7 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     fireEvent.click(item);
     // 统一分区描述文案（TTS、听写和模型管理均由该分区承载）。
     expect(container.querySelector(".pw-dlg-desc")?.textContent).toBe(
-      "在这里管理麦克风、语音聊天、系统级听写和语音识别模型。",
+      "在这里管理麦克风、语音助手、系统级听写和语音识别模型。",
     );
     expect(item.className).toContain("is-active");
     expect(item.getAttribute("aria-current")).toBe("page");

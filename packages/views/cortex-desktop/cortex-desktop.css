@@ -6470,6 +6470,7 @@ button.sb-row {
    底色用固定 rgba 而非主题变量:宠物浮在任意桌面背景上,且 overlay 是独立页面,
    拿不到 documentElement 上的 [data-theme](深色由下方规则覆盖,只对内嵌 Web 端生效)。 */
 .pet-x,
+.pet-mic,
 .pet-resize {
   position: absolute;
   z-index: 2;
@@ -6499,6 +6500,13 @@ button.sb-row {
   line-height: 1;
   cursor: pointer;
 }
+.pet-mic {
+  top: -2px;
+  left: -2px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
 .pet-resize {
   right: -2px;
   bottom: -2px;
@@ -6513,14 +6521,18 @@ button.sb-row {
    赖着不走。故 overlay 形态(.is-window-pet)整体让位给主进程算出来的 .is-hovered。
    .is-resizing 期间强制可见:指针捕获后光标通常已移出宠物盒子。 */
 .pet:not(.is-window-pet):hover .pet-x,
+.pet:not(.is-window-pet):hover .pet-mic,
 .pet:not(.is-window-pet):hover .pet-resize,
 .pet.is-hovered .pet-x,
+.pet.is-hovered .pet-mic,
 .pet.is-hovered .pet-resize,
 .pet.is-resizing .pet-resize { opacity: 0.92; }
 .pet:not(.is-window-pet) .pet-x:hover { opacity: 1; transform: translate(-1px, 1px); }
+.pet:not(.is-window-pet) .pet-mic:hover { opacity: 1; transform: translate(1px, 1px); }
 .pet:not(.is-window-pet) .pet-resize:hover { opacity: 1; transform: translate(-1px, -1px); }
 
 [data-theme="dark"] .pet-x,
+[data-theme="dark"] .pet-mic,
 [data-theme="dark"] .pet-resize {
   color: rgba(244, 247, 251, 0.82);
   background: rgba(25, 28, 35, 0.78);
@@ -6528,6 +6540,65 @@ button.sb-row {
     0 4px 14px rgba(0, 0, 0, 0.3),
     inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
+/* ---------- 语音助手语音球(pet-overlay 窗口 voice 模式) ----------
+   与宠物同窗口互斥:约束同上——窗口收不到鼠标移动事件,悬停态由主进程光标轮询驱动
+   (.is-open 由组件按 cursor 计算),CSS :hover 一律不用(会卡在上一次命中)。
+   底色用固定 rgba:overlay 独立页面拿不到主窗口的 [data-theme]。 */
+.voice-orb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  box-sizing: border-box;
+}
+.voice-orb-canvas {
+  border-radius: 50%;
+  cursor: pointer;
+}
+.voice-orb-ctrl {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+.voice-orb-ctrl.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.voice-orb-hint {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  color: #3a4152;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 18px rgba(80, 95, 150, 0.18);
+  max-width: 260px;
+  text-align: center;
+}
+.voice-orb-hint.is-error { color: #b3352f; }
+.voice-orb-btns { display: flex; gap: 14px; }
+.voice-orb-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  color: #2b3040;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(80, 95, 150, 0.22);
+}
+.voice-orb-btn.is-exit { font-size: 15px; }
+
 /* ---------- 个人工作区:设置弹出层(左 Tab + 右内容) ---------- */
 .pw-dlg-overlay {
   position: fixed;

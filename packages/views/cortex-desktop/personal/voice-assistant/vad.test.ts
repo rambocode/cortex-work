@@ -1,7 +1,7 @@
 // 能量 VAD 纯判定核的时序用例:校准 → 说话 → 静音判停 / 短音丢弃 / 无人说话超时。
 
 import { describe, expect, it } from "vitest";
-import { createVadTracker, type VadConfig } from "./voice-vad";
+import { createVadTracker, type VadConfig } from "./vad";
 
 const config: VadConfig = {
   calibrationMs: 300,
@@ -15,6 +15,8 @@ const config: VadConfig = {
   confirmMs: 160,
   floorAdaptRate: 0.05,
   floorCeiling: 0.04,
+  // 测试用短窗:时序断言按 700ms 编排;生产默认 1500ms(轻声收尾段不被提前截断)。
+  strongHangoverMs: 700,
 };
 
 // 以 32ms 为步长喂样本,返回期间触发的全部事件。
@@ -51,6 +53,16 @@ describe("createVadTracker", () => {
     feed(t, 0, 300, 0.002);
     const events = feed(t, 300, 2500, 0.002);
     expect(events[0]).toBe("idle-timeout");
+  });
+
+  it("说完后 AGC 抬高的环境声贴在弱能量带,强峰缺席超时后仍能判停(不卡死聆听)", () => {
+    const t = createVadTracker(config);
+    feed(t, 0, 300, 0.002); // 校准
+    expect(feed(t, 300, 800, 0.05)).toEqual(["speech-start"]);
+    // 环境声 0.02 落在退出阈值(0.015)与进入阈值(0.025)之间:没有强峰维持窗时,
+    // 它会在 speaking 态无限刷新静音计时,speech-end 永不触发(实测卡死回归)。
+    // 现在:强峰缺席 700ms 后强制退出 speaking → 再计 700ms 静音 → 判停。
+    expect(feed(t, 800, 2600, 0.02)).toEqual(["speech-end"]);
   });
 
   it("持续背景人声抬高噪声底,只有明显更响的近讲才触发", () => {

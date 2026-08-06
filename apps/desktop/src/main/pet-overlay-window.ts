@@ -34,6 +34,30 @@ let contentReady = false;
 export const OVERLAY_WINDOW_W = 260;
 export const OVERLAY_WINDOW_H = 304;
 
+// ── 语音助手模式(与宠物互斥共用本窗口)────────────────────────────────────────
+// 语音球尺寸:240 球体 + 悬停提示胶囊(~30px) + 44px 操作钮排 + 间距。与
+// packages/views/cortex-desktop/personal/voice-assistant/VoiceOrb.tsx 里的同名常量
+// 保持一致(该文件据此排版语音球),改一处必须改两处。
+export const VOICE_OVERLAY_W = 280;
+export const VOICE_OVERLAY_H = 380;
+
+// 窗口双模式:pet(宠物,默认)/ voice(语音助手)。可见性拆两轴——
+// visibilityRequested 只表达「宠物 enabled」这一轴;voice 模式下窗口强制显示
+// (宠物被禁用时热键也要能唤起语音球),退出 voice 后回落宠物轴,不把已禁用的宠物带出来。
+let mode: "pet" | "voice" = "pet";
+
+/** 当前模式下原生窗口是否应显示(双轴合成的唯一判定点)。 */
+function shouldShow(): boolean {
+  return mode === "voice" ? true : visibilityRequested;
+}
+
+/** 当前模式对应的窗口尺寸。 */
+function windowSize(): { w: number; h: number } {
+  return mode === "voice"
+    ? { w: VOICE_OVERLAY_W, h: VOICE_OVERLAY_H }
+    : { w: OVERLAY_WINDOW_W, h: OVERLAY_WINDOW_H };
+}
+
 // ── 悬停探测:为什么要由主进程轮询光标 ────────────────────────────────────────
 // 这扇窗口收不到鼠标**移动**事件,两个原因各自都足以致命:
 // ① focusable:false + type:"panel" —— 它永远不会成为 key window,而 macOS 只把
@@ -142,13 +166,13 @@ function defaultPosition(): { x: number; y: number } {
  * 用 bounds 而非 workArea:宠物是 alwaysOnTop 的 panel,本就允许浮在 Dock / 菜单栏之上,
  * 按 workArea 钳会把它从 Dock 区域挤出来,与 defaultPosition 的取值口径也不一致。
  */
-function clampToDisplay(x: number, y: number): { x: number; y: number } {
+function clampToDisplay(x: number, y: number, w = OVERLAY_WINDOW_W, h = OVERLAY_WINDOW_H): { x: number; y: number } {
   const px = Math.round(x);
   const py = Math.round(y);
   const { bounds } = screen.getDisplayNearestPoint({ x: px, y: py });
   return {
-    x: Math.min(Math.max(bounds.x, px), bounds.x + bounds.width - OVERLAY_WINDOW_W),
-    y: Math.min(Math.max(bounds.y, py), bounds.y + bounds.height - OVERLAY_WINDOW_H),
+    x: Math.min(Math.max(bounds.x, px), bounds.x + bounds.width - w),
+    y: Math.min(Math.max(bounds.y, py), bounds.y + bounds.height - h),
   };
 }
 
@@ -206,7 +230,7 @@ function create(): BrowserWindow {
   // 该区域仍参与 macOS 命中测试并吞掉对后方应用的点击。
   win.once("ready-to-show", () => {
     contentReady = true;
-    if (!visibilityRequested) return;
+    if (!shouldShow()) return;
     win?.showInactive();
     startCursorPolling();
   });
@@ -234,7 +258,7 @@ function create(): BrowserWindow {
 export function ensurePetOverlayWindow(): BrowserWindow {
   const existing = win && !win.isDestroyed() ? win : null;
   if (existing) {
-    if (visibilityRequested && contentReady && !existing.isVisible()) {
+    if (shouldShow() && contentReady && !existing.isVisible()) {
       existing.showInactive();
       startCursorPolling();
     }
@@ -243,12 +267,11 @@ export function ensurePetOverlayWindow(): BrowserWindow {
   return create();
 }
 
-/** 让原生窗口跟随 Pet 的真实 enabled 状态；隐藏空 overlay 可释放其整块鼠标命中区。 */
-export function setPetOverlayVisibility(visible: boolean): void {
-  visibilityRequested = visible;
+/** 按双轴合成结果同步原生窗口显隐(setPetOverlayVisibility / setPetOverlayMode 共用)。 */
+function applyVisibility(): void {
   const current = win && !win.isDestroyed() ? win : null;
   if (!current) return;
-  if (!visible) {
+  if (!shouldShow()) {
     stopCursorPolling(); // 隐藏后没有悬停可言,别让定时器空转
     stopMoveTracking();
     if (current.isVisible()) current.hide();
@@ -258,6 +281,36 @@ export function setPetOverlayVisibility(visible: boolean): void {
     current.showInactive();
     startCursorPolling();
   }
+}
+
+/** 让原生窗口跟随 Pet 的真实 enabled 状态；隐藏空 overlay 可释放其整块鼠标命中区。
+ * 只写宠物轴:voice 模式下 shouldShow() 恒 true,Pet 组件返回 null 触发的 hide 请求
+ * 不会把语音球窗口藏掉(退出 voice 时再按本轴回落)。 */
+export function setPetOverlayVisibility(visible: boolean): void {
+  visibilityRequested = visible;
+  applyVisibility();
+}
+
+export function getPetOverlayMode(): "pet" | "voice" {
+  return mode;
+}
+
+/** 切换窗口模式(pet ↔ voice):按新模式尺寸就地 setBounds(保持中心点不动并钳回
+ * 所在显示器),再同步显隐并把模式推给 overlay 渲染端(它据此在 Pet 与语音球间切换,
+ * 不必等控制器快照到达)。 */
+export function setPetOverlayMode(next: "pet" | "voice"): void {
+  if (mode === next) return;
+  mode = next;
+  const current = win && !win.isDestroyed() ? win : null;
+  if (current) {
+    const b = current.getBounds();
+    const { w, h } = windowSize();
+    // 中心点不动:语音球在宠物原位置展开,退出后宠物也回到原地附近。
+    const pos = clampToDisplay(b.x + (b.width - w) / 2, b.y + (b.height - h) / 2, w, h);
+    current.setBounds({ x: pos.x, y: pos.y, width: w, height: h });
+    current.webContents.send("voiceAssistant:mode", mode);
+  }
+  applyVisibility();
 }
 
 export function getPetOverlayWindow(): BrowserWindow | null {
@@ -271,4 +324,5 @@ export function destroyPetOverlayWindow(): void {
   win = null;
   visibilityRequested = false;
   contentReady = false;
+  mode = "pet";
 }

@@ -68,10 +68,12 @@ describe("VoiceCapture.start", () => {
 
     await capture.start("microphone-42");
 
+    // 三件套降噪约束(回声消除/噪声抑制/自动增益)必须显式声明,详见 VoiceCapture.start 注释。
+    const denoise = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     expect(getUserMedia).toHaveBeenNthCalledWith(1, {
-      audio: { deviceId: { exact: "microphone-42" } },
+      audio: { ...denoise, deviceId: { exact: "microphone-42" } },
     });
-    expect(getUserMedia).toHaveBeenNthCalledWith(2, { audio: true });
+    expect(getUserMedia).toHaveBeenNthCalledWith(2, { audio: denoise });
     expect(capture.active).toBe(true);
     expect(capture.mediaStream).toBe(stream);
     capture.dispose();
@@ -92,8 +94,11 @@ describe("transcribeRecording", () => {
       ),
     ).resolves.toBe("Cortex");
 
+    // 解码偏置 = 固定简体前导语 + 调用方词典(前导语稳定简体输出并容许中英夹杂)。
     expect(transcribeSpeech).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: "Cortex, Whisper, 麦克风" }),
+      expect.objectContaining({
+        prompt: "以下是普通话的句子，用简体中文转写，可能夹杂英文单词。Cortex, Whisper, 麦克风",
+      }),
       asr,
     );
   });
