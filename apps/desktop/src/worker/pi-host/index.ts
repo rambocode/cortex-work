@@ -18,7 +18,7 @@
 // `index.js`），所以那个字段是**必须**的，不是冗余。主进程侧的入口解析按
 // `pi-host.js` → `index.js` 两个名字依次找，两边都别改。
 
-import { PiHost, attachHostLogSink } from "./host";
+import { PiHost, attachHostLogSink, startPiHostRuntimeWarmup } from "./host";
 
 /**
  * `process.parentPort` 的最小形状。
@@ -45,6 +45,9 @@ if (parentPort) {
     host.handleLine(typeof data === "string" ? data : JSON.stringify(data));
   });
   parentPort.start?.();
+  // fork 即预热：本进程常驻并承载多个会话，三包 ESM 闭包的加载在这里就开始付（一次性），
+  // 首个 `open` 到达时 await 的是同一个在途 Promise（见 host.ts 的 startPiHostRuntimeWarmup）。
+  startPiHostRuntimeWarmup();
   process.stderr.write(`[pi-host] ready on node ${process.version}\n`);
 } else {
   // 没有 parentPort = 不是被 utilityProcess.fork 起来的（例如打包校验脚本直接 require 本文件

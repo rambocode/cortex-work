@@ -1,11 +1,12 @@
-// gateway 客户端单测。用假承载（不真起进程）覆盖五类：
-//   1. `PiSessionEngine` 19 个方法的转发（含协议 `ENGINE_METHODS` 的逐项对账）；
+// gateway 客户端单测。用假承载（不真起进程）覆盖六类：
+//   1. `PiSessionEngine` 19 个方法的转发（含协议 `ENGINE_METHODS` 的逐项对账与 sessionId 归属）；
 //   2. 应答归一化与失败语义（命令级 success:false vs 传输级 reject）；
 //   3. 反向调用——UI 请求（含 id 映射、无出口自动 cancel）与凭据（含解密失败）；
-//   4. worker 退出 → `crashed`（R5），以及主动 stop 之后**不得**上报 crashed；
-//   5. 两段式 kill 与资源释放。
+//   4. worker 退出 → `crashed` 扇出到**每个**活跃会话（R5），以及主动 stop 之后**不得**上报 crashed；
+//   5. 会话 `stop()` = closeSession（进程不退）与进程级 `shutdownPiGatewayRuntime()` 的两段式 kill；
+//   6. 常驻 runtime 生命周期：多会话复用单 worker、崩溃后懒重启、预热幂等。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const logMocks = vi.hoisted(() => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), verbose: vi.fn(), debug: vi.fn(), silly: vi.fn() },
@@ -24,7 +25,14 @@ const vaultMocks = vi.hoisted(() => ({
 }));
 vi.mock("../../providers/credentials", () => vaultMocks);
 
-import { accessGatewayCredential, openPiGatewaySession, PiGatewaySession } from "./client";
+import {
+  __resetPiGatewayRuntimeForTests,
+  accessGatewayCredential,
+  openPiGatewaySession,
+  primePiGatewayRuntime,
+  shutdownPiGatewayRuntime,
+  type PiGatewaySession,
+} from "./client";
 import { FakePiGatewayTransport } from "./fake-transport";
 import { ENGINE_METHODS, type HostCall, type HostUiResponse, type WorkerCredentialRequest } from "./protocol";
 import type { PiOpenRequest, PiSessionEvent, PiUiRequest } from "../../ipc/types";
@@ -35,20 +43,97 @@ function makeRequest(overrides: Partial<PiOpenRequest> = {}): PiOpenRequest {
   return { uiSessionId: "ui-1", cwd: "/work", ...overrides } as PiOpenRequest;
 }
 
-/** 排空微任务队列。凭据反向调用要过「读金库 → 写应答」两跳异步，单个 tick 不够。 */
+/**
+ * 排空微任务队列。常驻 runtime 下 `openPiGatewaySession` 要过「ensureRuntime → 会话 open 写出」
+ * 若干跳微任务（单个 `await Promise.resolve()` 不够），统一用这个多轮排空。
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
+
+/** 排空定时器一跳。凭据反向调用要过「读金库 → 写应答」两跳异步，微任务排空不够。 */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-interface Harness {
-  transport: FakePiGatewayTransport;
+/**
+ * 一套 runtime 级夹具：transport 工厂 + 凭据替身。
+ * runtime 级 deps 只在「创建单例那一次」生效，所以同一用例内的多次 open 必须复用同一个 rig。
+ */
+interface Rig {
+  forks: FakePiGatewayTransport[];
+  createTransport: Mock<() => FakePiGatewayTransport>;
+  credentialCalls: string[];
+  deps: {
+    createTransport: () => FakePiGatewayTransport;
+    readCredential: (req: WorkerCredentialRequest) => Promise<string | null>;
+    killDelayMs?: number;
+  };
+  /** 当前 runtime 的承载（最近一次 fork 出来的假 transport）。 */
+  readonly transport: FakePiGatewayTransport;
+}
+
+function makeRig(options: { readCredential?: (key: string) => Promise<string | null>; killDelayMs?: number } = {}): Rig {
+  const forks: FakePiGatewayTransport[] = [];
+  const createTransport = vi.fn(() => {
+    const transport = new FakePiGatewayTransport();
+    forks.push(transport);
+    return transport;
+  });
+  const credentialCalls: string[] = [];
+  return {
+    forks,
+    createTransport,
+    credentialCalls,
+    deps: {
+      createTransport,
+      readCredential: async (req) => {
+        credentialCalls.push(req.key);
+        return options.readCredential ? options.readCredential(req.key) : `secret-of-${req.key}`;
+      },
+      ...(options.killDelayMs === undefined ? {} : { killDelayMs: options.killDelayMs }),
+    },
+    get transport() {
+      return forks.at(-1)!;
+    },
+  };
+}
+
+interface OpenedSession {
   session: PiGatewaySession;
   events: Array<{ ev: PiSessionEvent; runId?: string }>;
   uiRequests: PiUiRequest[];
+}
+
+/** 在指定 rig 上开一个会话（open 的应答由本函数即时回掉），返回该会话专属的事件/UI 收集器。 */
+async function openOn(
+  rig: Rig,
+  options: { onUiRequest?: boolean; onDispose?: () => void; request?: Partial<PiOpenRequest> } = {},
+): Promise<OpenedSession> {
+  const events: Array<{ ev: PiSessionEvent; runId?: string }> = [];
+  const uiRequests: PiUiRequest[] = [];
+  const pending = openPiGatewaySession({
+    request: makeRequest(options.request ?? {}),
+    onEvent: (ev, runId) => events.push({ ev, ...(runId === undefined ? {} : { runId }) }),
+    ...(options.onUiRequest === false ? {} : { onUiRequest: (req: PiUiRequest) => uiRequests.push(req) }),
+    deps: {
+      ...rig.deps,
+      ...(options.onDispose ? { onDispose: options.onDispose } : {}),
+    },
+  });
+  await settle();
+  rig.transport.replyOk();
+  const session = await pending;
+  return { session, events, uiRequests };
+}
+
+interface Harness extends OpenedSession {
+  rig: Rig;
+  transport: FakePiGatewayTransport;
   credentialCalls: string[];
 }
 
-/** 建一个已 open 成功的会话。`open` 的应答由本函数即时回掉，用例只需关心之后的交互。 */
+/** 单会话便捷入口（旧用例形态）：建 rig + 开一个会话。 */
 async function open(
   options: {
     onUiRequest?: boolean;
@@ -57,45 +142,26 @@ async function open(
     killDelayMs?: number;
   } = {},
 ): Promise<Harness> {
-  const transport = new FakePiGatewayTransport();
-  const events: Array<{ ev: PiSessionEvent; runId?: string }> = [];
-  const uiRequests: PiUiRequest[] = [];
-  const credentialCalls: string[] = [];
-
-  const pending = openPiGatewaySession({
-    request: makeRequest(),
-    onEvent: (ev, runId) => events.push({ ev, ...(runId === undefined ? {} : { runId }) }),
-    ...(options.onUiRequest === false ? {} : { onUiRequest: (req: PiUiRequest) => uiRequests.push(req) }),
-    deps: {
-      createTransport: () => transport,
-      readCredential: async (req) => {
-        credentialCalls.push(req.key);
-        return options.readCredential ? options.readCredential(req.key) : `secret-of-${req.key}`;
-      },
-      ...(options.onDispose ? { onDispose: options.onDispose } : {}),
-      ...(options.killDelayMs === undefined ? {} : { killDelayMs: options.killDelayMs }),
-    },
-  });
-
-  // open 是异步的：让 openPiGatewaySession 先把 HostOpen 写出去，再回应答。
-  await Promise.resolve();
-  transport.replyOk();
-  const session = await pending;
-  return { transport, session, events, uiRequests, credentialCalls };
+  const rig = makeRig(options);
+  const opened = await openOn(rig, options);
+  return { rig, transport: rig.transport, credentialCalls: rig.credentialCalls, ...opened };
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // 先复位单例（关掉上个用例的 runtime），再清 mock——顺序反了会把复位期间的日志断言弄脏。
   vi.useRealTimers();
+  __resetPiGatewayRuntimeForTests();
+  vi.clearAllMocks();
 });
 
 // ── 1. 方法转发 ─────────────────────────────────────────────────────────────────────
 
 describe("PiSessionEngine 方法转发", () => {
-  it("open 写出 HostOpen，带上已 prepare 的 request 与 hasUiOutlet", async () => {
-    const { transport } = await open();
+  it("open 写出带 sessionId 的 HostOpen，带上已 prepare 的 request 与 hasUiOutlet", async () => {
+    const { transport, session } = await open();
     const msg = transport.firstOf("open");
     expect(msg?.kind).toBe("open");
+    expect(msg?.sessionId).toBe(session.sessionId);
     expect((msg?.request as PiOpenRequest).uiSessionId).toBe("ui-1");
     expect(msg?.hasUiOutlet).toBe(true);
   });
@@ -106,7 +172,7 @@ describe("PiSessionEngine 方法转发", () => {
   });
 
   // 逐条对账：协议侧 ENGINE_METHODS 的每个方法名都得能在客户端上调起来，
-  // 并且真的写出一条 method 相符的 HostCall。漏一个的表现是「某命令静默失效」。
+  // 并且真的写出一条 method 相符、sessionId 归属正确的 HostCall。漏一个的表现是「某命令静默失效」。
   const invocations: Record<(typeof ENGINE_METHODS)[number], [(s: PiGatewaySession) => Promise<unknown>, unknown[]]> =
     {
       ready: [(s) => s.ready(), []],
@@ -132,11 +198,12 @@ describe("PiSessionEngine 方法转发", () => {
     const { transport, session } = await open();
     const [invoke, expectedArgs] = invocations[method];
     const pending = invoke(session);
-    await Promise.resolve();
+    await settle();
 
     const call = transport.last() as HostCall;
     expect(call.kind).toBe("call");
     expect(call.method).toBe(method);
+    expect(call.sessionId).toBe(session.sessionId);
     expect(call.args).toEqual(expectedArgs);
 
     // ready 需要一个合法结果，其余任意；回掉以免用例留下未处理 Promise。
@@ -148,19 +215,22 @@ describe("PiSessionEngine 方法转发", () => {
     expect(Object.keys(invocations).sort()).toEqual([...ENGINE_METHODS].sort());
   });
 
-  it("stop 与 respondUi 不走 call 通道（它们是连接级/反向应答动作）", async () => {
+  it("stop 与 respondUi 不走 call 通道（stop 走 closeSession，respondUi 走 uiResponse）", async () => {
     const { transport, session } = await open();
     session.respondUi("pi-id", { confirmed: true });
     session.stop();
     expect(transport.sent().some((m) => m.kind === "call")).toBe(false);
-    expect(transport.sent().map((m) => m.kind)).toEqual(["open", "uiResponse", "shutdown"]);
+    expect(transport.sent().map((m) => m.kind)).toEqual(["open", "uiResponse", "closeSession"]);
   });
 
   it("裁掉尾部 undefined 参数（否则 JSON 往返会把它变成 null，worker 侧判定走错分支）", async () => {
     const { transport, session } = await open();
-    void session.prompt("only message");
-    await Promise.resolve();
+    const pending = session.prompt("only message");
+    await settle();
     expect((transport.last() as HostCall).args).toEqual(["only message"]);
+    // 回掉应答：不回的话这条在途 RPC 会在下个用例的 runtime 复位时被 reject 成无主 rejection。
+    transport.replyOk({ type: "response", command: "prompt", success: true });
+    await pending;
   });
 });
 
@@ -170,7 +240,7 @@ describe("应答归一化与失败语义", () => {
   it("worker 回 RpcResponse 时原样透出（含命令级 success:false）", async () => {
     const { transport, session } = await open();
     const pending = session.getState();
-    await Promise.resolve();
+    await settle();
     transport.replyOk({ type: "response", command: "get_state", success: false, error: "boom" });
     await expect(pending).resolves.toEqual({
       type: "response",
@@ -183,7 +253,7 @@ describe("应答归一化与失败语义", () => {
   it("worker 只回裸 data 时帮它裹一层 RpcResponse", async () => {
     const { transport, session } = await open();
     const pending = session.getCommands();
-    await Promise.resolve();
+    await settle();
     transport.replyOk({ commands: [] });
     await expect(pending).resolves.toEqual({
       type: "response",
@@ -196,7 +266,7 @@ describe("应答归一化与失败语义", () => {
   it("reply.ok=false（worker 转发层失败）转成 rejection，与 binary 路径同义", async () => {
     const { transport, session } = await open();
     const pending = session.abort();
-    await Promise.resolve();
+    await settle();
     transport.replyErr("会话未建立");
     await expect(pending).rejects.toThrow("会话未建立");
   });
@@ -205,7 +275,7 @@ describe("应答归一化与失败语义", () => {
     vi.useFakeTimers();
     const { session } = await open();
     const pending = session.getState();
-    await Promise.resolve();
+    await settle();
     vi.advanceTimersByTime(30_000);
     await expect(pending).rejects.toThrow("pi 命令超时: getState");
     expect(session.pendingCount).toBe(0);
@@ -216,13 +286,13 @@ describe("应答归一化与失败语义", () => {
     vi.useFakeTimers();
     const { transport, session } = await open();
     const first = session.getState();
-    await Promise.resolve();
+    await settle();
     vi.advanceTimersByTime(30_000);
     await expect(first).rejects.toThrow();
     vi.useRealTimers();
 
     const second = session.getSessionStats();
-    await Promise.resolve();
+    await settle();
     // 回一条 id 属于第一次调用的应答：必须被忽略，第二次调用仍在途。
     transport.emit({ id: "pg_2", kind: "reply", ok: true, result: { stale: true } });
     expect(session.pendingCount).toBe(1);
@@ -233,7 +303,7 @@ describe("应答归一化与失败语义", () => {
   it("ready 缺 sessionId 时响亮失败（会话不可用必须让 pi:open 抛出去）", async () => {
     const { transport, session } = await open();
     const pending = session.ready();
-    await Promise.resolve();
+    await settle();
     transport.replyOk({});
     await expect(pending).rejects.toThrow("缺少 sessionId");
   });
@@ -241,7 +311,7 @@ describe("应答归一化与失败语义", () => {
   it("ready 成功时透出 sessionId 与 sessionFile", async () => {
     const { transport, session } = await open();
     const pending = session.ready();
-    await Promise.resolve();
+    await settle();
     transport.replyOk({ sessionId: "s-7", sessionFile: "/p/s.jsonl" });
     await expect(pending).resolves.toEqual({ sessionId: "s-7", sessionFile: "/p/s.jsonl" });
   });
@@ -249,7 +319,7 @@ describe("应答归一化与失败语义", () => {
   it("loadSlashCommands 失败静默降级（只影响补发判定精度，不得阻断会话）", async () => {
     const { transport, session } = await open();
     const pending = session.loadSlashCommands();
-    await Promise.resolve();
+    await settle();
     transport.replyErr("no commands");
     await expect(pending).resolves.toBeUndefined();
   });
@@ -258,7 +328,7 @@ describe("应答归一化与失败语义", () => {
     const { transport, session } = await open();
     transport.emit("{ not json");
     const pending = session.abort();
-    await Promise.resolve();
+    await settle();
     transport.replyOk({ type: "response", command: "abort", success: true });
     await expect(pending).resolves.toMatchObject({ success: true });
   });
@@ -267,25 +337,35 @@ describe("应答归一化与失败语义", () => {
 // ── 3. 事件与反向调用 ───────────────────────────────────────────────────────────────
 
 describe("事件流", () => {
-  it("WorkerEvent 转成 onEvent（runId 一并带过去）", async () => {
-    const { transport, events } = await open();
-    transport.emit({ kind: "event", event: { type: "text", delta: "hi" }, runId: "run-3" });
+  it("WorkerEvent 按 sessionId 路由到 onEvent（runId 一并带过去）", async () => {
+    const { transport, session, events } = await open();
+    transport.emit({ kind: "event", sessionId: session.sessionId, event: { type: "text", delta: "hi" }, runId: "run-3" });
     expect(events).toEqual([{ ev: { type: "text", delta: "hi" }, runId: "run-3" }]);
   });
 
-  it("onEvent 抛错被吞掉，通道继续可用（抛出去会让后续事件与应答一起消失）", async () => {
-    const transport = new FakePiGatewayTransport();
+  it("无主 sessionId 的事件被丢弃（不砸进任何会话）", async () => {
+    const { transport, events } = await open();
+    transport.emit({ kind: "event", sessionId: "sess_404", event: { type: "settled" } });
+    expect(events).toEqual([]);
+  });
+
+  it("onEvent 抛错被吞掉，通道继续可用（抛出去会让 runtime 上全部会话的事件一起消失）", async () => {
+    const rig = makeRig();
     let calls = 0;
-    const session = new PiGatewaySession(transport, {
+    const pending = openPiGatewaySession({
+      request: makeRequest(),
       onEvent: () => {
         calls += 1;
         throw new Error("renderer gone");
       },
-      readCredential: async () => null,
-      uiSessionId: "ui-1",
+      deps: rig.deps,
     });
-    transport.emit({ kind: "event", event: { type: "settled" } });
-    transport.emit({ kind: "event", event: { type: "settled" } });
+    await settle();
+    rig.transport.replyOk();
+    const session = await pending;
+
+    rig.transport.emit({ kind: "event", sessionId: session.sessionId, event: { type: "settled" } });
+    rig.transport.emit({ kind: "event", sessionId: session.sessionId, event: { type: "settled" } });
     expect(calls).toBe(2);
     expect(session.pendingCount).toBe(0);
   });
@@ -306,42 +386,59 @@ describe("反向调用：UI 请求", () => {
     message: "rm -rf /tmp/x",
   };
 
-  it("uiRequest 转给 onUiRequest；回写按 pi 的 id 找回协议 requestId", async () => {
+  it("uiRequest 转给 onUiRequest；回写按 pi 的 id 找回协议 requestId 并带 sessionId", async () => {
     const { transport, session, uiRequests } = await open();
-    transport.emit({ kind: "uiRequest", requestId: "rq-42", request: uiRequest });
+    transport.emit({ kind: "uiRequest", sessionId: session.sessionId, requestId: "rq-42", request: uiRequest });
     expect(uiRequests).toEqual([uiRequest]);
 
     // 渲染端只知道 pi 的 id（pi-uuid-1），主进程必须把它翻回 rq-42。
     session.respondUi("pi-uuid-1", { confirmed: true });
     const resp = transport.last() as HostUiResponse;
     expect(resp.kind).toBe("uiResponse");
+    expect(resp.sessionId).toBe(session.sessionId);
     expect(resp.requestId).toBe("rq-42");
     expect(resp.payload).toEqual({ confirmed: true });
   });
 
   it("无 UI 出口时立即回 cancelled（不回的话 worker 的工具执行栈永久冻住）", async () => {
-    const { transport } = await open({ onUiRequest: false });
-    transport.emit({ kind: "uiRequest", requestId: "rq-1", request: uiRequest });
+    const { transport, session } = await open({ onUiRequest: false });
+    transport.emit({ kind: "uiRequest", sessionId: session.sessionId, requestId: "rq-1", request: uiRequest });
     expect(transport.last()).toEqual({
       id: expect.any(String),
       kind: "uiResponse",
+      sessionId: session.sessionId,
       requestId: "rq-1",
       payload: { cancelled: true },
     });
   });
 
+  it("目标会话已不存在的 uiRequest 也回 cancelled（会话关了不能让 worker 挂死）", async () => {
+    const { transport } = await open();
+    transport.emit({ kind: "uiRequest", sessionId: "sess_404", requestId: "rq-9", request: uiRequest });
+    expect(transport.last()).toMatchObject({
+      kind: "uiResponse",
+      sessionId: "sess_404",
+      requestId: "rq-9",
+      payload: { cancelled: true },
+    });
+  });
+
   it("onUiRequest 抛错时同样兜底回 cancelled", async () => {
-    const transport = new FakePiGatewayTransport();
-    new PiGatewaySession(transport, {
+    const rig = makeRig();
+    const pending = openPiGatewaySession({
+      request: makeRequest(),
       onEvent: () => {},
       onUiRequest: () => {
         throw new Error("sender destroyed");
       },
-      readCredential: async () => null,
-      uiSessionId: "ui-1",
+      deps: rig.deps,
     });
-    transport.emit({ kind: "uiRequest", requestId: "rq-9", request: uiRequest });
-    expect((transport.last() as HostUiResponse).payload).toEqual({ cancelled: true });
+    await settle();
+    rig.transport.replyOk();
+    const session = await pending;
+
+    rig.transport.emit({ kind: "uiRequest", sessionId: session.sessionId, requestId: "rq-9", request: uiRequest });
+    expect((rig.transport.last() as HostUiResponse).payload).toEqual({ cancelled: true });
   });
 
   it("停止后的 respondUi 静默丢弃", async () => {
@@ -354,7 +451,7 @@ describe("反向调用：UI 请求", () => {
 });
 
 describe("反向调用：凭据（KTD1）", () => {
-  it("credentialRequest → 主进程解密 → credentialResponse", async () => {
+  it("credentialRequest → 主进程解密 → credentialResponse（全局路由，不带 sessionId）", async () => {
     const { transport, credentialCalls } = await open();
     transport.emit({ kind: "credentialRequest", requestId: "cr-1", key: "provider:anthropic" });
     await flush();
@@ -374,7 +471,7 @@ describe("反向调用：凭据（KTD1）", () => {
     expect(transport.last()).toMatchObject({ requestId: "cr-2", value: null });
   });
 
-  it("解密失败回 value:null + error，而不是让整条会话崩掉", async () => {
+  it("解密失败回 value:null + error，而不是让整个 runtime 崩掉", async () => {
     const { transport } = await open({
       readCredential: async () => {
         throw new Error("keychain locked");
@@ -407,7 +504,7 @@ describe("worker 退出", () => {
   it("退出时了结全部在途 RPC（否则上层重开会话后旧 pending 泄漏）", async () => {
     const { transport, session } = await open();
     const pending = session.getState();
-    await Promise.resolve();
+    await settle();
     transport.emitExit(1, "boom");
     await expect(pending).rejects.toThrow("退出码 1: boom");
     expect(session.pendingCount).toBe(0);
@@ -420,71 +517,61 @@ describe("worker 退出", () => {
     expect(events.filter((e) => e.ev.type === "crashed")).toHaveLength(1);
   });
 
-  it("退出后的残余消息一律丢弃（避免串到重开的新会话）", async () => {
-    const { transport, events } = await open();
+  it("退出后的残余消息一律丢弃（避免串到懒重启后的新会话）", async () => {
+    const { transport, session, events } = await open();
     transport.emitExit(1);
     const crashedCount = events.length;
-    transport.emit({ kind: "event", event: { type: "text", delta: "late" } });
+    transport.emit({ kind: "event", sessionId: session.sessionId, event: { type: "text", delta: "late" } });
     expect(events.length).toBe(crashedCount);
+  });
+
+  it("崩溃后再发命令直接 reject（不静默挂起）", async () => {
+    const { transport, session } = await open();
+    transport.emitExit(1, "boom");
+    await expect(session.getState()).rejects.toThrow("退出码 1: boom");
   });
 });
 
-// ── 5. 停止与资源释放 ───────────────────────────────────────────────────────────────
+// ── 5. 会话 stop（closeSession）与进程级 shutdown ────────────────────────────────────
 
-describe("stop 的两段式 kill 与释放", () => {
-  it("先发 shutdown 再优雅 kill，宽限期后强杀", async () => {
-    vi.useFakeTimers();
-    const { transport, session } = await open({ killDelayMs: 3_000 });
+describe("stop = closeSession（进程不退）", () => {
+  it("stop 发 closeSession，不杀进程、不发进程级 shutdown", async () => {
+    const { transport, session } = await open();
     session.stop();
-    expect(transport.last()?.kind).toBe("shutdown");
-    expect(transport.killed).toBe(1);
-    expect(transport.forceKilled).toBe(0);
-    vi.advanceTimersByTime(3_000);
-    expect(transport.forceKilled).toBe(1);
-    vi.useRealTimers();
-  });
-
-  it("worker 在宽限期内自己退出则不再强杀", async () => {
-    vi.useFakeTimers();
-    const { transport, session } = await open({ killDelayMs: 3_000 });
-    session.stop();
-    transport.emitExit(0);
-    vi.advanceTimersByTime(10_000);
-    expect(transport.forceKilled).toBe(0);
-    vi.useRealTimers();
+    expect(transport.last()).toMatchObject({ kind: "closeSession", sessionId: session.sessionId });
+    expect(transport.sent().some((m) => m.kind === "shutdown")).toBe(false);
+    expect(transport.killed).toBe(0);
   });
 
   it("stop 后主动停止的退出不上报 crashed，且在途 RPC 被了结", async () => {
     const { transport, session, events } = await open();
     const pending = session.getState();
-    await Promise.resolve();
+    await settle();
     session.stop();
     await expect(pending).rejects.toThrow("pi 会话已停止退出");
     transport.emitExit(0);
     expect(events.some((e) => e.ev.type === "crashed")).toBe(false);
   });
 
-  it("stop 幂等：重复调用不重复写 shutdown、不重复 kill", async () => {
+  it("stop 幂等：重复调用只写一条 closeSession", async () => {
     const { transport, session } = await open();
     session.stop();
     session.stop();
-    expect(transport.sent().filter((m) => m.kind === "shutdown")).toHaveLength(1);
-    expect(transport.killed).toBe(1);
+    expect(transport.sent().filter((m) => m.kind === "closeSession")).toHaveLength(1);
   });
 
   it("stop 调用注入的 onDispose（外部资源释放的唯一收口）", async () => {
     let disposed = 0;
     const { session } = await open({ onDispose: () => void (disposed += 1) });
     session.stop();
-    await Promise.resolve();
+    await settle();
     expect(disposed).toBe(1);
   });
 
-  it("管道已断时 stop 不抛（写 shutdown 失败是正常竞态）", async () => {
+  it("管道已断时 stop 不抛（写 closeSession 失败是正常竞态）", async () => {
     const { transport, session } = await open();
     transport.writeThrows = true;
     expect(() => session.stop()).not.toThrow();
-    expect(transport.killed).toBe(1);
   });
 
   it("停止后再发命令直接 reject，不静默挂起", async () => {
@@ -494,44 +581,246 @@ describe("stop 的两段式 kill 与释放", () => {
   });
 });
 
+describe("shutdownPiGatewayRuntime（进程级）", () => {
+  it("发 shutdown + 优雅 kill，宽限期后强杀", async () => {
+    vi.useFakeTimers();
+    const { transport } = await open({ killDelayMs: 3_000 });
+    shutdownPiGatewayRuntime();
+    expect(transport.last()?.kind).toBe("shutdown");
+    expect(transport.killed).toBe(1);
+    expect(transport.forceKilled).toBe(0);
+    vi.advanceTimersByTime(3_000);
+    expect(transport.forceKilled).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it("worker 在宽限期内自己退出则不再强杀，且不上报 crashed（主动关闭不是崩溃）", async () => {
+    vi.useFakeTimers();
+    const { transport, events } = await open({ killDelayMs: 3_000 });
+    shutdownPiGatewayRuntime();
+    transport.emitExit(0);
+    vi.advanceTimersByTime(10_000);
+    expect(transport.forceKilled).toBe(0);
+    expect(events.some((e) => e.ev.type === "crashed")).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("shutdown 后会话命令快速失败；再 open 会重新 fork（单例已清）", async () => {
+    const rig = makeRig();
+    const { session } = await openOn(rig);
+    shutdownPiGatewayRuntime();
+    await expect(session.getState()).rejects.toThrow("pi gateway runtime 已关闭");
+
+    const reopened = await openOn(rig);
+    expect(rig.createTransport).toHaveBeenCalledTimes(2);
+    expect(reopened.session.sessionId).toBeTruthy();
+  });
+});
+
+// ── 6. 常驻 runtime：多会话复用 / 崩溃扇出 / 懒重启 / 预热 ───────────────────────────
+
+describe("常驻 runtime 多会话", () => {
+  it("两个会话复用同一个 worker（只 fork 一次），sessionId 互不相同", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+    expect(rig.createTransport).toHaveBeenCalledTimes(1);
+    expect(rig.forks).toHaveLength(1);
+    expect(a.session.sessionId).not.toBe(b.session.sessionId);
+    const opens = rig.transport.sent().filter((m) => m.kind === "open");
+    expect(opens.map((m) => (m as { sessionId: string }).sessionId)).toEqual([
+      a.session.sessionId,
+      b.session.sessionId,
+    ]);
+  });
+
+  it("命令各带各的 sessionId；事件按 sessionId 各回各家", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+
+    const pending = b.session.getState();
+    await settle();
+    expect(rig.transport.last() as HostCall).toMatchObject({ kind: "call", sessionId: b.session.sessionId });
+    rig.transport.replyOk({ type: "response", command: "get_state", success: true });
+    await pending;
+
+    rig.transport.emit({ kind: "event", sessionId: a.session.sessionId, event: { type: "text", delta: "A" } });
+    rig.transport.emit({ kind: "event", sessionId: b.session.sessionId, event: { type: "text", delta: "B" } });
+    expect(a.events).toEqual([{ ev: { type: "text", delta: "A" } }]);
+    expect(b.events).toEqual([{ ev: { type: "text", delta: "B" } }]);
+  });
+
+  it("UI 请求与回写按会话隔离：A 的回写绝不落到 B", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+    const request = (id: string): PiUiRequest => ({
+      type: "extension_ui_request",
+      id,
+      method: "confirm",
+      title: "t",
+      message: "m",
+    });
+
+    rig.transport.emit({ kind: "uiRequest", sessionId: a.session.sessionId, requestId: "rq-a", request: request("pi-a") });
+    rig.transport.emit({ kind: "uiRequest", sessionId: b.session.sessionId, requestId: "rq-b", request: request("pi-b") });
+    expect(a.uiRequests.map((r) => r.id)).toEqual(["pi-a"]);
+    expect(b.uiRequests.map((r) => r.id)).toEqual(["pi-b"]);
+
+    // A 用 B 的 pi id 回写：A 自己的映射表里没有它，只会按原 id 兜底、且 sessionId 仍是 A 的——
+    // worker 侧按 sessionId 路由，B 的挂起请求不可能被它结算。
+    a.session.respondUi("pi-a", { confirmed: true });
+    const resp = rig.transport.last() as HostUiResponse;
+    expect(resp).toMatchObject({ sessionId: a.session.sessionId, requestId: "rq-a", payload: { confirmed: true } });
+  });
+
+  it("closeSession 只清目标会话：另一个照常收发，关掉那个的残余事件被丢弃", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+
+    a.session.stop();
+    expect(rig.transport.last()).toMatchObject({ kind: "closeSession", sessionId: a.session.sessionId });
+
+    // A 的残余事件不再进 onEvent；B 的事件照常。
+    rig.transport.emit({ kind: "event", sessionId: a.session.sessionId, event: { type: "settled" } });
+    rig.transport.emit({ kind: "event", sessionId: b.session.sessionId, event: { type: "settled" } });
+    expect(a.events).toEqual([]);
+    expect(b.events).toEqual([{ ev: { type: "settled" } }]);
+
+    // B 的命令照常成功。
+    const pending = b.session.getState();
+    await settle();
+    rig.transport.replyOk({ type: "response", command: "get_state", success: true });
+    await expect(pending).resolves.toMatchObject({ success: true });
+  });
+
+  it("stop 只了结本会话的在途 RPC，不动别的会话", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+    const aPending = a.session.getState();
+    const bPending = b.session.getSessionStats();
+    await settle();
+
+    a.session.stop();
+    await expect(aPending).rejects.toThrow("pi 会话已停止退出");
+    expect(b.session.pendingCount).toBe(1);
+    rig.transport.replyOk({ type: "response", command: "get_session_stats", success: true });
+    await expect(bPending).resolves.toMatchObject({ success: true });
+  });
+
+  it("崩溃扇出：worker 死 → 两个会话都收到 crashed、pending 全 reject", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+    const aPending = a.session.getState();
+    const bPending = b.session.getState();
+    await settle();
+
+    rig.transport.emitExit(1, "segfault");
+    await expect(aPending).rejects.toThrow("退出码 1: segfault");
+    await expect(bPending).rejects.toThrow("退出码 1: segfault");
+    expect(a.events.at(-1)?.ev).toEqual({ type: "crashed", error: "退出码 1: segfault" });
+    expect(b.events.at(-1)?.ev).toEqual({ type: "crashed", error: "退出码 1: segfault" });
+  });
+
+  it("崩溃前已 stop 的会话不参与扇出（主动停不是崩溃）", async () => {
+    const rig = makeRig();
+    const a = await openOn(rig);
+    const b = await openOn(rig);
+    a.session.stop();
+    rig.transport.emitExit(1, "boom");
+    expect(a.events.some((e) => e.ev.type === "crashed")).toBe(false);
+    expect(b.events.some((e) => e.ev.type === "crashed")).toBe(true);
+  });
+
+  it("懒重启：崩溃后不自动重拉，下次 open 才重新 fork", async () => {
+    const rig = makeRig();
+    await openOn(rig);
+    rig.transport.emitExit(1, "boom");
+    // 崩溃本身不触发新 fork（防崩溃循环）。
+    expect(rig.createTransport).toHaveBeenCalledTimes(1);
+
+    const reopened = await openOn(rig);
+    expect(rig.createTransport).toHaveBeenCalledTimes(2);
+    expect(rig.forks).toHaveLength(2);
+    // 新会话跑在新 transport 上，且功能正常。
+    const pending = reopened.session.getState();
+    await settle();
+    rig.transport.replyOk({ type: "response", command: "get_state", success: true });
+    await expect(pending).resolves.toMatchObject({ success: true });
+  });
+
+  it("预热幂等：primePiGatewayRuntime 连调两次只 fork 一次，随后 open 复用同一 runtime", async () => {
+    const rig = makeRig();
+    primePiGatewayRuntime(rig.deps);
+    primePiGatewayRuntime(rig.deps);
+    await settle();
+    expect(rig.createTransport).toHaveBeenCalledTimes(1);
+
+    const opened = await openOn(rig);
+    expect(rig.createTransport).toHaveBeenCalledTimes(1);
+    expect(opened.session.sessionId).toBeTruthy();
+  });
+});
+
 // ── 构造入口 ────────────────────────────────────────────────────────────────────────
 
 describe("openPiGatewaySession", () => {
-  it("open 失败时 kill 掉 worker 并抛出（不留孤儿进程），且不上报 crashed", async () => {
-    const transport = new FakePiGatewayTransport();
+  it("open 失败时只关本会话（closeSession）、不杀常驻进程，且不上报 crashed", async () => {
+    const rig = makeRig();
     const events: PiSessionEvent[] = [];
     const pending = openPiGatewaySession({
       request: makeRequest(),
       onEvent: (ev) => events.push(ev),
-      deps: { createTransport: () => transport, readCredential: async () => null },
+      deps: rig.deps,
     });
-    await Promise.resolve();
-    transport.replyErr("createAgentSession 失败: provider 未配置");
+    await settle();
+    rig.transport.replyErr("createAgentSession 失败: provider 未配置");
 
     await expect(pending).rejects.toThrow("createAgentSession 失败");
-    expect(transport.killed).toBeGreaterThanOrEqual(1);
-    transport.emitExit(1, "boom");
+    // 多会话形态下不能为一次 open 失败杀进程（会连坐其它会话），只发 closeSession 清理。
+    expect(rig.transport.killed).toBe(0);
+    expect(rig.transport.last()?.kind).toBe("closeSession");
+    rig.transport.emitExit(1, "boom");
     expect(events.some((e) => e.type === "crashed")).toBe(false);
   });
 
-  it("cwd 透传给承载工厂（worker 的工具与会话文件推导都依赖它）", async () => {
-    const transport = new FakePiGatewayTransport();
-    let forkCwd: string | undefined;
+  it("open 失败后 runtime 仍可开新会话（失败不污染单例）", async () => {
+    const rig = makeRig();
+    const failed = openPiGatewaySession({ request: makeRequest(), onEvent: () => {}, deps: rig.deps });
+    await settle();
+    rig.transport.replyErr("provider 未配置");
+    await expect(failed).rejects.toThrow("provider 未配置");
+
+    const opened = await openOn(rig);
+    expect(rig.createTransport).toHaveBeenCalledTimes(1);
+    expect(opened.session.sessionId).toBeTruthy();
+  });
+
+  it("deps.env 在创建 runtime 时传给承载工厂；fork 不绑定任何会话的 cwd", async () => {
+    const rig = makeRig();
+    let forkOptions: { cwd?: string; env?: Record<string, string> } | undefined;
     const pending = openPiGatewaySession({
       request: makeRequest({ cwd: "/proj/a" }),
       onEvent: () => {},
       deps: {
+        ...rig.deps,
+        env: { CORTEX_PI_SECRET_1: "x" },
         createTransport: (opts) => {
-          forkCwd = opts.cwd;
-          return transport;
+          forkOptions = opts;
+          return rig.createTransport();
         },
-        readCredential: async () => null,
       },
     });
-    await Promise.resolve();
-    transport.replyOk();
+    await settle();
+    rig.transport.replyOk();
     await pending;
-    expect(forkCwd).toBe("/proj/a");
+    expect(forkOptions?.env).toEqual({ CORTEX_PI_SECRET_1: "x" });
+    // 常驻进程活得比任何会话都久，绑首个会话的 cwd 会让后续会话踩着别人的目录跑。
+    expect(forkOptions?.cwd).toBeUndefined();
   });
 });
 
@@ -627,24 +916,24 @@ describe("accessGatewayCredential 的 key 命名空间与 op", () => {
 
 describe("open 请求脱敏", () => {
   it("摘掉 provider.apiKey 再跨进程，其余字段原样保留", async () => {
-    const transport = new FakePiGatewayTransport();
+    const rig = makeRig();
     const request = makeRequest({
       provider: { id: "custom", baseUrl: "https://x", apiKey: "sk-secret", models: [{ id: "m" }] },
     });
     const pending = openPiGatewaySession({
       request,
       onEvent: () => {},
-      deps: { createTransport: () => transport, readCredential: async () => null },
+      deps: rig.deps,
     });
-    await Promise.resolve();
+    await settle();
 
-    const sent = transport.firstOf("open")?.request as PiOpenRequest;
+    const sent = rig.transport.firstOf("open")?.request as PiOpenRequest;
     expect(sent.provider).toEqual({ id: "custom", baseUrl: "https://x", models: [{ id: "m" }] });
-    expect(transport.writes.join("")).not.toContain("sk-secret");
+    expect(rig.transport.writes.join("")).not.toContain("sk-secret");
     // 不得就地改调用方还在用的 prepared 对象（binary/in-process 分支与 trace 都还要读它）。
     expect(request.provider?.apiKey).toBe("sk-secret");
 
-    transport.replyOk();
+    rig.transport.replyOk();
     await pending;
   });
 });

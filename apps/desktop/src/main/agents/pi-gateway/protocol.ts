@@ -14,6 +14,18 @@
 // `PiSessionEngine` 有 19 个方法，逐个写 RPC 分支是机械但极易漏的活（漏掉的表现是某个命令
 // 静默失效）。这里把它们收敛成一个 `call`，参数是方法名 + 参数数组，两边各一处转发即可。
 // 方法名的完整性由 `ENGINE_METHODS` 与接口的编译期对账保证（见下）。
+//
+// ── 多会话复用（常驻 runtime）────────────────────────────────────────────────────────
+// 一个 pi-host worker **常驻并同时承载多个会话**：fork 与三包纯 ESM 闭包（~18MB）的动态
+// import 只付一次，开会话只剩 `createAgentSession`。因此所有**会话级**消息都带 `sessionId`
+// 路由键（open / call / uiResponse / closeSession 与 event / uiRequest），两侧各持一张
+// sessionId → 会话 的注册表，A 会话的事件/回写绝不能落到 B 会话。
+// 两个刻意的例外：
+//   · 凭据请求（credentialRequest/Response）是 **provider 级全局能力**，与会话无关，
+//     `requestId` 全局唯一即可路由，不带 sessionId；
+//   · `reply` 靠 `id` 关联（id 由主进程在整条连接内唯一分配），也不需要 sessionId。
+// 生命周期分两级：`closeSession` 关**一个**会话（进程不退）；`shutdown` 是**进程级**
+// （关全部会话 + worker 退出，app 退出时用）。
 
 import type { PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "../../ipc/types";
 import type { PiSessionEngine } from "../pi-inproc";
@@ -21,8 +33,8 @@ import type { PiSessionEngine } from "../pi-inproc";
 /**
  * 可经 RPC 转发的引擎方法名。
  *
- * `stop` 不在其中：它是**连接级**动作（终止 worker），由 `shutdown` 承载，不能当普通调用转发
- * ——转发过去 worker 会停会话但进程还在，主进程这边却以为已经收干净了。
+ * `stop` 不在其中：它是**会话生命周期**动作（关会话并释放其资源），由 `closeSession` 承载，
+ * 不能当普通调用转发——它还要在主进程侧摘注册表、了结在途 RPC，语义远多于一次方法调用。
  * `respondUi` 也不在：它是对反向调用 `ui.request` 的应答，走 `uiResponse` 通道。
  */
 export const ENGINE_METHODS = [
@@ -61,10 +73,12 @@ void _assertMethodsMatch;
 
 // ── 主进程 → worker ──────────────────────────────────────────────────────────────────
 
-/** 建会话。worker 收到后组装能力并 `createAgentSession`。 */
+/** 建会话。worker 收到后组装能力并 `createAgentSession`（进程与三包加载已就绪，只付这一段）。 */
 export interface HostOpen {
   id: string;
   kind: "open";
+  /** 主进程分配的会话路由键（连接内唯一）。此后该会话的全部会话级消息都带它。 */
+  sessionId: string;
   /** 已经过 `preparePiOpenRequest` 的请求（含 bridgeServers / inProcExtensionPaths 等内部字段）。 */
   request: unknown;
   /** 本会话是否有 UI 回写出口（决定审批 hook 在无 UI 时的语义，见 origin 计划的 native-hooks）。 */
@@ -75,6 +89,8 @@ export interface HostOpen {
 export interface HostCall {
   id: string;
   kind: "call";
+  /** 目标会话。worker 按它查注册表——发到不存在的会话回 `reply{ok:false}`，绝不落到别的会话。 */
+  sessionId: string;
   method: EngineMethod;
   /** 按方法签名顺序排列的参数。两侧都不做形状校验——类型由 `PiSessionEngine` 在编译期保证。 */
   args: unknown[];
@@ -84,6 +100,8 @@ export interface HostCall {
 export interface HostUiResponse {
   id: string;
   kind: "uiResponse";
+  /** 目标会话。多会话下回写必须按会话路由——A 会话的审批应答落到 B 会话是最危险的串台。 */
+  sessionId: string;
   /** 与 `WorkerUiRequest.requestId` 对应。 */
   requestId: string;
   payload: PiUiResponsePayload;
@@ -94,6 +112,9 @@ export interface HostUiResponse {
  *
  * 各 op 的 `value` 语义：`read` → `JSON.stringify(Credential)`；`list` → `JSON.stringify(CredentialInfo[])`；
  * `write` → 写入后的凭据（同 read 形状）；`delete` → 恒为 null。
+ *
+ * 刻意**不带 sessionId**：凭据是 provider 级全局能力（多个会话共享同一金库），
+ * `requestId` 全局唯一即可路由，加会话维度只会多一处可能对不上的关联键。
  */
 export interface HostCredentialResponse {
   id: string;
@@ -104,13 +125,30 @@ export interface HostCredentialResponse {
   error?: string;
 }
 
-/** 终止会话并让 worker 退出。 */
+/**
+ * 关**一个**会话：abort 在途 run → stop（解订阅/解挂起对话框）→ 释放该会话的 MCP 等资源。
+ * **进程不退**——常驻 runtime 的核心语义；其它会话不受任何影响。
+ * worker 侧幂等：关不存在/已关的会话回 `ok:true`（主进程是 fire-and-forget，重复关是正常竞态）。
+ */
+export interface HostCloseSession {
+  id: string;
+  kind: "closeSession";
+  sessionId: string;
+}
+
+/** **进程级**终止：关全部会话并让 worker 退出。只在 app 退出（或单测强制回收）时使用。 */
 export interface HostShutdown {
   id: string;
   kind: "shutdown";
 }
 
-export type HostMessage = HostOpen | HostCall | HostUiResponse | HostCredentialResponse | HostShutdown;
+export type HostMessage =
+  | HostOpen
+  | HostCall
+  | HostUiResponse
+  | HostCredentialResponse
+  | HostCloseSession
+  | HostShutdown;
 
 // ── worker → 主进程 ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +165,8 @@ export interface WorkerReply {
 /** 会话事件流。`runId` 与 in-process 路径同义，渲染端据此丢弃迟到/串台事件。 */
 export interface WorkerEvent {
   kind: "event";
+  /** 事件归属的会话。主进程按它路由到对应 handle；无主（会话已关）的事件直接丢弃。 */
+  sessionId: string;
   event: PiSessionEvent;
   runId?: string;
 }
@@ -137,6 +177,8 @@ export interface WorkerEvent {
  */
 export interface WorkerUiRequest {
   kind: "uiRequest";
+  /** 请求归属的会话。回写（HostUiResponse）必须原样带回，保证会话间的审批互不串台。 */
+  sessionId: string;
   requestId: string;
   request: PiUiRequest;
 }
