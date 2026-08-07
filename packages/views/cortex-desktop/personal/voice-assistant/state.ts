@@ -11,6 +11,9 @@ export interface VoiceAssistantState {
   active: boolean;
   phase: VoiceAssistantPhase;
   error?: string;
+  /** 只在 speaking 阶段使用。TTS 先广播元数据快照再真正起播，必须观察过起播信号后，
+   * 后续的停止信号才有资格结束本轮朗读。该字段不进入跨窗口快照。 */
+  speechPlaybackStarted?: true;
 }
 
 export type VoiceAssistantEvent =
@@ -19,8 +22,10 @@ export type VoiceAssistantEvent =
   | { type: "speechEnd" } // VAD 判停/手动提交 → 转写中
   | { type: "sent" } // send 已受理 → 等回复
   | { type: "localReply" } // 本地意图已处理 → 不启动 agent，直接朗读确认
+  | { type: "transcriptIgnored" } // 纯标点/纯符号噪声 → 静默回 idle 后重听
   | { type: "speak" } // 回合结束且有正文 → 朗读
-  | { type: "speechFinished" } // TTS 播完 → idle(宿主随后按连续对话回环重听)
+  | { type: "speechPlaybackStarted" } // 已观察到本轮 TTS 真正起播
+  | { type: "speechFinished" } // 起播后的 TTS 播完 → idle(宿主随后按连续对话回环重听)
   | { type: "failed"; message: string } // 任意阶段失败 → idle + error(不退出)
   | { type: "deactivate" };
 
@@ -51,11 +56,20 @@ export function transitionVoiceAssistant(
       return event.type === "speechEnd" ? { active: true, phase: "transcribing" } : state;
     case "transcribing":
       if (event.type === "sent") return { active: true, phase: "thinking" };
+      if (event.type === "transcriptIgnored") return { active: true, phase: "idle" };
       return event.type === "localReply" ? { active: true, phase: "speaking" } : state;
     case "thinking":
       return event.type === "speak" ? { active: true, phase: "speaking" } : state;
-    case "speaking":
-      return event.type === "speechFinished" ? { active: true, phase: "idle" } : state;
+    case "speaking": {
+      if (event.type === "speechPlaybackStarted") {
+        return state.speechPlaybackStarted ? state : { ...state, speechPlaybackStarted: true };
+      }
+      // speakText 在真正起播前会因“最近一次朗读”元数据变化广播一次 false；没有先观察到
+      // true 的 false 不是播放完成，若在这里放行会在 TTS 合成期间提前重开麦克风。
+      return event.type === "speechFinished" && state.speechPlaybackStarted
+        ? { active: true, phase: "idle" }
+        : state;
+    }
     default:
       return state;
   }

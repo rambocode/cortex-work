@@ -33,6 +33,15 @@ interface VadHandlers {
 // 首次加载(模型下载/实例化)超时上限:本地资产正常几百 ms,超时即判定环境不可用转兜底。
 const SILERO_INIT_TIMEOUT_MS = 10_000;
 
+/**
+ * Silero V5 人声概率滞回。0.60 比旧 0.50 更能拒绝风扇等模糊稳定声；0.45 保持官方建议的
+ * 0.15 滞回差，避免音节边缘反复抖动。`minSpeechMs=300` 不变，保留“啊”等正常短发声。
+ */
+export const SILERO_SPEECH_THRESHOLDS = {
+  positiveSpeechThreshold: 0.6,
+  negativeSpeechThreshold: 0.45,
+} as const;
+
 let mic: MicVAD | null = null;
 // 当前聆听轮次的流与回调:MicVAD 单例经 getStream/resumeStream 读它,回调经此转发,
 // stop 后置 null 让迟到的 worklet 帧变成 no-op。
@@ -99,8 +108,7 @@ async function ensureMic(): Promise<MicVAD> {
     // 断句语义与能量 VAD 对齐:1100ms 静音判停 / 300ms 最短语音。概率阈值取 Silero
     // 惯例(负阈值 = 正阈值 - 0.15)。不消费它切出的音频段(录音走 MediaRecorder 原始流),
     // preSpeechPad 置 0 省内存。
-    positiveSpeechThreshold: 0.5,
-    negativeSpeechThreshold: 0.35,
+    ...SILERO_SPEECH_THRESHOLDS,
     redemptionMs: DEFAULT_VAD_CONFIG.silenceMs,
     minSpeechMs: DEFAULT_VAD_CONFIG.minSpeechMs,
     preSpeechPadMs: 0,

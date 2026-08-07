@@ -32,10 +32,11 @@ import { VoiceCapture, transcribeRecording } from "../chat/composer/voiceRecorde
 import { detectIsMac } from "../shared/platform";
 import { createVoiceVadMonitor } from "./sileroVad";
 import { initialVoiceAssistantState, transitionVoiceAssistant, type VoiceAssistantState } from "./state";
+import { isIgnorableVoiceTranscript } from "./vad";
 
-// 连续对话回环间隔:TTS 播完 → 重新开麦之间留 200ms 缓冲(让扬声器尾音衰减,
-// 避免半双工切换瞬间把余音采进下一轮;沿用旧语音聊天的实测值)。
-const RELISTEN_DELAY_MS = 200;
+// 连续对话采用半双工:TTS 真正播完后再留 650ms 给扬声器、蓝牙链路和系统混音尾音
+// 衰减。原来的 200ms 在部分输出设备上不足，尾音会越过回声消除进入下一轮 VAD。
+const RELISTEN_DELAY_MS = 650;
 // 电平上报节流:约 30Hz 且变化量 > 0.02 才发(仿 pet 光标轮询的去重口径)。
 const LEVEL_MIN_INTERVAL_MS = 33;
 const LEVEL_MIN_DELTA = 0.02;
@@ -114,11 +115,21 @@ export function VoiceAssistantController(): null {
         // 连续对话回环:朗读正常收尾回 idle(无 error)→ 留缓冲后自动开麦。
         // 出错回 idle 不回环,避免同一错误无限循环;startListening 经 ref 调用,
         // 声明顺序在本回调之后。
-        if (prev.phase === "speaking" && next.phase === "idle" && next.active && !next.error) {
+        if (
+          next.phase === "idle" &&
+          next.active &&
+          !next.error &&
+          (prev.phase === "speaking" || event.type === "transcriptIgnored")
+        ) {
           if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
           relistenTimerRef.current = setTimeout(() => {
             relistenTimerRef.current = null;
-            void listenRef.current?.();
+            const current = machineRef.current;
+            // 等待尾音期间可能发生 TTS 失败、退出或用户手动操作；定时器只允许从无错误
+            // idle 自动回环，不能复活已经失败或被终止的语音轮。
+            if (current.active && current.phase === "idle" && !current.error) {
+              void listenRef.current?.();
+            }
           }, RELISTEN_DELAY_MS);
         }
       }
@@ -202,6 +213,8 @@ export function VoiceAssistantController(): null {
     try {
       await speakText(b, usePersonalStore.getState().ttsSettings, text, { allowFallback: true });
       if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
+        // 无可用播放引擎时不会产生 true 事件；显式补齐“开始→结束”，避免状态停在 speaking。
+        dispatch({ type: "speechPlaybackStarted" });
         dispatch({ type: "speechFinished" });
       }
     } catch (error) {
@@ -389,9 +402,20 @@ export function VoiceAssistantController(): null {
         ).trim();
       }
       if (!text) throw new Error("没有识别到语音内容");
+      // Silero 是声学判定，仍可能把风扇等稳定噪声解码成“.”。在任何 LLM
+      // 纠错/意图/Agent 请求之前静默拦截纯标点；“啊/嗯”等真实发声不能仅凭文本丢弃。
+      if (isIgnorableVoiceTranscript(text)) {
+        dispatch({ type: "transcriptIgnored" });
+        return;
+      }
       // 转写 LLM 纠错(开关/模型/prompt 由主进程按 voiceSettings 决定;失败原文返回)。
       if ((s.voiceSettings.transcriptPolish ?? true) && b.polishTranscript) {
         text = (await b.polishTranscript(text)).trim() || text;
+      }
+      // 纠错模型也可能把空白噪声收敛成纯标点；发送前重复同一确定性门控。
+      if (isIgnorableVoiceTranscript(text)) {
+        dispatch({ type: "transcriptIgnored" });
+        return;
       }
       // 纠错/分类都可能跨越用户点击退出；迟到的异步结果不能复活已经结束的语音轮。
       if (!isActiveTranscribing(machineRef.current)) return;
@@ -494,6 +518,8 @@ export function VoiceAssistantController(): null {
           await speakText(b, tts, trimmed, { allowFallback: true });
           // speakText 可能在排队后即返回;真正的播完信号由 subscribeTtsPlayback 兜住。
           if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
+            // 无可用播放引擎时不会产生 true 事件；显式补齐“开始→结束”。
+            dispatch({ type: "speechPlaybackStarted" });
             dispatch({ type: "speechFinished" });
           }
         } catch (err) {
@@ -598,9 +624,10 @@ export function VoiceAssistantController(): null {
 
     // TTS 播完信号(speakText 早返回时的权威兜底)。
     const offSpeech = subscribeTtsPlayback((playback) => {
-      if (!playback.isSpeaking && machineRef.current.phase === "speaking") {
-        dispatch({ type: "speechFinished" });
-      }
+      if (machineRef.current.phase !== "speaking") return;
+      // speakText 会先广播 hasLastSpeech 变化，此时 isSpeaking 仍为 false。状态机要求先
+      // 观察到 true，才能让之后的 false 结束本轮，从协议层隔离“元数据更新”和“播完”。
+      dispatch({ type: playback.isSpeaking ? "speechPlaybackStarted" : "speechFinished" });
     });
 
     // 审批挂起派生(与 PetBridge 同款):散落多条路径的弹窗产生/清除,从 store 统一派生。

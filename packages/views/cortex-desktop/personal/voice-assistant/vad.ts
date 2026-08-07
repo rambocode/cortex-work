@@ -62,6 +62,21 @@ export const DEFAULT_VAD_CONFIG: VadConfig = {
 
 export type VadEvent = "speech-start" | "speech-end" | "idle-timeout" | null;
 
+/**
+ * 判断 ASR 文本是否只是声学噪声造成的无效短转写。
+ *
+ * 这是 VAD 后的第二道防线：Silero 能过滤多数风扇/键盘声，但极少数稳定噪声仍可能被
+ * ASR 解码成标点。这里只过滤确定没有词汇内容的形状，不能按字符长度或语气词表一刀切，
+ * 因为“啊”“嗯”也可能是用户真实发声，“停”“不”“好”等单字也可能是有效指令。
+ */
+export function isIgnorableVoiceTranscript(text: string): boolean {
+  const lexical = text
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[\p{P}\p{S}\s]+/gu, "");
+  return !lexical;
+}
+
 /** 纯判定核:push(rms, nowMs) 喂能量采样,返回本次触发的事件(无事件为 null)。 */
 export function createVadTracker(config: VadConfig = DEFAULT_VAD_CONFIG) {
   let startAt: number | null = null;

@@ -21,8 +21,28 @@ describe("transitionVoiceAssistant", () => {
       { type: "speak" },
     ]);
     expect(s).toEqual({ active: true, phase: "speaking" });
+    s = transitionVoiceAssistant(s, { type: "speechPlaybackStarted" });
     s = transitionVoiceAssistant(s, { type: "speechFinished" });
     expect(s).toEqual({ active: true, phase: "idle" });
+  });
+
+  it("TTS 真正起播前忽略 false 快照，避免合成期间提前重开麦克风", () => {
+    const preparing = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+      { type: "speak" },
+    ]);
+
+    // speakText 会先为“可重听”元数据广播一次 isSpeaking=false；这不是播放完成。
+    expect(transitionVoiceAssistant(preparing, { type: "speechFinished" })).toBe(preparing);
+
+    const started = transitionVoiceAssistant(preparing, { type: "speechPlaybackStarted" });
+    expect(transitionVoiceAssistant(started, { type: "speechFinished" })).toEqual({
+      active: true,
+      phase: "idle",
+    });
   });
 
   it("本地意图可从转写阶段直接朗读确认，不伪造 agent 运行", () => {
@@ -33,7 +53,8 @@ describe("transitionVoiceAssistant", () => {
     ]);
     const speaking = transitionVoiceAssistant(transcribing, { type: "localReply" });
     expect(speaking).toEqual({ active: true, phase: "speaking" });
-    expect(transitionVoiceAssistant(speaking, { type: "speechFinished" })).toEqual({
+    const started = transitionVoiceAssistant(speaking, { type: "speechPlaybackStarted" });
+    expect(transitionVoiceAssistant(started, { type: "speechFinished" })).toEqual({
       active: true,
       phase: "idle",
     });
@@ -58,6 +79,18 @@ describe("transitionVoiceAssistant", () => {
       { type: "speechEnd" },
     ]);
     expect(transitionVoiceAssistant(transcribing, { type: "listening" }).phase).toBe("transcribing");
+  });
+
+  it("噪声转写静默丢弃并回 idle，供宿主重新监听", () => {
+    const transcribing = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+    ]);
+    expect(transitionVoiceAssistant(transcribing, { type: "transcriptIgnored" })).toEqual({
+      active: true,
+      phase: "idle",
+    });
   });
 
   it("thinking 可被打断直接回 listening(长时间思考不用干等,宿主先停掉 agent 轮)", () => {

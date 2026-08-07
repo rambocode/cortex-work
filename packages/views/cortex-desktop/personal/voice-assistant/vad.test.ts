@@ -1,7 +1,13 @@
 // 能量 VAD 纯判定核的时序用例:校准 → 说话 → 静音判停 / 短音丢弃 / 无人说话超时。
 
 import { describe, expect, it } from "vitest";
-import { createVadTracker, type VadConfig } from "./vad";
+import { SILERO_SPEECH_THRESHOLDS } from "./sileroVad";
+import {
+  createVadTracker,
+  DEFAULT_VAD_CONFIG,
+  isIgnorableVoiceTranscript,
+  type VadConfig,
+} from "./vad";
 
 const config: VadConfig = {
   calibrationMs: 300,
@@ -74,5 +80,34 @@ describe("createVadTracker", () => {
     expect(feed(t, 2000, 2400, 0.08)).toEqual([]);
     // 近讲(0.15)持续超过起音确认时长才触发。
     expect(feed(t, 2400, 3000, 0.15)).toEqual(["speech-start"]);
+  });
+});
+
+describe("isIgnorableVoiceTranscript", () => {
+  it("只过滤可确定无语义的纯标点和纯符号", () => {
+    expect(isIgnorableVoiceTranscript(".")).toBe(true);
+    expect(isIgnorableVoiceTranscript("。 ！")).toBe(true);
+    expect(isIgnorableVoiceTranscript("……???")).toBe(true);
+  });
+
+  it("保留语气词、短指令和包含实际语义的句子", () => {
+    // “啊/嗯/um”既可能来自噪声，也可能是用户真实发声；文本层没有声学证据，不得误杀。
+    expect(isIgnorableVoiceTranscript(". 啊 ")).toBe(false);
+    expect(isIgnorableVoiceTranscript("嗯……")).toBe(false);
+    expect(isIgnorableVoiceTranscript("um...")).toBe(false);
+    expect(isIgnorableVoiceTranscript("停")).toBe(false);
+    expect(isIgnorableVoiceTranscript("退出")).toBe(false);
+    expect(isIgnorableVoiceTranscript("嗯，好，继续吧")).toBe(false);
+    expect(isIgnorableVoiceTranscript("啊，帮我打开设置")).toBe(false);
+  });
+});
+
+describe("Silero 降噪门槛", () => {
+  it("提高人声概率门槛但不扩大 300ms 最短发声时长", () => {
+    expect(SILERO_SPEECH_THRESHOLDS).toEqual({
+      positiveSpeechThreshold: 0.6,
+      negativeSpeechThreshold: 0.45,
+    });
+    expect(DEFAULT_VAD_CONFIG.minSpeechMs).toBe(300);
   });
 });
