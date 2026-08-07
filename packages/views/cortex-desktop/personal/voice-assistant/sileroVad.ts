@@ -45,13 +45,13 @@ export const SILERO_SPEECH_THRESHOLDS = {
   negativeSpeechThreshold: 0.45,
 } as const;
 
-/** TTS 播放期的插话检测必须比普通断句保守：Chromium AEC 先消除扬声器参考音，
- * Silero 再以更高概率门槛确认连续人声，避免残余回声或风扇声直接打断自己。 */
+/** TTS 播放期先由 Chromium AEC 消除扬声器参考音，再由 Silero 连续人声确认拒绝残余
+ * 回声。双讲经过 AEC 后的人声概率会明显降低，不能再抬高概率阈值，否则近讲也无法打断。 */
 export const BARGE_IN_SPEECH_THRESHOLDS = {
-  positiveSpeechThreshold: 0.8,
-  negativeSpeechThreshold: 0.65,
+  positiveSpeechThreshold: 0.6,
+  negativeSpeechThreshold: 0.45,
 } as const;
-// 0.8 高概率门槛已经过滤多数回声；确认窗略短于普通断句，保留用户短促“啊/停”的插话。
+// 概率阈值沿用普通聆听，播放期额外等待连续人声确认，保留用户短促“啊/停”的插话。
 export const BARGE_IN_MIN_SPEECH_MS = 240;
 
 /** 普通聆听在首个候选人声帧开始保留前滚；播放期间则等满 minSpeechMs 的 confirmed
@@ -143,7 +143,7 @@ async function ensureMic(): Promise<MicVAD> {
     onSpeechRealStart: () => {
       const handlers = currentHandlers;
       if (!handlers || !shouldStartVoiceTurn(handlers.mode, "confirmed")) return;
-      // 一旦确认是用户插话，余下句子恢复普通阈值，避免轻声收尾被高门槛截掉。
+      // 一旦确认是用户插话，余下句子继续沿用普通概率阈值。
       // 本句必须继续保留 240ms minSpeechMs：vad-web 会在结束时按“当前”最短帧数
       // 二次校验；这里若立即恢复 300ms，刚好触发插话的短句会被改判为 VADMisfire，
       // 控制器收不到 speech-end，也就无法进入 ASR。下一轮 start 时会恢复正常 300ms。

@@ -185,8 +185,8 @@ export function VoiceAssistantController(): null {
       type: canContinueListening ? "speechFinishedListening" : "speechFinished",
     });
     if (canContinueListening && next.phase === "listening") {
-      // 继续沿用播放期已经打开的流。VAD 保持高门槛直到确认第一段真人声，既不漏掉
-      // 用户紧接着说话，也不会把扬声器/蓝牙尾音当作新一轮起音。
+      // 继续沿用播放期已经打开的流。VAD 保持连续人声确认直到接管第一段真人声，既不
+      // 漏掉用户紧接着说话，也不会把扬声器/蓝牙尾音的单帧残余当作新一轮起音。
       captureModeRef.current = "listening";
       return;
     }
@@ -303,7 +303,7 @@ export function VoiceAssistantController(): null {
       dispatch({ type: "listening" });
       if (captureRef.current && captureModeRef.current === "barge-in") {
         // 播放期录音可能仍在等待 getUserMedia / Silero 初始化。直接接管同一 attempt，避免
-        // 两次 MicVAD.start 争用单例；首段仍用高门槛确认，确认后自动恢复普通阈值。
+        // 两次 MicVAD.start 争用单例；首段仍等待连续人声确认，确认后直接进入正常断句。
         captureModeRef.current = "listening";
         stopSpeaking();
         return;

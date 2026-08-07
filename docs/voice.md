@@ -101,9 +101,9 @@ Silero VAD 是声学噪声的第一道防线。人声起始阈值采用 `0.60`�
 
 ### 语音聊天
 
-语音助手采用支持插话的连续状态机：`idle → listening → transcribing → thinking → speaking → listening`。进入 `speaking` 后控制器并行打开同一条录音、PCM 与 VAD 链，但在真人声确认前不把音频送入 ASR。Chromium `echoCancellation + noiseSuppression + autoGainControl` 先消除扬声器参考音；Silero 在播放期改用更保守的 `0.80/0.65` 概率滞回，并等待约 240ms 的连续人声确认。确认后先把状态切到 listening，再停止 TTS，恢复普通 `0.60/0.45` 概率阈值，并把 320ms PCM 前滚并入用户句子。本句的最短语音仍保持 240ms，不能中途恢复到 300ms：`vad-web` 会在句末按当前最短帧数二次校验，提前提高会让刚好够短的“停”“等等”被反向判成 `VADMisfire` 而不提交 ASR；下一轮新监听才恢复普通 300ms。在线 ASR 与本地降级路径都只把这段用户 PCM 封装成 WAV，不发送整段 TTS 播放期音轨。这样短插话不会被起音确认或句末复核吃掉，单帧回声、风扇和爆音也不会直接打断。
+语音助手采用支持插话的连续状态机：`idle → listening → transcribing → thinking → speaking → listening`。进入 `speaking` 后控制器并行打开同一条录音、PCM 与 VAD 链，但在真人声确认前不把音频送入 ASR。Chromium `echoCancellation + noiseSuppression + autoGainControl` 先消除扬声器参考音；Silero 在播放期沿用可达的 `0.60/0.45` 概率滞回，并等待约 240ms 的连续人声确认。概率阈值不能因播放而提高：双讲经过 AEC 后，真实近讲的人声概率会明显降低，过高阈值只会产生 candidate 后 misfire。确认后先把状态切到 listening，再停止 TTS，并把 320ms PCM 前滚并入用户句子。本句的最短语音保持 240ms，不能中途恢复到 300ms：`vad-web` 会在句末按当前最短帧数二次校验，提前提高会让刚好够短的“停”“等等”被反向判成 `VADMisfire` 而不提交 ASR；下一轮新监听才恢复普通 300ms。在线 ASR 与本地降级路径都只把这段用户 PCM 封装成 WAV，不发送整段 TTS 播放期音轨。这样短插话不会被起音确认或句末复核吃掉，单帧回声、风扇和爆音也不会直接打断。
 
-TTS 更新“最近朗读”元数据时会先产生一个 `isSpeaking=false` 快照，状态机仍须先观察到本轮 `isSpeaking=true`，后续 `false` 才能视为真正播完。若播放期麦克风已经就绪，正常播完直接进入 listening 并沿用该流，高门槛保持到下一次真人声确认，从而隔离扬声器和蓝牙尾音；若开麦、AEC 或 VAD 初始化失败，则无感降级到原来的 650ms 尾音等待后重开麦克风。等待期间若发生错误、退出或手动操作，代际与阶段守卫不得复活旧轮次。
+TTS 更新“最近朗读”元数据时会先产生一个 `isSpeaking=false` 快照，状态机仍须先观察到本轮 `isSpeaking=true`，后续 `false` 才能视为真正播完。若播放期麦克风已经就绪，正常播完直接进入 listening 并沿用该流，连续人声确认保持到下一次真人声出现，从而隔离扬声器和蓝牙尾音；若开麦、AEC 或 VAD 初始化失败，则无感降级到原来的 650ms 尾音等待后重开麦克风。等待期间若发生错误、退出或手动操作，代际与阶段守卫不得复活旧轮次。
 
 退出意图不应无提示关窗：控制器先朗读“好的，我先退下了”，沿用同一 TTS 起播闭锁，确认语真正播完后才调用主进程 deactivate。确认播放期间，无论语音插话、点击球体、麦克风按钮还是快捷键打断，都必须先把状态切到 listening，再调用 `stopSpeaking()`；这会取消 `exitAfterSpeech`，也让同步到达的旧 TTS 停止事件因阶段不匹配而失效。退出确认正常播完时先释放后台麦克风和本地 ASR stream，再关闭共享 overlay。
 

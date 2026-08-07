@@ -1,5 +1,6 @@
 // 能量 VAD 纯判定核的时序用例:校准 → 说话 → 静音判停 / 短音丢弃 / 无人说话超时。
 
+import { FrameProcessor, Message } from "@ricky0123/vad-web";
 import { describe, expect, it } from "vitest";
 import {
   BARGE_IN_MIN_SPEECH_MS,
@@ -116,15 +117,46 @@ describe("Silero 降噪门槛", () => {
     expect(DEFAULT_VAD_CONFIG.minSpeechMs).toBe(300);
   });
 
-  it("播放期间采用更高门槛并等待连续人声确认后才打断", () => {
+  it("播放期间沿用可达的人声概率门槛，并等待连续确认后才打断", () => {
     expect(BARGE_IN_SPEECH_THRESHOLDS).toEqual({
-      positiveSpeechThreshold: 0.8,
-      negativeSpeechThreshold: 0.65,
+      positiveSpeechThreshold: 0.6,
+      negativeSpeechThreshold: 0.45,
     });
-    // 高概率门槛已经承担降误触职责，确认窗不沿用普通断句的 300ms，避免漏掉短促“啊”。
+    // AEC 负责压低播放回声；确认窗拒绝残余回声，同时不沿用 300ms，避免漏掉短促“啊”。
     expect(BARGE_IN_MIN_SPEECH_MS).toBe(240);
     expect(shouldStartVoiceTurn("listening", "candidate")).toBe(true);
     expect(shouldStartVoiceTurn("barge-in", "candidate")).toBe(false);
     expect(shouldStartVoiceTurn("barge-in", "confirmed")).toBe(true);
+  });
+
+  it("播放期 AEC 后的中等概率真人声仍能完成确认并产生句末事件", async () => {
+    // 取自真实双讲诊断的保守化概率形状：近场语音在 AEC 后大量落在 0.60~0.76，
+    // 旧 0.80 阈值只能偶发 candidate，达不到 minSpeechFrames，最终变成 misfire。
+    const probabilities = [0.62, 0.68, 0.72, 0.65, 0.58, 0.7, 0.66, 0.64, 0.62, ...Array(36).fill(0)];
+    const events: Message[] = [];
+    const processor = new FrameProcessor(
+      async () => {
+        const isSpeech = probabilities.shift() ?? 0;
+        return { isSpeech, notSpeech: 1 - isSpeech };
+      },
+      () => {},
+      {
+        ...BARGE_IN_SPEECH_THRESHOLDS,
+        redemptionMs: DEFAULT_VAD_CONFIG.silenceMs,
+        preSpeechPadMs: 0,
+        minSpeechMs: BARGE_IN_MIN_SPEECH_MS,
+        submitUserSpeechOnPause: false,
+      },
+      32,
+    );
+    processor.resume();
+
+    for (let index = 0; index < 45; index += 1) {
+      await processor.process(new Float32Array(512), (event) => events.push(event.msg));
+    }
+
+    expect(events).toContain(Message.SpeechRealStart);
+    expect(events).toContain(Message.SpeechEnd);
+    expect(events).not.toContain(Message.VADMisfire);
   });
 });
