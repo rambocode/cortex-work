@@ -2,7 +2,8 @@
 // 构建 SenseVoiceSmall 常驻 sidecar，并把目标架构二进制放进 electron-builder resources。
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -31,7 +32,10 @@ const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = join(desktopRoot, "native", "sensevoice-sidecar");
 // FetchContent 会带入 llama.cpp 自己的 TypeScript 测试；缓存必须在仓库外，否则 Vitest 会
 // 把这些上游文件误收集为桌面测试。CMake 会按 source 变化自行增量配置。
-const buildRoot = join(tmpdir(), "cortex-sensevoice-sidecar", target);
+// 目录名带上源路径哈希：主仓库与各 git worktree 的 sourceRoot 不同，共用同一个 CMake
+// 缓存会让 CMake 报 "source does not match the source used to generate cache" 而中断打包。
+const sourceKey = createHash("sha256").update(sourceRoot).digest("hex").slice(0, 12);
+const buildRoot = join(tmpdir(), "cortex-sensevoice-sidecar", `${target}-${sourceKey}`);
 const outputRoot = join(desktopRoot, "resources", "sensevoice", target);
 const executable = platform === "win32" ? "cortex-sensevoice-sidecar.exe" : "cortex-sensevoice-sidecar";
 const output = join(outputRoot, executable);
@@ -40,13 +44,24 @@ const sourceHashInput = [
   readFileSync(join(sourceRoot, "CMakeLists.txt"), "utf8"),
   readFileSync(join(sourceRoot, "sensevoice-sidecar.cpp"), "utf8"),
 ].join("\n");
-const { createHash } = await import("node:crypto");
 const sourceSha256 = createHash("sha256").update(sourceHashInput).digest("hex");
 if (!force && existsSync(output) && existsSync(marker)) {
   const metadata = JSON.parse(readFileSync(marker, "utf8"));
   if (metadata.sourceSha256 === sourceSha256) {
     console.log(`[prepare-sensevoice-sidecar] 已是最新版本: ${output}`);
     process.exit(0);
+  }
+}
+
+// 兜底：路径哈希只保证「不同源路径不撞车」，但同一路径被删后重建（worktree 复用同名目录、
+// 或历史遗留的旧命名缓存）仍可能留下指向别处的 CMakeCache.txt。这种缓存无法增量修复，
+// CMake 只会直接报错中断，因此发现不一致就整目录丢弃重配。
+const cacheFile = join(buildRoot, "CMakeCache.txt");
+if (existsSync(cacheFile)) {
+  const homeDir = /^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$/m.exec(readFileSync(cacheFile, "utf8"))?.[1]?.trim();
+  if (homeDir && resolve(homeDir) !== resolve(sourceRoot)) {
+    console.log(`[prepare-sensevoice-sidecar] 缓存源目录不匹配(${homeDir})，清理后重建: ${buildRoot}`);
+    rmSync(buildRoot, { recursive: true, force: true });
   }
 }
 

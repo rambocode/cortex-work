@@ -568,3 +568,40 @@ Date 构造函数对越界分量既不抛错也不产生 NaN，必须显式判�
 overlay 每收到一次 `pet:sync-state` 都会把 IPC 反序列化出来的**新对象**写回 store —— 帧
 定时器会被 `clearInterval`/`setInterval` 反复重建，动画卡住（卡在透明帧上就是「不见了」）。
 依赖改成 sprite 的内容指纹。
+
+## 仓库外的构建缓存目录必须按「源路径」分命名空间，否则 worktree 会互相毒化并硬中断打包
+
+**症状**：在主仓库跑 `prepackage:mac-arm64`，前面 native / helper 阶段都正常跳过，到
+sensevoice sidecar 直接崩：
+
+```
+CMake Error: The source ".../cortex-work/apps/desktop/native/sensevoice-sidecar" does not match
+the source ".../cortex-work/.worktrees/feat/sensevoice-asr/apps/desktop/native/sensevoice-sidecar"
+used to generate cache. Re-run cmake with a different source directory.
+```
+
+整条打包链 exit 1。诡异之处在于**报错里那个 worktree 早就被删了**，主仓库工作区也干净，
+`git worktree list` 里根本没有它——纯粹是残留缓存在作祟。
+
+**成因**：`prepare-sensevoice-sidecar.mjs` 把 CMake 构建目录定在
+`$TMPDIR/cortex-sensevoice-sidecar/<platform>-<arch>`，**只按目标架构命名**。这个目录在仓库外
+（这一点本身是对的：FetchContent 会拉进 llama.cpp 自带的 TypeScript 测试，放仓库内会被 Vitest
+误收集），但也因此**脱离了 worktree 的隔离**——主仓库和所有 worktree 共用同一个物理目录。
+而 CMake 会把首次配置时的源目录写死进 `CMakeCache.txt` 的 `CMAKE_HOME_DIRECTORY`，源目录一变
+就是**硬失败**，不是自动重配：谁先在这个架构上构建过，谁就把这份缓存据为己有，其他 worktree
+全部被锁死。worktree 删掉也救不回来，缓存不会跟着消失。
+
+**这类坑不限于 CMake**——任何「把中间产物放到仓库外、只按平台/架构命名」的构建缓存都有同一
+个洞（cargo target、ccache、bun build 的中间目录……）。判据是：这份缓存里有没有记录绝对源路径。
+有，就必须按源路径分桶。
+
+**解法**（`apps/desktop/scripts/prepare-sensevoice-sidecar.mjs`）两层：
+① 目录名追加 `sourceRoot` 的 sha256 前 12 位 → `darwin-arm64-78037990fc38`，主仓库与各 worktree
+各占一份，互不干扰且各自保留增量编译收益（代价是每个 worktree 首次构建要完整编译一次，约 586M）；
+② 配置前读 `CMakeCache.txt` 的 `CMAKE_HOME_DIRECTORY`，与当前 `sourceRoot` 不一致就 `rmSync`
+整个目录重配。①已经覆盖绝大多数情况，②是给「同名 worktree 删掉后重建」和历史遗留旧命名缓存
+兜底——**这种缓存 CMake 修不了，只会报错中断，所以必须主动丢弃而不是指望它自愈**。
+
+**顺带**：旧命名的 `$TMPDIR/cortex-sensevoice-sidecar/darwin-arm64` 不会被新逻辑复用，是纯占地
+的死缓存（586M），可以直接 `rm -rf`。同理，`darwin-x64` 那份如果还在，第一次跑新逻辑也会完整
+重编一次，之后就稳定了。
