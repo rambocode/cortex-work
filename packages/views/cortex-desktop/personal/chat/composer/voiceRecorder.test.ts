@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 
 const mockEncodeBlobAsWav = vi.fn();
+const mockEncodePcm16LeAsWav = vi.fn();
 vi.mock("./encodeWav", () => ({
   encodeBlobAsWav: (blob: Blob) => mockEncodeBlobAsWav(blob),
+  encodePcm16LeAsWav: (chunks: ArrayBuffer[]) => mockEncodePcm16LeAsWav(chunks),
 }));
 
-import { transcribeRecording, VoiceCapture } from "./voiceRecorder";
+import { transcribePcm16Recording, transcribeRecording, VoiceCapture } from "./voiceRecorder";
 
 class MockMediaRecorder {
   static isTypeSupported = vi.fn().mockReturnValue(true);
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.stubGlobal("MediaRecorder", MockMediaRecorder);
   MockMediaRecorder.isTypeSupported.mockReturnValue(true);
   mockEncodeBlobAsWav.mockResolvedValue(new ArrayBuffer(16));
+  mockEncodePcm16LeAsWav.mockReturnValue(new ArrayBuffer(24));
 });
 
 describe("VoiceCapture.start", () => {
@@ -99,6 +102,21 @@ describe("transcribeRecording", () => {
       expect.objectContaining({
         prompt: "以下是普通话的句子，用简体中文转写，可能夹杂英文单词。Cortex, Whisper, 麦克风",
       }),
+      asr,
+    );
+  });
+
+  it("插话路径直接封装语音段 PCM，在线 ASR 不接收整段 TTS 播放期录音", async () => {
+    const chunks = [new ArrayBuffer(4), new ArrayBuffer(6)];
+    const transcribeSpeech = vi.fn().mockResolvedValue({ text: "等等" });
+
+    await expect(
+      transcribePcm16Recording({ transcribeSpeech }, asr, chunks, { prompt: "Cortex" }),
+    ).resolves.toBe("等等");
+
+    expect(mockEncodePcm16LeAsWav).toHaveBeenCalledWith(chunks);
+    expect(transcribeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ audio: expect.any(ArrayBuffer) }),
       asr,
     );
   });

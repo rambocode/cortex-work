@@ -45,6 +45,22 @@ describe("transitionVoiceAssistant", () => {
     });
   });
 
+  it("TTS 播放期间麦克风已就绪时，播完直接进入聆听而不是关闭后重开", () => {
+    const speaking = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+      { type: "speak" },
+      { type: "speechPlaybackStarted" },
+    ]);
+
+    expect(transitionVoiceAssistant(speaking, { type: "speechFinishedListening" })).toEqual({
+      active: true,
+      phase: "listening",
+    });
+  });
+
   it("本地意图可从转写阶段直接朗读确认，不伪造 agent 运行", () => {
     const transcribing = run(initialVoiceAssistantState, [
       { type: "activate" },

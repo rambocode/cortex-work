@@ -8,7 +8,7 @@
 
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
-import { encodeBlobAsWav } from "./encodeWav";
+import { encodeBlobAsWav, encodePcm16LeAsWav } from "./encodeWav";
 import { StreamingPcm16Resampler } from "./pcmStream";
 
 /** MediaRecorder MIME 优先顺序，webm/opus 压缩比最佳。 */
@@ -65,8 +65,8 @@ export class VoiceCapture {
     }
     // 显式开启浏览器内建的三件套降噪链(回声消除/噪声抑制/自动增益):Chromium 的
     // noiseSuppression 是语音级降噪(RNNoise 同源),对 STT 准确率、VAD 稳定性与
-    // 扬声器回声(语音助手 TTS 半双工切换的尾音)都有实益;不同 Electron 版本的默认值
-    // 不保证一致,显式声明避免升级后静默漂移。
+    // 扬声器回声都有实益；语音助手播放期保持采集时，echoCancellation 是声学回声的
+    // 第一层防线。不同 Electron 版本的默认值不保证一致，显式声明避免升级后静默漂移。
     const audioBase: MediaTrackConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
@@ -198,15 +198,13 @@ export class VoiceCapture {
  * 后续 LLM 纠错阶段生效。 */
 export const TRANSCRIBE_BIAS_PROMPT = "以下是普通话的句子，用简体中文转写，可能夹杂英文单词。";
 
-export async function transcribeRecording(
+async function transcribeWavAudio(
   bridge: Pick<DesktopBridge, "transcribeSpeech">,
   asr: AsrSettings,
-  blob: Blob,
+  audio: ArrayBuffer,
   opts?: { prompt?: string },
 ): Promise<string> {
   if (!bridge.transcribeSpeech) throw new Error("当前环境不支持语音转写");
-  // 统一重采样为 16kHz 单声道 WAV；本地入口严格解析 PCM16，在线接口也接受 WAV。
-  const audio = await encodeBlobAsWav(blob);
   const result = await bridge.transcribeSpeech(
     {
       baseUrl: asr.baseUrl,
@@ -223,4 +221,26 @@ export async function transcribeRecording(
     asr,
   );
   return result.text;
+}
+
+export async function transcribeRecording(
+  bridge: Pick<DesktopBridge, "transcribeSpeech">,
+  asr: AsrSettings,
+  blob: Blob,
+  opts?: { prompt?: string },
+): Promise<string> {
+  // 统一重采样为 16kHz 单声道 WAV；本地入口严格解析 PCM16，在线接口也接受 WAV。
+  const audio = await encodeBlobAsWav(blob);
+  return transcribeWavAudio(bridge, asr, audio, opts);
+}
+
+/** 直接转写 VoiceCapture 已输出的 16kHz PCM16LE。用于 TTS 插话和流式 ASR 降级，
+ * 避免把播放期的完整 MediaRecorder 音轨（含潜在回声）交给识别服务。 */
+export function transcribePcm16Recording(
+  bridge: Pick<DesktopBridge, "transcribeSpeech">,
+  asr: AsrSettings,
+  chunks: readonly ArrayBuffer[],
+  opts?: { prompt?: string },
+): Promise<string> {
+  return transcribeWavAudio(bridge, asr, encodePcm16LeAsWav(chunks), opts);
 }

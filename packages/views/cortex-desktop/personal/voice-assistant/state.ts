@@ -29,6 +29,7 @@ export type VoiceAssistantEvent =
   | { type: "speak" } // 回合结束且有正文 → 朗读
   | { type: "speechPlaybackStarted" } // 已观察到本轮 TTS 真正起播
   | { type: "speechFinished" } // 起播后的 TTS 播完 → idle(宿主随后按连续对话回环重听)
+  | { type: "speechFinishedListening" } // TTS 播完且麦克风已就绪 → 直接聆听，不重复开麦
   | { type: "failed"; message: string } // 任意阶段失败 → idle + error(不退出)
   | { type: "deactivate" };
 
@@ -72,8 +73,16 @@ export function transitionVoiceAssistant(
       }
       // speakText 在真正起播前会因“最近一次朗读”元数据变化广播一次 false；没有先观察到
       // true 的 false 不是播放完成，若在这里放行会在 TTS 合成期间提前重开麦克风。
-      if (event.type !== "speechFinished" || !state.speechPlaybackStarted) return state;
-      return state.exitAfterSpeech ? initialVoiceAssistantState : { active: true, phase: "idle" };
+      if (
+        (event.type !== "speechFinished" && event.type !== "speechFinishedListening") ||
+        !state.speechPlaybackStarted
+      ) {
+        return state;
+      }
+      if (state.exitAfterSpeech) return initialVoiceAssistantState;
+      return event.type === "speechFinishedListening"
+        ? { active: true, phase: "listening" }
+        : { active: true, phase: "idle" };
     }
     default:
       return state;

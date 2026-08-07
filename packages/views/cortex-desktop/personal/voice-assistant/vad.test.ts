@@ -1,7 +1,12 @@
 // 能量 VAD 纯判定核的时序用例:校准 → 说话 → 静音判停 / 短音丢弃 / 无人说话超时。
 
 import { describe, expect, it } from "vitest";
-import { SILERO_SPEECH_THRESHOLDS } from "./sileroVad";
+import {
+  BARGE_IN_MIN_SPEECH_MS,
+  BARGE_IN_SPEECH_THRESHOLDS,
+  SILERO_SPEECH_THRESHOLDS,
+  shouldStartVoiceTurn,
+} from "./sileroVad";
 import {
   createVadTracker,
   DEFAULT_VAD_CONFIG,
@@ -109,5 +114,17 @@ describe("Silero 降噪门槛", () => {
       negativeSpeechThreshold: 0.45,
     });
     expect(DEFAULT_VAD_CONFIG.minSpeechMs).toBe(300);
+  });
+
+  it("播放期间采用更高门槛并等待连续人声确认后才打断", () => {
+    expect(BARGE_IN_SPEECH_THRESHOLDS).toEqual({
+      positiveSpeechThreshold: 0.8,
+      negativeSpeechThreshold: 0.65,
+    });
+    // 高概率门槛已经承担降误触职责，确认窗不沿用普通断句的 300ms，避免漏掉短促“啊”。
+    expect(BARGE_IN_MIN_SPEECH_MS).toBe(240);
+    expect(shouldStartVoiceTurn("listening", "candidate")).toBe(true);
+    expect(shouldStartVoiceTurn("barge-in", "candidate")).toBe(false);
+    expect(shouldStartVoiceTurn("barge-in", "confirmed")).toBe(true);
   });
 });

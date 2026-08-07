@@ -18,6 +18,8 @@ import type { MicVAD } from "@ricky0123/vad-web";
 import { DEFAULT_VAD_CONFIG, startVadMonitor } from "./vad";
 
 export type VoiceVadEvent = "speech-start" | "speech-end";
+export type VoiceVadMode = "listening" | "barge-in";
+export type VoiceVadStartSignal = "candidate" | "confirmed";
 
 export interface VoiceVadMonitor {
   /** 实际生效的引擎(上报诊断/日志用)。 */
@@ -26,6 +28,7 @@ export interface VoiceVadMonitor {
 }
 
 interface VadHandlers {
+  mode: VoiceVadMode;
   onEvent: (event: VoiceVadEvent) => void;
   onLevel?: (rms: number) => void;
 }
@@ -41,6 +44,21 @@ export const SILERO_SPEECH_THRESHOLDS = {
   positiveSpeechThreshold: 0.6,
   negativeSpeechThreshold: 0.45,
 } as const;
+
+/** TTS 播放期的插话检测必须比普通断句保守：Chromium AEC 先消除扬声器参考音，
+ * Silero 再以更高概率门槛确认连续人声，避免残余回声或风扇声直接打断自己。 */
+export const BARGE_IN_SPEECH_THRESHOLDS = {
+  positiveSpeechThreshold: 0.8,
+  negativeSpeechThreshold: 0.65,
+} as const;
+// 0.8 高概率门槛已经过滤多数回声；确认窗略短于普通断句，保留用户短促“啊/停”的插话。
+export const BARGE_IN_MIN_SPEECH_MS = 240;
+
+/** 普通聆听在首个候选人声帧开始保留前滚；播放期间则等满 minSpeechMs 的 confirmed
+ * 信号才接管，保证“啊”等短发声仍可打断，同时拒绝单帧回声和爆音。 */
+export function shouldStartVoiceTurn(mode: VoiceVadMode, signal: VoiceVadStartSignal): boolean {
+  return mode === "barge-in" ? signal === "confirmed" : signal === "candidate";
+}
 
 let mic: MicVAD | null = null;
 // 当前聆听轮次的流与回调:MicVAD 单例经 getStream/resumeStream 读它,回调经此转发,
@@ -113,11 +131,26 @@ async function ensureMic(): Promise<MicVAD> {
     minSpeechMs: DEFAULT_VAD_CONFIG.minSpeechMs,
     preSpeechPadMs: 0,
     submitUserSpeechOnPause: false,
-    onSpeechStart: () => currentHandlers?.onEvent("speech-start"),
+    onSpeechStart: () => {
+      const handlers = currentHandlers;
+      if (handlers && shouldStartVoiceTurn(handlers.mode, "candidate")) {
+        handlers.onEvent("speech-start");
+      }
+    },
     onSpeechEnd: () => currentHandlers?.onEvent("speech-end"),
     // 短于 minSpeechMs 的爆音/咳嗽:丢弃,等同能量 VAD 的短音丢弃,继续聆听。
     onVADMisfire: () => {},
-    onSpeechRealStart: () => {},
+    onSpeechRealStart: () => {
+      const handlers = currentHandlers;
+      if (!handlers || !shouldStartVoiceTurn(handlers.mode, "confirmed")) return;
+      // 一旦确认是用户插话，余下句子恢复普通阈值，避免轻声收尾被高门槛截掉。
+      handlers.mode = "listening";
+      mic?.setOptions({
+        ...SILERO_SPEECH_THRESHOLDS,
+        minSpeechMs: DEFAULT_VAD_CONFIG.minSpeechMs,
+      });
+      handlers.onEvent("speech-start");
+    },
     onFrameProcessed: (_probs, frame) => currentHandlers?.onLevel?.(frameRms(frame)),
   });
   mic = created;
@@ -133,13 +166,19 @@ export async function createVoiceVadMonitor(
   onEvent: (event: VoiceVadEvent) => void,
   onLevel?: (rms: number) => void,
   log?: (message: string) => void,
+  mode: VoiceVadMode = "listening",
 ): Promise<VoiceVadMonitor> {
   if (!sileroDisabledReason) {
     currentStream = stream;
-    currentHandlers = { onEvent, onLevel };
+    currentHandlers = { mode, onEvent, onLevel };
     try {
       const instance = await withTimeout(
         ensureMic().then(async (m) => {
+          m.setOptions(
+            mode === "barge-in"
+              ? { ...BARGE_IN_SPEECH_THRESHOLDS, minSpeechMs: BARGE_IN_MIN_SPEECH_MS }
+              : { ...SILERO_SPEECH_THRESHOLDS, minSpeechMs: DEFAULT_VAD_CONFIG.minSpeechMs },
+          );
           await m.start();
           return m;
         }),
@@ -170,7 +209,21 @@ export async function createVoiceVadMonitor(
     (event) => {
       if (event !== "idle-timeout") onEvent(event);
     },
-    { ...DEFAULT_VAD_CONFIG, maxIdleMs: Number.POSITIVE_INFINITY },
+    mode === "barge-in"
+      ? {
+          ...DEFAULT_VAD_CONFIG,
+          maxIdleMs: Number.POSITIVE_INFINITY,
+          // 能量 VAD 不具备声源区分能力，只作为 Silero 不可用时的保守兜底。AEC 后仍需
+          // 更高能量和更长起音确认，防止扬声器残余与稳定风扇声触发插话。
+          enterFactor: 5,
+          enterFloor: 0.025,
+          exitFactor: 3,
+          exitFloor: 0.014,
+          confirmMs: BARGE_IN_MIN_SPEECH_MS,
+          minSpeechMs: BARGE_IN_MIN_SPEECH_MS,
+          strongHangoverMs: 800,
+        }
+      : { ...DEFAULT_VAD_CONFIG, maxIdleMs: Number.POSITIVE_INFINITY },
     onLevel,
   );
   return { engine: "energy", stop: fallback.stop };

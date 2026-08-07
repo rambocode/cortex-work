@@ -28,14 +28,22 @@ import { usePersonalActions } from "@cortex-work/core/personal/messages";
 import { setVoiceTurnListener } from "@cortex-work/core/personal/voiceTurn";
 import { DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
 import type { VoiceAssistantCommand, VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
-import { VoiceCapture, transcribeRecording } from "../chat/composer/voiceRecorder";
+import {
+  VoiceCapture,
+  transcribePcm16Recording,
+  transcribeRecording,
+} from "../chat/composer/voiceRecorder";
 import { detectIsMac } from "../shared/platform";
-import { createVoiceVadMonitor } from "./sileroVad";
+import {
+  createVoiceVadMonitor,
+  type VoiceVadMode,
+  type VoiceVadMonitor,
+} from "./sileroVad";
 import { initialVoiceAssistantState, transitionVoiceAssistant, type VoiceAssistantState } from "./state";
 import { isIgnorableVoiceTranscript } from "./vad";
 
-// 连续对话采用半双工:TTS 真正播完后再留 650ms 给扬声器、蓝牙链路和系统混音尾音
-// 衰减。原来的 200ms 在部分输出设备上不足，尾音会越过回声消除进入下一轮 VAD。
+// 全双工插话监听若未能及时建立，仍走这条保守回退：TTS 真正播完后留 650ms 给扬声器、
+// 蓝牙链路和系统混音尾音衰减，再重新申请麦克风。
 const RELISTEN_DELAY_MS = 650;
 // 电平上报节流:约 30Hz 且变化量 > 0.02 才发(仿 pet 光标轮询的去重口径)。
 const LEVEL_MIN_INTERVAL_MS = 33;
@@ -72,7 +80,8 @@ export function VoiceAssistantController(): null {
   const machineRef = useRef<VoiceAssistantState>(initialVoiceAssistantState);
   const sessionIdRef = useRef<string | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
-  const vadRef = useRef<{ stop: () => void } | null>(null);
+  const captureModeRef = useRef<VoiceVadMode | null>(null);
+  const vadRef = useRef<VoiceVadMonitor | null>(null);
   const vadEngineRef = useRef<"silero" | "energy" | null>(null);
   const localStreamIdRef = useRef<string | null>(null);
   const pcmWriteRef = useRef<Promise<void>>(Promise.resolve());
@@ -80,6 +89,8 @@ export function VoiceAssistantController(): null {
   const speechStartedRef = useRef(false);
   const preRollRef = useRef<ArrayBuffer[]>([]);
   const preRollBytesRef = useRef(0);
+  // 只从 VAD 前滚起保存 PCM；在线 ASR 与 Silero 降级都用它，不把 TTS 播放期音轨送去识别。
+  const utterancePcmRef = useRef<ArrayBuffer[]>([]);
   const utteranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 退出/重开时递增,晚到的 getUserMedia resolve 依此自我释放,不占住下一次录音的麦克风。
   const recordingAttemptRef = useRef(0);
@@ -139,13 +150,49 @@ export function VoiceAssistantController(): null {
   );
   // startListening 声明在 dispatch 之后,回环经 ref 解耦(与 submitRef 同款)。
   const listenRef = useRef<(() => Promise<void>) | null>(null);
+  // speaking 阶段后台开麦入口。经 ref 解耦 TTS 发起函数与下方 startListening 声明顺序。
+  const bargeInRef = useRef<(() => Promise<void>) | null>(null);
 
-  /** 收口一轮 TTS。普通回复回 idle；退出确认播完则经主进程关闭语音球。
-   * 状态机负责过滤起播前的 false，因此这里只在真实完成后执行退出副作用。 */
+  /** 停掉录音侧资源(麦克风 + VAD);不触碰 TTS 与状态机。 */
+  const stopCapture = useCallback((): void => {
+    if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
+    utteranceTimerRef.current = null;
+    vadRef.current?.stop();
+    vadRef.current = null;
+    vadEngineRef.current = null;
+    captureRef.current?.dispose();
+    captureRef.current = null;
+    captureModeRef.current = null;
+    const streamId = localStreamIdRef.current;
+    localStreamIdRef.current = null;
+    if (streamId) void bridgeRef.current?.cancelLocalAsrStream?.(streamId);
+    preRollRef.current = [];
+    preRollBytesRef.current = 0;
+    utterancePcmRef.current = [];
+    speechStartedRef.current = false;
+  }, []);
+
+  /** 收口一轮 TTS。播放期麦克风已就绪时直接转 listening；否则走 idle 延迟重开。
+   * 退出确认始终先释放后台麦克风，再经主进程关闭语音球。 */
   const finishSpeech = useCallback((): void => {
     const previous = machineRef.current;
-    const next = dispatch({ type: "speechFinished" });
+    const canContinueListening =
+      previous.phase === "speaking" &&
+      !previous.exitAfterSpeech &&
+      captureModeRef.current === "barge-in" &&
+      captureRef.current?.active === true;
+    const next = dispatch({
+      type: canContinueListening ? "speechFinishedListening" : "speechFinished",
+    });
+    if (canContinueListening && next.phase === "listening") {
+      // 继续沿用播放期已经打开的流。VAD 保持高门槛直到确认第一段真人声，既不漏掉
+      // 用户紧接着说话，也不会把扬声器/蓝牙尾音当作新一轮起音。
+      captureModeRef.current = "listening";
+      return;
+    }
     if (previous.phase !== "speaking" || !previous.exitAfterSpeech || next.active) return;
+    recordingAttemptRef.current += 1;
+    stopCapture();
     const deactivate = bridgeRef.current?.voiceAssistantDeactivate;
     if (!deactivate) {
       // 能进入退出确认说明开始时 bridge 存在；若播放期间桥被卸载，恢复可见错误态，
@@ -158,24 +205,7 @@ export function VoiceAssistantController(): null {
       dispatch({ type: "activate" });
       dispatch({ type: "failed", message: errorMessage(error) });
     });
-  }, [dispatch]);
-
-  /** 停掉录音侧资源(麦克风 + VAD);不触碰 TTS 与状态机。 */
-  const stopCapture = useCallback((): void => {
-    if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
-    utteranceTimerRef.current = null;
-    vadRef.current?.stop();
-    vadRef.current = null;
-    vadEngineRef.current = null;
-    captureRef.current?.dispose();
-    captureRef.current = null;
-    const streamId = localStreamIdRef.current;
-    localStreamIdRef.current = null;
-    if (streamId) void bridgeRef.current?.cancelLocalAsrStream?.(streamId);
-    preRollRef.current = [];
-    preRollBytesRef.current = 0;
-    speechStartedRef.current = false;
-  }, []);
+  }, [dispatch, stopCapture]);
 
   /** 新建一条无项目语音会话并切为主窗口当前会话。意图“新建对话”必须走这条显式路径，
    * 不能复用 resolveSession 的“优先续最近会话”语义。 */
@@ -234,11 +264,15 @@ export function VoiceAssistantController(): null {
     if (!b) throw new Error("桌面桥不可用");
     const event = options?.exitAfterSpeech ? { type: "exitReply" as const } : { type: "localReply" as const };
     if (dispatch(event).phase !== "speaking") return;
+    // 不等待 TTS 起播才开麦；权限与设备初始化和合成并行，减少用户开口时的失聪窗口。
+    void bargeInRef.current?.();
     try {
       await speakText(b, usePersonalStore.getState().ttsSettings, text, { allowFallback: true });
       if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
         if (options?.exitAfterSpeech) {
           // 没有实际起播时不能伪造“已播完”并静默关窗；保留语音球让用户重试或点 ✕ 退出。
+          recordingAttemptRef.current += 1;
+          stopCapture();
           dispatch({ type: "failed", message: "未能播放退出确认，请重试或点击关闭按钮" });
           return;
         }
@@ -247,20 +281,39 @@ export function VoiceAssistantController(): null {
         finishSpeech();
       }
     } catch (error) {
+      recordingAttemptRef.current += 1;
+      stopCapture();
       dispatch({ type: "failed", message: errorMessage(error) });
     }
-  }, [dispatch, finishSpeech]);
+  }, [dispatch, finishSpeech, stopCapture]);
 
-  const startListening = useCallback(async (): Promise<void> => {
+  const startListening = useCallback(async (options?: { bargeIn?: boolean }): Promise<void> => {
+    const bargeIn = options?.bargeIn === true;
     const phase = machineRef.current.phase;
-    if (!machineRef.current.active || (phase !== "idle" && phase !== "speaking" && phase !== "thinking")) return;
-    if (phase === "speaking") {
+    if (!machineRef.current.active) return;
+    if (bargeIn) {
+      // 同一轮 TTS 只允许一条后台录音流；播放结束或手动操作会由 attempt 代际使迟到结果失效。
+      if (phase !== "speaking" || captureRef.current) return;
+    } else if (phase !== "idle" && phase !== "speaking" && phase !== "thinking") {
+      return;
+    }
+    if (!bargeIn && phase === "speaking") {
       // 先切 listening 再停 TTS。stopSpeaking 会同步广播 isSpeaking=false；若先停，退出
       // 确认会把“用户主动打断”误当自然播完而关窗，普通回复也会短暂回 idle。
       dispatch({ type: "listening" });
+      if (captureRef.current && captureModeRef.current === "barge-in") {
+        // 播放期录音可能仍在等待 getUserMedia / Silero 初始化。直接接管同一 attempt，避免
+        // 两次 MicVAD.start 争用单例；首段仍用高门槛确认，确认后自动恢复普通阈值。
+        captureModeRef.current = "listening";
+        stopSpeaking();
+        return;
+      }
+      // 后台录音尚未建立时，作废可能迟到的异步结果，再按普通灵敏度开一条干净录音流。
+      recordingAttemptRef.current += 1;
+      stopCapture();
       stopSpeaking();
     }
-    if (phase === "thinking") {
+    if (!bargeIn && phase === "thinking") {
       // 打断长时间思考:停掉本轮 agent 运行(走主窗口正常停止管线,与手点停止一致)。
       // 停止路径随后广播的 turn-end 因阶段已离开 thinking 会被钩子忽略,不会倒灌回来。
       const id = sessionIdRef.current;
@@ -271,21 +324,24 @@ export function VoiceAssistantController(): null {
         turnGraceTimerRef.current = null;
       }
     }
-    if (relistenTimerRef.current) {
+    if (!bargeIn && relistenTimerRef.current) {
       clearTimeout(relistenTimerRef.current);
       relistenTimerRef.current = null;
     }
     const attempt = recordingAttemptRef.current + 1;
     recordingAttemptRef.current = attempt;
-    if (phase !== "speaking") dispatch({ type: "listening" });
+    if (!bargeIn && phase !== "speaking") dispatch({ type: "listening" });
+    let capture: VoiceCapture | null = null;
     try {
       const s = usePersonalStore.getState();
       if (!s.asrSettings.enabled) throw new Error("请先在语音设置中启用语音识别");
       const b = bridgeRef.current;
       if (!b) throw new Error("桌面桥不可用");
-      const capture = new VoiceCapture();
+      const activeCapture = new VoiceCapture();
+      capture = activeCapture;
       // 先登记，sidecar/权限任一路失败时 catch 内的 stopCapture 都能释放刚申请的麦克风。
-      captureRef.current = capture;
+      captureRef.current = activeCapture;
+      captureModeRef.current = bargeIn ? "barge-in" : "listening";
       const useLocal = s.asrSettings.protocol === "local-sensevoice";
       const requestId = useLocal ? crypto.randomUUID() : null;
       localStreamIdRef.current = requestId;
@@ -293,6 +349,7 @@ export function VoiceAssistantController(): null {
       speechStartedRef.current = false;
       preRollRef.current = [];
       preRollBytesRef.current = 0;
+      utterancePcmRef.current = [];
 
       const streamReady = useLocal
         ? (() => {
@@ -310,7 +367,6 @@ export function VoiceAssistantController(): null {
       void streamReady.catch(() => undefined);
 
       const enqueuePcm = (chunk: ArrayBuffer): void => {
-        if (!requestId || !b.appendLocalAsrAudio) return;
         if (!speechStartedRef.current) {
           preRollRef.current.push(chunk);
           preRollBytesRef.current += chunk.byteLength;
@@ -319,6 +375,8 @@ export function VoiceAssistantController(): null {
           }
           return;
         }
+        utterancePcmRef.current.push(chunk);
+        if (!requestId || !b.appendLocalAsrAudio) return;
         pcmWriteRef.current = pcmWriteRef.current
           .then(() => b.appendLocalAsrAudio!(requestId, chunk))
           .catch((error) => {
@@ -326,18 +384,28 @@ export function VoiceAssistantController(): null {
           });
       };
 
-      await capture.start(
+      await activeCapture.start(
         s.voiceSettings.micDeviceId || undefined,
-        useLocal ? { onPcmChunk: enqueuePcm } : undefined,
+        { onPcmChunk: enqueuePcm },
       );
-      if (attempt !== recordingAttemptRef.current || machineRef.current.phase !== "listening") {
-        capture.dispose();
-        if (captureRef.current === capture) captureRef.current = null;
+      const capturePhaseIsCurrent = (): boolean => {
+        const currentPhase = machineRef.current.phase;
+        return bargeIn
+          ? currentPhase === "speaking" ||
+              (currentPhase === "listening" && captureModeRef.current === "listening")
+          : currentPhase === "listening";
+      };
+      if (attempt !== recordingAttemptRef.current || !capturePhaseIsCurrent()) {
+        activeCapture.dispose();
+        if (captureRef.current === activeCapture) {
+          captureRef.current = null;
+          captureModeRef.current = null;
+        }
         if (requestId) void b.cancelLocalAsrStream?.(requestId);
         return;
       }
-      captureRef.current = capture;
-      if (capture.mediaStream) {
+      captureRef.current = activeCapture;
+      if (activeCapture.mediaStream) {
         vadRef.current?.stop();
         vadRef.current = null;
         // 断句监视器:Silero 神经 VAD 优先,资产缺失/环境不支持自动降级能量 VAD
@@ -345,19 +413,42 @@ export function VoiceAssistantController(): null {
         // 结束聆听的唯一途径是用户显式操作(✕ 退出 / 热键提交 / 点球打断)。
         // 首轮初始化含模型加载,await 期间用户可能已退出/换轮,回来必须校验代际。
         const monitor = await createVoiceVadMonitor(
-          capture.mediaStream,
+          activeCapture.mediaStream,
           (event) => {
             if (event === "speech-start") {
+              if (bargeIn) {
+                const currentPhase = machineRef.current.phase;
+                if (currentPhase === "speaking") {
+                  // 先切状态再停 TTS，阻断同步 isSpeaking=false 被当成自然播完；退出确认的
+                  // exitAfterSpeech 也在此被清除，因此用户一句“等等”就能取消退出。
+                  dispatch({ type: "listening" });
+                  captureModeRef.current = "listening";
+                  stopSpeaking();
+                } else if (currentPhase === "listening") {
+                  // TTS 恰好自然结束：麦克风已被 finishSpeech 接续，继续沿用同一采集流。
+                  captureModeRef.current = "listening";
+                } else {
+                  return;
+                }
+              } else if (machineRef.current.phase !== "listening") {
+                return;
+              }
+              if (speechStartedRef.current) return;
               speechStartedRef.current = true;
               const buffered = preRollRef.current;
               preRollRef.current = [];
               preRollBytesRef.current = 0;
               for (const chunk of buffered) enqueuePcm(chunk);
+              if (!utteranceTimerRef.current) {
+                utteranceTimerRef.current = setTimeout(() => void submitRef.current?.(), MAX_UTTERANCE_MS);
+              }
             } else {
-              void submitRef.current?.();
+              if (machineRef.current.phase === "listening") void submitRef.current?.();
             }
           },
           (rms) => {
+            // speaking 时语音球继续用 TTS 动画；麦克风电平只在用户接管后上报。
+            if (machineRef.current.phase !== "listening") return;
             // 电平驱动语音球动画:RMS(近讲多在 0~0.12)放大到 0..1,节流 + 去抖后上报。
             const level = Math.min(1, rms * 8);
             const now = Date.now();
@@ -367,20 +458,28 @@ export function VoiceAssistantController(): null {
             bridgeRef.current?.reportVoiceAssistantLevel?.(level);
           },
           (message) => void bridgeRef.current?.logMessage?.("warn", message),
+          bargeIn ? "barge-in" : "listening",
         );
-        if (attempt !== recordingAttemptRef.current || machineRef.current.phase !== "listening") {
+        if (attempt !== recordingAttemptRef.current || !capturePhaseIsCurrent()) {
           monitor.stop();
           return;
         }
         vadRef.current = monitor;
         vadEngineRef.current = monitor.engine;
-        utteranceTimerRef.current = setTimeout(() => void submitRef.current?.(), MAX_UTTERANCE_MS);
       }
       // VAD 必须在模型预热期间就开始监听，否则首次加载模型时用户已说出的句子会被漏掉；
       // PCM 写入链仍以 streamReady 为前置，因此不会在 BEGIN 之前写 AUDIO。
       await streamReady;
     } catch (err) {
-      stopCapture();
+      if (capture && captureRef.current !== capture) capture.dispose();
+      else stopCapture();
+      if (attempt !== recordingAttemptRef.current) return;
+      if (bargeIn && machineRef.current.phase === "speaking") {
+        // 插话监听是增强能力；设备/AEC/VAD 初始化失败时保持当前朗读，播完仍走原来的
+        // 延迟重听，不应把一次后台开麦失败显示成整轮对话失败。
+        void bridgeRef.current?.logMessage?.("warn", `语音插话监听不可用: ${errorMessage(err)}`);
+        return;
+      }
       dispatch({ type: "failed", message: errorMessage(err) });
     }
   }, [dispatch, stopCapture]);
@@ -390,6 +489,7 @@ export function VoiceAssistantController(): null {
     if (machineRef.current.phase !== "listening") return;
     const capture = captureRef.current;
     captureRef.current = null;
+    captureModeRef.current = null;
     if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
     utteranceTimerRef.current = null;
     vadRef.current?.stop();
@@ -403,6 +503,7 @@ export function VoiceAssistantController(): null {
         speechStartedRef.current = true;
         const b = bridgeRef.current;
         const requestId = localStreamIdRef.current;
+        utterancePcmRef.current.push(...preRollRef.current);
         if (b?.appendLocalAsrAudio && requestId) {
           for (const chunk of preRollRef.current) {
             pcmWriteRef.current = pcmWriteRef.current.then(() => b.appendLocalAsrAudio!(requestId, chunk));
@@ -413,7 +514,9 @@ export function VoiceAssistantController(): null {
       preRollBytesRef.current = 0;
       const blob = await capture?.stop();
       capture?.dispose();
-      if (!blob) throw new Error("没有录到音频");
+      const utterancePcm = utterancePcmRef.current;
+      utterancePcmRef.current = [];
+      if (!blob && utterancePcm.length === 0) throw new Error("没有录到音频");
       const s = usePersonalStore.getState();
       if (!s.asrSettings.enabled) throw new Error("请先在语音设置中启用语音识别");
       const b = bridgeRef.current;
@@ -427,12 +530,17 @@ export function VoiceAssistantController(): null {
         if (!b.finishLocalAsrStream) throw new Error("当前桌面版本不支持 SenseVoice 实时识别");
         text = (await b.finishLocalAsrStream(streamId)).text.trim();
       } else {
-        // Silero 不可用时按计划保留完整 WAV 降级路径；已启动的本地流先取消，避免占用 sidecar。
+        // 在线 ASR 与 Silero 不可用的本地降级都直接封装 VAD 语音段 PCM，避免完整
+        // MediaRecorder 音轨携带 TTS 播放期的长静音或残余回声。极旧环境没有 PCM 时
+        // 才回退压缩 Blob 解码路径。
         if (streamId) await b.cancelLocalAsrStream?.(streamId);
+        const transcriptionOptions = {
+          prompt: s.voiceSettings.dictationDictionary.join("，"),
+        };
         text = (
-          await transcribeRecording(b, s.asrSettings, blob, {
-            prompt: s.voiceSettings.dictationDictionary.join("，"),
-          })
+          utterancePcm.length > 0
+            ? await transcribePcm16Recording(b, s.asrSettings, utterancePcm, transcriptionOptions)
+            : await transcribeRecording(b, s.asrSettings, blob!, transcriptionOptions)
         ).trim();
       }
       if (!text) throw new Error("没有识别到语音内容");
@@ -528,7 +636,8 @@ export function VoiceAssistantController(): null {
   const submitRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     submitRef.current = submit;
-    listenRef.current = startListening;
+    listenRef.current = () => startListening();
+    bargeInRef.current = () => startListening({ bargeIn: true });
   }, [submit, startListening]);
 
   /** 回合结束:有正文 → 朗读;失败/空正文 → idle + 提示(点球即可继续)。 */
@@ -545,6 +654,7 @@ export function VoiceAssistantController(): null {
         return;
       }
       dispatch({ type: "speak" });
+      void bargeInRef.current?.();
       void (async () => {
         try {
           const b = bridgeRef.current;
@@ -558,11 +668,13 @@ export function VoiceAssistantController(): null {
             finishSpeech();
           }
         } catch (err) {
+          recordingAttemptRef.current += 1;
+          stopCapture();
           dispatch({ type: "failed", message: errorMessage(err) });
         }
       })();
     },
-    [dispatch, finishSpeech],
+    [dispatch, finishSpeech, stopCapture],
   );
 
   /** 退出语音助手:释放录音/朗读资源,复位状态。**不杀在跑的 agent 轮**——会话属于
@@ -662,7 +774,10 @@ export function VoiceAssistantController(): null {
       if (machineRef.current.phase !== "speaking") return;
       // speakText 会先广播 hasLastSpeech 变化，此时 isSpeaking 仍为 false。状态机要求先
       // 观察到 true，才能让之后的 false 结束本轮，从协议层隔离“元数据更新”和“播完”。
-      if (playback.isSpeaking) dispatch({ type: "speechPlaybackStarted" });
+      if (playback.isSpeaking) {
+        dispatch({ type: "speechPlaybackStarted" });
+        void bargeInRef.current?.();
+      }
       else finishSpeech();
     });
 
