@@ -20,8 +20,9 @@ Cortex Desktop 的语音能力由统一的「设置 → 语音」分区管理，
 | 语音词典 | 专有名词的转写 prompt 偏置列表；不是文本替换规则 | `VoiceSettings.dictationDictionary` |
 | 语音聊天键 | 调起或提交语音聊天的全局快捷键 | `VoiceSettings.chatHotkey` |
 | 听写切换键 / 按住键 | 前者走 Electron `globalShortcut`，后者依赖 helper 的按键抬起事件 | `VoiceSettings` |
+| 意图模式 | `function_call` 复用 Agent 工具链、`intent_llm` 独立分类、`nointent` 关闭模型分类 | `VoiceSettings.intentMode` |
 
-`VoiceSettings` 的缺省值全部关闭或为空：空 `micDeviceId` 使用系统默认麦克风，三项空快捷键都表示禁用，词典为空。`defaultVoiceSettings()` 必须每次返回新对象，避免数组在 store 实例之间共享。
+`VoiceSettings` 的交互开关与快捷键默认关闭或为空：空 `micDeviceId` 使用系统默认麦克风，三项空快捷键都表示禁用，词典为空；意图模式默认 `function_call`，复用已有 Agent 工具链且不增加串行分类请求。`defaultVoiceSettings()` 必须每次返回新对象，避免数组在 store 实例之间共享。
 
 ## 设置与持久化
 
@@ -89,6 +90,8 @@ Edge TTS 是无需 API Key 的在线神经网络语音。renderer 仅通过 `Des
 词典条目在 UI 侧去重、去首尾空白、单条限长，随后由听写控制器拼为有限长度的 prompt。在线转写链路将 prompt 透传给服务端；SenseVoiceSmall GGUF 本地链路不支持提示词偏置。词典只能影响支持 prompt 的模型偏好，不能保证纠正所有识别错误，也不能代替用户原始口述内容。
 
 本地识别的协议、生命周期与失败边界见 [SenseVoiceSmall 本地语音识别](./sensevoice-asr.md)。
+
+语音助手在转写纠错后、发送 Agent 前执行本地意图理解。默认 `function_call` 不增加一次前置 LLM 调用；精确退出、新建对话与屏幕上下文命令本地执行，其余原文继续进入现有 Agent 工具链。可选 `intent_llm` 的分类、白名单和 fail-open 规则见 [语音助手意图理解](./voice-intent.md)。
 
 ### 系统级听写
 

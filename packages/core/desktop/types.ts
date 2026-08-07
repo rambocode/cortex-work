@@ -1065,6 +1065,12 @@ export interface VoiceSettings {
    * 模型/Agent 跟随会话本身,不再有专用模型字段(旧 chatProviderId/chatModelId 已删除,
    * hydrate 的展开合并对旧档多余键天然容忍)。 */
   chatPrompt: string;
+  /** 意图模式参考 xiaozhi：function_call 复用 Agent 工具链且无前置延迟；
+   * intent_llm 增加一道本地动作分类；nointent 关闭模型分类。精确退出命令始终保留。 */
+  intentMode: VoiceIntentMode;
+  /** intent_llm 专用模型；两段任一为空时跟随全局默认模型。 */
+  intentProviderId: string;
+  intentModelId: string;
   /** 转写后做一道 LLM 纠错(同音字/标点);未配置可用模型时静默跳过。 */
   transcriptPolish: boolean;
   /** 纠错专用模型引用;两段任一为空 = 跟随全局默认模型(建议选响应快的小模型)。 */
@@ -1072,6 +1078,20 @@ export interface VoiceSettings {
   polishModelId: string;
   /** 纠错指令(自定义 prompt);空 = 用内置 DEFAULT_POLISH_PROMPT。词典与转写文本由程序追加在其后。 */
   polishPrompt: string;
+}
+
+export type VoiceIntentMode = "function_call" | "intent_llm" | "nointent";
+
+export type VoiceAssistantIntentName =
+  | "continue_chat"
+  | "exit_assistant"
+  | "new_conversation"
+  | "enable_screen_context"
+  | "disable_screen_context";
+
+export interface VoiceAssistantIntentResult {
+  name: VoiceAssistantIntentName;
+  source: "direct" | "function_call" | "intent_llm" | "disabled" | "fallback";
 }
 
 /** 内置语音聊天提示词。约束口语化、免 markdown 输出以适配 TTS 朗读;空 chatPrompt 时使用,
@@ -1095,6 +1115,9 @@ export function defaultVoiceSettings(): VoiceSettings {
     dictationBarAlwaysVisible: false,
     dictationDictionary: [],
     chatPrompt: "",
+    intentMode: "function_call",
+    intentProviderId: "",
+    intentModelId: "",
     transcriptPolish: true,
     polishProviderId: "",
     polishModelId: "",

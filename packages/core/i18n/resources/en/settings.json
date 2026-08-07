@@ -968,7 +968,15 @@
     "polishPromptReset": "Reset to default",
     "chatPrompt": "Chat prompt",
     "chatPromptDesc": "Leave empty to use the built-in prompt (conversational tone, no markdown, TTS-friendly). The transcript is appended automatically",
-    "chatPromptReset": "Reset to default"
+    "chatPromptReset": "Reset to default",
+    "intentMode": "Intent understanding",
+    "intentModeDesc": "Function calling reuses the current Agent's tools with the lowest latency; classifier mode first detects local voice-assistant controls",
+    "intentModeFunctionCall": "Function calling (recommended)",
+    "intentModeLlm": "Dedicated classifier",
+    "intentModeOff": "Disable model classification",
+    "intentModel": "Intent model",
+    "intentModelHint": "Pick a fast, small model; leave unset to follow the global default model",
+    "intentModelFollowDefault": "Follow global default"
   },
   "roles": {
     "title": "Role Management",

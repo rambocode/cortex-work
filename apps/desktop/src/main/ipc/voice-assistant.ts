@@ -6,7 +6,7 @@
 // 类型契约见 ./types.ts 的 VoiceAssistant*(与 packages/core/desktop/types.ts 镜像)。
 
 import { BrowserWindow, ipcMain } from "electron";
-import type { VoiceAssistantCommand, VoiceAssistantSnapshot } from "./types";
+import type { VoiceAssistantCommand, VoiceAssistantIntentResult, VoiceAssistantSnapshot } from "./types";
 import {
   ensurePetOverlayWindow,
   getPetOverlayMode,
@@ -14,6 +14,7 @@ import {
   setPetOverlayMode,
 } from "../pet-overlay-window";
 import { captureVoiceScreenshot, setVoiceChatScreenContextPid } from "./voice";
+import { understandVoiceIntentFromSettings } from "../capabilities/voice-intent/understand";
 
 interface VoiceAssistantWiring {
   getMainWindow: () => BrowserWindow | null;
@@ -83,6 +84,14 @@ export function registerVoiceAssistantHandlers(): void {
     await activate(r);
   });
   ipcMain.handle("voiceAssistant:deactivate", (): void => deactivate());
+  ipcMain.handle("voiceAssistant:understandIntent", async (e, text: unknown): Promise<VoiceAssistantIntentResult> => {
+    // 意图文本属于用户原始语音内容，只允许主窗口调用；overlay 没有识别管线，也不应获得
+    // 一个可借主进程模型处理任意文本的入口。
+    const main = mainWindow();
+    if (!main || e.sender !== main.webContents) throw new Error("意图理解仅主窗口可用");
+    if (typeof text !== "string" || !text.trim()) return { name: "continue_chat", source: "fallback" };
+    return understandVoiceIntentFromSettings(text);
+  });
 
   // 主窗口控制器上报状态快照:缓存 + 转发 overlay。仅接受主窗口 sender,防其它窗口伪造。
   ipcMain.on("voiceAssistant:report-state", (e, snapshot: unknown) => {

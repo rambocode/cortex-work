@@ -25,6 +25,20 @@ describe("transitionVoiceAssistant", () => {
     expect(s).toEqual({ active: true, phase: "idle" });
   });
 
+  it("本地意图可从转写阶段直接朗读确认，不伪造 agent 运行", () => {
+    const transcribing = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+    ]);
+    const speaking = transitionVoiceAssistant(transcribing, { type: "localReply" });
+    expect(speaking).toEqual({ active: true, phase: "speaking" });
+    expect(transitionVoiceAssistant(speaking, { type: "speechFinished" })).toEqual({
+      active: true,
+      phase: "idle",
+    });
+  });
+
   it("speaking 可被打断直接回 listening(设计稿的点击打断)", () => {
     const s = run(initialVoiceAssistantState, [
       { type: "activate" },

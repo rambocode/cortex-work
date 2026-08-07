@@ -120,6 +120,7 @@ import type {
   VoiceAssistantSnapshot,
   VoiceAssistantCommand,
   VoiceAssistantControlAction,
+  VoiceAssistantIntentResult,
   AgentBrowserRuntimeStatus,
   ComputerUsePermissionKind,
   ComputerUseStatus,
@@ -1096,6 +1097,8 @@ const personal = {
   voiceAssistantActivate: (reason: "hotkey" | "pet" | "settings"): Promise<void> =>
     ipcRenderer.invoke("voiceAssistant:activate", reason),
   voiceAssistantDeactivate: (): Promise<void> => ipcRenderer.invoke("voiceAssistant:deactivate"),
+  understandVoiceAssistantIntent: (text: string): Promise<VoiceAssistantIntentResult> =>
+    ipcRenderer.invoke("voiceAssistant:understandIntent", text),
   reportVoiceAssistantState: (snapshot: VoiceAssistantSnapshot): void =>
     ipcRenderer.send("voiceAssistant:report-state", snapshot),
   reportVoiceAssistantLevel: (level: number): void => ipcRenderer.send("voiceAssistant:level", level),

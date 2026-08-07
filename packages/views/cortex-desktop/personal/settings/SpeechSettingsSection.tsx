@@ -165,6 +165,46 @@ export function SpeechSettingsSection() {
             </button>
           ) : null}
         </SBlock>
+        <SRow label={t("speech.intentMode")} desc={t("speech.intentModeDesc")}>
+          <select
+            className="pw-set-input"
+            value={voice.intentMode}
+            aria-label={t("speech.intentMode")}
+            onChange={(event) => setVoiceSettings({
+              intentMode: event.target.value as VoiceSettings["intentMode"],
+            })}
+          >
+            <option value="function_call">{t("speech.intentModeFunctionCall")}</option>
+            <option value="intent_llm">{t("speech.intentModeLlm")}</option>
+            <option value="nointent">{t("speech.intentModeOff")}</option>
+          </select>
+        </SRow>
+        {voice.intentMode === "intent_llm" ? (
+          <>
+            <ModelRefField
+              label={t("speech.intentModel")}
+              value={
+                voice.intentProviderId && voice.intentModelId
+                  ? { providerId: voice.intentProviderId, modelId: voice.intentModelId }
+                  : undefined
+              }
+              onChange={(ref) => setVoiceSettings({
+                intentProviderId: ref.providerId,
+                intentModelId: ref.modelId,
+              })}
+              hint={t("speech.intentModelHint")}
+            />
+            {voice.intentProviderId && voice.intentModelId ? (
+              <button
+                className="btn pw-pi-add-btn"
+                type="button"
+                onClick={() => setVoiceSettings({ intentProviderId: "", intentModelId: "" })}
+              >
+                {t("speech.intentModelFollowDefault")}
+              </button>
+            ) : null}
+          </>
+        ) : null}
         {isMac ? (
           <>
             <SRow label={t("speech.chatHotkey")} desc={t("speech.chatHotkeyDesc")}>

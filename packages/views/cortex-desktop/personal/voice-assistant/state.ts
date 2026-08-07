@@ -18,6 +18,7 @@ export type VoiceAssistantEvent =
   | { type: "listening" } // 开麦成功(idle/speaking 打断重听都收敛到这里)
   | { type: "speechEnd" } // VAD 判停/手动提交 → 转写中
   | { type: "sent" } // send 已受理 → 等回复
+  | { type: "localReply" } // 本地意图已处理 → 不启动 agent，直接朗读确认
   | { type: "speak" } // 回合结束且有正文 → 朗读
   | { type: "speechFinished" } // TTS 播完 → idle(宿主随后按连续对话回环重听)
   | { type: "failed"; message: string } // 任意阶段失败 → idle + error(不退出)
@@ -49,7 +50,8 @@ export function transitionVoiceAssistant(
     case "listening":
       return event.type === "speechEnd" ? { active: true, phase: "transcribing" } : state;
     case "transcribing":
-      return event.type === "sent" ? { active: true, phase: "thinking" } : state;
+      if (event.type === "sent") return { active: true, phase: "thinking" };
+      return event.type === "localReply" ? { active: true, phase: "speaking" } : state;
     case "thinking":
       return event.type === "speak" ? { active: true, phase: "speaking" } : state;
     case "speaking":

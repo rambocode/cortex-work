@@ -29,6 +29,7 @@ import { setVoiceTurnListener } from "@cortex-work/core/personal/voiceTurn";
 import { DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
 import type { VoiceAssistantCommand, VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
 import { VoiceCapture, transcribeRecording } from "../chat/composer/voiceRecorder";
+import { detectIsMac } from "../shared/platform";
 import { createVoiceVadMonitor } from "./sileroVad";
 import { initialVoiceAssistantState, transitionVoiceAssistant, type VoiceAssistantState } from "./state";
 
@@ -47,6 +48,12 @@ const PRE_ROLL_BYTES = 16_000 * 2 * 0.32;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** React ref 会被异步 command 订阅修改；封装读取可避免 TypeScript 把 submit 入口处的旧
+ * phase 窄化错误地跨 await 保留，也让所有迟到结果使用同一判据。 */
+function isActiveTranscribing(state: VoiceAssistantState): boolean {
+  return state.active && state.phase === "transcribing";
 }
 
 export function VoiceAssistantController(): null {
@@ -139,6 +146,23 @@ export function VoiceAssistantController(): null {
     speechStartedRef.current = false;
   }, []);
 
+  /** 新建一条无项目语音会话并切为主窗口当前会话。意图“新建对话”必须走这条显式路径，
+   * 不能复用 resolveSession 的“优先续最近会话”语义。 */
+  const createVoiceSession = useCallback(async (
+    isCurrent: () => boolean = () => true,
+  ): Promise<SessionMeta | null> => {
+    const s = usePersonalStore.getState();
+    const b = bridgeRef.current;
+    const dir = b?.ensureNoProjectDir ? await b.ensureNoProjectDir(dayKey(Date.now())) : undefined;
+    // ensureNoProjectDir 跨 IPC；等待期间用户可能已退出。守卫在真正写 session store 前执行，
+    // 让迟到的“新建对话”意图不留下用户看不见的空会话。
+    if (!isCurrent()) return null;
+    const agent = resolveDefaultAgent({ generalSettings: s.generalSettings, agentsAvailable: s.agentsAvailable });
+    s.createSession(undefined, agent, undefined, dir ? { noProjectDir: dir } : undefined);
+    const after = usePersonalStore.getState();
+    return after.sessions.find((x) => x.id === after.activeSessionId) ?? null;
+  }, []);
+
   /** 解析语音轮次的目标会话,三级回退保证「语音聊天的持续性」:
    * ① 主窗口正开着的会话(activeSessionId 且未归档)直接用;
    * ② 主窗口不在会话视图(落地页/写作/设置等,无 active)→ 续用**最近一次会话**并把它
@@ -159,13 +183,8 @@ export function VoiceAssistantController(): null {
     }
     // ③ 新建。无项目会话必须带 noProjectDir(它就是 agent 的 cwd),口径与 PersonalSidebar 的
     // createContextSession 一致;桥缺能力(Web)时仍建会话,只是没有固定工作目录。
-    const b = bridgeRef.current;
-    const dir = b?.ensureNoProjectDir ? await b.ensureNoProjectDir(dayKey(Date.now())) : undefined;
-    const agent = resolveDefaultAgent({ generalSettings: s.generalSettings, agentsAvailable: s.agentsAvailable });
-    s.createSession(undefined, agent, undefined, dir ? { noProjectDir: dir } : undefined);
-    const after = usePersonalStore.getState();
-    return after.sessions.find((x) => x.id === after.activeSessionId) ?? null;
-  }, []);
+    return createVoiceSession();
+  }, [createVoiceSession]);
 
   /** 取会话最新元数据(store 里的对象随更新替换,不能长期持引用)。 */
   const currentSession = useCallback((): SessionMeta | null => {
@@ -173,6 +192,22 @@ export function VoiceAssistantController(): null {
     if (!id) return null;
     return usePersonalStore.getState().sessions.find((x) => x.id === id) ?? null;
   }, []);
+
+  /** 本地意图的简短确认不创建伪造聊天消息，也不启动 Agent run；仍复用统一 TTS 与
+   * speaking→idle→自动重听状态环，保证视觉/音频行为和正常回复一致。 */
+  const speakLocalReply = useCallback(async (text: string): Promise<void> => {
+    const b = bridgeRef.current;
+    if (!b) throw new Error("桌面桥不可用");
+    if (dispatch({ type: "localReply" }).phase !== "speaking") return;
+    try {
+      await speakText(b, usePersonalStore.getState().ttsSettings, text, { allowFallback: true });
+      if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
+        dispatch({ type: "speechFinished" });
+      }
+    } catch (error) {
+      dispatch({ type: "failed", message: errorMessage(error) });
+    }
+  }, [dispatch]);
 
   const startListening = useCallback(async (): Promise<void> => {
     const phase = machineRef.current.phase;
@@ -358,6 +393,38 @@ export function VoiceAssistantController(): null {
       if ((s.voiceSettings.transcriptPolish ?? true) && b.polishTranscript) {
         text = (await b.polishTranscript(text)).trim() || text;
       }
+      // 纠错/分类都可能跨越用户点击退出；迟到的异步结果不能复活已经结束的语音轮。
+      if (!isActiveTranscribing(machineRef.current)) return;
+
+      // 参考 xiaozhi：精确本地控制先拦截；function_call 普通文本不做串行前置分类，
+      // 继续进入已有 Agent 工具链。旧壳没有此 bridge 时保持原来的 continue_chat 行为。
+      const intent = await b.understandVoiceAssistantIntent?.(text);
+      if (!isActiveTranscribing(machineRef.current)) return;
+      if (intent?.name === "exit_assistant") {
+        // 必须经 main deactivate，除本控制器释放资源外还要把共享 overlay 切回 pet 模式。
+        if (!b.voiceAssistantDeactivate) throw new Error("当前桌面版本不支持退出语音助手");
+        await b.voiceAssistantDeactivate();
+        return;
+      }
+      if (intent?.name === "new_conversation") {
+        const created = await createVoiceSession(
+          () => isActiveTranscribing(machineRef.current),
+        );
+        if (!isActiveTranscribing(machineRef.current)) return;
+        if (!created) throw new Error("无法创建新对话");
+        sessionIdRef.current = created.id;
+        await speakLocalReply("已开始新对话");
+        return;
+      }
+      if (
+        (intent?.name === "enable_screen_context" || intent?.name === "disable_screen_context") &&
+        detectIsMac()
+      ) {
+        const enabled = intent.name === "enable_screen_context";
+        s.setVoiceSettings({ chatScreenContext: enabled });
+        await speakLocalReply(enabled ? "已开启屏幕上下文" : "已关闭屏幕上下文");
+        return;
+      }
 
       let session = currentSession();
       if (!session || session.archivedAt != null) {
@@ -396,7 +463,7 @@ export function VoiceAssistantController(): null {
     } catch (err) {
       dispatch({ type: "failed", message: errorMessage(err) });
     }
-  }, [currentSession, dispatch, report, resolveSession]);
+  }, [createVoiceSession, currentSession, dispatch, report, resolveSession, speakLocalReply]);
 
   // VAD 回调经 ref 调 submit:互相引用的 useCallback 会形成声明顺序死结,ref 解耦。
   const submitRef = useRef<(() => Promise<void>) | null>(null);

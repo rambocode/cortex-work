@@ -115,6 +115,7 @@ import type {
   VoiceAssistantSnapshot,
   VoiceAssistantCommand,
   VoiceAssistantControlAction,
+  VoiceAssistantIntentResult,
   PushSettings,
   AgentBrowserRuntimeStatus,
   KnowledgeBaseSettings,
@@ -881,6 +882,8 @@ export interface DesktopBridge {
   voiceAssistantActivate?(reason: "hotkey" | "pet" | "settings"): Promise<void>;
   /** 退出语音助手：窗口切回 pet 模式,按宠物 enabled 决定显隐。 */
   voiceAssistantDeactivate?(): Promise<void>;
+  /** 理解已纠错转写中的本地控制意图。失败必须返回 continue_chat，原文由控制器继续发送。 */
+  understandVoiceAssistantIntent?(text: string): Promise<VoiceAssistantIntentResult>;
   /** 主窗口控制器上报状态快照(主进程缓存并转发 overlay)。 */
   reportVoiceAssistantState?(snapshot: VoiceAssistantSnapshot): void;
   /** 主窗口控制器上报麦克风电平(30Hz 节流,主进程只转发不缓存)。 */
