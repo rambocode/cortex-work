@@ -341,8 +341,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # x64 包不含本地 Whisper 功能(prepare-whisper-runner.mjs v1 仅支持 darwin-arm64,
-      # before-pack.cjs 已对此优雅降级、只告警不阻断),这是已知可接受的功能差异。
+      # 对应架构的 SenseVoice sidecar 在预打包阶段从固定源码提交构建。
       - name: Prepackage (renderer/main, arch=x64)
         env:
           CORTEX_NOTES_STRICT: ${{ env.MODE == 'publish-release' && '1' || '' }}
@@ -463,7 +462,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Windows 包同样没有本地 Whisper 功能(v1 仅支持 darwin-arm64),已知可接受降级。
+      # Windows x64 使用相同协议和模型格式，预打包阶段生成原生 sidecar。
       - name: Prepackage (renderer/main, arch=win32-x64)
         run: pnpm --filter @cortex-work/desktop run prepackage:win-x64
 

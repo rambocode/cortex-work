@@ -6,7 +6,7 @@ import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, usePersonalStore, type AgentKind, type DerivedAgentMeta, type DesktopBridge, type PendingImage, type PersonalAttachment } from "@cortex-work/core";
 import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
-import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
+import type { LocalAsrModelStatus } from "@cortex-work/core/asr/local-models";
 import { ComposerShell, matchSlashCommands, rankSlashMatch, type SlashCommand } from "./ComposerShell";
 import { FILE_DRAG_MIME } from "../../files/FilesView";
 import { DOC_ACCEPT_ATTR } from "./docIntake";
@@ -713,11 +713,11 @@ describe("ComposerShell 文件预览拖入会话（U6）", () => {
 
 // ── U9：语音按钮可用条件（R11）与 transcribeSpeech 路由 ──────────────────────────
 
-/** 构造 bridge，带 transcribeSpeech 或不带，以及 whisper 模型状态。 */
+/** 构造 bridge，带 transcribeSpeech 或不带，以及本地 ASR 模型状态。 */
 function makeBridge(opts: {
   transcribeSpeech?: (req: unknown, asr: unknown) => Promise<{ text: string }>;
-  getWhisperModelStatus?: (modelId: string) => Promise<LocalWhisperModelStatus>;
-  onWhisperDownloadProgress?: (cb: (p: unknown) => void) => () => void;
+  getLocalAsrModelStatus?: (modelId: string) => Promise<LocalAsrModelStatus>;
+  onLocalAsrDownloadProgress?: (cb: (p: unknown) => void) => () => void;
 }): DesktopBridge {
   return {
     loadChat: async () => [],
@@ -735,22 +735,22 @@ function makeAsrSettings(overrides: Partial<AsrSettings> = {}): AsrSettings {
     baseUrl: "http://localhost:8080",
     apiKey: "test-key",
     model: "whisper-1",
-    localWhisperDownloadSource: "huggingface",
+    localModelDownloadSource: "huggingface",
     language: "zh",
     timeoutMs: 60_000,
     ...overrides,
   };
 }
 
-function makeLocalStatus(state: LocalWhisperModelStatus["state"]): LocalWhisperModelStatus {
+function makeLocalStatus(state: LocalAsrModelStatus["state"]): LocalAsrModelStatus {
   return {
-    modelId: "whisper-small-q5_1",
-    label: "Whisper Small",
-    fileName: "ggml-small-q5_1.bin",
-    sha256: "ae85",
-    sizeBytes: 190_085_487,
-    maxBytes: 400 * 1024 * 1024,
-    resourceEstimate: { memory: "300-600 MB", cpuThreads: "2-4" },
+    modelId: "sensevoice-small-q8",
+    label: "SenseVoiceSmall",
+    fileName: "sensevoice-small-q8.gguf",
+    sha256: "4ae4",
+    sizeBytes: 254_208_320,
+    maxBytes: 300 * 1024 * 1024,
+    resourceEstimate: { memory: "约 500-900 MB", cpuThreads: "4-8" },
     qualityTier: "balanced",
     recommended: true,
     state,
@@ -823,9 +823,9 @@ describe("ComposerShell 语音按钮可用条件（U9 R11）", () => {
   it("本地协议模型 ready → 按钮可点击", async () => {
     const b = makeBridge({
       transcribeSpeech: async () => ({ text: "hello" }),
-      getWhisperModelStatus: async () => makeLocalStatus("ready"),
+      getLocalAsrModelStatus: async () => makeLocalStatus("ready"),
     });
-    renderVoice(b, makeAsrSettings({ protocol: "local-whisper", model: "whisper-small-q5_1", enabled: true }));
+    renderVoice(b, makeAsrSettings({ protocol: "local-sensevoice", model: "sensevoice-small-q8", enabled: true }));
     await waitFor(() => {
       const btn = document.querySelector(".pw-mic-btn") as HTMLButtonElement | null;
       return btn && !btn.disabled;
@@ -837,9 +837,9 @@ describe("ComposerShell 语音按钮可用条件（U9 R11）", () => {
   it("本地协议模型 downloading → 按钮禁用，tooltip 含百分比", async () => {
     const b = makeBridge({
       transcribeSpeech: async () => ({ text: "hello" }),
-      getWhisperModelStatus: async () => makeLocalStatus("downloading"),
+      getLocalAsrModelStatus: async () => makeLocalStatus("downloading"),
     });
-    renderVoice(b, makeAsrSettings({ protocol: "local-whisper", model: "whisper-small-q5_1", enabled: true }));
+    renderVoice(b, makeAsrSettings({ protocol: "local-sensevoice", model: "sensevoice-small-q8", enabled: true }));
     await waitFor(() => {
       const btn = document.querySelector(".pw-mic-btn") as HTMLButtonElement | null;
       return btn !== null;
@@ -853,9 +853,9 @@ describe("ComposerShell 语音按钮可用条件（U9 R11）", () => {
   it("本地协议模型 missing → 按钮禁用，tooltip 含「未就绪」", async () => {
     const b = makeBridge({
       transcribeSpeech: async () => ({ text: "hello" }),
-      getWhisperModelStatus: async () => makeLocalStatus("missing"),
+      getLocalAsrModelStatus: async () => makeLocalStatus("missing"),
     });
-    renderVoice(b, makeAsrSettings({ protocol: "local-whisper", model: "whisper-small-q5_1", enabled: true }));
+    renderVoice(b, makeAsrSettings({ protocol: "local-sensevoice", model: "sensevoice-small-q8", enabled: true }));
     await waitFor(() => {
       const btn = document.querySelector(".pw-mic-btn") as HTMLButtonElement | null;
       return btn !== null;

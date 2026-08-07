@@ -57,6 +57,7 @@ import {
   defaultMediaGenSettings,
   normalizeMediaGenSettings,
   defaultAsrSettings,
+  normalizeAsrSettings,
   defaultVoiceSettings,
   DEFAULT_WRITING_LLM_SETTINGS,
   clampWritingDebounceMs,
@@ -697,8 +698,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 枚举兜底、非法 providerId 归 "custom"、数值按 MAX_TIMEOUT_MS_BY_MODALITY 钳制。
       // （旧版「?? 整体回落」在旧档缺新字段 quality 等时会 undefined 穿透，已废弃。）
       mediaGenSettings: normalizeMediaGenSettings(s.mediaGenSettings),
-      // ASR：旧档无此字段时回落工厂默认（向后兼容）。
-      asrSettings: s.asrSettings ?? defaultAsrSettings(),
+      // ASR：逐字段归一化；已删除的 local-whisper 按非法旧档回落到禁用默认值。
+      asrSettings: normalizeAsrSettings(s.asrSettings),
       // 语音交互设置：整体缺失回落默认;部分缺失(旧档没有后加的 transcriptPolish 等字段)
       // 用默认对象打底逐字段补齐,避免 undefined 穿透成「永远关闭」。
       voiceSettings: { ...defaultVoiceSettings(), ...s.voiceSettings },

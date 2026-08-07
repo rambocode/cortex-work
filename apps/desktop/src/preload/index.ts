@@ -175,10 +175,10 @@ import type {
   SlidesPresentResult,
 } from "../main/ipc/slides-ipc-types";
 import type {
-  LocalWhisperModelProgress,
-  LocalWhisperModelStatus,
-  LocalWhisperSourcesResult,
-} from "@cortex-work/core/whisper/models";
+  LocalAsrModelProgress,
+  LocalAsrModelStatus,
+  LocalAsrSourcesResult,
+} from "@cortex-work/core/asr/local-models";
 import type { Locale } from "@cortex-work/core/i18n/native";
 // 用户记忆（跨工作台持久记忆）IPC 契约类型(type-only,编译期擦除;类型真源在 core/memory/memory.ts,
 // main 侧 ipc/memory.ts 同样直接引用 core,无需再建镜像)。
@@ -866,41 +866,43 @@ const personal = {
   // 的可选方法逐字对齐。
   pluginList: (): Promise<PluginListResult> => ipcRenderer.invoke("plugins:list"),
   marketplaceList: (): Promise<MarketplaceListResult> => ipcRenderer.invoke("marketplace:list"),
-  // ── 本地 Whisper 模型管理（U7）────────────────────────────────────────────
-  // IPC 通道对应 apps/desktop/src/main/ipc/stt.ts；形状与 DesktopBridge 的
-  // listWhisperModels/getWhisperModelStatus/... 逐字对齐（手工比对，无 satisfies）。
-  listWhisperModels: (): Promise<LocalWhisperModelStatus[]> =>
-    ipcRenderer.invoke("stt:listModels"),
-  getWhisperModelStatus: (modelId: string): Promise<LocalWhisperModelStatus> =>
-    ipcRenderer.invoke("stt:modelStatus", modelId),
-  downloadWhisperModel: (args: {
+  // ── SenseVoiceSmall 模型管理与实时 stdio 会话 ──────────────────────────────
+  listLocalAsrModels: (): Promise<LocalAsrModelStatus[]> =>
+    ipcRenderer.invoke("stt:local:listModels"),
+  getLocalAsrModelStatus: (modelId: string): Promise<LocalAsrModelStatus> =>
+    ipcRenderer.invoke("stt:local:modelStatus", modelId),
+  downloadLocalAsrModel: (args: {
     modelId: string;
     sourceId?: string;
-  }): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }> =>
-    ipcRenderer.invoke("stt:downloadModel", args),
-  cancelWhisperDownload: (
+  }): Promise<{ ok: boolean; message?: string; status?: LocalAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:local:downloadModel", args),
+  cancelLocalAsrDownload: (
     modelId: string,
-  ): Promise<{ ok: boolean; status?: LocalWhisperModelStatus }> =>
-    ipcRenderer.invoke("stt:cancelDownload", modelId),
-  deleteWhisperModel: (
+  ): Promise<{ ok: boolean; status?: LocalAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:local:cancelDownload", modelId),
+  deleteLocalAsrModel: (
     modelId: string,
-  ): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }> =>
-    ipcRenderer.invoke("stt:deleteModel", modelId),
-  checkWhisperSources: (modelId?: string): Promise<LocalWhisperSourcesResult> =>
-    ipcRenderer.invoke("stt:checkSources", modelId),
-  // 进度订阅：主进程经 stt:downloadProgress 广播，渲染端转为回调 + 退订（KTD5）。
-  onWhisperDownloadProgress: (
-    cb: (progress: LocalWhisperModelProgress) => void,
+  ): Promise<{ ok: boolean; message?: string; status?: LocalAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:local:deleteModel", modelId),
+  checkLocalAsrSources: (modelId?: string): Promise<LocalAsrSourcesResult> =>
+    ipcRenderer.invoke("stt:local:checkSources", modelId),
+  onLocalAsrDownloadProgress: (
+    cb: (progress: LocalAsrModelProgress) => void,
   ): (() => void) => {
-    const listener = (_e: IpcRendererEvent, progress: LocalWhisperModelProgress) =>
+    const listener = (_e: IpcRendererEvent, progress: LocalAsrModelProgress) =>
       cb(progress);
-    ipcRenderer.on("stt:downloadProgress", listener);
-    return () => ipcRenderer.removeListener("stt:downloadProgress", listener);
+    ipcRenderer.on("stt:local:downloadProgress", listener);
+    return () => ipcRenderer.removeListener("stt:local:downloadProgress", listener);
   },
-  // ── U8：统一转写入口（按 AsrSettings.protocol 分发） ──────────────────────
-  // 相比旧的 asrTranscribe（走 asr:transcribe，仅在线），
-  // transcribeSpeech 统一处理 local-whisper / openai-transcriptions / mimo-asr，
-  // 由主进程 stt:transcribe handler 按 protocol 路由。
+  startLocalAsrStream: (args: { requestId: string; modelId: string; language: string }): Promise<void> =>
+    ipcRenderer.invoke("stt:stream:start", args),
+  appendLocalAsrAudio: (requestId: string, audio: ArrayBuffer): Promise<void> =>
+    ipcRenderer.invoke("stt:stream:audio", { requestId, audio }),
+  finishLocalAsrStream: (requestId: string): Promise<AsrTranscribeResponse> =>
+    ipcRenderer.invoke("stt:stream:finish", requestId),
+  cancelLocalAsrStream: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke("stt:stream:cancel", requestId),
+  // 统一整段转写入口（输入框录音与能量 VAD 降级路径）。
   transcribeSpeech: (
     req: AsrTranscribeRequest,
     asrSettings: AsrSettings,

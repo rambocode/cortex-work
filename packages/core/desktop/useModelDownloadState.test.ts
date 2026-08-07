@@ -6,15 +6,15 @@
 import { renderHook, act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { DesktopBridge } from "../desktop/bridge";
-import type { LocalWhisperModelProgress, LocalWhisperModelId } from "../whisper/models";
+import type { LocalAsrModelProgress, LocalAsrModelId } from "../asr/local-models";
 import { useModelDownloadState } from "./useModelDownloadState";
 import { CoreProvider } from "../provider";
 import React from "react";
 
 // 构造最小 mock bridge
 function makeBridge(opts: {
-  onWhisperDownloadProgress?: DesktopBridge["onWhisperDownloadProgress"];
-  getWhisperModelStatus?: DesktopBridge["getWhisperModelStatus"];
+  onLocalAsrDownloadProgress?: DesktopBridge["onLocalAsrDownloadProgress"];
+  getLocalAsrModelStatus?: DesktopBridge["getLocalAsrModelStatus"];
 }): DesktopBridge {
   return {
     loadChat: async () => [],
@@ -23,14 +23,14 @@ function makeBridge(opts: {
   } as unknown as DesktopBridge;
 }
 
-const MODEL_ID = "whisper-small-q5_1" as LocalWhisperModelId;
+const MODEL_ID = "sensevoice-small-q8" as LocalAsrModelId;
 
 function makeProgress(
-  modelId: LocalWhisperModelId,
+  modelId: LocalAsrModelId,
   downloadedBytes: number,
   totalBytes: number,
   percent?: number,
-): LocalWhisperModelProgress {
+): LocalAsrModelProgress {
   return { modelId, downloadedBytes, totalBytes, percent };
 }
 
@@ -46,9 +46,9 @@ function makeWrapper(bridge: DesktopBridge | null) {
 
 describe("useModelDownloadState", () => {
   it("进度回调 → state 变为 downloading，percent 正确", () => {
-    let capturedCb: ((p: LocalWhisperModelProgress) => void) | undefined;
+    let capturedCb: ((p: LocalAsrModelProgress) => void) | undefined;
     const bridge = makeBridge({
-      onWhisperDownloadProgress: (cb) => {
+      onLocalAsrDownloadProgress: (cb) => {
         capturedCb = cb;
         return () => {};
       },
@@ -72,9 +72,9 @@ describe("useModelDownloadState", () => {
   });
 
   it("percent >= 100 → state 变为 done", () => {
-    let capturedCb: ((p: LocalWhisperModelProgress) => void) | undefined;
+    let capturedCb: ((p: LocalAsrModelProgress) => void) | undefined;
     const bridge = makeBridge({
-      onWhisperDownloadProgress: (cb) => {
+      onLocalAsrDownloadProgress: (cb) => {
         capturedCb = cb;
         return () => {};
       },
@@ -92,9 +92,9 @@ describe("useModelDownloadState", () => {
   });
 
   it("modelId 不匹配 → 进度事件被忽略，状态保持 idle", () => {
-    let capturedCb: ((p: LocalWhisperModelProgress) => void) | undefined;
+    let capturedCb: ((p: LocalAsrModelProgress) => void) | undefined;
     const bridge = makeBridge({
-      onWhisperDownloadProgress: (cb) => {
+      onLocalAsrDownloadProgress: (cb) => {
         capturedCb = cb;
         return () => {};
       },
@@ -106,26 +106,26 @@ describe("useModelDownloadState", () => {
 
     act(() => {
       // 发送不同 modelId 的进度事件
-      capturedCb?.(makeProgress("whisper-base-q5_1" as LocalWhisperModelId, 10_000, 59_707_625, 0));
+      capturedCb?.(makeProgress("different-model" as LocalAsrModelId, 10_000, 59_707_625, 0));
     });
 
     expect(result.current.status).toBe("idle");
   });
 
   it("pushed flag：推送事件已到，晚到的 getWhisperModelStatus resolve 不覆盖已推送的更新进度", async () => {
-    let capturedCb: ((p: LocalWhisperModelProgress) => void) | undefined;
+    let capturedCb: ((p: LocalAsrModelProgress) => void) | undefined;
     // 模拟延迟 resolve 的快照（返回 50%，但推送已到 80%）
-    let resolveStatus!: (v: Awaited<ReturnType<NonNullable<DesktopBridge["getWhisperModelStatus"]>>>) => void;
-    const statusPromise = new Promise<Awaited<ReturnType<NonNullable<DesktopBridge["getWhisperModelStatus"]>>>>((res) => {
+    let resolveStatus!: (v: Awaited<ReturnType<NonNullable<DesktopBridge["getLocalAsrModelStatus"]>>>) => void;
+    const statusPromise = new Promise<Awaited<ReturnType<NonNullable<DesktopBridge["getLocalAsrModelStatus"]>>>>((res) => {
       resolveStatus = res;
     });
 
     const bridge = makeBridge({
-      onWhisperDownloadProgress: (cb) => {
+      onLocalAsrDownloadProgress: (cb) => {
         capturedCb = cb;
         return () => {};
       },
-      getWhisperModelStatus: () => statusPromise as ReturnType<NonNullable<DesktopBridge["getWhisperModelStatus"]>>,
+      getLocalAsrModelStatus: () => statusPromise as ReturnType<NonNullable<DesktopBridge["getLocalAsrModelStatus"]>>,
     });
 
     const { result } = renderHook(() => useModelDownloadState(MODEL_ID), {
@@ -146,12 +146,12 @@ describe("useModelDownloadState", () => {
     await act(async () => {
       resolveStatus({
         modelId: MODEL_ID,
-        label: "Whisper Small",
-        fileName: "ggml-small-q5_1.bin",
-        sha256: "ae85",
-        sizeBytes: 190_085_487,
-        maxBytes: 400 * 1024 * 1024,
-        resourceEstimate: { memory: "300-600 MB", cpuThreads: "2-4" },
+        label: "SenseVoiceSmall",
+        fileName: "sensevoice-small-q8.gguf",
+        sha256: "4ae4",
+        sizeBytes: 254_208_320,
+        maxBytes: 300 * 1024 * 1024,
+        resourceEstimate: { memory: "约 500-900 MB", cpuThreads: "4-8" },
         qualityTier: "balanced",
         recommended: true,
         state: "downloading",
@@ -167,7 +167,7 @@ describe("useModelDownloadState", () => {
     }
   });
 
-  it("bridge 无 onWhisperDownloadProgress → 返回 idle 初始态", () => {
+  it("bridge 无 onLocalAsrDownloadProgress → 返回 idle 初始态", () => {
     // bridge 没有订阅方法
     const bridge = makeBridge({});
 

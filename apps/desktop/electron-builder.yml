@@ -142,12 +142,10 @@ extraResources:
   # 放 extraResources 而非 asar:模板要按目录扫描 + 逐文件读,真实文件路径最省事且可被用户查看。
   - from: resources/slides
     to: slides
-  # 本地 Whisper runner（U8）：whisper-cli 原生可执行文件不能进 asar（asar 是虚拟归档，
-  # 原生二进制必须以真实文件存在才可被 child_process.spawn 执行）。
-  # beforePack 中 prune 步骤已删除非目标平台目录，打包时只含目标平台产物。
-  # 落到 <App>/Contents/Resources/whisper/<platform>-<arch>/，resolveWhisperRunner 打包态指向这里。
-  - from: resources/whisper
-    to: whisper
+  # SenseVoiceSmall 常驻 sidecar 是原生二进制，必须以真实文件放在 asar 外。
+  # 预打包脚本构建当前目标；平台目录同时避免错误架构被主进程选中。
+  - from: resources/sensevoice
+    to: sensevoice
 # pi 迁 in-process 后,三个 pi 包（coding-agent / agent-core / tui）以**纯 JS/ESM** 形式留在 asar 内,
 # 已实测可从 asar 按包名动态 import,故**不需要** unpack。这里只列必须以真实文件落地的原生模块。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）

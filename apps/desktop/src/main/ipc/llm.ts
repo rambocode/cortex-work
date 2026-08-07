@@ -14,11 +14,11 @@ import type {
 } from "./types";
 import { audioSpeechPayload, audioSpeechUrl, audioVoiceUrls } from "./push-sign";
 import { postChatCompletion } from "./openai-chat";
-// OQ4：在线转写逻辑已抽取为共享函数（capabilities/whisper/online-transcribe.ts），
+// OQ4：在线转写逻辑已抽取为共享函数（capabilities/asr/online-transcribe.ts），
 // asr:transcribe（旧入口）与 stt:transcribe 在线分支（新入口）均调用它，
 // 确保 MAX_BYTES 约束与行为一致。
-import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/whisper/online-transcribe";
-import { authHeaders } from "../capabilities/whisper/transcribe-auth";
+import { transcribeOnline, ASR_MAX_BYTES } from "../capabilities/asr/online-transcribe";
+import { authHeaders } from "../capabilities/asr/transcribe-auth";
 import { synthesizeEdgeTts } from "../capabilities/edge-tts/client";
 import { listEdgeTtsVoices } from "../capabilities/edge-tts/voices";
 

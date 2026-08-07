@@ -1408,28 +1408,28 @@ describe("语音识别设置（asrSettings）", () => {
     expect(usePersonalStore.getState().asrSettings).toEqual(defaultAsrSettings());
   });
 
-  it("工厂默认:enabled=false、protocol='openai-transcriptions'、language='auto'、localWhisperDownloadSource='huggingface'", () => {
+  it("工厂默认：禁用并预选本地 SenseVoiceSmall", () => {
     const d = defaultAsrSettings();
     expect(d.enabled).toBe(false);
-    expect(d.protocol).toBe("openai-transcriptions");
+    expect(d.protocol).toBe("local-sensevoice");
     expect(d.language).toBe("auto");
-    expect(d.localWhisperDownloadSource).toBe("huggingface");
+    expect(d.localModelDownloadSource).toBe("huggingface");
     expect(d.timeoutMs).toBe(60_000);
-    expect(d.model).toBe("");
+    expect(d.model).toBe("sensevoice-small-q8");
   });
 
   it("setAsrSettings 切 protocol → state 正确", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().setAsrSettings({ protocol: "local-whisper" });
-    expect(usePersonalStore.getState().asrSettings.protocol).toBe("local-whisper");
+    usePersonalStore.getState().setAsrSettings({ protocol: "openai-transcriptions" });
+    expect(usePersonalStore.getState().asrSettings.protocol).toBe("openai-transcriptions");
     // 其他字段保持默认
     expect(usePersonalStore.getState().asrSettings.enabled).toBe(false);
   });
 
-  it("setAsrSettings 切 localWhisperDownloadSource → state 正确", () => {
+  it("setAsrSettings 切 localModelDownloadSource → state 正确", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().setAsrSettings({ localWhisperDownloadSource: "hf-mirror" });
-    expect(usePersonalStore.getState().asrSettings.localWhisperDownloadSource).toBe("hf-mirror");
+    usePersonalStore.getState().setAsrSettings({ localModelDownloadSource: "hf-mirror" });
+    expect(usePersonalStore.getState().asrSettings.localModelDownloadSource).toBe("hf-mirror");
   });
 
   it("toPersistedState 带出 asrSettings 并与 state 引用相同", () => {

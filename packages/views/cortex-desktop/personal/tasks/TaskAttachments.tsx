@@ -12,7 +12,7 @@ import { useDesktopBridge } from "@cortex-work/core";
 import type { TaskMeta } from "@cortex-work/core/desktop/types";
 import { DOC_ACCEPT_ATTR, checkDocFile, docRejectText, fileToPendingDocFile } from "../chat/composer/docIntake";
 
-// 字节数 → 人读大小（与 SttLocalWhisperPanel.formatBytes 同手感）。
+// 字节数 → 人读大小（与本地 ASR 模型面板同手感）。
 function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
   if (bytes < 1024) return `${bytes} B`;

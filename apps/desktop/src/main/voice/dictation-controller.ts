@@ -76,7 +76,7 @@ export interface DictationControllerDeps {
   settings(): { dictationBarAlwaysVisible: boolean } | Promise<{ dictationBarAlwaysVisible: boolean }>;
   /** 仅主进程能把状态下发给不抢焦的听写栏窗口。 */
   pushState(state: DictationPhase, alwaysVisible: boolean, token: number): void;
-  /** 可选的转写 LLM 纠错;实现方必须失败回退原文,绝不 reject(见 whisper/polish.ts)。 */
+  /** 可选的转写 LLM 纠错；实现方必须失败回退原文，绝不 reject（见 asr/polish.ts）。 */
   polish?(text: string): Promise<string>;
 }
 

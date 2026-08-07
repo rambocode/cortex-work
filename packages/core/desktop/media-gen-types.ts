@@ -318,11 +318,10 @@ function defaultIsKnownProvider(id: string): boolean {
 }
 
 // ── 语音识别（ASR）设置 ──────────────────────────────────────────────────────
-// 与 Kun KunSpeechToTextSettingsV1 对齐;local-whisper 走本地模型(U7/U8 接入)。
+// 本地 SenseVoiceSmall 与在线 OpenAI 兼容协议共用一份设置，由 protocol 明确分流。
 
-export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-whisper";
-// 本地 Whisper 模型下载来源:huggingface 官方 / hf-mirror 国内镜像 / hf-sufy 加速镜像。
-export type LocalWhisperDownloadSource = "huggingface" | "hf-mirror" | "hf-sufy";
+export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-sensevoice";
+export type LocalModelDownloadSource = "huggingface" | "hf-mirror";
 
 export interface AsrSettings {
   enabled: boolean;
@@ -331,11 +330,11 @@ export interface AsrSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
-  // local-whisper 专用:模型下载来源（国内用户建议 hf-mirror 或 hf-sufy）。
-  localWhisperDownloadSource: LocalWhisperDownloadSource;
+  // local-sensevoice 专用：模型下载来源。仅允许固定官方源和镜像源。
+  localModelDownloadSource: LocalModelDownloadSource;
   // language:'' 或 'auto' 表示自动识别;指定语言代码如 'zh' 可提升速度。
   language: string;
-  // timeoutMs:语音片段通常 <30s;60s 对长录音留余量（U7 本地 whisper 可能更慢,后续 U8 再校准）。
+  // timeoutMs：输入最多 30 秒；额外时间留给本地推理或在线请求。
   timeoutMs: number;
 }
 
@@ -343,12 +342,51 @@ export function defaultAsrSettings(): AsrSettings {
   return {
     enabled: false,
     providerId: "",
-    protocol: "openai-transcriptions",
+    protocol: "local-sensevoice",
     baseUrl: "",
     apiKey: "",
-    model: "",
-    localWhisperDownloadSource: "huggingface",
+    model: "sensevoice-small-q8",
+    localModelDownloadSource: "huggingface",
     language: "auto",
     timeoutMs: 60_000,
+  };
+}
+
+const ASR_PROTOCOLS: readonly AsrProtocol[] = [
+  "openai-transcriptions",
+  "mimo-asr",
+  "local-sensevoice",
+];
+const LOCAL_MODEL_DOWNLOAD_SOURCES: readonly LocalModelDownloadSource[] = [
+  "huggingface",
+  "hf-mirror",
+];
+
+/**
+ * 持久化 ASR 设置的唯一归一化入口。
+ *
+ * 已删除的 local-whisper 不做模型或开关迁移：整份设置回落到禁用的 SenseVoiceSmall
+ * 默认值，避免升级后静默下载模型或在用户不知情时继续打开麦克风。在线配置仍逐字段保留。
+ */
+export function normalizeAsrSettings(raw: unknown): AsrSettings {
+  const defaults = defaultAsrSettings();
+  if (!raw || typeof raw !== "object") return defaults;
+  const src = raw as Record<string, unknown>;
+  if (src.protocol === "local-whisper") return defaults;
+  const protocol = pickEnum(src.protocol, ASR_PROTOCOLS, defaults.protocol);
+  return {
+    enabled: pickBoolean(src.enabled, defaults.enabled),
+    providerId: pickString(src.providerId, defaults.providerId),
+    protocol,
+    baseUrl: pickString(src.baseUrl, defaults.baseUrl),
+    apiKey: pickString(src.apiKey, defaults.apiKey),
+    model: pickString(src.model, defaults.model),
+    localModelDownloadSource: pickEnum(
+      src.localModelDownloadSource,
+      LOCAL_MODEL_DOWNLOAD_SOURCES,
+      defaults.localModelDownloadSource,
+    ),
+    language: pickString(src.language, defaults.language),
+    timeoutMs: clampNumber(src.timeoutMs, 5_000, 600_000, defaults.timeoutMs),
   };
 }

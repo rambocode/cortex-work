@@ -43,7 +43,7 @@ const asr = {
   baseUrl: "https://api.example.com",
   apiKey: "sk-test",
   model: "whisper-1",
-  localWhisperDownloadSource: "huggingface",
+  localModelDownloadSource: "huggingface",
   language: "zh",
   timeoutMs: 60_000,
 } satisfies AsrSettings;

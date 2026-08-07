@@ -8,7 +8,7 @@
  * 1. 录音状态机（idle → recording → transcribing → idle）
  * 2. 录音 Blob 重采样为 16kHz 单声道 WAV（经 encodeBlobAsWav）
  * 3. 转写路由：统一走 bridge.transcribeSpeech（U8 入口，按 asrSettings.protocol 分发）
- * 4. 本地 whisper 模型状态订阅（getWhisperModelStatus + onWhisperDownloadProgress）
+ * 4. 本地 SenseVoiceSmall 模型状态订阅
  * 5. 语音按钮可用条件（R11）：enabled + 本地模型 ready 或在线配置完整
  * 6. 失败 toast（带原因区分），成功回填（保留现有文本 + 换行）
  */
@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
-import type { LocalWhisperModelStatus } from "@cortex-work/core/whisper/models";
+import type { LocalAsrModelStatus } from "@cortex-work/core/asr/local-models";
 // 录音采集 + 16kHz WAV + 统一转写核心抽到 voiceRecorder（与 reply 气泡共用，见其文件头注释）。
 import { VoiceCapture, transcribeRecording } from "./voiceRecorder";
 
@@ -32,16 +32,16 @@ function isOnlineConfigReady(asr: AsrSettings): boolean {
 }
 
 /**
- * 判断本地 whisper 模型是否就绪。
+ * 判断本地 SenseVoiceSmall 模型是否就绪。
  * state 必须为 "ready"，其余（missing/downloading/error）均不可用。
  */
-function isLocalModelReady(status: LocalWhisperModelStatus | null): boolean {
+function isLocalModelReady(status: LocalAsrModelStatus | null): boolean {
   return status?.state === "ready";
 }
 
-/** 是否本地 whisper 协议。 */
+/** 是否本地 SenseVoiceSmall 协议。 */
 function isLocalProtocol(asr: AsrSettings): boolean {
-  return asr.protocol === "local-whisper";
+  return asr.protocol === "local-sensevoice";
 }
 
 // ── Hook 返回值 ────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ export interface UseComposerVoiceResult {
   micVisible: boolean;
   /** 按钮是否可点击（可见 + 配置就绪 + 非 downloading 状态） */
   micReady: boolean;
-  /** 本地模型下载进度 0-100（仅 local-whisper 且 downloading 时非 null） */
+  /** 本地模型下载进度 0-100（仅 local-sensevoice 且 downloading 时非 null） */
   downloadPercent: number | null;
   /** 切换录音状态（开始/停止） */
   toggleRecording: () => void;
@@ -81,8 +81,8 @@ export function useComposerVoice({
 }): UseComposerVoiceResult {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  /** 本地 whisper 模型状态（只在 local-whisper 协议时订阅）。 */
-  const [localModelStatus, setLocalModelStatus] = useState<LocalWhisperModelStatus | null>(null);
+  /** 本地模型状态（只在 local-sensevoice 协议时订阅）。 */
+  const [localModelStatus, setLocalModelStatus] = useState<LocalAsrModelStatus | null>(null);
 
   // 进行中的录音会话（VoiceCapture 封装 MediaRecorder/MediaStream 生命周期）。
   const captureRef = useRef<VoiceCapture | null>(null);
@@ -100,17 +100,16 @@ export function useComposerVoice({
   useEffect(() => { onToastRef.current = onToast; }, [onToast]);
 
   // ── 本地模型状态订阅 ─────────────────────────────────────────────────────────
-  // 仅 local-whisper 协议时才查模型状态；切换协议立即重置状态。
+  // 仅本地协议时才查模型状态；切换协议立即重置状态。
   useEffect(() => {
-    if (!bridge || !bridge.getWhisperModelStatus || !isLocalProtocol(asrSettings)) {
+    if (!bridge || !bridge.getLocalAsrModelStatus || !isLocalProtocol(asrSettings)) {
       setLocalModelStatus(null);
       return;
     }
     const modelId = asrSettings.model;
     let cancelled = false;
 
-    // 首次加载：用 getWhisperModelStatus 拉快照
-    bridge.getWhisperModelStatus(modelId as Parameters<typeof bridge.getWhisperModelStatus>[0])
+    bridge.getLocalAsrModelStatus(modelId as Parameters<typeof bridge.getLocalAsrModelStatus>[0])
       .then((status) => { if (!cancelled) setLocalModelStatus(status); })
       .catch(() => { /* 模型不在清单内则忽略，按钮将隐藏/禁用 */ });
 
@@ -118,14 +117,14 @@ export function useComposerVoice({
     // 避免每条进度都打 IPC 往返，防止乱序 resolve 把 ready 覆盖回 downloading。
     // 仅在终态（percent >= 100 或 complete）时才补拉完整状态刷新。
     let unsubscribe: (() => void) | undefined;
-    if (bridge.onWhisperDownloadProgress) {
-      unsubscribe = bridge.onWhisperDownloadProgress((progress) => {
+    if (bridge.onLocalAsrDownloadProgress) {
+      unsubscribe = bridge.onLocalAsrDownloadProgress((progress) => {
         if (cancelled || progress.modelId !== modelId) return;
         const percent = progress.percent;
         if (percent !== undefined && percent >= 100) {
           // 下载完成：补拉一次完整状态确认 ready（终态一次 IPC 可接受）
-          if (bridge.getWhisperModelStatus) {
-            bridge.getWhisperModelStatus(modelId as Parameters<typeof bridge.getWhisperModelStatus>[0])
+          if (bridge.getLocalAsrModelStatus) {
+            bridge.getLocalAsrModelStatus(modelId as Parameters<typeof bridge.getLocalAsrModelStatus>[0])
               .then((status) => { if (!cancelled) setLocalModelStatus(status); })
               .catch(() => undefined);
           }
@@ -180,9 +179,7 @@ export function useComposerVoice({
         }
         onTranscriptRef.current(text);
       } catch (err) {
-        // 区分本地运行器退出码与网络/配置错误：
-        // - 退出码错误通常含 "exit code" 字样（由主进程 whisper-cli runner 抛出）
-        // - 网络错误含 fetch/network 字样
+        // 本地 sidecar 与在线请求都返回明确失败原因，输入框原内容不受影响。
         const msg = err instanceof Error ? err.message : String(err);
         onToastRef.current(`转写失败：${msg}`);
         // 注：输入框内容不在本 hook 管理，onToast 后调用方输入框不会被清空

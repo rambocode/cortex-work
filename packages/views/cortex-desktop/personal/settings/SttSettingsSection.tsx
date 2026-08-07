@@ -1,31 +1,31 @@
 // 语音转文字（STT/ASR）设置分区。
-// 结构：总开关 → 供应商选择 → 本地 Whisper 面板（含下载源+模型卡片）
+// 结构：总开关 → 供应商选择 → 本地 SenseVoiceSmall 面板（含下载源+模型卡片）
 //       / 已配置供应商提示 / 自定义 API 表单 → 识别语言 → 高级（timeoutMs）。
 //
 // 供应商选择映射：
-//   protocol='local-whisper'  → 选项值 '__local__'（内部占位）
+//   protocol='local-sensevoice' → 选项值 '__local__'（内部占位）
 //   providerId='custom'       → 选项值 'custom'
 //   其余 providerId           → 已配置供应商 id
 //
-// 本地 Whisper 面板（下载源/模型/进度）拆至 SttLocalWhisperPanel.tsx，
+// 本地模型面板拆至 SttLocalSenseVoicePanel.tsx，
 // 防止本文件超过 1200 行（KTD5 约束）。
 
 import { useMemo } from "react";
 import { usePersonalStore, type ProviderProfile } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
-import type { AsrProtocol, LocalWhisperDownloadSource } from "@cortex-work/core/desktop/media-gen-types";
-import type { LocalWhisperModelId } from "@cortex-work/core/whisper/models";
+import type { AsrProtocol, LocalModelDownloadSource } from "@cortex-work/core/desktop/media-gen-types";
+import type { LocalAsrModelId } from "@cortex-work/core/asr/local-models";
 
 import { BareSelect, SecretField, SettingCard, SRow, SwitchRow } from "./settingsControls";
-import { SttLocalWhisperPanel } from "./SttLocalWhisperPanel";
+import { SttLocalSenseVoicePanel } from "./SttLocalSenseVoicePanel";
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
-// 本地 Whisper 的虚拟供应商选项值（不是真实 providerId，只在 UI 内部用）
-const LOCAL_WHISPER_OPTION = "__local__";
+// 本地模型的虚拟供应商选项值（不是真实 providerId，只在 UI 内部用）
+const LOCAL_SENSEVOICE_OPTION = "__local__";
 const CUSTOM_OPTION = "custom";
 
-// 自定义协议选项（不含 local-whisper，后者由 LOCAL_WHISPER_OPTION 单独走）
+// 自定义协议选项（本地协议由 LOCAL_SENSEVOICE_OPTION 单独走）
 const CUSTOM_ASR_PROTOCOLS: AsrProtocol[] = ["openai-transcriptions", "mimo-asr"];
 
 // 语言选项：auto = 自动检测（默认）
@@ -65,30 +65,29 @@ export function SttSettingsSection() {
 
   // ── 当前供应商模式推断 ────────────────────────────────────────────────────
 
-  // 本地 Whisper：protocol 为 local-whisper
-  const usingLocalWhisper = asr.protocol === "local-whisper";
+  const usingLocalSenseVoice = asr.protocol === "local-sensevoice";
 
-  // 自定义：providerId 为空字符串或 'custom'，且不是本地 Whisper
+  // 自定义：providerId 为空字符串或 'custom'，且不是本地 SenseVoice。
   const usingCustom =
-    !usingLocalWhisper && (!asr.providerId || asr.providerId === CUSTOM_OPTION);
+    !usingLocalSenseVoice && (!asr.providerId || asr.providerId === CUSTOM_OPTION);
 
   // 已配置供应商
   const selectedProvider =
-    !usingLocalWhisper && !usingCustom
+    !usingLocalSenseVoice && !usingCustom
       ? providers.find((p) => p.id === asr.providerId)
       : undefined;
 
   // 供应商下拉当前值
-  const providerSelectValue = usingLocalWhisper
-    ? LOCAL_WHISPER_OPTION
+  const providerSelectValue = usingLocalSenseVoice
+    ? LOCAL_SENSEVOICE_OPTION
     : usingCustom
       ? CUSTOM_OPTION
       : asr.providerId;
 
   // ── 供应商下拉选项 ────────────────────────────────────────────────────────
-  // 始终有本地 Whisper + 自定义；已配置 providers 在中间（无则隐藏该分组）
+  // 始终有本地 SenseVoiceSmall + 自定义；已配置 providers 在中间。
   const providerOptions = [
-    { label: t("stt.providerLocalWhisper"), value: LOCAL_WHISPER_OPTION },
+    { label: t("stt.providerLocalSenseVoice"), value: LOCAL_SENSEVOICE_OPTION },
     ...providers.map((p) => ({ label: p.name, value: p.id })),
     { label: t("stt.providerCustom"), value: CUSTOM_OPTION },
   ];
@@ -96,19 +95,18 @@ export function SttSettingsSection() {
   // ── 事件处理 ──────────────────────────────────────────────────────────────
 
   const handleProviderChange = (value: string): void => {
-    if (value === LOCAL_WHISPER_OPTION) {
-      // 切本地 Whisper：协议固定为 local-whisper，清空 baseUrl/apiKey
+    if (value === LOCAL_SENSEVOICE_OPTION) {
       setAsrSettings({
-        protocol: "local-whisper",
+        protocol: "local-sensevoice",
         providerId: "",
         baseUrl: "",
         apiKey: "",
-        model: asr.model || "whisper-small-q5_1",
+        model: "sensevoice-small-q8",
       });
     } else if (value === CUSTOM_OPTION) {
       // 切自定义：保留已填的 baseUrl/apiKey/model，协议回落为 openai-transcriptions
       setAsrSettings({
-        protocol: asr.protocol === "local-whisper" ? "openai-transcriptions" : asr.protocol,
+        protocol: asr.protocol === "local-sensevoice" ? "openai-transcriptions" : asr.protocol,
         providerId: CUSTOM_OPTION,
       });
     } else {
@@ -159,7 +157,7 @@ export function SttSettingsSection() {
               <>
                 <SRow label={t("stt.protocolLabel")} end>
                   <BareSelect
-                    value={asr.protocol === "local-whisper" ? "openai-transcriptions" : asr.protocol}
+                    value={asr.protocol === "local-sensevoice" ? "openai-transcriptions" : asr.protocol}
                     options={CUSTOM_ASR_PROTOCOLS.map((p) => ({
                       label: asrProtocolLabel(t, p),
                       value: p,
@@ -210,13 +208,12 @@ export function SttSettingsSection() {
             ) : null}
           </SettingCard>
 
-          {/* 本地 Whisper 面板（拆到子组件，防止本文件超行） */}
-          {usingLocalWhisper ? (
-            <SttLocalWhisperPanel
-              selectedModelId={asr.model || "whisper-small-q5_1"}
-              sourceId={(asr.localWhisperDownloadSource as LocalWhisperDownloadSource | undefined) ?? "huggingface"}
-              onSourceChange={(src) => setAsrSettings({ localWhisperDownloadSource: src })}
-              onModelSelect={(modelId: LocalWhisperModelId) => setAsrSettings({ model: modelId })}
+          {usingLocalSenseVoice ? (
+            <SttLocalSenseVoicePanel
+              selectedModelId={asr.model || "sensevoice-small-q8"}
+              sourceId={(asr.localModelDownloadSource as LocalModelDownloadSource | undefined) ?? "huggingface"}
+              onSourceChange={(src) => setAsrSettings({ localModelDownloadSource: src })}
+              onModelSelect={(modelId: LocalAsrModelId) => setAsrSettings({ model: modelId })}
             />
           ) : null}
 

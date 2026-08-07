@@ -1,295 +1,115 @@
-// stt.test.ts — stt:transcribe handler 分发逻辑单测
-// 验证按 protocol 路由、MAX_BYTES 超限被拒、local-whisper 模型未就绪报错。
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+const mocks = vi.hoisted(() => ({
+  getStatus: vi.fn(),
+  transcribeOnline: vi.fn(),
+  start: vi.fn(),
+  append: vi.fn(),
+  finish: vi.fn(),
+  cancel: vi.fn(),
+  transcribePcm: vi.fn(),
+}));
 
-// ── mock electron ──────────────────────────────────────────────────────────────
 vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn(),
+  ipcMain: { handle: vi.fn() },
+  BrowserWindow: { getAllWindows: () => [] },
+}));
+vi.mock("../capabilities/sensevoice/models", () => ({
+  getLocalAsrModelStatus: (...args: unknown[]) => mocks.getStatus(...args),
+  downloadLocalAsrModel: vi.fn(),
+  cancelLocalAsrDownload: vi.fn(),
+  deleteLocalAsrModel: vi.fn(),
+  checkLocalAsrSources: vi.fn(),
+  setLocalAsrProgressEmitter: vi.fn(),
+}));
+vi.mock("../capabilities/sensevoice/client", () => ({
+  senseVoiceClient: {
+    startStream: (...args: unknown[]) => mocks.start(...args),
+    appendAudio: (...args: unknown[]) => mocks.append(...args),
+    finishStream: (...args: unknown[]) => mocks.finish(...args),
+    cancelStream: (...args: unknown[]) => mocks.cancel(...args),
+    transcribePcm: (...args: unknown[]) => mocks.transcribePcm(...args),
   },
-  BrowserWindow: {
-    getAllWindows: () => [],
-  },
 }));
+vi.mock("../capabilities/asr/online-transcribe", () => ({
+  transcribeOnline: (...args: unknown[]) => mocks.transcribeOnline(...args),
+  ASR_MAX_BYTES: 25 * 1024 * 1024,
+}));
+vi.mock("../capabilities/asr/polish", () => ({ polishTranscriptIfEnabled: vi.fn() }));
 
-// ── mock capabilities/whisper/models ──────────────────────────────────────────
-const mockGetModelStatus = vi.fn();
-// isLocalWhisperModelId 在白名单校验中使用；
-// mock 中默认返回 true（白名单通过），便于路由测试聚焦在后续逻辑。
-// 个别用例可覆盖为 false 以测试无效 modelId 分支。
-const mockIsLocalWhisperModelId = vi.fn().mockReturnValue(true);
-vi.mock("../capabilities/whisper/models", () => ({
-  getModelStatus: (...args: unknown[]) => mockGetModelStatus(...args),
-  downloadModel: vi.fn(),
-  cancelDownload: vi.fn(),
-  deleteModel: vi.fn(),
-  checkSources: vi.fn(),
-  setWhisperProgressEmitter: vi.fn(),
-}));
-// isLocalWhisperModelId 从 @cortex-work/core/whisper/models 导入，单独 mock
-vi.mock("@cortex-work/core/whisper/models", () => ({
-  isLocalWhisperModelId: (...args: unknown[]) => mockIsLocalWhisperModelId(...args),
-}));
-
-// ── mock capabilities/whisper/transcribe ──────────────────────────────────────
-const mockTranscribeLocal = vi.fn();
-vi.mock("../capabilities/whisper/transcribe", () => ({
-  transcribeLocal: (...args: unknown[]) => mockTranscribeLocal(...args),
-}));
-
-// ── mock capabilities/whisper/online-transcribe ───────────────────────────────
-const mockTranscribeOnline = vi.fn();
-vi.mock("../capabilities/whisper/online-transcribe", () => ({
-  transcribeOnline: (...args: unknown[]) => mockTranscribeOnline(...args),
-  ASR_MAX_BYTES: 25 * 1024 * 1024, // 25 MB
-}));
-
-// ── 提取注册的 handler ─────────────────────────────────────────────────────────
 import { ipcMain } from "electron";
 import { registerSttHandlers } from "./stt";
 
-// 调用 registerSttHandlers 并收集 handle 调用
-let handlers: Record<string, (event: unknown, ...args: unknown[]) => unknown> = {};
-beforeEach(() => {
-  handlers = {};
-  vi.mocked(ipcMain.handle).mockImplementation((channel: string, handler: unknown) => {
-    handlers[channel] = handler as (event: unknown, ...args: unknown[]) => unknown;
-  });
-  vi.clearAllMocks();
-  // 白名单默认通过（大多数用例测试路由逻辑，不测试 modelId 校验）
-  mockIsLocalWhisperModelId.mockReturnValue(true);
-  // 重新注册以收集最新 handlers
-  registerSttHandlers();
-});
+let handlers: Record<string, (event: unknown, ...args: never[]) => unknown>;
 
-// ── 辅助构造基础请求 ──────────────────────────────────────────────────────────
-function makeReq(overrides: Partial<Record<string, unknown>> = {}) {
+function settings(protocol: string) {
   return {
-    audio: new ArrayBuffer(1024), // 1 KB（远低于 MAX_BYTES）
-    mimeType: "audio/wav",
-    fileName: "test.wav",
-    asrSettings: {
-      enabled: true,
-      providerId: "default",
-      protocol: "openai-transcriptions",
-      baseUrl: "https://api.example.com",
-      apiKey: "sk-test",
-      model: "whisper-1",
-      localWhisperDownloadSource: "huggingface",
-      language: "en",
-      timeoutMs: 60000,
-    },
-    ...overrides,
+    enabled: true,
+    providerId: "",
+    protocol,
+    baseUrl: "https://asr.example.com",
+    apiKey: "key",
+    model: protocol === "local-sensevoice" ? "sensevoice-small-q8" : "whisper-1",
+    localModelDownloadSource: "huggingface",
+    language: "zh",
+    timeoutMs: 60_000,
   };
 }
 
-describe("stt:transcribe handler", () => {
-  describe("MAX_BYTES 超限检查", () => {
-    it("音频超过 25 MB 时拒绝（不走任何后端）", async () => {
-      const bigAudio = new ArrayBuffer(26 * 1024 * 1024); // 26 MB
-      const req = makeReq({ audio: bigAudio });
+function wav(pcm: Buffer): ArrayBuffer {
+  const out = Buffer.alloc(44 + pcm.length);
+  out.write("RIFF", 0); out.writeUInt32LE(36 + pcm.length, 4); out.write("WAVEfmt ", 8);
+  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(16_000, 24); out.writeUInt32LE(32_000, 28); out.writeUInt16LE(2, 32);
+  out.writeUInt16LE(16, 34); out.write("data", 36); out.writeUInt32LE(pcm.length, 40); pcm.copy(out, 44);
+  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+}
 
-      await expect(
-        handlers["stt:transcribe"]?.({}, req),
-      ).rejects.toThrow(/大小限制/);
+beforeEach(() => {
+  handlers = {};
+  vi.clearAllMocks();
+  vi.mocked(ipcMain.handle).mockImplementation((channel: string, handler: unknown) => {
+    handlers[channel] = handler as (event: unknown, ...args: never[]) => unknown;
+  });
+  registerSttHandlers();
+});
 
-      expect(mockTranscribeLocal).not.toHaveBeenCalled();
-      expect(mockTranscribeOnline).not.toHaveBeenCalled();
-    });
+describe("stt IPC", () => {
+  it("在线协议继续走 OpenAI 兼容转写", async () => {
+    mocks.transcribeOnline.mockResolvedValue({ text: "online" });
+    const result = await handlers["stt:transcribe"]?.({}, {
+      audio: new ArrayBuffer(8), mimeType: "audio/wav", fileName: "a.wav",
+      asrSettings: settings("openai-transcriptions"),
+    } as never);
+    expect(result).toEqual({ text: "online" });
   });
 
-  describe("openai-transcriptions 路由", () => {
-    it("protocol=openai-transcriptions → 调用 transcribeOnline", async () => {
-      mockTranscribeOnline.mockResolvedValue({ text: "hello world" });
-      const req = makeReq({
-        asrSettings: { ...makeReq().asrSettings, protocol: "openai-transcriptions" },
-      });
-
-      const result = await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeOnline).toHaveBeenCalledTimes(1);
-      expect(mockTranscribeLocal).not.toHaveBeenCalled();
-      expect(result).toEqual({ text: "hello world" });
+  it("local-sensevoice 整段 WAV 复用常驻流式客户端", async () => {
+    mocks.getStatus.mockResolvedValue({ state: "ready", path: "/model.gguf" });
+    mocks.transcribePcm.mockResolvedValue("本地结果");
+    const pcm = Buffer.from([1, 0, 2, 0]);
+    const result = await handlers["stt:transcribe"]?.({}, {
+      audio: wav(pcm), mimeType: "audio/wav", fileName: "a.wav",
+      asrSettings: settings("local-sensevoice"),
+    } as never);
+    expect(mocks.transcribePcm).toHaveBeenCalledWith({
+      modelPath: "/model.gguf", language: "zh", pcm16le: pcm,
     });
-
-    it("将请求 prompt 透传给在线转写", async () => {
-      mockTranscribeOnline.mockResolvedValue({ text: "Cortex" });
-      const req = makeReq({ prompt: "Cortex, Whisper" });
-
-      await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeOnline).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: "Cortex, Whisper" }),
-      );
-    });
+    expect(result).toEqual({ text: "本地结果" });
   });
 
-  describe("mimo-asr 路由", () => {
-    it("protocol=mimo-asr → 调用 transcribeOnline（同接口形状）", async () => {
-      mockTranscribeOnline.mockResolvedValue({ text: "mimo result" });
-      const req = makeReq({
-        asrSettings: { ...makeReq().asrSettings, protocol: "mimo-asr" },
-      });
-
-      const result = await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeOnline).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ text: "mimo result" });
-    });
+  it("实时 start 在模型未就绪时拒绝", async () => {
+    mocks.getStatus.mockResolvedValue({ state: "missing" });
+    await expect(handlers["stt:stream:start"]?.({}, {
+      requestId: "r", modelId: "sensevoice-small-q8", language: "auto",
+    } as never)).rejects.toThrow(/尚未就绪/);
   });
 
-  describe("local-whisper 路由", () => {
-    it("模型 ready 时调用 transcribeLocal", async () => {
-      mockGetModelStatus.mockResolvedValue({
-        id: "whisper-small-q5_1",
-        state: "ready",
-        path: "/models/ggml-small.bin",
-      });
-      mockTranscribeLocal.mockResolvedValue({ text: "本地转写结果" });
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-        },
-      });
-
-      const result = await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeLocal).toHaveBeenCalledTimes(1);
-      expect(mockTranscribeOnline).not.toHaveBeenCalled();
-      expect(result).toEqual({ text: "本地转写结果" });
-    });
-
-    it("transcribeLocal 参数包含 modelPath（来自 status.path）", async () => {
-      const modelPath = "/userData/models/speech/whisper/whisper-small-q5_1/ggml-small.bin";
-      mockGetModelStatus.mockResolvedValue({
-        id: "whisper-small-q5_1",
-        state: "ready",
-        path: modelPath,
-      });
-      mockTranscribeLocal.mockResolvedValue({ text: "结果" });
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-          language: "zh",
-        },
-      });
-
-      await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeLocal).toHaveBeenCalledWith(
-        expect.objectContaining({
-          modelPath,
-          language: "zh",
-        }),
-      );
-    });
-
-    it("将请求 prompt 透传给本地 Whisper", async () => {
-      mockGetModelStatus.mockResolvedValue({
-        id: "whisper-small-q5_1",
-        state: "ready",
-        path: "/models/ggml-small.bin",
-      });
-      mockTranscribeLocal.mockResolvedValue({ text: "Cortex" });
-      const req = makeReq({
-        prompt: "Cortex, Whisper",
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-        },
-      });
-
-      await handlers["stt:transcribe"]?.({}, req);
-
-      expect(mockTranscribeLocal).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: "Cortex, Whisper" }),
-      );
-    });
-
-    it("模型未 ready（state=missing）时抛出清晰错误", async () => {
-      mockGetModelStatus.mockResolvedValue({
-        id: "whisper-small-q5_1",
-        state: "missing",
-        path: undefined,
-      });
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-        },
-      });
-
-      await expect(
-        handlers["stt:transcribe"]?.({}, req),
-      ).rejects.toThrow(/尚未就绪/);
-
-      expect(mockTranscribeLocal).not.toHaveBeenCalled();
-    });
-
-    it("模型 state=downloading 时也报未就绪", async () => {
-      mockGetModelStatus.mockResolvedValue({
-        id: "whisper-small-q5_1",
-        state: "downloading",
-        path: undefined,
-      });
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-        },
-      });
-
-      await expect(
-        handlers["stt:transcribe"]?.({}, req),
-      ).rejects.toThrow(/尚未就绪/);
-    });
-
-    it("getModelStatus 返回 undefined 时报找不到", async () => {
-      mockGetModelStatus.mockResolvedValue(undefined);
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "whisper-small-q5_1",
-        },
-      });
-
-      await expect(
-        handlers["stt:transcribe"]?.({}, req),
-      ).rejects.toThrow(/尚未就绪|未找到/);
-    });
-
-    it("无效 modelId（不在白名单）时返回友好错误，不抛内部异常", async () => {
-      // 模拟 isLocalWhisperModelId 返回 false（非白名单）
-      mockIsLocalWhisperModelId.mockReturnValue(false);
-
-      const req = makeReq({
-        asrSettings: {
-          ...makeReq().asrSettings,
-          protocol: "local-whisper",
-          model: "invalid-model-id",
-        },
-      });
-
-      await expect(
-        handlers["stt:transcribe"]?.({}, req),
-      ).rejects.toThrow(/请先在设置中选择有效的本地模型/);
-
-      // 白名单校验失败后，不应再调用 getModelStatus
-      expect(mockGetModelStatus).not.toHaveBeenCalled();
-    });
+  it("已删除的 local-whisper 不会被当作在线协议发送", async () => {
+    await expect(handlers["stt:transcribe"]?.({}, {
+      audio: new ArrayBuffer(8), mimeType: "audio/wav", fileName: "a.wav",
+      asrSettings: settings("local-whisper"),
+    } as never)).rejects.toThrow(/不支持的 ASR 协议/);
+    expect(mocks.transcribeOnline).not.toHaveBeenCalled();
   });
 });

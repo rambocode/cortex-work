@@ -132,6 +132,7 @@ export { killAllWorkflows } from "../workflow/index";
 export { syncAgentBrowserRuntime } from "./agent-browser";
 // Research Worker 回收：utilityProcess 子进程不随主进程退出自动消失,必须接进退出钩子。
 export { killAllResearchWorkers } from "../research/worker/kill-all";
+export { shutdownLocalAsrRuntime } from "./stt";
 export { runResearchStartupTasks, syncResearchEngineRuntime } from "../research/runtime";
 // 编排子进程回收：接入 app 退出钩子（与 killAllCli/killAllHeadlessPrompts 并列）
 export { killAllOrchestrations } from "./orchestrate";

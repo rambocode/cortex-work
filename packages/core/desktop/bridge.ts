@@ -169,10 +169,10 @@ import type {
   UserMemoryState,
 } from "../memory/memory";
 import type {
-  LocalWhisperModelStatus,
-  LocalWhisperModelProgress,
-  LocalWhisperSourcesResult,
-} from "../whisper/models";
+  LocalAsrModelStatus,
+  LocalAsrModelProgress,
+  LocalAsrSourcesResult,
+} from "../asr/local-models";
 import type { AsrSettings } from "./media-gen-types";
 // 研究引擎桥契约（真源单独成文件,见其头部注释:三处同形约定 + 1200 行上限的理由）。
 import type { CortexResearchBridge } from "./research-bridge";
@@ -704,30 +704,33 @@ export interface DesktopBridge {
   // 可选:web/旧壳无此能力 → 插件面降级空态。安装/升级/删除为后续阶段，本期不提供。
   pluginList?(): Promise<PluginListResult>;
   marketplaceList?(): Promise<MarketplaceListResult>;
-  // ── 本地 Whisper 模型管理（U7）。可选:web/旧壳无此能力 → UI 降级隐藏本地转写入口。 ──
-  // IPC 通道: stt:listModels / stt:modelStatus / stt:downloadModel /
-  //           stt:cancelDownload / stt:deleteModel / stt:checkSources
-  // 进度推送: stt:downloadProgress（主进程 → 渲染端，通过 onWhisperDownloadProgress 订阅）
-  /** 列出所有本地 Whisper 模型状态（missing/downloading/ready/error）。*/
-  listWhisperModels?(): Promise<LocalWhisperModelStatus[]>;
+  // ── SenseVoiceSmall 本地模型与流式会话。可选:web/旧壳无此能力时 UI 隐藏本地入口。 ──
+  /** 列出所有本地 ASR 模型状态（missing/downloading/ready/error）。*/
+  listLocalAsrModels?(): Promise<LocalAsrModelStatus[]>;
   /** 查询单个模型状态（含下载进度快照）。*/
-  getWhisperModelStatus?(modelId: string): Promise<LocalWhisperModelStatus>;
-  /** 下载指定模型（互斥;进度经 onWhisperDownloadProgress 推送）。*/
-  downloadWhisperModel?(args: { modelId: string; sourceId?: string }): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }>;
+  getLocalAsrModelStatus?(modelId: string): Promise<LocalAsrModelStatus>;
+  /** 下载指定模型（互斥;进度经 onLocalAsrDownloadProgress 推送）。*/
+  downloadLocalAsrModel?(args: { modelId: string; sourceId?: string }): Promise<{ ok: boolean; message?: string; status?: LocalAsrModelStatus }>;
   /** 取消正在进行的下载（幂等）。*/
-  cancelWhisperDownload?(modelId: string): Promise<{ ok: boolean; status?: LocalWhisperModelStatus }>;
+  cancelLocalAsrDownload?(modelId: string): Promise<{ ok: boolean; status?: LocalAsrModelStatus }>;
   /** 删除已下载的模型文件。*/
-  deleteWhisperModel?(modelId: string): Promise<{ ok: boolean; message?: string; status?: LocalWhisperModelStatus }>;
+  deleteLocalAsrModel?(modelId: string): Promise<{ ok: boolean; message?: string; status?: LocalAsrModelStatus }>;
   /** 检测各下载源对指定模型的可达性。*/
-  checkWhisperSources?(modelId?: string): Promise<LocalWhisperSourcesResult>;
+  checkLocalAsrSources?(modelId?: string): Promise<LocalAsrSourcesResult>;
   /** 订阅下载进度推送（仿 onUpdateState；返回退订函数）。*/
-  onWhisperDownloadProgress?(cb: (progress: LocalWhisperModelProgress) => void): () => void;
-  // ── U8：统一转写入口 ─────────────────────────────────────────────────────────
-  // 相比 asrTranscribe（只支持在线），transcribeSpeech 按 asrSettings.protocol 路由：
-  //   local-whisper          → 主进程 spawn whisper-cli（本地，无网络）
+  onLocalAsrDownloadProgress?(cb: (progress: LocalAsrModelProgress) => void): () => void;
+  /** 启动本地实时会话；sidecar 就绪且 BEGIN 已写入后返回。*/
+  startLocalAsrStream?(args: { requestId: string; modelId: string; language: string }): Promise<void>;
+  /** 追加 16kHz/单声道/PCM16LE；主进程校验 requestId、顺序与 30 秒上限。*/
+  appendLocalAsrAudio?(requestId: string, audio: ArrayBuffer): Promise<void>;
+  /** 结束本地语句并等待一次整句结果。*/
+  finishLocalAsrStream?(requestId: string): Promise<AsrTranscribeResponse>;
+  /** 幂等取消当前本地语句。*/
+  cancelLocalAsrStream?(requestId: string): Promise<void>;
+  // 统一转写入口：
+  //   local-sensevoice       → 常驻原生 sidecar（本地，无网络）
   //   openai-transcriptions  → OpenAI 兼容 /v1/audio/transcriptions
   //   mimo-asr               → MIMO ASR（同 OpenAI 兼容接口形状）
-  // U9 ComposerShell 通过此方法发起转写；asrTranscribe 保持向后兼容供旧消费方使用。
   transcribeSpeech?(req: AsrTranscribeRequest, asrSettings: AsrSettings): Promise<AsrTranscribeResponse>;
   // 转写文本 LLM 纠错(stt:polish):开关/模型/prompt 全由主进程按 voiceSettings 决定,
   // 失败或未配置模型时原文返回——调用方只需「转写 → 纠错 → 再上屏」串联,无需感知细节。

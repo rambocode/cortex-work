@@ -41,6 +41,9 @@ const LEVEL_MIN_DELTA = 0.02;
 // runningBySession 清零后等 voiceTurn 钩子的宽限:超时仍停在 thinking 说明三处埋点都
 // 没覆盖到(理论不该发生),兜底收尾避免语音球永远转圈。
 const TURN_END_GRACE_MS = 600;
+// SenseVoiceSmall 单次推理上限；到点自动按当前语句提交，避免 PCM 缓存无限增长。
+const MAX_UTTERANCE_MS = 30_000;
+const PRE_ROLL_BYTES = 16_000 * 2 * 0.32;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -62,6 +65,14 @@ export function VoiceAssistantController(): null {
   const sessionIdRef = useRef<string | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
   const vadRef = useRef<{ stop: () => void } | null>(null);
+  const vadEngineRef = useRef<"silero" | "energy" | null>(null);
+  const localStreamIdRef = useRef<string | null>(null);
+  const pcmWriteRef = useRef<Promise<void>>(Promise.resolve());
+  const pcmWriteErrorRef = useRef<Error | null>(null);
+  const speechStartedRef = useRef(false);
+  const preRollRef = useRef<ArrayBuffer[]>([]);
+  const preRollBytesRef = useRef(0);
+  const utteranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 退出/重开时递增,晚到的 getUserMedia resolve 依此自我释放,不占住下一次录音的麦克风。
   const recordingAttemptRef = useRef(0);
   const scanTickRef = useRef(0);
@@ -113,10 +124,19 @@ export function VoiceAssistantController(): null {
 
   /** 停掉录音侧资源(麦克风 + VAD);不触碰 TTS 与状态机。 */
   const stopCapture = useCallback((): void => {
+    if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
+    utteranceTimerRef.current = null;
     vadRef.current?.stop();
     vadRef.current = null;
+    vadEngineRef.current = null;
     captureRef.current?.dispose();
     captureRef.current = null;
+    const streamId = localStreamIdRef.current;
+    localStreamIdRef.current = null;
+    if (streamId) void bridgeRef.current?.cancelLocalAsrStream?.(streamId);
+    preRollRef.current = [];
+    preRollBytesRef.current = 0;
+    speechStartedRef.current = false;
   }, []);
 
   /** 解析语音轮次的目标会话,三级回退保证「语音聊天的持续性」:
@@ -178,10 +198,60 @@ export function VoiceAssistantController(): null {
     dispatch({ type: "listening" });
     try {
       const s = usePersonalStore.getState();
+      if (!s.asrSettings.enabled) throw new Error("请先在语音设置中启用语音识别");
+      const b = bridgeRef.current;
+      if (!b) throw new Error("桌面桥不可用");
       const capture = new VoiceCapture();
-      await capture.start(s.voiceSettings.micDeviceId || undefined);
+      // 先登记，sidecar/权限任一路失败时 catch 内的 stopCapture 都能释放刚申请的麦克风。
+      captureRef.current = capture;
+      const useLocal = s.asrSettings.protocol === "local-sensevoice";
+      const requestId = useLocal ? crypto.randomUUID() : null;
+      localStreamIdRef.current = requestId;
+      pcmWriteErrorRef.current = null;
+      speechStartedRef.current = false;
+      preRollRef.current = [];
+      preRollBytesRef.current = 0;
+
+      const streamReady = useLocal
+        ? (() => {
+            if (!b.startLocalAsrStream || !b.appendLocalAsrAudio || !b.finishLocalAsrStream) {
+              return Promise.reject(new Error("当前桌面版本不支持 SenseVoice 实时识别"));
+            }
+            return b.startLocalAsrStream({
+              requestId: requestId!,
+              modelId: s.asrSettings.model,
+              language: s.asrSettings.language || "auto",
+            });
+          })()
+        : Promise.resolve();
+      pcmWriteRef.current = streamReady;
+      void streamReady.catch(() => undefined);
+
+      const enqueuePcm = (chunk: ArrayBuffer): void => {
+        if (!requestId || !b.appendLocalAsrAudio) return;
+        if (!speechStartedRef.current) {
+          preRollRef.current.push(chunk);
+          preRollBytesRef.current += chunk.byteLength;
+          while (preRollBytesRef.current > PRE_ROLL_BYTES && preRollRef.current.length > 1) {
+            preRollBytesRef.current -= preRollRef.current.shift()?.byteLength ?? 0;
+          }
+          return;
+        }
+        pcmWriteRef.current = pcmWriteRef.current
+          .then(() => b.appendLocalAsrAudio!(requestId, chunk))
+          .catch((error) => {
+            pcmWriteErrorRef.current = error instanceof Error ? error : new Error(String(error));
+          });
+      };
+
+      await capture.start(
+        s.voiceSettings.micDeviceId || undefined,
+        useLocal ? { onPcmChunk: enqueuePcm } : undefined,
+      );
       if (attempt !== recordingAttemptRef.current || machineRef.current.phase !== "listening") {
         capture.dispose();
+        if (captureRef.current === capture) captureRef.current = null;
+        if (requestId) void b.cancelLocalAsrStream?.(requestId);
         return;
       }
       captureRef.current = capture;
@@ -195,7 +265,15 @@ export function VoiceAssistantController(): null {
         const monitor = await createVoiceVadMonitor(
           capture.mediaStream,
           (event) => {
-            if (event === "speech-end") void submitRef.current?.();
+            if (event === "speech-start") {
+              speechStartedRef.current = true;
+              const buffered = preRollRef.current;
+              preRollRef.current = [];
+              preRollBytesRef.current = 0;
+              for (const chunk of buffered) enqueuePcm(chunk);
+            } else {
+              void submitRef.current?.();
+            }
           },
           (rms) => {
             // 电平驱动语音球动画:RMS(近讲多在 0~0.12)放大到 0..1,节流 + 去抖后上报。
@@ -213,7 +291,12 @@ export function VoiceAssistantController(): null {
           return;
         }
         vadRef.current = monitor;
+        vadEngineRef.current = monitor.engine;
+        utteranceTimerRef.current = setTimeout(() => void submitRef.current?.(), MAX_UTTERANCE_MS);
       }
+      // VAD 必须在模型预热期间就开始监听，否则首次加载模型时用户已说出的句子会被漏掉；
+      // PCM 写入链仍以 streamReady 为前置，因此不会在 BEGIN 之前写 AUDIO。
+      await streamReady;
     } catch (err) {
       stopCapture();
       dispatch({ type: "failed", message: errorMessage(err) });
@@ -225,10 +308,27 @@ export function VoiceAssistantController(): null {
     if (machineRef.current.phase !== "listening") return;
     const capture = captureRef.current;
     captureRef.current = null;
+    if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
+    utteranceTimerRef.current = null;
     vadRef.current?.stop();
     vadRef.current = null;
+    const vadEngine = vadEngineRef.current;
+    vadEngineRef.current = null;
     dispatch({ type: "speechEnd" });
     try {
+      // 手动提交可能早于 VAD 的 speech-start；此时把仅有的 320ms 前滚作为本句发送。
+      if (!speechStartedRef.current) {
+        speechStartedRef.current = true;
+        const b = bridgeRef.current;
+        const requestId = localStreamIdRef.current;
+        if (b?.appendLocalAsrAudio && requestId) {
+          for (const chunk of preRollRef.current) {
+            pcmWriteRef.current = pcmWriteRef.current.then(() => b.appendLocalAsrAudio!(requestId, chunk));
+          }
+        }
+      }
+      preRollRef.current = [];
+      preRollBytesRef.current = 0;
       const blob = await capture?.stop();
       capture?.dispose();
       if (!blob) throw new Error("没有录到音频");
@@ -236,11 +336,23 @@ export function VoiceAssistantController(): null {
       if (!s.asrSettings.enabled) throw new Error("请先在语音设置中启用语音识别");
       const b = bridgeRef.current;
       if (!b) throw new Error("桌面桥不可用");
-      let text = (
-        await transcribeRecording(b, s.asrSettings, blob, {
-          prompt: s.voiceSettings.dictationDictionary.join("，"),
-        })
-      ).trim();
+      const streamId = localStreamIdRef.current;
+      localStreamIdRef.current = null;
+      let text: string;
+      if (s.asrSettings.protocol === "local-sensevoice" && streamId && vadEngine === "silero") {
+        await pcmWriteRef.current;
+        if (pcmWriteErrorRef.current) throw pcmWriteErrorRef.current;
+        if (!b.finishLocalAsrStream) throw new Error("当前桌面版本不支持 SenseVoice 实时识别");
+        text = (await b.finishLocalAsrStream(streamId)).text.trim();
+      } else {
+        // Silero 不可用时按计划保留完整 WAV 降级路径；已启动的本地流先取消，避免占用 sidecar。
+        if (streamId) await b.cancelLocalAsrStream?.(streamId);
+        text = (
+          await transcribeRecording(b, s.asrSettings, blob, {
+            prompt: s.voiceSettings.dictationDictionary.join("，"),
+          })
+        ).trim();
+      }
       if (!text) throw new Error("没有识别到语音内容");
       // 转写 LLM 纠错(开关/模型/prompt 由主进程按 voiceSettings 决定;失败原文返回)。
       if ((s.voiceSettings.transcriptPolish ?? true) && b.polishTranscript) {

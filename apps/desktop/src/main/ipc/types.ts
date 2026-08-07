@@ -651,8 +651,8 @@ export interface MediaGenSettings {
   video: VideoGenSettings;
 }
 
-export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-whisper";
-export type LocalWhisperDownloadSource = "huggingface" | "hf-mirror" | "hf-sufy";
+export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-sensevoice";
+export type LocalModelDownloadSource = "huggingface" | "hf-mirror";
 
 export interface AsrSettings {
   enabled: boolean;
@@ -661,7 +661,7 @@ export interface AsrSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
-  localWhisperDownloadSource: LocalWhisperDownloadSource;
+  localModelDownloadSource: LocalModelDownloadSource;
   language: string;
   timeoutMs: number;
 }

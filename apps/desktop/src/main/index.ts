@@ -16,6 +16,7 @@ import {
   killAllResearchWorkers,
   runResearchStartupTasks,
   syncResearchEngineRuntime,
+  shutdownLocalAsrRuntime,
 } from "./ipc/register";
 import { installBrowserWebviewGuards } from "./browser/webviewGuards";
 import { configureBrowserPartition } from "./browser/partition";
@@ -76,7 +77,7 @@ import {
 } from "./ipc/voice";
 import { setVoiceAssistantWiring, toggleVoiceAssistantFromHotkey } from "./ipc/voice-assistant";
 import { DictationController } from "./voice/dictation-controller";
-import { polishTranscriptIfEnabled } from "./capabilities/whisper/polish";
+import { polishTranscriptIfEnabled } from "./capabilities/asr/polish";
 import { destroyDictationWindow, pushDictationBarState } from "./voice/dictation-window";
 import { mapAcceleratorToMacKeyCode } from "./voice/accelerator-keycode";
 // 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
@@ -816,6 +817,7 @@ if (!app.requestSingleInstanceLock()) {
     // pi gateway 常驻 worker：会话已随上一行逐个 close，这里收掉进程本身。
     // 窗口关闭即收（而不是留到 app 退出）：无窗口时不该有 pi runtime 挂着吃内存。
     shutdownPiGatewayRuntime();
+    shutdownLocalAsrRuntime();
     killAllPty();
     closeAllWatchers();
     killAllOrchestrations(); // 编排链路随窗口关闭终止（chat 级进程，不同于 automation）
@@ -854,6 +856,7 @@ if (!app.requestSingleInstanceLock()) {
     killAllAsk();
     killAllPiSessions();
     shutdownPiGatewayRuntime(); // 常驻 worker 与 Research Worker 同理,不随主进程退出自动消失
+    shutdownLocalAsrRuntime(); // SenseVoice sidecar 同为常驻子进程，窗口关闭/退出均显式回收
     killAllPty();
     killAllResearchWorkers(); // Research Worker(utilityProcess)不随主进程退出自动消失,必须显式杀
     closeAllWatchers();

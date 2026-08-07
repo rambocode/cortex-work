@@ -2,15 +2,14 @@
  * 音频 Blob → 单声道 16kHz 16-bit PCM WAV 编码工具。
  *
  * 背景：
- * - MediaRecorder 输出 webm/opus 或 mp4，whisper-cli（-f）以及大多数在线 ASR
- *   接口期望 WAV 或原生采样率音频；本地 whisper 对 WAV 最稳定。
- * - 统一重采样为 16kHz 单声道，是 Whisper 原生训练格式，避免服务端再次重采样。
+ * - MediaRecorder 输出 webm/opus 或 mp4，本地 SenseVoice sidecar 与多数在线 ASR 接受 WAV。
+ * - 统一重采样为 16kHz 单声道 PCM16，避免跨进程后再次解码或重采样。
  *
  * 移植自 Kun use-voice-dictation.ts 的 encodeBlobAsWav/encodeWavPcm16，
  * 去掉 base64 步骤直接返回 ArrayBuffer（cortex AsrTranscribeRequest.audio 接收 ArrayBuffer）。
  */
 
-/** whisper-cli 与大多数在线 ASR 的通用采样率。 */
+/** SenseVoiceSmall 与大多数在线 ASR 的通用采样率。 */
 const TRANSCRIPTION_SAMPLE_RATE = 16_000;
 
 /**

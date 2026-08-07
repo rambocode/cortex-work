@@ -69,7 +69,7 @@
     "./personal/browserErrorInfo": "./personal/browserErrorInfo.ts",
     "./personal/browserOrigin": "./personal/browserOrigin.ts",
     "./personal/annotationPayload": "./personal/annotationPayload.ts",
-    "./whisper/models": "./whisper/models.ts",
+    "./asr/local-models": "./asr/local-models.ts",
     "./reply/*": "./reply/*.ts",
     "./memory/*": "./memory/*.ts",
     "./research/*": "./research/*.ts",

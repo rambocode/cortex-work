@@ -2,7 +2,7 @@
 // 此模块纯函数，不依赖 electron，便于单测。
 //
 // 注：audioTranscriptionsUrl 本已在 ipc/push-sign.ts 导出；
-// 此处 re-export 方便 capabilities/whisper/ 内部统一引入，不必跨层 import ipc/。
+// 此处 re-export 方便 capabilities/asr/ 内部统一引入，不必跨层 import ipc/。
 
 export { audioTranscriptionsUrl } from "../../ipc/push-sign";
 

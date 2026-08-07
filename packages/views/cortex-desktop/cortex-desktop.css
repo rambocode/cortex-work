@@ -7929,8 +7929,8 @@ button.sb-row {
    仅此页作用域生效,不影响其它设置分区仍用的通用绿色开关。 */
 .pw-speech-settings .twk-toggle[data-on="1"] { background: var(--accent); }
 
-/* ── 本地 Whisper 模型卡片(pw-stt-*):连带修复的历史缺口 ─────────────────
-   SttLocalWhisperPanel.tsx 用到的 .pw-stt-* 类名此前在全局样式表里一条都
+/* ── 本地 SenseVoice 模型卡片（pw-stt-*）────────────────────────────────
+   SttLocalSenseVoicePanel.tsx 使用以下样式展示下载、校验和就绪状态。
    没有定义,模型卡片就是一个裸 <button>——标题/状态徽标/四项元数据/操作按钮
    全部塌成一行文字挤在一起(反馈截图所见)。这里补齐。用 grid 而非纵向堆叠：
    标题行与操作按钮同处第 1 行(按钮靠右、不再单独占一整行)，元数据/进度条

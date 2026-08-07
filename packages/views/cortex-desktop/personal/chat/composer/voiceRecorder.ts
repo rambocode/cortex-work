@@ -9,6 +9,7 @@
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import { encodeBlobAsWav } from "./encodeWav";
+import { StreamingPcm16Resampler } from "./pcmStream";
 
 /** MediaRecorder MIME 优先顺序，webm/opus 压缩比最佳。 */
 const RECORDER_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -32,6 +33,11 @@ export class VoiceCapture {
   private chunks: BlobPart[] = [];
   // stop() 的 resolve；onstop 触发后回调它把最终 Blob 交回，随即清空避免重复 resolve。
   private stopResolve: ((blob: Blob | null) => void) | null = null;
+  private audioContext: AudioContext | null = null;
+  private audioSource: MediaStreamAudioSourceNode | null = null;
+  private audioProcessor: ScriptProcessorNode | null = null;
+  private audioMute: GainNode | null = null;
+  private pcmEncoder: StreamingPcm16Resampler | null = null;
 
   /** 是否处于活动录音中（宿主据此判断能否 stop）。 */
   get active(): boolean {
@@ -50,7 +56,10 @@ export class VoiceCapture {
    * 申请指定麦克风（未传则系统默认）并开始录音。若已选设备不再满足约束则自动回退默认设备；
    * 其余失败（无 getUserMedia / 无 MediaRecorder / 用户拒绝）原样抛出，由宿主转成 toast。
    */
-  async start(deviceId?: string): Promise<void> {
+  async start(
+    deviceId?: string,
+    options?: { onPcmChunk?: (pcm16le: ArrayBuffer) => void },
+  ): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       throw new Error("当前浏览器不支持录音");
     }
@@ -88,6 +97,8 @@ export class VoiceCapture {
     };
 
     recorder.onstop = () => {
+      // 先 flush 最后一小段 PCM，再停止麦克风；submit 会等待写入链后才发送 END。
+      this.stopPcmPipeline();
       // 停止麦克风轨道，释放系统录音权限指示灯
       this.stream?.getTracks().forEach((t) => t.stop());
       this.stream = null;
@@ -102,6 +113,14 @@ export class VoiceCapture {
     };
 
     recorder.start();
+    if (options?.onPcmChunk) {
+      try {
+        this.startPcmPipeline(stream, options.onPcmChunk);
+      } catch (error) {
+        this.dispose();
+        throw error;
+      }
+    }
   }
 
   /** 停止录音，异步 resolve 录到的音频 Blob；未在录音则立即 resolve null。 */
@@ -124,22 +143,59 @@ export class VoiceCapture {
         /* 已停止 / 状态异常：忽略，下面统一清理轨道 */
       }
     }
+    this.stopPcmPipeline();
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.recorder = null;
     this.chunks = [];
   }
+
+  /**
+   * MediaRecorder 继续保留整段 WAV 降级能力；同一条 MediaStream 另接 Web Audio，只输出
+   * 16 kHz PCM16 增量。静音 GainNode 保证 processor 被 Chromium 调度但不会把麦克风回放。
+   */
+  private startPcmPipeline(stream: MediaStream, onPcmChunk: (pcm16le: ArrayBuffer) => void): void {
+    if (typeof AudioContext === "undefined") throw new Error("当前环境不支持实时 PCM 采集");
+    const context = new AudioContext({ latencyHint: "interactive" });
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const mute = context.createGain();
+    mute.gain.value = 0;
+    const encoder = new StreamingPcm16Resampler(context.sampleRate, onPcmChunk);
+    processor.onaudioprocess = (event) => encoder.push(event.inputBuffer.getChannelData(0));
+    source.connect(processor);
+    processor.connect(mute);
+    mute.connect(context.destination);
+    this.audioContext = context;
+    this.audioSource = source;
+    this.audioProcessor = processor;
+    this.audioMute = mute;
+    this.pcmEncoder = encoder;
+  }
+
+  private stopPcmPipeline(): void {
+    this.pcmEncoder?.flush();
+    this.pcmEncoder = null;
+    if (this.audioProcessor) this.audioProcessor.onaudioprocess = null;
+    this.audioSource?.disconnect();
+    this.audioProcessor?.disconnect();
+    this.audioMute?.disconnect();
+    this.audioSource = null;
+    this.audioProcessor = null;
+    this.audioMute = null;
+    const context = this.audioContext;
+    this.audioContext = null;
+    if (context) void context.close().catch(() => undefined);
+  }
 }
 
 /**
  * 把录到的音频 Blob 重采样为 16kHz 单声道 WAV 并经统一转写入口（bridge.transcribeSpeech，
- * 按 asrSettings.protocol 路由本地 whisper / 在线 ASR）转写，返回识别文本。
+ * 按 asrSettings.protocol 路由本地 SenseVoiceSmall / 在线 ASR）转写，返回识别文本。
  * 抛错交由宿主处理（toast / 失败结果）。
  */
-/** 转写解码偏置的固定前导语。whisper 的 initial_prompt 同时决定输出用字——不给引导时
- * 中文语音会随机吐繁体;一句简体引导语能把输出稳定拉回简体,并声明「可能夹杂英文」
- * 让中英混说时英文词保留原文。对纯英文输入无副作用(prompt 只是解码偏置,不会被拼进
- * 转写结果);在线 OpenAI 兼容 ASR 的 prompt 参数同语义。 */
+/** 在线 OpenAI 兼容 ASR 的固定解码偏置；本地 SenseVoiceSmall 不消费 prompt，词典改在
+ * 后续 LLM 纠错阶段生效。 */
 export const TRANSCRIBE_BIAS_PROMPT = "以下是普通话的句子，用简体中文转写，可能夹杂英文单词。";
 
 export async function transcribeRecording(
@@ -149,7 +205,7 @@ export async function transcribeRecording(
   opts?: { prompt?: string },
 ): Promise<string> {
   if (!bridge.transcribeSpeech) throw new Error("当前环境不支持语音转写");
-  // 重采样为 16kHz 单声道 WAV（whisper-cli 需要；在线接口也接受 WAV）
+  // 统一重采样为 16kHz 单声道 WAV；本地入口严格解析 PCM16，在线接口也接受 WAV。
   const audio = await encodeBlobAsWav(blob);
   const result = await bridge.transcribeSpeech(
     {

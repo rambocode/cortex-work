@@ -30,7 +30,7 @@ const EXEMPTIONS: { path: string; reason: string }[] = [
     reason: "只剩音频端点拼接（audioSpeechUrl / audioTranscriptionsUrl / audioVoiceUrls）；文本侧的 chatCompletionsUrl 已随收编删除。",
   },
   {
-    path: "capabilities/whisper",
+    path: "capabilities/asr",
     reason: "ASR 在线转写，走 /v1/audio/transcriptions —— 排除项。",
   },
   {

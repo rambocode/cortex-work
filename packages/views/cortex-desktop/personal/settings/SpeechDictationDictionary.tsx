@@ -1,5 +1,5 @@
 // 听写词典只保存词条，不在 renderer 端推断替换规则。
-// 主进程会把这些词条作为 Whisper prompt 偏置传入，因此必须去重、限长，避免无意义地放大请求。
+// 在线 ASR 可把词条作为 prompt 偏置；本地 SenseVoiceSmall 在 LLM 纠错阶段使用词典。
 
 import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";

@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_TIMEOUT_MS_BY_MODALITY,
   MIN_TIMEOUT_MS,
+  defaultAsrSettings,
   defaultMediaGenSettings,
+  normalizeAsrSettings,
   normalizeMediaGenSettings,
 } from "./media-gen-types";
 
@@ -133,5 +135,46 @@ describe("normalizeMediaGenSettings", () => {
   it("默认工厂本身过 normalize 后不变（幂等基线）", () => {
     const defaults = defaultMediaGenSettings();
     expect(normalizeMediaGenSettings(defaults)).toEqual(defaults);
+  });
+});
+
+describe("normalizeAsrSettings", () => {
+  it("新安装默认选中但不启用本地 SenseVoiceSmall", () => {
+    expect(defaultAsrSettings()).toMatchObject({
+      enabled: false,
+      protocol: "local-sensevoice",
+      model: "sensevoice-small-q8",
+      localModelDownloadSource: "huggingface",
+    });
+  });
+
+  it("旧 local-whisper 配置不迁移，回落到禁用的 SenseVoiceSmall 默认值", () => {
+    expect(normalizeAsrSettings({
+      enabled: true,
+      protocol: "local-whisper",
+      model: "whisper-small-q5_1",
+      localWhisperDownloadSource: "hf-sufy",
+    })).toEqual(defaultAsrSettings());
+  });
+
+  it("合法在线配置保留，缺失字段由默认值补齐", () => {
+    expect(normalizeAsrSettings({
+      enabled: true,
+      providerId: "custom",
+      protocol: "openai-transcriptions",
+      baseUrl: "https://asr.example.com",
+      apiKey: "${secret:asr.custom}",
+      model: "whisper-1",
+      language: "en",
+      timeoutMs: 90_000,
+    })).toMatchObject({
+      enabled: true,
+      protocol: "openai-transcriptions",
+      baseUrl: "https://asr.example.com",
+      model: "whisper-1",
+      language: "en",
+      timeoutMs: 90_000,
+      localModelDownloadSource: "huggingface",
+    });
   });
 });

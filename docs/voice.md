@@ -6,7 +6,7 @@ Cortex Desktop 的语音能力由统一的「设置 → 语音」分区管理，
 
 - 语音聊天：从独立浮层录音，转写整段语音后交给聊天 Agent，再用现有 TTS 朗读回复。
 - 系统级听写：以切换或按住快捷键录音，将识别结果安全地写回当前应用的光标位置。
-- 语音识别与播报：本地 Whisper、云端 ASR 与现有 TTS 引擎配置。
+- 语音识别与播报：本地 SenseVoiceSmall、云端 ASR 与现有 TTS 引擎配置。
 
 桌面优先目标是 macOS。非 macOS 或不具备桌面 bridge 的环境仍可查看通用 TTS/ASR 配置，但不会展示依赖系统级快捷键、辅助功能或前台应用截图的控制项。
 
@@ -16,7 +16,7 @@ Cortex Desktop 的语音能力由统一的「设置 → 语音」分区管理，
 |---|---|---|
 | `VoiceSettings` | 麦克风、语音聊天与听写的交互偏好；不包含 TTS/ASR 引擎参数 | `core/desktop/types.ts` 与 `main/ipc/types.ts` 镜像 |
 | `ttsSettings` | 自动朗读、系统语音、Edge TTS 或 OpenAI 兼容 TTS 引擎配置 | `store/personal.ts` |
-| `asrSettings` | Whisper / 云端转写服务、语言与模型配置 | `store/personal.ts` |
+| `asrSettings` | SenseVoiceSmall / 云端转写服务、语言与模型配置 | `store/personal.ts` |
 | 语音词典 | 专有名词的转写 prompt 偏置列表；不是文本替换规则 | `VoiceSettings.dictationDictionary` |
 | 语音聊天键 | 调起或提交语音聊天的全局快捷键 | `VoiceSettings.chatHotkey` |
 | 听写切换键 / 按住键 | 前者走 Electron `globalShortcut`，后者依赖 helper 的按键抬起事件 | `VoiceSettings` |
@@ -86,7 +86,9 @@ Edge TTS 是无需 API Key 的在线神经网络语音。renderer 仅通过 `Des
 
 ### 听写词典与转写
 
-词典条目在 UI 侧去重、去首尾空白、单条限长，随后由听写控制器拼为有限长度的 prompt。转写链路将 prompt 透传给本地 Whisper 的 `--prompt` 或在线接口的 form 字段。它只能影响模型偏好，不能保证纠正所有识别错误，也不能代替用户原始口述内容。
+词典条目在 UI 侧去重、去首尾空白、单条限长，随后由听写控制器拼为有限长度的 prompt。在线转写链路将 prompt 透传给服务端；SenseVoiceSmall GGUF 本地链路不支持提示词偏置。词典只能影响支持 prompt 的模型偏好，不能保证纠正所有识别错误，也不能代替用户原始口述内容。
+
+本地识别的协议、生命周期与失败边界见 [SenseVoiceSmall 本地语音识别](./sensevoice-asr.md)。
 
 ### 系统级听写
 

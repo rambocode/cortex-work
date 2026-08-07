@@ -1,4 +1,4 @@
-// 在线 ASR 转写共享函数（OQ4 抽取）。
+// 在线 ASR 转写共享函数（与本地 SenseVoice 运行时解耦）。
 // 原逻辑在 ipc/llm.ts 的 asr:transcribe handler 内联；
 // 抽为共享函数后，asr:transcribe（旧入口）与 stt:transcribe 在线分支（新入口）
 // 均调用此函数，确保行为一致、MAX_BYTES 约束统一生效。
@@ -17,7 +17,7 @@ import type { AsrTranscribeRequest, AsrTranscribeResponse } from "../../ipc/type
 export const ASR_ONLINE_TIMEOUT_MS = 180_000;
 
 // ── 文件大小上限 ──────────────────────────────────────────────────────────────
-// 25 MB：与 OpenAI Whisper API 官方文件大小限制一致；
+// 25 MB：与 OpenAI Transcriptions API 文件大小限制一致；
 // 本地路径也用同一阈值，避免 spawn 侧内存压力。
 export const ASR_MAX_BYTES = 25 * 1024 * 1024;
 
