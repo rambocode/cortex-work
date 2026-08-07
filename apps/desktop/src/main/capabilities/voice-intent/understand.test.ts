@@ -29,7 +29,15 @@ describe("understandVoiceIntent", () => {
     const complete = vi.fn();
     await expect(understandVoiceIntent(" 退出语音助手。 ", { mode: "function_call" }, { complete }))
       .resolves.toEqual({ name: "exit_assistant", source: "direct" });
+    await expect(understandVoiceIntent("退下", { mode: "function_call" }, { complete }))
+      .resolves.toEqual({ name: "exit_assistant", source: "direct" });
+    await expect(understandVoiceIntent("退下吧", { mode: "function_call" }, { complete }))
+      .resolves.toEqual({ name: "exit_assistant", source: "direct" });
+    await expect(understandVoiceIntent("你退下吧。", { mode: "nointent" }, { complete }))
+      .resolves.toEqual({ name: "exit_assistant", source: "direct" });
     await expect(understandVoiceIntent("怎么退出语音助手？", { mode: "function_call" }, { complete }))
+      .resolves.toEqual({ name: "continue_chat", source: "function_call" });
+    await expect(understandVoiceIntent("怎么让语音助手退下？", { mode: "function_call" }, { complete }))
       .resolves.toEqual({ name: "continue_chat", source: "function_call" });
     await expect(understandVoiceIntent("新建对话", { mode: "function_call" }, { complete }))
       .resolves.toEqual({ name: "new_conversation", source: "direct" });
