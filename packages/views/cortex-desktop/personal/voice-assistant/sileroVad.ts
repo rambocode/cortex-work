@@ -144,11 +144,11 @@ async function ensureMic(): Promise<MicVAD> {
       const handlers = currentHandlers;
       if (!handlers || !shouldStartVoiceTurn(handlers.mode, "confirmed")) return;
       // 一旦确认是用户插话，余下句子恢复普通阈值，避免轻声收尾被高门槛截掉。
+      // 本句必须继续保留 240ms minSpeechMs：vad-web 会在结束时按“当前”最短帧数
+      // 二次校验；这里若立即恢复 300ms，刚好触发插话的短句会被改判为 VADMisfire，
+      // 控制器收不到 speech-end，也就无法进入 ASR。下一轮 start 时会恢复正常 300ms。
       handlers.mode = "listening";
-      mic?.setOptions({
-        ...SILERO_SPEECH_THRESHOLDS,
-        minSpeechMs: DEFAULT_VAD_CONFIG.minSpeechMs,
-      });
+      mic?.setOptions(SILERO_SPEECH_THRESHOLDS);
       handlers.onEvent("speech-start");
     },
     onFrameProcessed: (_probs, frame) => currentHandlers?.onLevel?.(frameRms(frame)),
