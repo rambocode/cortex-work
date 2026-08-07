@@ -21,7 +21,7 @@
 3. `function_call` 模式不做第二次 LLM 调用。Cortex 已有 Agent 工具链，不复制 xiaozhi 的插件注册表。
 4. `intent_llm` 只接受白名单 `function_call` JSON；Markdown fence 可兼容，任何其它输出 fail-open。
 5. Provider Catalog 引用由主进程解析，renderer 不读取模型密钥。专用模型未配置时跟随全局默认模型。
-6. 本地动作不伪造用户/助手聊天消息。新建对话和屏幕上下文切换只朗读简短确认；退出必须经主进程把共享 overlay 切回宠物模式。
+6. 本地动作不伪造用户/助手聊天消息。新建对话和屏幕上下文切换只朗读简短确认；退出先进入带 `exitAfterSpeech` 的 speaking 状态，只有观察到本轮 TTS 真起播后的停止信号才经主进程把共享 overlay 切回宠物模式。点击或快捷键打断时先切 listening 再停止 TTS，取消待退出标记，避免同步的停止事件误关窗口。
 
 ## 业务流程
 

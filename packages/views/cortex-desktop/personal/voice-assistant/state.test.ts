@@ -60,6 +60,43 @@ describe("transitionVoiceAssistant", () => {
     });
   });
 
+  it("退出确认必须真正播完后才退出，起播前与播放中都保持语音球可见", () => {
+    const transcribing = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+    ]);
+    const confirming = transitionVoiceAssistant(transcribing, { type: "exitReply" });
+    expect(confirming).toEqual({ active: true, phase: "speaking", exitAfterSpeech: true });
+
+    // TTS 合成前的 false 快照不能让用户无感知地退出。
+    expect(transitionVoiceAssistant(confirming, { type: "speechFinished" })).toBe(confirming);
+    const started = transitionVoiceAssistant(confirming, { type: "speechPlaybackStarted" });
+    expect(started).toEqual({
+      active: true,
+      phase: "speaking",
+      exitAfterSpeech: true,
+      speechPlaybackStarted: true,
+    });
+    expect(transitionVoiceAssistant(started, { type: "speechFinished" })).toEqual(
+      initialVoiceAssistantState,
+    );
+  });
+
+  it("点击或热键打断退出确认时取消待退出标记并进入聆听", () => {
+    const confirming = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "exitReply" },
+      { type: "speechPlaybackStarted" },
+    ]);
+    const listening = transitionVoiceAssistant(confirming, { type: "listening" });
+    expect(listening).toEqual({ active: true, phase: "listening" });
+    // stopSpeaking 随后同步广播的 false 属于被打断的旧 TTS，不能再关闭语音球。
+    expect(transitionVoiceAssistant(listening, { type: "speechFinished" })).toBe(listening);
+  });
+
   it("speaking 可被打断直接回 listening(设计稿的点击打断)", () => {
     const s = run(initialVoiceAssistantState, [
       { type: "activate" },

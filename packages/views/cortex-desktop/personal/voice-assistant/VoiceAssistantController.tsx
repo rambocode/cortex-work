@@ -140,6 +140,26 @@ export function VoiceAssistantController(): null {
   // startListening 声明在 dispatch 之后,回环经 ref 解耦(与 submitRef 同款)。
   const listenRef = useRef<(() => Promise<void>) | null>(null);
 
+  /** 收口一轮 TTS。普通回复回 idle；退出确认播完则经主进程关闭语音球。
+   * 状态机负责过滤起播前的 false，因此这里只在真实完成后执行退出副作用。 */
+  const finishSpeech = useCallback((): void => {
+    const previous = machineRef.current;
+    const next = dispatch({ type: "speechFinished" });
+    if (previous.phase !== "speaking" || !previous.exitAfterSpeech || next.active) return;
+    const deactivate = bridgeRef.current?.voiceAssistantDeactivate;
+    if (!deactivate) {
+      // 能进入退出确认说明开始时 bridge 存在；若播放期间桥被卸载，恢复可见错误态，
+      // 不能让 renderer 已 inactive 但原生语音球仍悬着。
+      dispatch({ type: "activate" });
+      dispatch({ type: "failed", message: "当前桌面版本不支持退出语音助手" });
+      return;
+    }
+    void deactivate().catch((error) => {
+      dispatch({ type: "activate" });
+      dispatch({ type: "failed", message: errorMessage(error) });
+    });
+  }, [dispatch]);
+
   /** 停掉录音侧资源(麦克风 + VAD);不触碰 TTS 与状态机。 */
   const stopCapture = useCallback((): void => {
     if (utteranceTimerRef.current) clearTimeout(utteranceTimerRef.current);
@@ -204,28 +224,42 @@ export function VoiceAssistantController(): null {
     return usePersonalStore.getState().sessions.find((x) => x.id === id) ?? null;
   }, []);
 
-  /** 本地意图的简短确认不创建伪造聊天消息，也不启动 Agent run；仍复用统一 TTS 与
-   * speaking→idle→自动重听状态环，保证视觉/音频行为和正常回复一致。 */
-  const speakLocalReply = useCallback(async (text: string): Promise<void> => {
+  /** 本地意图的简短确认不创建伪造聊天消息，也不启动 Agent run；普通确认播完自动重听，
+   * 退出确认则通过 `exitAfterSpeech` 在真正播完后关闭语音球。 */
+  const speakLocalReply = useCallback(async (
+    text: string,
+    options?: { exitAfterSpeech?: boolean },
+  ): Promise<void> => {
     const b = bridgeRef.current;
     if (!b) throw new Error("桌面桥不可用");
-    if (dispatch({ type: "localReply" }).phase !== "speaking") return;
+    const event = options?.exitAfterSpeech ? { type: "exitReply" as const } : { type: "localReply" as const };
+    if (dispatch(event).phase !== "speaking") return;
     try {
       await speakText(b, usePersonalStore.getState().ttsSettings, text, { allowFallback: true });
       if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
+        if (options?.exitAfterSpeech) {
+          // 没有实际起播时不能伪造“已播完”并静默关窗；保留语音球让用户重试或点 ✕ 退出。
+          dispatch({ type: "failed", message: "未能播放退出确认，请重试或点击关闭按钮" });
+          return;
+        }
         // 无可用播放引擎时不会产生 true 事件；显式补齐“开始→结束”，避免状态停在 speaking。
         dispatch({ type: "speechPlaybackStarted" });
-        dispatch({ type: "speechFinished" });
+        finishSpeech();
       }
     } catch (error) {
       dispatch({ type: "failed", message: errorMessage(error) });
     }
-  }, [dispatch]);
+  }, [dispatch, finishSpeech]);
 
   const startListening = useCallback(async (): Promise<void> => {
     const phase = machineRef.current.phase;
     if (!machineRef.current.active || (phase !== "idle" && phase !== "speaking" && phase !== "thinking")) return;
-    if (phase === "speaking") stopSpeaking(); // 打断:先停朗读再开麦
+    if (phase === "speaking") {
+      // 先切 listening 再停 TTS。stopSpeaking 会同步广播 isSpeaking=false；若先停，退出
+      // 确认会把“用户主动打断”误当自然播完而关窗，普通回复也会短暂回 idle。
+      dispatch({ type: "listening" });
+      stopSpeaking();
+    }
     if (phase === "thinking") {
       // 打断长时间思考:停掉本轮 agent 运行(走主窗口正常停止管线,与手点停止一致)。
       // 停止路径随后广播的 turn-end 因阶段已离开 thinking 会被钩子忽略,不会倒灌回来。
@@ -243,7 +277,7 @@ export function VoiceAssistantController(): null {
     }
     const attempt = recordingAttemptRef.current + 1;
     recordingAttemptRef.current = attempt;
-    dispatch({ type: "listening" });
+    if (phase !== "speaking") dispatch({ type: "listening" });
     try {
       const s = usePersonalStore.getState();
       if (!s.asrSettings.enabled) throw new Error("请先在语音设置中启用语音识别");
@@ -425,9 +459,10 @@ export function VoiceAssistantController(): null {
       const intent = await b.understandVoiceAssistantIntent?.(text);
       if (!isActiveTranscribing(machineRef.current)) return;
       if (intent?.name === "exit_assistant") {
-        // 必须经 main deactivate，除本控制器释放资源外还要把共享 overlay 切回 pet 模式。
+        // 先给用户一个可感知的本地确认；只有状态机观察到 TTS 真起播并正常播完，
+        // finishSpeech 才会经 main deactivate 关闭语音球。合成失败时保留窗口和错误提示。
         if (!b.voiceAssistantDeactivate) throw new Error("当前桌面版本不支持退出语音助手");
-        await b.voiceAssistantDeactivate();
+        await speakLocalReply("好的，我先退下了", { exitAfterSpeech: true });
         return;
       }
       if (intent?.name === "new_conversation") {
@@ -520,14 +555,14 @@ export function VoiceAssistantController(): null {
           if (!getTtsPlaybackState().isSpeaking && machineRef.current.phase === "speaking") {
             // 无可用播放引擎时不会产生 true 事件；显式补齐“开始→结束”。
             dispatch({ type: "speechPlaybackStarted" });
-            dispatch({ type: "speechFinished" });
+            finishSpeech();
           }
         } catch (err) {
           dispatch({ type: "failed", message: errorMessage(err) });
         }
       })();
     },
-    [dispatch],
+    [dispatch, finishSpeech],
   );
 
   /** 退出语音助手:释放录音/朗读资源,复位状态。**不杀在跑的 agent 轮**——会话属于
@@ -627,7 +662,8 @@ export function VoiceAssistantController(): null {
       if (machineRef.current.phase !== "speaking") return;
       // speakText 会先广播 hasLastSpeech 变化，此时 isSpeaking 仍为 false。状态机要求先
       // 观察到 true，才能让之后的 false 结束本轮，从协议层隔离“元数据更新”和“播完”。
-      dispatch({ type: playback.isSpeaking ? "speechPlaybackStarted" : "speechFinished" });
+      if (playback.isSpeaking) dispatch({ type: "speechPlaybackStarted" });
+      else finishSpeech();
     });
 
     // 审批挂起派生(与 PetBridge 同款):散落多条路径的弹窗产生/清除,从 store 统一派生。
