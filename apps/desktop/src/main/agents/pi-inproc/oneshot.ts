@@ -392,6 +392,7 @@ interface OneShotRuntimeInput {
  * | `--provider` / `--model`         | `modelRuntime` / `model`（见 resolveOneShotModel）      |
  * | `--session <id>`                 | `SessionManager.open/create`（见 openOneShotSessionManager）|
  * | `--append-system-prompt <s>`     | `resourceLoaderOptions.appendSystemPrompt: [s]`        |
+ * | `--thinking <level>`             | `thinkingLevel`（与 RPC 会话路径 session.ts 同款传法）  |
  *
  * `-a`（`projectTrustOverride`）在这条路上无对应物也不需要：项目信任只闸**项目本地** `.pi/` 资源，
  * 而我们恒开 `noExtensions`，那些资源压根不加载；我们自己那批能力以原生 `customTools` 注入，
@@ -427,6 +428,15 @@ async function createOneShotRuntime(
       sessionManager: factoryOptions.sessionManager,
       ...(factoryOptions.sessionStartEvent ? { sessionStartEvent: factoryOptions.sessionStartEvent } : {}),
       ...(selection.model ? { model: selection.model } : {}),
+      // 思考档:主会话(委派轮的 pi 主 agent)或 delegate 映射(claude/codex 主 → pi 子)透传而来;
+      // 缺省 = pi 内置默认强度。与 session.ts(RPC 路径)同款传法。
+      ...(req.thinkingLevel
+        ? {
+            thinkingLevel: req.thinkingLevel as Parameters<
+              PiCodingAgentModule["createAgentSessionFromServices"]
+            >[0]["thinkingLevel"],
+          }
+        : {}),
       ...(tools ? { tools } : {}),
       ...(customTools.length ? { customTools } : {}),
     });

@@ -64,7 +64,7 @@ import {
 } from "./pi-session";
 import { derivePiCapabilities, toAdapterPermissions } from "./permissionMode";
 import { speakText } from "./tts";
-import { emitVoiceTurnEnd } from "./voiceTurn";
+import { emitVoiceTurnEnd, emitVoiceTurnStream } from "./voiceTurn";
 import { parseMentions } from "./mention";
 import { normalizeLoadedChat, sanitizeBranchGroups, type BranchGroup, type LoadedChat } from "./branches";
 import {
@@ -1426,6 +1426,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     dropMsg(qc, sessionId, run.typingUid);
     run.buffer += ev.delta; // 全轮文本累加（供 TTS / 时间线 summary），独立于块拆分
     run.sawText = true;
+    // 语音助手句级流式朗读埋点：只在主正文分支发（intent/subagent/roleId 圆桌分支不发）。
+    emitVoiceTurnStream({ type: "delta", sessionId, runId, delta: ev.delta });
     // 跨流收尾:正文(final answer)开始时,收尾右侧过程流里仍 active 的 reasoning 块与 tool agentLog。
     finalizeRunReasoning(qc, run);
     finalizeProcessAgentLog(qc, sessionId, run);
@@ -2059,6 +2061,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       finalizeRunReasoning(qc, run);
       run.buffer += ev.delta;
       run.sawText = true;
+      // 语音助手句级流式朗读埋点：text 事件天然只含面向用户的正文（reasoning/tool 走别的分支）。
+      emitVoiceTurnStream({ type: "delta", sessionId, runId, delta: ev.delta });
       // 跨流收尾:上块是 tool 时,对 process key 收尾打开的 agentLog（KTD6）。
       finalizeProcessAgentLog(qc, sessionId, run);
       foldTextIntoCache(qc, sessionId, run, ev.delta);
@@ -2135,6 +2139,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         run.processCursor = emptyProcessCursor();
         run.buffer = "";
         run.sawText = false;
+        // 语音助手句级流式：本轮正文作废重来，已装配/已朗读内容与最终回答可能不一致，
+        // 通知语音层丢弃并回到 thinking（重试轮结束后走整轮朗读兜底）。
+        emitVoiceTurnStream({ type: "reset", sessionId, runId });
         // 活动行进度同步复位:重试是重新执行本轮,步数/工具计时不应从上次尝试续算。
         run.stepCount = undefined;
         run.toolStartedAt = undefined;
@@ -3567,6 +3574,13 @@ export function usePersonalActions(): PersonalActions {
             ...(artifact ? { artifactContext: artifact } : {}),
             model: resolvedModel,
             effort: sendSession.effort,
+            // pi 思考档:fresh 单发(@mention 委派轮等)与 RPC 路径(buildPiOpenForSession)同口径——
+            // 会话级优先,缺省回退全局默认;claude/codex 恒 undefined(它们走 effort)。
+            thinkingLevel:
+              sendSession.agent === "pi"
+                ? (sendSession.thinkingLevel ??
+                  usePersonalStore.getState().generalSettings.piThinkingDefault)
+                : undefined,
             // 这是主会话的原生 session；子 agent 的 fresh session 只存在于 delegate handler 内。
             resumeSessionId,
             appendSystemPrompt: appendWithDelegate,

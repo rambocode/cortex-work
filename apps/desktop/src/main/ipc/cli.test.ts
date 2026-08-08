@@ -243,7 +243,12 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
       await startWithDetect("claude", { runId: "m1", sessionId: "s", cwd, prompt: "hi" }, vi.fn());
       expect(m.applyClaudeMcp).toHaveBeenCalledWith(cwd, {
         enabled: true,
-        servers: [...mcp.servers, expect.objectContaining({ id: "agent-browser" })],
+        // 内置注入面:agent-browser + 语音助手控制工具(常驻聊天路径,执行面按语音激活态门控)。
+        servers: [
+          ...mcp.servers,
+          expect.objectContaining({ id: "agent-browser" }),
+          expect.objectContaining({ id: "cortex-voice-assistant" }),
+        ],
       });
       expect(m.buildCodexMcpArgs).not.toHaveBeenCalled();
     } finally {
@@ -268,11 +273,15 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
         cwd,
         expect.objectContaining({
           enabled: true,
-          servers: [expect.objectContaining({ id: "agent-browser" })],
+          servers: [
+            expect.objectContaining({ id: "agent-browser" }),
+            expect.objectContaining({ id: "cortex-voice-assistant" }),
+          ],
         }),
       );
       const runArgs = spawnMock.mock.calls[2]?.[1] as string[];
-      expect(runArgs).toContain("mcp__agent-browser");
+      // --allowed-tools 是逗号拼接的单参数,内置 server 全部在列。
+      expect(runArgs).toContain("mcp__agent-browser,mcp__cortex-voice-assistant");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -364,6 +373,7 @@ describe("delegate 派生 agent 基础类型", () => {
           cwd: "/tmp",
           prompt: "parent",
           model: "deepseek-v3",
+          thinkingLevel: "xhigh",
           provider: {
             id: "deepseek",
             baseUrl: "https://api.example.test",
@@ -391,11 +401,53 @@ describe("delegate 派生 agent 基础类型", () => {
         agent: "my-pi",
         model: "deepseek-v3",
         provider: expect.objectContaining({ id: "deepseek" }),
+        // pi 主 → pi 子:思考档同体系直传(pi 专属档 xhigh 也保留);effort 对 pi 无意义,恒空。
+        thinkingLevel: "xhigh",
+        effort: undefined,
       });
       child.emit("close", 0);
       await expect(done).resolves.toMatchObject({ ok: true });
     } finally {
       setLocalAgentProfilesLoader(null);
+    }
+  });
+
+  it("claude 主 effort 透传为 pi 子 agent 的 thinkingLevel（公共三档同刻度）", async () => {
+    const controller = new AbortController();
+    const done = __runDelegateSubAgentForTest(
+      { runId: "r", sessionId: "s", agent: "claude", cwd: "/tmp", prompt: "parent", effort: "high" },
+      { id: "helper", label: "Helper", agent: "pi", systemPrompt: "", createdAt: "", updatedAt: "" },
+      "分析任务",
+      vi.fn(),
+      controller.signal,
+    );
+    const { child, req } = await nextPiProc(0);
+    expect(req).toMatchObject({ thinkingLevel: "high", effort: undefined });
+    child.emit("close", 0);
+    await expect(done).resolves.toMatchObject({ ok: true });
+  });
+
+  it("pi 主 thinkingLevel 只在公共三档映射为 claude/codex 子 agent 的 effort", async () => {
+    // 公共档 medium → 映射;pi 专属档 xhigh → 不硬映射(子 agent 用自身默认强度)。
+    for (const [level, expected] of [["medium", "medium"], ["xhigh", undefined]] as const) {
+      spawnMock.mockClear();
+      const child = Object.assign(fakeChild(), {
+        stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+      });
+      spawnMock.mockReturnValueOnce(child);
+      const controller = new AbortController();
+      const done = __runDelegateSubAgentForTest(
+        { runId: "r", sessionId: "s", agent: "pi", cwd: "/tmp", prompt: "parent", thinkingLevel: level },
+        { id: "helper", label: "Helper", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+        "分析任务",
+        vi.fn(),
+        controller.signal,
+      );
+      const args = spawnMock.mock.calls[0]?.[1] as string[];
+      if (expected) expect(args).toEqual(expect.arrayContaining(["-c", `model_reasoning_effort=${expected}`]));
+      else expect(args.join(" ")).not.toContain("model_reasoning_effort");
+      child.emit("close", 0);
+      await expect(done).resolves.toMatchObject({ ok: true });
     }
   });
 

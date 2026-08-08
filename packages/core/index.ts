@@ -4,11 +4,14 @@ export { CoreProvider, useCoreContext, useWorkspaceId, useDesktopBridge, type Id
 export {
   DEFAULT_AGENT_THINKING,
   agentThinkingOptions,
+  clampPiThinkingLevel,
   effortFromThinkingValue,
   mapThinkingAcrossAgents,
   mapThinkingForAgent,
+  piSupportedThinkingLevels,
   type AgentThinkingOption,
   type AgentThinkingValue,
+  type PiThinkingCapability,
 } from "./desktop/agent-thinking";
 export { ApiClient, ApiError, type ApiClientConfig } from "./api/client";
 export type {
@@ -565,6 +568,8 @@ export {
   subscribeTtsPlayback,
   getTtsPlaybackState,
   clipSpeechText,
+  createSpeechStream,
+  type SpeechStream,
   type TtsPlaybackState,
 } from "./personal/tts";
 export {

@@ -176,7 +176,7 @@ function toCatalogShape(model: Model<Api>): CatalogModel {
     api: model.api,
     input: model.input,
     reasoning: model.reasoning,
-    ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap as Record<string, string> } : {}),
+    ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap as Record<string, string | null> } : {}),
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
     cost: model.cost,

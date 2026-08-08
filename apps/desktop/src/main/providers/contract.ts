@@ -20,7 +20,9 @@ export interface CatalogModel {
   api: string;
   input: ModelInputKind[];
   reasoning: boolean;
-  thinkingLevelMap?: Record<string, string>;
+  // 档位值为 null = 该模型显式不支持此档（pi 目录原样抄录,如 deepseek-v4 系仅 high/max 可用）。
+  // 消费侧（gateway.resolveThinkingLevel / 渲染端档位过滤）都依赖 null 语义,不得抹成 string。
+  thinkingLevelMap?: Record<string, string | null>;
   contextWindow: number;
   maxTokens: number;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };

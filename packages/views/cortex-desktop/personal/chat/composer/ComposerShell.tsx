@@ -10,6 +10,8 @@ import {
   AGENT_MODELS,
   DEFAULT_AGENT_THINKING,
   agentThinkingOptions,
+  clampPiThinkingLevel,
+  piSupportedThinkingLevels,
   useDesktopBridge,
   usePersonalStore,
 } from "@cortex-work/core";
@@ -19,6 +21,7 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import type {
   AgentKind,
   AgentThinkingValue,
+  ThinkingLevel,
   DerivedAgentMeta,
   ExecPermission,
   PendingDocFile,
@@ -290,15 +293,12 @@ export function ComposerShell({
   const asrSettings = usePersonalStore((s) => s.asrSettings);
   const isPi = agent === "pi";
   const models = AGENT_MODELS[agent];
-  const thinkingOptions = agentThinkingOptions(agent);
-  const resolvedThinkingValue = isPi ? (thinkingValue ?? piThinkingDefault ?? "off") : (thinkingValue ?? DEFAULT_AGENT_THINKING);
   // pi:模型下拉改由 Provider Catalog 驱动（计划 §4.2）——候选是「认证可用 ∧ 用户未隐藏」的
   // Provider 的全部模型，能力（图片/推理/上下文）只读，来自 pi 内置目录。
   // 选项编码沿用 `${providerId}::${modelId}`（onChangePiModel 据此拆分），不改上层契约。
   const providerViews = useProviderViews().views;
-  const piModelOptions = isPi
-    ? collectModelOptions(providerViews).map((o) => ({ value: `${o.providerId}::${o.modelId}`, label: o.model.name }))
-    : [];
+  const piCatalogOptions = isPi ? collectModelOptions(providerViews) : [];
+  const piModelOptions = piCatalogOptions.map((o) => ({ value: `${o.providerId}::${o.modelId}`, label: o.model.name }));
   // pi 生效引用与发送侧 resolveSessionModelRef(messages.ts)是**同一条逐字段回退链**:
   // 会话/草稿字段缺失时落到全局 defaultModelRef。没有这一层,「挂载早于持久态水合的落地页
   // 草稿」与「历史上没落 model 的老会话」都会显示「未配置供应商」,而发送实际用的是全局
@@ -308,6 +308,20 @@ export function ComposerShell({
   const effProviderId = isPi ? providerId || defaultModelRef?.providerId : providerId;
   const effModel = isPi ? model || defaultModelRef?.modelId : model;
   const piModelValue = `${effProviderId ?? ""}::${effModel ?? ""}`;
+  // 当前 pi 模型的 Catalog 能力条目（思考档过滤用）;未认证/未命中 → null → 不过滤（保守回退）。
+  const piCatalogModel = isPi
+    ? (piCatalogOptions.find((o) => o.providerId === effProviderId && o.modelId === effModel)?.model ?? null)
+    : null;
+  // 思考档选项按模型 thinkingLevelMap 过滤（与 pi getSupportedThinkingLevels 同规则）:
+  // deepseek-v4 等模型仅支持 关闭/高/最高,照旧展示 7 档会出现「选中"中"、pi 静默 clamp 成
+  // high 发包」的显示漂移（实测踩到）。显示值同样 clamp 成实际生效档,与发包一致。
+  const piSupported = isPi ? piSupportedThinkingLevels(piCatalogModel) : null;
+  const thinkingOptions = piSupported
+    ? agentThinkingOptions(agent).filter((o) => (piSupported as string[]).includes(o.value as string))
+    : agentThinkingOptions(agent);
+  const resolvedThinkingValue = isPi
+    ? clampPiThinkingLevel(piCatalogModel, (thinkingValue ?? piThinkingDefault ?? "off") as ThinkingLevel)
+    : (thinkingValue ?? DEFAULT_AGENT_THINKING);
 
   useEffect(() => {
     if (!taRef.current) return;

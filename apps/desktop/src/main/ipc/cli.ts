@@ -8,7 +8,7 @@ import { randomUUID } from "crypto";
 import { delimiter, dirname, isAbsolute, join } from "path";
 import { homedir, platform } from "os";
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "fs";
-import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, RoleConfig, TrimSessionRequest } from "./types";
+import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, ReasoningEffort, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
@@ -43,6 +43,7 @@ import {
   type DesignDelegateSessionState,
 } from "../capabilities/design-delegate/server";
 import { ensureSlidesMcpServerConfig } from "../capabilities/slides/server";
+import { ensureVoiceAssistantMcpServerConfig } from "../capabilities/voice-intent/assistant-tools";
 import {
   isSlidesRunId,
   parseSlidesRunId,
@@ -432,6 +433,14 @@ export function spawnEnvForDef(
 const SUB_AGENT_TIMEOUT_MS = 30 * 60_000;
 const MAX_SUB_AGENT_OUTPUT = 200_000;
 
+// 思考档跨体系映射:pi 的 thinkingLevel 与 claude/codex 的 effort 只在 low/medium/high 三档同义,
+// pi 专属档(off/minimal/xhigh/max)对 claude/codex 无对应物——硬映射只会得到看似合理实则随意的值,
+// 故非公共档一律不透传(子 agent 用各自默认强度)。
+const COMMON_THINKING_EFFORTS: readonly string[] = ["low", "medium", "high"];
+function commonEffortOf(level: string | undefined): ReasoningEffort | undefined {
+  return level && COMMON_THINKING_EFFORTS.includes(level) ? (level as ReasoningEffort) : undefined;
+}
+
 function runDelegateSubAgent(
   parent: CliStartRequest,
   role: RoleConfig,
@@ -456,7 +465,10 @@ function runDelegateSubAgent(
     // provider 体系——pi 的 deepseek 传给 codex（ChatGPT）会 400；反之 codex/claude 的 gpt/claude
     // model 串给 pi 也不匹配 pi 的 provider。仅当「子是 pi 且主也是 pi」时同体系，才继承。
     model: roleBaseAgent === "pi" && parentIsPi ? parent.model : undefined,
-    effort: parent.effort,
+    // 思考档透传:同体系直传;跨体系只透传公共三档(见 commonEffortOf)。effort(low/medium/high)
+    // 本身是 pi thinkingLevel 刻度的子集,可直接作 pi 子 agent 的思考档。
+    effort: roleBaseAgent === "pi" ? undefined : (parent.effort ?? commonEffortOf(parent.thinkingLevel)),
+    thinkingLevel: roleBaseAgent === "pi" ? (parent.thinkingLevel ?? parent.effort) : undefined,
     permissionMode: parent.permissionMode,
     approvalPolicy: parent.approvalPolicy,
     // 协作者 persona 作为子 agent 系统提示(三端 adapter 原生支持 appendSystemPrompt)。
@@ -485,8 +497,8 @@ function runDelegateSubAgent(
       contextMode: "self-contained-task",
       // 诊断：确认 stdin 是否真带 task + 子 agent 实际 permissionMode（继承自主会话）。
       stdinLen: stdin?.length ?? 0, permissionMode: req.permissionMode ?? "(full-auto)",
-      // model/effort:子 agent 实际模型(未继承时用 agent 自身默认)与推理强度(继承主会话)。
-      model: req.model ?? "(默认)", effort: req.effort ?? "(默认)",
+      // model/effort/thinkingLevel:子 agent 实际模型(未继承时用 agent 自身默认)与思考档(继承/映射自主会话)。
+      model: req.model ?? "(默认)", effort: req.effort ?? "(默认)", thinkingLevel: req.thinkingLevel ?? "(默认)",
     },
   });
 
@@ -799,6 +811,9 @@ export function registerCliHandlers(): void {
           buildMediaGenMcpServerConfig(persistedState.mediaGenSettings, req.sessionId, req.cwd),
           // loop 工作流 MCP 注入（U14）：无 enabled+callable 工作流时返回 null，不注入。
           buildLoopWorkflowsMcpServerConfig(workflowsForMcp, req.sessionId, req.cwd),
+          // 语音助手控制工具（voice_exit_assistant 等）：claude/codex 语音轮走本单发路径,
+          // 常驻注入 + 执行面按语音激活态门控（见 assistant-tools.ts 文件头,与 pi RPC 同源）。
+          await ensureVoiceAssistantMcpServerConfig(req.sessionId).catch(() => null),
           // 委派（delegate）：本轮有被 @ 的协作者时注入 cortex-delegate server（仅 claude/codex 经此块；
           // pi 走 mcpInjection==="none" 不进本块，阶段2 另生成桥接）。工具集由下方 registerDelegateSession 注册。
           req.delegateRoles?.length ? await ensureDelegateMcpServerConfig(req.sessionId) : null,

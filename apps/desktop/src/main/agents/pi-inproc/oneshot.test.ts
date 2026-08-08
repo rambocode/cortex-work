@@ -327,6 +327,14 @@ describe("旧 CLI flag → in-process 选项", () => {
     });
   });
 
+  it("--thinking <level> → thinkingLevel（缺省不下发,用 pi 内置默认）", async () => {
+    const on = await runWithMod({ thinkingLevel: "xhigh" });
+    expect(on.calls.session[0]!.thinkingLevel).toBe("xhigh");
+
+    const off = await runWithMod({});
+    expect(off.calls.session[0]).not.toHaveProperty("thinkingLevel");
+  });
+
   it("--tools 只在 plan 只读档下发（其余档在单发下等价，不收窄工具）", async () => {
     const plan = await runWithMod({ permissionMode: "plan" });
     const tools = plan.calls.session[0]!.tools as string[];

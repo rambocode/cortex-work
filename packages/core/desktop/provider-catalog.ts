@@ -31,8 +31,10 @@ export interface CatalogModel {
   /** 支持的输入模态。含 "image" 才允许发图片——Composer 与主进程双端据此阻断。 */
   input: ModelInputKind[];
   reasoning: boolean;
-  /** 推理档位映射（low/medium/high → provider 私有值）。Cortex 不建模，只原样透传与展示。 */
-  thinkingLevelMap?: Record<string, string>;
+  /** 推理档位映射（low/medium/high → provider 私有值）。Cortex 不建模，只原样透传与展示。
+   * 档位值为 null = 模型显式不支持此档（与 pi getSupportedThinkingLevels 同语义,
+   * composer 思考档下拉据此过滤,避免「选中档被 pi 静默 clamp 到别档」的显示漂移）。 */
+  thinkingLevelMap?: Record<string, string | null>;
   contextWindow: number;
   maxTokens: number;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
@@ -386,7 +388,7 @@ export function parseCustomProvider(def: CustomProviderDefinition): CatalogProvi
       api: typeof mm.api === "string" ? mm.api : typeof o.api === "string" ? o.api : "",
       input,
       reasoning: mm.reasoning,
-      thinkingLevelMap: (mm.thinkingLevelMap as Record<string, string> | undefined) ?? undefined,
+      thinkingLevelMap: (mm.thinkingLevelMap as Record<string, string | null> | undefined) ?? undefined,
       contextWindow: mm.contextWindow,
       maxTokens: mm.maxTokens,
       cost: (mm.cost as CatalogModel["cost"]) ?? undefined,
