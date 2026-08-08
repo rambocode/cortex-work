@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
+import { setVoiceTurnStreamListener, type VoiceTurnStreamEvent } from "./voiceTurn";
 import { usePiArtifactsStore } from "../store/piArtifacts";
 import { useCortexUIStore } from "../store/ui";
 import type { CliStreamEvent, SessionMeta } from "../desktop/types";
@@ -988,6 +989,24 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     expect(texts).toHaveLength(1);
     expect(texts[0]).toMatchObject({ text: "你好世界" });
+  });
+
+  it("text 增量向语音助手流式通道埋点；willRetry 广播 reset；reasoning 不发", () => {
+    const qc = new QueryClient();
+    const runId = setupPiRun(qc);
+    const seen: VoiceTurnStreamEvent[] = [];
+    setVoiceTurnStreamListener((ev) => seen.push(ev));
+    try {
+      __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想一想" });
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "第一段" });
+      __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+      expect(seen).toEqual([
+        { type: "delta", sessionId: "s1", runId, delta: "第一段" },
+        { type: "reset", sessionId: "s1", runId },
+      ]);
+    } finally {
+      setVoiceTurnStreamListener(null);
+    }
   });
 
   it("reasoning 增量累进单一思考块(进过程流),不与正文混", () => {

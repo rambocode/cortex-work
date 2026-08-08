@@ -32,6 +32,9 @@ apps/desktop/outputs/
 # SenseVoice sidecar 与 CMake 缓存均由 prepare-sensevoice-sidecar.mjs 生成，不提交二进制。
 apps/desktop/resources/sensevoice/
 
+# openWakeWord 唤醒词 ONNX 模型由 prepare-kws-models.mjs 下载（SHA-256 校验），不提交二进制。
+apps/desktop/resources/kws/
+
 # 发版前手工备份的 dist 快照(dist.bak-<时间戳>/,内含整个 .app,单份可达 GB 级)。
 # 根规则的 `dist/` 匹配不到带后缀的目录名,不显式忽略会被 eslint 扫进去、把 lint 结果刷成上千条
 # vendor JS 报错,也有整包误提交的风险。
@@ -39,6 +42,8 @@ apps/desktop/dist.bak-*/
 
 # 发布控制台的产物暂存目录与流程状态(scripts/release-ui)，跨进程持久化用,不入库
 .release-stage/
+# 流式 ASR 冒烟验证的模型缓存（约 199MB，由 verify-sherpa-asr.mjs 按需下载）
+.sherpa-verify/
 
 # pi bun 二进制构建产物（构建链已随 gateway 收敛删除，但跨迁移更新的开发机磁盘上可能残留
 # 旧产物——2026-08-06 实测 git add -A 会把 77MB 二进制扫进提交，故保留忽略条目作防护）

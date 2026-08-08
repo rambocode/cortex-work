@@ -1,6 +1,6 @@
 import { resolve } from "path";
 import { createRequire } from "module";
-import { copyFileSync, createReadStream, mkdirSync } from "fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync } from "fs";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -46,6 +46,42 @@ function vadAssetsPlugin(): Plugin {
       mkdirSync(dest, { recursive: true });
       for (const [name, asset] of Object.entries(VAD_ASSETS)) {
         copyFileSync(asset.src, resolve(dest, name));
+      }
+    },
+  };
+}
+
+// ── 唤醒词(openWakeWord) ONNX 模型 ──
+// 由 scripts/prepare-kws-models.mjs 下载到 resources/kws/(gitignored,SHA-256 固定);
+// dev 以 /kws/<name> 同源服务,build 平铺拷进 out/renderer/kws/,打包态经 cortex-kws://
+// 供给(见 src/main/kws-assets.ts)。模型缺失只警告不阻断:唤醒词是可选功能,
+// 运行时 kws 窗口 fetch 404 会上报 degraded 而非拖垮构建。
+const KWS_MODEL_DIR = resolve("resources/kws");
+const KWS_MODELS = ["melspectrogram.onnx", "embedding_model.onnx", "hey_jarvis_v0.1.onnx"];
+
+/** dev 服务 + build 平铺拷贝唤醒词模型的内联插件(仅挂 renderer 构建)。 */
+function kwsAssetsPlugin(): Plugin {
+  return {
+    name: "cortex-kws-assets",
+    configureServer(server) {
+      server.middlewares.use("/kws", (req, res, next) => {
+        const name = decodeURIComponent((req.url ?? "").replace(/^\/+/, "").split("?")[0] ?? "");
+        const src = resolve(KWS_MODEL_DIR, name);
+        if (!KWS_MODELS.includes(name) || !existsSync(src)) return next();
+        res.setHeader("content-type", "application/octet-stream");
+        createReadStream(src).pipe(res);
+      });
+    },
+    closeBundle() {
+      const dest = resolve("out/renderer/kws");
+      mkdirSync(dest, { recursive: true });
+      for (const name of KWS_MODELS) {
+        const src = resolve(KWS_MODEL_DIR, name);
+        if (!existsSync(src)) {
+          console.warn(`[cortex-kws-assets] 缺少 ${name}，先运行 node scripts/prepare-kws-models.mjs（唤醒词将不可用）`);
+          continue;
+        }
+        copyFileSync(src, resolve(dest, name));
       }
     },
   };
@@ -97,7 +133,7 @@ export default defineConfig({
       port: Number.isFinite(configuredRendererPort) ? configuredRendererPort : 0,
       strictPort: false,
     },
-    plugins: [react(), tailwindcss(), vadAssetsPlugin()],
+    plugins: [react(), tailwindcss(), vadAssetsPlugin(), kwsAssetsPlugin()],
     resolve: {
       alias: {
         "@": resolve("src/renderer/src"),
@@ -116,6 +152,7 @@ export default defineConfig({
           reply: resolve("src/renderer/reply.html"),
           dictation: resolve("src/renderer/dictation.html"),
           petOverlay: resolve("src/renderer/pet-overlay.html"),
+          kws: resolve("src/renderer/kws.html"),
         },
       },
     },

@@ -8,6 +8,7 @@ import {
   MIN_TIMEOUT_MS,
   defaultAsrSettings,
   defaultMediaGenSettings,
+  isLocalStreamingAsrProtocol,
   normalizeAsrSettings,
   normalizeMediaGenSettings,
 } from "./media-gen-types";
@@ -176,5 +177,48 @@ describe("normalizeAsrSettings", () => {
       timeoutMs: 90_000,
       localModelDownloadSource: "huggingface",
     });
+  });
+
+  it("保留流式 Zipformer 协议与其模型 id", () => {
+    expect(normalizeAsrSettings({
+      enabled: true,
+      protocol: "local-zipformer-stream",
+      model: "zipformer-bilingual-zh-en-int8",
+    })).toMatchObject({
+      enabled: true,
+      protocol: "local-zipformer-stream",
+      model: "zipformer-bilingual-zh-en-int8",
+    });
+  });
+
+  it("流式协议配着 SenseVoice 的 model 时纠正回流式默认模型", () => {
+    // 协议与 model 取值域不同，半写入的旧档若不纠正，主进程只会抛「无效模型」且无法自愈。
+    expect(normalizeAsrSettings({
+      enabled: true,
+      protocol: "local-zipformer-stream",
+      model: "sensevoice-small-q8",
+    })).toMatchObject({
+      protocol: "local-zipformer-stream",
+      model: "zipformer-bilingual-zh-en-int8",
+    });
+  });
+
+  it("非流式协议不受模型纠正逻辑影响", () => {
+    expect(normalizeAsrSettings({
+      protocol: "openai-transcriptions",
+      model: "whisper-1",
+    })).toMatchObject({ protocol: "openai-transcriptions", model: "whisper-1" });
+  });
+});
+
+describe("isLocalStreamingAsrProtocol", () => {
+  it("两个本地协议都走实时 PCM 通道", () => {
+    expect(isLocalStreamingAsrProtocol("local-sensevoice")).toBe(true);
+    expect(isLocalStreamingAsrProtocol("local-zipformer-stream")).toBe(true);
+  });
+
+  it("在线协议不走实时 PCM 通道", () => {
+    expect(isLocalStreamingAsrProtocol("openai-transcriptions")).toBe(false);
+    expect(isLocalStreamingAsrProtocol("mimo-asr")).toBe(false);
   });
 });

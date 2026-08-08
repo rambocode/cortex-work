@@ -9,6 +9,7 @@
 import { protocol } from "electron";
 import { PETDEX_SCHEME } from "./ipc/petdex";
 import { VAD_ASSET_SCHEME } from "./vad-assets";
+import { KWS_ASSET_SCHEME } from "./kws-assets";
 
 /** 注册全部自定义协议的特权。必须在 app.ready 之前、index.ts 模块顶层调用一次。 */
 export function registerAppSchemes(): void {
@@ -24,6 +25,12 @@ export function registerAppSchemes(): void {
       // Chromium 的 CORS 拦下(onnx 模型 / ort wasm / AudioWorklet 都要经 fetch 或模块加载),
       // 走自定义协议统一供给。supportFetchAPI 是 ort 加载 wasm 的硬前提。
       scheme: VAD_ASSET_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+    },
+    {
+      // 唤醒词 ONNX 模型只读协议:与 vad 同因(打包态 file:// 页面 fetch 子资源被 CORS 拦),
+      // kws 隐藏窗口经它取 openWakeWord 三级模型;wasm 复用 cortex-vad:// 里那份。
+      scheme: KWS_ASSET_SCHEME,
       privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
     },
   ]);

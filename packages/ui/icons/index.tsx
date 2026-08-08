@@ -402,6 +402,14 @@ export const Icon = {
       <path d="M12 18v3" />
     </IconBase>
   ),
+  // 扬声器(音量);语音球「重播/停播」按钮用。
+  Speaker: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M11 5 6.5 9H3v6h3.5L11 19V5z" />
+      <path d="M15 9.5a3.5 3.5 0 0 1 0 5" />
+      <path d="M17.5 7a7 7 0 0 1 0 10" />
+    </IconBase>
+  ),
   // 音符;媒体生成设置「音乐生成」tab 用。
   Music: (p: IconProps) => (
     <IconBase {...p}>

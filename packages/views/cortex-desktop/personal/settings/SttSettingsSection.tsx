@@ -3,9 +3,10 @@
 //       / 已配置供应商提示 / 自定义 API 表单 → 识别语言 → 高级（timeoutMs）。
 //
 // 供应商选择映射：
-//   protocol='local-sensevoice' → 选项值 '__local__'（内部占位）
-//   providerId='custom'       → 选项值 'custom'
-//   其余 providerId           → 已配置供应商 id
+//   protocol='local-sensevoice'       → 选项值 '__local__'（内部占位）
+//   protocol='local-zipformer-stream' → 选项值 '__local_stream__'（内部占位）
+//   providerId='custom'               → 选项值 'custom'
+//   其余 providerId                   → 已配置供应商 id
 //
 // 本地模型面板拆至 SttLocalSenseVoicePanel.tsx，
 // 防止本文件超过 1200 行（KTD5 约束）。
@@ -15,15 +16,21 @@ import { usePersonalStore, type ProviderProfile } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { AsrProtocol, LocalModelDownloadSource } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalAsrModelId } from "@cortex-work/core/asr/local-models";
+import type { StreamingAsrModelId } from "@cortex-work/core/asr/streaming-models";
 
 import { BareSelect, SecretField, SettingCard, SRow, SwitchRow } from "./settingsControls";
 import { SttLocalSenseVoicePanel } from "./SttLocalSenseVoicePanel";
+import { SttLocalZipformerPanel } from "./SttLocalZipformerPanel";
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
 // 本地模型的虚拟供应商选项值（不是真实 providerId，只在 UI 内部用）
 const LOCAL_SENSEVOICE_OPTION = "__local__";
+const LOCAL_ZIPFORMER_OPTION = "__local_stream__";
 const CUSTOM_OPTION = "custom";
+
+// 流式 Zipformer 的默认模型 id（与 core/asr/streaming-models.ts 的默认值一致）。
+const DEFAULT_ZIPFORMER_MODEL_ID = "zipformer-bilingual-zh-en-int8";
 
 // 自定义协议选项（本地协议由 LOCAL_SENSEVOICE_OPTION 单独走）
 const CUSTOM_ASR_PROTOCOLS: AsrProtocol[] = ["openai-transcriptions", "mimo-asr"];
@@ -66,27 +73,32 @@ export function SttSettingsSection() {
   // ── 当前供应商模式推断 ────────────────────────────────────────────────────
 
   const usingLocalSenseVoice = asr.protocol === "local-sensevoice";
+  const usingLocalZipformer = asr.protocol === "local-zipformer-stream";
+  const usingAnyLocal = usingLocalSenseVoice || usingLocalZipformer;
 
-  // 自定义：providerId 为空字符串或 'custom'，且不是本地 SenseVoice。
+  // 自定义：providerId 为空字符串或 'custom'，且不是任一本地协议。
   const usingCustom =
-    !usingLocalSenseVoice && (!asr.providerId || asr.providerId === CUSTOM_OPTION);
+    !usingAnyLocal && (!asr.providerId || asr.providerId === CUSTOM_OPTION);
 
   // 已配置供应商
   const selectedProvider =
-    !usingLocalSenseVoice && !usingCustom
+    !usingAnyLocal && !usingCustom
       ? providers.find((p) => p.id === asr.providerId)
       : undefined;
 
   // 供应商下拉当前值
-  const providerSelectValue = usingLocalSenseVoice
-    ? LOCAL_SENSEVOICE_OPTION
-    : usingCustom
-      ? CUSTOM_OPTION
-      : asr.providerId;
+  const providerSelectValue = usingLocalZipformer
+    ? LOCAL_ZIPFORMER_OPTION
+    : usingLocalSenseVoice
+      ? LOCAL_SENSEVOICE_OPTION
+      : usingCustom
+        ? CUSTOM_OPTION
+        : asr.providerId;
 
   // ── 供应商下拉选项 ────────────────────────────────────────────────────────
   // 始终有本地 SenseVoiceSmall + 自定义；已配置 providers 在中间。
   const providerOptions = [
+    { label: t("stt.providerLocalZipformer"), value: LOCAL_ZIPFORMER_OPTION },
     { label: t("stt.providerLocalSenseVoice"), value: LOCAL_SENSEVOICE_OPTION },
     ...providers.map((p) => ({ label: p.name, value: p.id })),
     { label: t("stt.providerCustom"), value: CUSTOM_OPTION },
@@ -103,10 +115,22 @@ export function SttSettingsSection() {
         apiKey: "",
         model: "sensevoice-small-q8",
       });
+    } else if (value === LOCAL_ZIPFORMER_OPTION) {
+      // model 必须一并切到流式模型 id：两条本地协议的模型取值域不同，
+      // 只改 protocol 会让主进程按 SenseVoice 的 id 去找流式模型而报「无效模型」。
+      setAsrSettings({
+        protocol: "local-zipformer-stream",
+        providerId: "",
+        baseUrl: "",
+        apiKey: "",
+        model: DEFAULT_ZIPFORMER_MODEL_ID,
+      });
     } else if (value === CUSTOM_OPTION) {
       // 切自定义：保留已填的 baseUrl/apiKey/model，协议回落为 openai-transcriptions
       setAsrSettings({
-        protocol: asr.protocol === "local-sensevoice" ? "openai-transcriptions" : asr.protocol,
+        protocol: asr.protocol === "local-sensevoice" || asr.protocol === "local-zipformer-stream"
+          ? "openai-transcriptions"
+          : asr.protocol,
         providerId: CUSTOM_OPTION,
       });
     } else {
@@ -157,7 +181,8 @@ export function SttSettingsSection() {
               <>
                 <SRow label={t("stt.protocolLabel")} end>
                   <BareSelect
-                    value={asr.protocol === "local-sensevoice" ? "openai-transcriptions" : asr.protocol}
+                    // 本地协议不在自定义协议下拉的取值域里，回落到在线默认值避免下拉空选。
+                    value={usingAnyLocal ? "openai-transcriptions" : asr.protocol}
                     options={CUSTOM_ASR_PROTOCOLS.map((p) => ({
                       label: asrProtocolLabel(t, p),
                       value: p,
@@ -214,6 +239,15 @@ export function SttSettingsSection() {
               sourceId={(asr.localModelDownloadSource as LocalModelDownloadSource | undefined) ?? "huggingface"}
               onSourceChange={(src) => setAsrSettings({ localModelDownloadSource: src })}
               onModelSelect={(modelId: LocalAsrModelId) => setAsrSettings({ model: modelId })}
+            />
+          ) : null}
+
+          {usingLocalZipformer ? (
+            <SttLocalZipformerPanel
+              selectedModelId={asr.model || DEFAULT_ZIPFORMER_MODEL_ID}
+              sourceId={(asr.localModelDownloadSource as LocalModelDownloadSource | undefined) ?? "huggingface"}
+              onSourceChange={(src) => setAsrSettings({ localModelDownloadSource: src })}
+              onModelSelect={(modelId: StreamingAsrModelId) => setAsrSettings({ model: modelId })}
             />
           ) : null}
 

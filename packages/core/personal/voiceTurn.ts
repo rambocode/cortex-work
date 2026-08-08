@@ -30,3 +30,32 @@ export function emitVoiceTurnEnd(ev: VoiceTurnEnd): boolean {
     return false;
   }
 }
+
+// ── 句级流式通道 ──
+// 与 turn-end 同款「模块级单监听器」范式：messages.ts 在正文 delta 落点各加一行埋点，
+// 语音助手激活时订阅、把增量装配成句子边生成边朗读。无监听时 emit 只付一次空判断，
+// 对非语音场景零开销。
+
+/** 一轮 agent 正文的流式增量；reset 表示重试（willRetry）导致正文作废、将从头重来。 */
+export type VoiceTurnStreamEvent =
+  | { type: "delta"; sessionId: string; runId: string; delta: string }
+  | { type: "reset"; sessionId: string; runId: string };
+
+type VoiceTurnStreamListener = (ev: VoiceTurnStreamEvent) => void;
+
+let streamListener: VoiceTurnStreamListener | null = null;
+
+/** 注册/清除句级流式监听器（传 null 清除）。后注册者覆盖前者。 */
+export function setVoiceTurnStreamListener(cb: VoiceTurnStreamListener | null): void {
+  streamListener = cb;
+}
+
+/** 广播一段正文增量。监听器抛错吞掉——朗读故障绝不能影响会话主流程。 */
+export function emitVoiceTurnStream(ev: VoiceTurnStreamEvent): void {
+  if (!streamListener) return;
+  try {
+    streamListener(ev);
+  } catch {
+    // 静默：语音层异常不上抛。
+  }
+}

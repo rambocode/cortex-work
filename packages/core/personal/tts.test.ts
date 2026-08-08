@@ -3,6 +3,7 @@ import type { DesktopBridge } from "../desktop/bridge";
 import type { TtsSettings } from "../desktop/types";
 import {
   clipSpeechText,
+  createSpeechStream,
   getTtsPlaybackState,
   replayLastSpeech,
   speakText,
@@ -285,5 +286,113 @@ describe("TTS 播放控制", () => {
 
     expect(b.ttsSynthesize).toHaveBeenCalledTimes(2);
     expect(b.ttsSynthesize).toHaveBeenLastCalledWith(expect.objectContaining({ text: "可重听", voice: "alloy" }));
+  });
+});
+
+describe("createSpeechStream（句级流式播放队列）", () => {
+  /** 可手动驱动播放进度的 Audio stub（默认 stub 无 onpause，无法驱动流水线）。 */
+  function stubAudios() {
+    const audios: { onended: (() => void) | null; onerror: (() => void) | null; onpause: (() => void) | null }[] = [];
+    vi.stubGlobal(
+      "Audio",
+      class {
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onpause: (() => void) | null = null;
+        pause = vi.fn();
+        play = vi.fn(async () => {});
+        constructor() {
+          audios.push(this);
+        }
+      },
+    );
+    return audios;
+  }
+
+  /** SpeechStream 现仅支持 edge 引擎(openai 回退整轮路径,见 createSpeechStream 注释)。 */
+  function edgeBridge(): DesktopBridge {
+    return { ttsSynthesizeEdge: vi.fn(async () => new ArrayBuffer(1)) } as unknown as DesktopBridge;
+  }
+
+  it("首句真起播才 isSpeaking=true；句间隙不落 false；finalize 播尽后才落 false", async () => {
+    const audios = stubAudios();
+    const b = edgeBridge();
+    const stream = createSpeechStream(b, edgeSettings());
+    expect(stream).not.toBeNull();
+
+    // append 之后合成完成 → 起播 → isSpeaking true。
+    stream!.append("第一句。");
+    await vi.waitFor(() => expect(audios).toHaveLength(1));
+    expect(getTtsPlaybackState().isSpeaking).toBe(true);
+
+    // 【红线】首句播完、下一句尚未 append（LLM 还在生成）——队列暂空也不得落 false，
+    // 否则状态机会把它当自然播完，提前收轮 + 重开麦克风。
+    audios[0]?.onended?.();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(getTtsPlaybackState().isSpeaking).toBe(true);
+
+    // 后续句子到达 → 继续播放。
+    stream!.append("第二句。");
+    await vi.waitFor(() => expect(audios).toHaveLength(2));
+    expect(getTtsPlaybackState().isSpeaking).toBe(true);
+
+    // finalize 且队列播尽 → 落 false，settled resolve。
+    stream!.finalize();
+    audios[1]?.onended?.();
+    await stream!.settled;
+    expect(getTtsPlaybackState().isSpeaking).toBe(false);
+    expect(stream!.failedBeforeStart()).toBe(false);
+  });
+
+  it("stopSpeaking 打断后 append 变 no-op，settled 收尾", async () => {
+    const audios = stubAudios();
+    const b = edgeBridge();
+    const stream = createSpeechStream(b, edgeSettings());
+    stream!.append("第一句。");
+    await vi.waitFor(() => expect(audios).toHaveLength(1));
+
+    stopSpeaking();
+    audios[0]?.onpause?.(); // 真实浏览器 pause() 会触发 pause 事件，stub 手动驱动
+    await stream!.settled;
+    expect(getTtsPlaybackState().isSpeaking).toBe(false);
+
+    // 打断后追加不再产生新的合成请求。
+    const synthCalls = (b.ttsSynthesizeEdge as ReturnType<typeof vi.fn>).mock.calls.length;
+    stream!.append("迟到的句子。");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect((b.ttsSynthesizeEdge as ReturnType<typeof vi.fn>).mock.calls.length).toBe(synthCalls);
+  });
+
+  it("首句合成失败且从未起播：failedBeforeStart 置位供调用方降级，isSpeaking 不误置", async () => {
+    stubAudios();
+    const b = { ttsSynthesizeEdge: vi.fn(async () => { throw new Error("offline"); }) } as unknown as DesktopBridge;
+    const stream = createSpeechStream(b, edgeSettings());
+    stream!.append("第一句。");
+    stream!.finalize();
+    await stream!.settled;
+    expect(stream!.failedBeforeStart()).toBe(true);
+    expect(getTtsPlaybackState().isSpeaking).toBe(false);
+  });
+
+  it("finalize 把全部句子写入 lastSpeech，保住重播功能", async () => {
+    const audios = stubAudios();
+    const b = edgeBridge();
+    const stream = createSpeechStream(b, edgeSettings());
+    stream!.append("你好。");
+    await vi.waitFor(() => expect(audios).toHaveLength(1));
+    stream!.append("再见。");
+    stream!.finalize();
+    audios[0]?.onended?.();
+    await vi.waitFor(() => expect(audios).toHaveLength(2));
+    audios[1]?.onended?.();
+    await stream!.settled;
+
+    await replayLastSpeech(b);
+    expect(b.ttsSynthesizeEdge).toHaveBeenLastCalledWith(expect.objectContaining({ text: "你好。再见。" }));
+  });
+
+  it("引擎不可用时返回 null（edge 无桥）；openai 引擎 v1 固定回退整轮路径", () => {
+    expect(createSpeechStream(null, edgeSettings())).toBeNull();
+    expect(createSpeechStream(bridge(), openaiSettings("vivian"))).toBeNull();
   });
 });

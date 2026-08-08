@@ -9,30 +9,51 @@ import { useEffect, useState } from "react";
 import { useDesktopBridge } from "../provider";
 import type { LocalAsrModelProgress } from "../asr/local-models";
 
+/**
+ * 进度的通用形状：SenseVoice 与流式 Zipformer 只在 modelId 取值域上不同。
+ * fileName 仅流式模型有（它要下四个文件），SenseVoice 单文件时为 undefined。
+ */
+export type ModelDownloadProgressView = Omit<LocalAsrModelProgress, "modelId"> & {
+  modelId: string;
+  fileName?: string;
+};
+
 export type ModelDownloadState =
   | { status: "idle" }
-  | { status: "downloading"; progress: LocalAsrModelProgress }
+  | { status: "downloading"; progress: ModelDownloadProgressView }
   | { status: "done" };
+
+/**
+ * 两条本地 ASR 模型通道：SenseVoice 走 stt:local:*，流式 Zipformer 走 stt:streaming:*。
+ * 模型 id 取值域不同，订阅错通道会永远收不到进度，故由调用方显式指定。
+ */
+export type ModelDownloadChannel = "sensevoice" | "streaming";
 
 /**
  * 订阅指定 modelId 的下载进度推送。
  * bridge 不可用（web 端）时返回 idle。
  *
  * @param modelId 要监听的模型 ID；undefined 表示监听任意模型
+ * @param channel 模型通道，默认 sensevoice（保持既有调用方行为不变）
  */
 export function useModelDownloadState(
   modelId?: string,
+  channel: ModelDownloadChannel = "sensevoice",
 ): ModelDownloadState {
   const bridge = useDesktopBridge();
   const [state, setState] = useState<ModelDownloadState>({ status: "idle" });
 
   useEffect(() => {
-    if (!bridge?.onLocalAsrDownloadProgress) return;
+    const streaming = channel === "streaming";
+    const subscribe = streaming
+      ? bridge?.onStreamingAsrDownloadProgress
+      : bridge?.onLocalAsrDownloadProgress;
+    if (!bridge || !subscribe) return;
     let alive = true;
     // 补拉的 Promise 可能晚于推送事件 resolve，pushed flag 防止旧状态覆盖已推送的新进度
     let pushed = false;
 
-    const off = bridge.onLocalAsrDownloadProgress((progress) => {
+    const onProgress = (progress: ModelDownloadProgressView): void => {
       if (!alive) return;
       // 若指定了 modelId，则只响应对应模型的进度
       if (modelId && progress.modelId !== modelId) return;
@@ -42,12 +63,25 @@ export function useModelDownloadState(
       } else {
         setState({ status: "downloading", progress });
       }
-    });
+    };
+    // 分支写死而非取函数并集：两侧签名的 modelId 字面量类型互不兼容，联合后无法调用。
+    const off = streaming
+      ? bridge.onStreamingAsrDownloadProgress!(onProgress)
+      : bridge.onLocalAsrDownloadProgress!(onProgress);
 
-    // 补拉：若 getLocalAsrModelStatus 可用，则挂载时检查一次当前状态
-    if (bridge.getLocalAsrModelStatus && modelId) {
-      bridge
-        .getLocalAsrModelStatus(modelId)
+    // 补拉：挂载时检查一次当前状态
+    const fetchStatus = streaming
+      ? bridge.getStreamingAsrModelStatus
+      : bridge.getLocalAsrModelStatus;
+    if (fetchStatus && modelId) {
+      (fetchStatus as (id: string) => Promise<{
+        modelId: string;
+        state: string;
+        downloadedBytes?: number;
+        totalBytes?: number;
+        speedBytesPerSecond?: number;
+      }>)
+        .call(bridge, modelId)
         .then((s) => {
           if (!alive) return;
           // pushed flag：推送事件已到，补拉结果可能是旧快照，跳过以防止进度倒退
@@ -73,7 +107,7 @@ export function useModelDownloadState(
       alive = false;
       off();
     };
-  }, [bridge, modelId]);
+  }, [bridge, modelId, channel]);
 
   return state;
 }

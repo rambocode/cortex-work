@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 // 语音浮层(语音聊天/听写栏)窄桥拆到 voice.ts:桥面收窄的边界说明见该文件头注释。
 import { dictation } from "./voice";
+import { kws } from "./kws";
 // Provider Catalog / 认证 / Gateway 的跨进程契约（通道名常量 + 类型）。通道名一律走
 // PROVIDER_IPC，不再手写字符串——两侧写歪会表现为「invoke 永远挂起且无报错」。
 import { PROVIDER_IPC } from "../main/providers/contract";
@@ -117,7 +118,9 @@ import type {
   ReplyBubbleVoiceCommand,
   ReplyBubbleVoiceResult,
   PetStateSnapshot,
+  VoiceAssistantFeed,
   VoiceAssistantSnapshot,
+  WakeWordSettings,
   VoiceAssistantCommand,
   VoiceAssistantControlAction,
   VoiceAssistantIntentResult,
@@ -180,6 +183,11 @@ import type {
   LocalAsrModelStatus,
   LocalAsrSourcesResult,
 } from "@cortex-work/core/asr/local-models";
+import type {
+  StreamingAsrModelProgress,
+  StreamingAsrModelStatus,
+  StreamingAsrSourcesResult,
+} from "@cortex-work/core/asr/streaming-models";
 import type { Locale } from "@cortex-work/core/i18n/native";
 // 用户记忆（跨工作台持久记忆）IPC 契约类型(type-only,编译期擦除;类型真源在 core/memory/memory.ts,
 // main 侧 ipc/memory.ts 同样直接引用 core,无需再建镜像)。
@@ -895,8 +903,40 @@ const personal = {
     ipcRenderer.on("stt:local:downloadProgress", listener);
     return () => ipcRenderer.removeListener("stt:local:downloadProgress", listener);
   },
-  startLocalAsrStream: (args: { requestId: string; modelId: string; language: string }): Promise<void> =>
-    ipcRenderer.invoke("stt:stream:start", args),
+  // ── 流式 Zipformer 模型管理（与上面的 SenseVoice 通道并列） ────────────────
+  listStreamingAsrModels: (): Promise<StreamingAsrModelStatus[]> =>
+    ipcRenderer.invoke("stt:streaming:listModels"),
+  getStreamingAsrModelStatus: (modelId: string): Promise<StreamingAsrModelStatus> =>
+    ipcRenderer.invoke("stt:streaming:modelStatus", modelId),
+  downloadStreamingAsrModel: (args: {
+    modelId: string;
+    sourceId?: string;
+  }): Promise<{ ok: boolean; message?: string; status?: StreamingAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:streaming:downloadModel", args),
+  cancelStreamingAsrDownload: (
+    modelId: string,
+  ): Promise<{ ok: boolean; status?: StreamingAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:streaming:cancelDownload", modelId),
+  deleteStreamingAsrModel: (
+    modelId: string,
+  ): Promise<{ ok: boolean; message?: string; status?: StreamingAsrModelStatus }> =>
+    ipcRenderer.invoke("stt:streaming:deleteModel", modelId),
+  checkStreamingAsrSources: (modelId?: string): Promise<StreamingAsrSourcesResult> =>
+    ipcRenderer.invoke("stt:streaming:checkSources", modelId),
+  onStreamingAsrDownloadProgress: (
+    cb: (progress: StreamingAsrModelProgress) => void,
+  ): (() => void) => {
+    const listener = (_e: IpcRendererEvent, progress: StreamingAsrModelProgress) => cb(progress);
+    ipcRenderer.on("stt:streaming:downloadProgress", listener);
+    return () => ipcRenderer.removeListener("stt:streaming:downloadProgress", listener);
+  },
+  // protocol 决定主进程用哪个本地引擎；省略时按 SenseVoice 处理（保持旧渲染端兼容）。
+  startLocalAsrStream: (args: {
+    requestId: string;
+    modelId: string;
+    language: string;
+    protocol?: string;
+  }): Promise<void> => ipcRenderer.invoke("stt:stream:start", args),
   appendLocalAsrAudio: (requestId: string, audio: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke("stt:stream:audio", { requestId, audio }),
   finishLocalAsrStream: (requestId: string): Promise<AsrTranscribeResponse> =>
@@ -1097,11 +1137,23 @@ const personal = {
   voiceAssistantActivate: (reason: "hotkey" | "pet" | "settings"): Promise<void> =>
     ipcRenderer.invoke("voiceAssistant:activate", reason),
   voiceAssistantDeactivate: (): Promise<void> => ipcRenderer.invoke("voiceAssistant:deactivate"),
+  // ── 唤醒词(KWS,设置页入口;识别本体在独立 kws 隐藏窗口,见 preload/kws.ts 窄桥)──
+  wakeWordGetStatus: (): Promise<{ running: boolean; state: string; micPermission: string }> =>
+    ipcRenderer.invoke("wakeWord:getStatus"),
+  wakeWordConfigure: (settings: WakeWordSettings): Promise<void> =>
+    ipcRenderer.invoke("wakeWord:configure", settings),
   understandVoiceAssistantIntent: (text: string): Promise<VoiceAssistantIntentResult> =>
     ipcRenderer.invoke("voiceAssistant:understandIntent", text),
   reportVoiceAssistantState: (snapshot: VoiceAssistantSnapshot): void =>
     ipcRenderer.send("voiceAssistant:report-state", snapshot),
   reportVoiceAssistantLevel: (level: number): void => ipcRenderer.send("voiceAssistant:level", level),
+  reportVoiceAssistantFeed: (feed: VoiceAssistantFeed | null): void =>
+    ipcRenderer.send("voiceAssistant:feed", feed),
+  onVoiceAssistantFeed: (cb: (feed: VoiceAssistantFeed | null) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, feed: VoiceAssistantFeed | null) => cb(feed);
+    ipcRenderer.on("voiceAssistant:feed-update", listener);
+    return () => ipcRenderer.removeListener("voiceAssistant:feed-update", listener);
+  },
   onVoiceAssistantCommand: (cb: (command: VoiceAssistantCommand) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, command: VoiceAssistantCommand) => cb(command);
     ipcRenderer.on("voiceAssistant:command", listener);
@@ -1264,6 +1316,7 @@ const desktopAPI = {
   notification,
   replyBubble,
   dictation,
+  kws,
   projectsWindow,
   consumeNotesHotkeyDegraded,
 };

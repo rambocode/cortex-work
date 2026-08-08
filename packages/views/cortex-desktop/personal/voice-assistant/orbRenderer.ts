@@ -1,223 +1,321 @@
-// 语音球 canvas 逐帧渲染器(设计稿 Cortex Voice HiFi 的忠实移植,纯绘制无 React 依赖)。
+// 语音球渲染器 —— orb-ui CloudTheme 的 WebGL 移植(纯绘制无 React 依赖)。
+// 上游: https://github.com/alexanderqchen/orb-ui (src/themes/cloud/CloudTheme.tsx)
 //
-// 视觉构成(自外向内):环境光晕 → 聆听涟漪 → 两圈虚线环 → 思考轨道粒子 → 球体
-// (恒定尺寸线性渐变 + 随电平的辉光)→ 球内 clip 的 9 条白色云雾 wisp(唯一签名效果,
-// 状态只调制它的速度/起伏/密度,thinking 时整团缓旋)→ 截屏扫描脉冲(3 圈扩散)。
-// 电平语义:listening 用真实麦克风电平(外部传入),speaking 由内部正弦合成
-// (真电平要给 TTS <audio> 挂 AnalyserNode,列为后续增强),其余态回落 0。
+// 视觉构成分两层 canvas:
+// - orb 层(WebGL): fbm 噪声云雾球体 —— fragment shader 内域翘曲(domain warp)+ 卷曲流场
+//   合成"大气感"长英花色(periwinkle)云层,u_activity 调制翘曲幅度与云量,u_time 由
+//   各状态的流速积分而来(speaking 最快、listening 次之、idle 缓慢)。
+// - fx 层(2D): 环境光晕 + 截屏扫描脉冲(3 圈扩散,业务功能,上游没有)。
+// 电平语义沿用旧版: listening 用实测麦克风电平,speaking 由内部正弦合成(真电平需给
+// TTS <audio> 挂 AnalyserNode,列为后续增强),其余态回落 0。电平驱动两件事——
+// 球体缩放(listening 收缩 / speaking 放大,CloudTheme 的"反向听觉缩放")与云层活跃度。
 
 /** 渲染器只认四个视觉状态;transcribing 由调用方映射成 thinking。 */
 export type OrbPhase = "idle" | "listening" | "thinking" | "speaking";
 
 export interface OrbFrameInput {
   phase: OrbPhase;
-  /** 0..1 目标电平(listening 时为实测;其余态忽略)。内部做 lerp 平滑。 */
+  /** 0..1 目标电平(listening 时为实测;其余态忽略)。内部做阻尼平滑。 */
   targetLevel: number;
   /** 扫描脉冲开始时刻(performance.now() 时间基准);null = 无脉冲。 */
   scanAt: number | null;
 }
 
-// 设计稿默认 accent(紫蓝);idle 用更灰的同族色。
+export interface OrbRenderer {
+  /** 画一帧。t 用 performance.now()/rAF 时间戳。 */
+  draw(t: number, input: OrbFrameInput): void;
+  /** 释放 GL 资源(组件卸载时调用;fx 2D 层无需释放)。 */
+  destroy(): void;
+}
+
+// 环境光晕用色(与 shader 内 periwinkle 族一致);idle 更灰。
 const ACCENT = "#8b93f8";
 const IDLE_COL = "#8a94dd";
 const TAU = Math.PI * 2;
+// CloudTheme 的听觉缩放系数:listening 收缩 / speaking 放大。
+const LISTEN_SHRINK = 0.204;
+const SPEAK_GROW = 0.2145;
 
-interface Wisp {
-  x: number;
-  y: number;
-  len: number;
-  th: number;
-  rot: number;
-  a: number;
-  spd: number;
-  ph: number;
+const VERTEX_SHADER = `
+attribute vec2 a_position;
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
 }
+`;
+
+// 逐字移植 CloudTheme 的云雾 shader(hash→值噪声→5 octave fbm→域翘曲+卷曲流场→
+// 地平线分层上色);唯一改动是补一个 u_dim,idle 态整体压暗降饱和,保留可点击的存在感。
+const FRAGMENT_SHADER = `
+precision highp float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_activity;
+uniform float u_dim;
+
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+    u.y
+  );
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.52;
+  mat2 rotation = mat2(0.80, 0.60, -0.60, 0.80);
+  for (int octave = 0; octave < 5; octave++) {
+    value += amplitude * noise(p);
+    p = rotation * p * 1.92 + vec2(9.7, 4.3);
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec2 centered = uv - 0.5;
+  float radius = length(centered);
+  float edge = 1.0 - smoothstep(0.488, 0.5, radius);
+  if (edge <= 0.0) discard;
+
+  vec2 p = centered * 2.0;
+  float t = u_time;
+  vec2 warp = vec2(
+    fbm(p * 1.02 + vec2(t * 0.34, -t * 0.24)),
+    fbm(p * 1.08 + vec2(-t * 0.27, t * 0.32) + vec2(6.7, 2.9))
+  );
+  vec2 curl = vec2(
+    sin(p.y * 2.4 + t * 0.68 + warp.y * 3.2),
+    cos(p.x * 2.1 - t * 0.61 + warp.x * 3.0)
+  );
+  vec2 warped =
+    p +
+    (warp - 0.5) * (1.18 + u_activity * 0.38) +
+    curl * (0.035 + u_activity * 0.07);
+  float broad = fbm(warped * 0.92 + vec2(t * 0.14, -t * 0.18));
+  float folded = fbm(warped * 1.66 + vec2(-t * 0.23, t * 0.19) + 5.2);
+  float field = mix(broad, folded, 0.3 + u_activity * 0.14);
+
+  float horizon =
+    0.46 +
+    0.08 * sin((uv.x + warp.x * 0.2) * 5.4 + t * 0.42) +
+    0.16 * (broad - 0.5);
+  float upper = smoothstep(horizon - 0.12, horizon + 0.08, uv.y);
+  float band = exp(-pow((uv.y - horizon) * (5.2 + u_activity * 0.8), 2.0));
+  float cloud = smoothstep(0.24, 0.79, field);
+
+  vec3 deepPeriwinkle = vec3(0.36, 0.39, 0.985);
+  vec3 upperPeriwinkle = vec3(0.48, 0.56, 0.985);
+  vec3 lowerLavender = vec3(0.72, 0.78, 0.975);
+  vec3 milk = vec3(0.89, 0.92, 0.995);
+
+  vec3 color = mix(lowerLavender, upperPeriwinkle, upper);
+  float upperDepth = upper * (0.14 + smoothstep(0.42, 0.78, folded) * 0.5);
+  color = mix(color, deepPeriwinkle, upperDepth);
+
+  float milkAmount = clamp(band * (0.42 + cloud * 0.62), 0.0, 0.88);
+  color = mix(color, milk, milkAmount);
+
+  float lowerMist = (1.0 - upper) * smoothstep(0.58, 0.9, broad) * 0.18;
+  color = mix(color, milk, lowerMist);
+
+  // idle 压暗:向灰蓝靠拢并整体降亮,保持"待机"的安静感。
+  vec3 idleColor = mix(color, vec3(dot(color, vec3(0.299, 0.587, 0.114))), 0.35) * 0.82;
+  color = mix(color, idleColor, u_dim);
+
+  float grain = (noise(gl_FragCoord.xy * 0.64) - 0.5) / 255.0;
+  color += grain;
+
+  // 上下文以 premultipliedAlpha:true 创建,输出必须预乘 alpha:边缘半透明像素若不预乘,
+  // 合成时会泛出一圈亮白描边(近白的 milk 色在球底尤其明显)。
+  gl_FragColor = vec4(color * edge, edge);
+}
+`;
 
 function rgba(hex: string, a: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
-export interface OrbRenderer {
-  /** 画一帧。t 用 performance.now()/rAF 时间戳。 */
-  draw(t: number, input: OrbFrameInput): void;
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
-export function createOrbRenderer(canvas: HTMLCanvasElement): OrbRenderer {
-  let level = 0;
-  let ripples: { r: number; a: number }[] = [];
-  let rippleCd = 0;
-  // 云雾带:斜向漂移的白色椭圆雾团,初始化一次、循环回卷。
-  const wisps: Wisp[] = [];
-  for (let i = 0; i < 9; i += 1) {
-    wisps.push({
-      x: Math.random() * 2.8 - 1.4,
-      y: (Math.random() - 0.5) * 0.7 + ((i % 3) - 1) * 0.18,
-      len: 0.5 + Math.random() * 0.6,
-      th: 0.1 + Math.random() * 0.16,
-      rot: -0.28 + Math.random() * 0.2,
-      a: 0.18 + Math.random() * 0.3,
-      spd: 0.5 + Math.random() * 0.9,
-      ph: Math.random() * 6.3,
-    });
+/** 指数阻尼插值(帧率无关,CloudTheme 同款)。 */
+function damp(current: number, target: number, rate: number, deltaSeconds: number): number {
+  return current + (target - current) * (1 - Math.exp(-rate * deltaSeconds));
+}
+
+interface GlHandles {
+  gl: WebGLRenderingContext;
+  program: WebGLProgram;
+  buffer: WebGLBuffer;
+  vertexShader: WebGLShader;
+  fragmentShader: WebGLShader;
+  timeLocation: WebGLUniformLocation;
+  activityLocation: WebGLUniformLocation;
+  dimLocation: WebGLUniformLocation;
+}
+
+function compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
+  const shader = gl.createShader(type);
+  if (!shader) return null;
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+/** 初始化 WebGL 管线;任何一步失败返回 null(调用方降级 CSS 渐变)。 */
+function initGl(canvas: HTMLCanvasElement): GlHandles | null {
+  const gl = canvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: true });
+  if (!gl) return null;
+  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
+  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+  if (!vertexShader || !fragmentShader) return null;
+  const program = gl.createProgram();
+  const buffer = gl.createBuffer();
+  if (!program || !buffer) return null;
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+
+  const positionLocation = gl.getAttribLocation(program, "a_position");
+  const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+  const timeLocation = gl.getUniformLocation(program, "u_time");
+  const activityLocation = gl.getUniformLocation(program, "u_activity");
+  const dimLocation = gl.getUniformLocation(program, "u_dim");
+  if (positionLocation < 0 || !resolutionLocation || !timeLocation || !activityLocation || !dimLocation) return null;
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelSize = Math.max(1, Math.round(canvas.clientWidth * pixelRatio));
+  canvas.width = pixelSize;
+  canvas.height = pixelSize;
+  gl.viewport(0, 0, pixelSize, pixelSize);
+  gl.useProgram(program);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(positionLocation);
+  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform2f(resolutionLocation, pixelSize, pixelSize);
+  return { gl, program, buffer, vertexShader, fragmentShader, timeLocation, activityLocation, dimLocation };
+}
+
+/**
+ * 创建语音球渲染器。
+ * @param orbCanvas WebGL 云雾球体层(正方形,CSS 尺寸即球直径;缩放经 style.transform)
+ * @param fxCanvas  2D 特效层(光晕/扫描脉冲;尺寸为整个 overlay 可视区,叠在球体下层)
+ */
+export function createOrbRenderer(orbCanvas: HTMLCanvasElement, fxCanvas: HTMLCanvasElement): OrbRenderer {
+  const handles = initGl(orbCanvas);
+  if (!handles) {
+    // WebGL 不可用(极旧 GPU/驱动黑名单):退化为静态 CSS 渐变球,保留可点击的存在感。
+    orbCanvas.style.background = "linear-gradient(180deg, #626afb 2%, #8f9dfb 32%, #dde6fd 52%, #c9d3fb 84%)";
+    orbCanvas.style.borderRadius = "50%";
   }
 
+  // 帧间状态(全部阻尼平滑,帧率无关)。
+  let level = 0;
+  let audioScale = 1;
+  let activity = 0.1;
+  let dim = 1;
+  let flowTime = 0;
+  let prevT: number | null = null;
+
   function draw(t: number, input: OrbFrameInput): void {
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth;
-    const H = canvas.clientHeight;
-    if (!W || !H) return;
-    if (canvas.width !== W * dpr) {
-      canvas.width = W * dpr;
-      canvas.height = H * dpr;
+    const deltaSeconds = prevT === null ? 0.016 : Math.min((t - prevT) / 1000, 0.05);
+    prevT = t;
+    const v = input.phase;
+
+    // 电平:listening 追实测(涨快落慢,CloudTheme 同款不对称阻尼),speaking 合成振荡。
+    let target = 0;
+    if (v === "listening") target = clamp01(input.targetLevel);
+    if (v === "speaking") target = 0.3 + 0.55 * Math.abs(Math.sin(t / 340) * Math.sin(t / 730));
+    level = damp(level, target, target > level ? 11 : 6, deltaSeconds);
+
+    // 听觉缩放:listening 收缩(把注意力"吸"向用户)、speaking 放大(球在"发声")。
+    let scaleTarget = 1;
+    if (v === "listening") scaleTarget = 1 - level * LISTEN_SHRINK;
+    if (v === "speaking") scaleTarget = 1 + level * SPEAK_GROW;
+    const scaleRate = Math.abs(scaleTarget - 1) > Math.abs(audioScale - 1) ? 12 : 6;
+    audioScale = damp(audioScale, scaleTarget, scaleRate, deltaSeconds);
+    orbCanvas.style.transform = `scale(${audioScale})`;
+
+    // 各状态的云层流速/活跃度(listening/speaking 取自上游;thinking 取中间值示"在忙")。
+    let speed = 0.24;
+    let activityTarget = 0.1;
+    if (v === "listening") {
+      speed = 0.72 + level * 0.78;
+      activityTarget = 0.28 + level * 0.32;
+    } else if (v === "speaking") {
+      speed = 1.65 + level * 1.55;
+      activityTarget = 0.66 + level * 0.34;
+    } else if (v === "thinking") {
+      speed = 0.55;
+      activityTarget = 0.22;
     }
-    const ctx = canvas.getContext("2d");
+    activity = damp(activity, activityTarget, 6, deltaSeconds);
+    dim = damp(dim, v === "idle" ? 1 : 0, 8, deltaSeconds);
+    flowTime += deltaSeconds * speed;
+
+    if (handles && !handles.gl.isContextLost()) {
+      const { gl } = handles;
+      gl.uniform1f(handles.timeLocation, flowTime);
+      gl.uniform1f(handles.activityLocation, activity);
+      gl.uniform1f(handles.dimLocation, dim);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    drawFx(t, input);
+  }
+
+  /** fx 层:环境光晕(常驻)+ 截屏扫描脉冲(3 圈相位错开,1300ms 播完)。 */
+  function drawFx(t: number, input: OrbFrameInput): void {
+    const dpr = window.devicePixelRatio || 1;
+    const W = fxCanvas.clientWidth;
+    const H = fxCanvas.clientHeight;
+    if (!W || !H) return;
+    if (fxCanvas.width !== W * dpr) {
+      fxCanvas.width = W * dpr;
+      fxCanvas.height = H * dpr;
+    }
+    const ctx = fxCanvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-
-    const v = input.phase;
     const cx = W / 2;
     const cy = H / 2;
-    const col = v === "idle" ? IDLE_COL : ACCENT;
-    const base = Math.min(W, H) * 0.34;
-    const r = base * 0.95; // 球体尺寸恒定 —— 只有内部效果对电平起反应
-    const ringMul = [1.14, 1.28];
+    const r = (orbCanvas.clientWidth / 2) * audioScale;
+    const col = input.phase === "idle" ? IDLE_COL : ACCENT;
 
-    // 电平平滑:listening 追实测,speaking 合成振荡,其余回落 0。
-    let target = 0;
-    if (v === "listening") target = Math.max(0, Math.min(1, input.targetLevel));
-    if (v === "speaking") target = 0.3 + 0.55 * Math.abs(Math.sin(t / 340) * Math.sin(t / 730));
-    level += (target - level) * 0.045;
-
-    // 环境光晕
-    let g: CanvasGradient = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 4);
-    g.addColorStop(0, rgba(col, v === "idle" ? 0.1 : 0.22));
+    const g = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, Math.min(W, H) / 2);
+    g.addColorStop(0, rgba(col, input.phase === "idle" ? 0.1 : 0.2 + level * 0.08));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    // 聆听涟漪:响度越过阈值时向外发圈
-    if (v === "listening") {
-      rippleCd -= 1;
-      if (level > 0.62 && rippleCd <= 0) {
-        ripples.push({ r: r * 1.1, a: 0.4 });
-        rippleCd = 22;
-      }
-    }
-    ripples = ripples.filter((p) => p.a > 0.02);
-    for (const p of ripples) {
-      p.r += 1.8;
-      p.a *= 0.965;
-      ctx.beginPath();
-      ctx.arc(cx, cy, p.r, 0, TAU);
-      ctx.strokeStyle = rgba(col, p.a);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    // 两圈虚线环:thinking 快转,其余慢转;listening 半径随电平微涨
-    const spin = v === "thinking" ? t / 900 : t / 6000;
-    for (let i = 0; i < 2; i += 1) {
-      const rr = r * (ringMul[i] ?? 1) + (v === "listening" ? level * 3 : 0);
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(spin * (i ? -1 : 1));
-      ctx.beginPath();
-      ctx.setLineDash([3, 7]);
-      ctx.arc(0, 0, rr, 0, TAU);
-      ctx.strokeStyle = rgba(col, v === "idle" ? 0.12 : 0.28 - i * 0.1);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.restore();
-    }
-    ctx.setLineDash([]);
-
-    // 思考轨道粒子(压扁的椭圆轨道)
-    if (v === "thinking") {
-      for (let i = 0; i < 10; i += 1) {
-        const a = t / 500 + i * 0.628;
-        const rr = r * 1.22 + Math.sin(t / 300 + i) * 3;
-        const px = cx + Math.cos(a) * rr;
-        const py = cy + Math.sin(a) * rr * 0.45;
-        ctx.beginPath();
-        ctx.arc(px, py, 2.2, 0, TAU);
-        ctx.fillStyle = rgba(ACCENT, 0.4 + 0.4 * Math.abs(Math.sin(t / 700 + i)));
-        ctx.fill();
-      }
-    }
-
-    // 球体:上下线性渐变 + 随电平的辉光
-    g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
-    if (v === "idle") {
-      g.addColorStop(0, "#8089d8");
-      g.addColorStop(0.5, "#98a2e8");
-      g.addColorStop(1, "#c0cbf5");
-    } else {
-      g.addColorStop(0, "#6d7bf2");
-      g.addColorStop(0.5, "#8f9cf8");
-      g.addColorStop(1, "#c9d6fd");
-    }
-    ctx.save();
-    ctx.shadowColor = col;
-    ctx.shadowBlur = v === "idle" ? 12 : 30 + level * 12;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, TAU);
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.restore();
-
-    // ── 球内效果(clip 在恒定尺寸的球里) ──
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, TAU);
-    ctx.clip();
-    const drift = v === "idle" ? 0.35 : v === "thinking" ? 0.6 : 0.8 + level * 2.0;
-    const bob = r * (0.015 + level * (v === "idle" ? 0.015 : 0.14));
-    const swirl = v === "thinking" ? t / 9000 : 0;
-    for (const wsp of wisps) {
-      wsp.x += 0.00011 * wsp.spd * drift;
-      if (wsp.x > 1.4) wsp.x = -1.4;
-      const edge = Math.min(1, (1.4 - Math.abs(wsp.x)) / 0.3);
-      if (edge <= 0) continue;
-      let wx = wsp.x;
-      let wy2 = wsp.y + wsp.x * -0.22; // 斜向雾带
-      if (swirl) {
-        const ca = Math.cos(swirl);
-        const sa = Math.sin(swirl);
-        const nx = wx * ca - wy2 * sa;
-        const ny = wx * sa + wy2 * ca;
-        wx = nx;
-        wy2 = ny;
-      }
-      const px = cx + wx * r;
-      const py = cy + wy2 * r + Math.sin(t / 2400 + wsp.ph) * bob + Math.sin(t / 1050 + wsp.ph * 2) * bob * 0.4;
-      const L = wsp.len * r;
-      const T = wsp.th * r * (1 + 0.1 * Math.sin(t / 3300 + wsp.ph));
-      const a = wsp.a * edge * (v === "idle" ? 0.8 : 0.9 + level * 0.5);
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(wsp.rot);
-      const wg = ctx.createRadialGradient(0, 0, 0, 0, 0, L);
-      wg.addColorStop(0, `rgba(255,255,255,${Math.min(0.85, a)})`);
-      wg.addColorStop(0.5, `rgba(255,255,255,${a * 0.4})`);
-      wg.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = wg;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, L, T, 0, 0, TAU);
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.restore();
-
-    // 截屏扫描脉冲:3 圈相位错开的扩散圆环,1300ms 内播完
     if (input.scanAt !== null && t - input.scanAt < 1300) {
       const p = (t - input.scanAt) / 1300;
       for (let i = 0; i < 3; i += 1) {
         const pp = Math.max(0, p - i * 0.12);
         if (pp <= 0) continue;
         ctx.beginPath();
-        ctx.arc(cx, cy, r + pp * r * 2.6, 0, TAU);
+        ctx.arc(cx, cy, r + pp * r * 1.8, 0, TAU);
         ctx.strokeStyle = rgba(ACCENT, 0.5 * (1 - pp));
         ctx.lineWidth = 2 - pp;
         ctx.stroke();
@@ -225,5 +323,15 @@ export function createOrbRenderer(canvas: HTMLCanvasElement): OrbRenderer {
     }
   }
 
-  return { draw };
+  return {
+    draw,
+    destroy(): void {
+      if (!handles) return;
+      const { gl } = handles;
+      gl.deleteProgram(handles.program);
+      gl.deleteBuffer(handles.buffer);
+      gl.deleteShader(handles.vertexShader);
+      gl.deleteShader(handles.fragmentShader);
+    },
+  };
 }

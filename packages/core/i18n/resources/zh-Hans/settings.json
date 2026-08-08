@@ -871,6 +871,7 @@
     "providerLabel": "语音供应商",
     "providerDesc": "选择本地 SenseVoiceSmall、已配置供应商或自定义 API。",
     "providerLocalSenseVoice": "本地 SenseVoiceSmall（离线）",
+    "providerLocalZipformer": "本地流式 Zipformer（中英，实时）",
     "providerCustom": "自定义 API",
     "providerKeyHint": "使用 {{name}} 的密钥",
     "protocolLabel": "协议",
@@ -924,7 +925,8 @@
     "langKo": "韩语",
     "advancedCard": "高级",
     "timeoutLabel": "超时(ms)",
-    "timeoutDesc": "单次转写请求的超时时间,单位毫秒。默认 60000。"
+    "timeoutDesc": "单次转写请求的超时时间,单位毫秒。默认 60000。",
+    "realtimeBadge": "实时"
   },
   "speech": {
     "title": "语音",
@@ -976,7 +978,18 @@
     "intentModeOff": "关闭模型分类",
     "intentModel": "意图模型",
     "intentModelHint": "建议选择响应快的小模型；不选则跟随全局默认模型",
-    "intentModelFollowDefault": "恢复跟随全局默认"
+    "intentModelFollowDefault": "恢复跟随全局默认",
+    "commandFuzzyMatch": "指令容错匹配",
+    "commandFuzzyMatchDesc": "对「退下」等短控制指令做拼音容错，识别成同音字（如「腿下」）时也能本地执行；疑问句和长句不受影响",
+    "chatStreamTts": "流式朗读",
+    "chatStreamTtsDesc": "回复边生成边按句朗读，首句更快出声；关闭后恢复为整轮生成完再朗读",
+    "wakeWord": "语音唤醒（Hey Jarvis）",
+    "wakeWordDesc": "说出唤醒词即可免热键唤起语音助手。开启后麦克风将持续在本机内存中分析，音频不落盘、不上传",
+    "wakeWordSensitivity": "唤醒灵敏度",
+    "wakeWordSensitivityDesc": "灵敏度越高越容易唤醒，也越容易被环境音误触发",
+    "wakeWordSensitivityLow": "低（不易误触）",
+    "wakeWordSensitivityMedium": "中（推荐）",
+    "wakeWordSensitivityHigh": "高（易唤醒）"
   },
   "roles": {
     "title": "角色管理",

@@ -871,6 +871,7 @@
     "providerLabel": "Speech provider",
     "providerDesc": "Choose local SenseVoiceSmall, a configured provider, or a custom API.",
     "providerLocalSenseVoice": "Local SenseVoiceSmall (offline)",
+    "providerLocalZipformer": "Local streaming Zipformer (zh/en, real-time)",
     "providerCustom": "Custom API",
     "providerKeyHint": "Using {{name}} API key",
     "protocolLabel": "Protocol",
@@ -924,7 +925,8 @@
     "langKo": "Korean",
     "advancedCard": "Advanced",
     "timeoutLabel": "Timeout (ms)",
-    "timeoutDesc": "Timeout for a single transcription request in milliseconds. Default 60000."
+    "timeoutDesc": "Timeout for a single transcription request in milliseconds. Default 60000.",
+    "realtimeBadge": "Real-time"
   },
   "speech": {
     "title": "Voice",
@@ -976,7 +978,18 @@
     "intentModeOff": "Disable model classification",
     "intentModel": "Intent model",
     "intentModelHint": "Pick a fast, small model; leave unset to follow the global default model",
-    "intentModelFollowDefault": "Follow global default"
+    "intentModelFollowDefault": "Follow global default",
+    "commandFuzzyMatch": "Fuzzy command matching",
+    "commandFuzzyMatchDesc": "Pinyin-tolerant matching for short control commands, so homophone mis-transcriptions still trigger locally; questions and long sentences are unaffected",
+    "chatStreamTts": "Streaming speech",
+    "chatStreamTtsDesc": "Speak replies sentence by sentence while they are being generated; turn off to wait for the full reply before speaking",
+    "wakeWord": "Voice wake-up (Hey Jarvis)",
+    "wakeWordDesc": "Say the wake word to summon the voice assistant without a hotkey. While enabled, the microphone is analyzed continuously in local memory only — audio is never stored or uploaded",
+    "wakeWordSensitivity": "Wake sensitivity",
+    "wakeWordSensitivityDesc": "Higher sensitivity wakes more easily but is more prone to false triggers from ambient sound",
+    "wakeWordSensitivityLow": "Low (fewer false triggers)",
+    "wakeWordSensitivityMedium": "Medium (recommended)",
+    "wakeWordSensitivityHigh": "High (wakes easily)"
   },
   "roles": {
     "title": "Role Management",

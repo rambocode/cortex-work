@@ -6552,16 +6552,76 @@ button.sb-row {
   padding-top: 8px;
   box-sizing: border-box;
 }
-.voice-orb-canvas {
-  border-radius: 50%;
-  cursor: pointer;
-}
-.voice-orb-ctrl {
-  margin-top: 10px;
+/* 其它会话 agent 活动卡片:磨砂浮层,标题加粗 + 内容区滚动(隐藏滚动条,流式更新
+   自动滚到底);无卡片时透明占位(槽位固定高,球体不跳)。 */
+.voice-orb-feed-slot {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+}
+.voice-orb-feed {
+  width: 296px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 4px 18px rgba(60, 75, 130, 0.18);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.voice-orb-feed.is-visible {
+  opacity: 1;
+}
+.voice-orb-feed-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2430;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-orb-feed-text {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #4c5468;
+  max-height: 36px; /* 两行;超出滚动,更新自动滚到底 */
+  overflow-y: auto;
+  scrollbar-width: none;
+  word-break: break-all;
+}
+.voice-orb-feed-text::-webkit-scrollbar {
+  display: none;
+}
+
+/* 双层 canvas 舞台:fx 光晕层铺满且不接事件(容器是拖拽区,fx 不能挡住 OS 拖动),
+   WebGL 云雾球体绝对居中,缩放动画由渲染器写 transform(此处只定基准 translate)。 */
+.voice-orb-stage {
+  position: relative;
+}
+.voice-orb-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.voice-orb-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 居中 margin 由组件按 ORB_DIAMETER 内联注入;transform 留给渲染器的 scale。 */
+  border-radius: 50%;
+  cursor: grab; /* 球体是拖拽把手(app-region:drag),动作按钮在悬停控制条 */
+}
+/* 三按钮沿球体下缘弧线排布(参考稿:🎙 ✕ 🔊,中间 ✕ 略低贴弧):球心 (80,80)、
+   球半径 56,按钮心距球心 79 —— 两侧 ±25°(47/113,152)、中间正下 (80,159)。
+   球底缘 136 之下留 ~8px 间隙,speaking 放大 21% 时球底最多到 148 也不压住图标。
+   按钮允许溢出 stage 底部,窗口高度已预留(见 VOICE_OVERLAY_H)。 */
+.voice-orb-ctrl {
+  position: absolute;
+  inset: 0;
   opacity: 0;
   transition: opacity 0.25s ease;
   pointer-events: none;
@@ -6570,34 +6630,36 @@ button.sb-row {
   opacity: 1;
   pointer-events: auto;
 }
-.voice-orb-hint {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
-  padding: 7px 16px;
-  font-size: 13px;
-  color: #3a4152;
-  letter-spacing: 1px;
-  box-shadow: 0 4px 18px rgba(80, 95, 150, 0.18);
-  max-width: 260px;
-  text-align: center;
+.voice-orb-btn--mic {
+  left: 33px; /* 47 - 14 */
+  top: 138px; /* 152 - 14 */
 }
-.voice-orb-hint.is-error { color: #b3352f; }
-.voice-orb-btns { display: flex; gap: 14px; }
+.voice-orb-btn--exit {
+  left: 66px; /* 80 - 14 */
+  top: 145px; /* 159 - 14 */
+}
+.voice-orb-btn--speaker {
+  left: 99px; /* 113 - 14 */
+  top: 138px;
+}
 .voice-orb-btn {
-  width: 44px;
-  height: 44px;
+  position: absolute;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 0;
-  background: #fff;
+  /* 磨砂半透明白(参考稿):overlay 背景任意,毛玻璃保证图标可读。 */
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
-  color: #2b3040;
+  color: #3f4657;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(80, 95, 150, 0.22);
+  box-shadow: 0 2px 8px rgba(60, 75, 130, 0.2);
 }
-.voice-orb-btn.is-exit { font-size: 15px; }
+.voice-orb-btn:hover { background: rgba(255, 255, 255, 0.95); }
 
 /* ---------- 个人工作区:设置弹出层(左 Tab + 右内容) ---------- */
 .pw-dlg-overlay {

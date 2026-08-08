@@ -6,7 +6,8 @@
 import type { DesktopBridge } from "../desktop/bridge";
 import type { TtsSettings } from "../desktop/types";
 
-const MAX_SPEECH_CHARS = 600;
+/** 单轮朗读的累计字数上限；句级流式（ttsSentenceStream）与整轮路径共用同一口径。 */
+export const MAX_SPEECH_CHARS = 600;
 const STREAM_TEXT_CHARS = 160;
 // 非流式回退的分句流水线块长:借鉴 xiaozhi-esp32-server 的「LLM→TTS 按标点切句」策略
 // (core/utils/util.py is_segment,遇 ，。？！；： 即切一段送 TTS,首段最小化),块取子句级
@@ -24,9 +25,10 @@ export interface TtsPlaybackState {
 
 type TtsPlaybackListener = (state: TtsPlaybackState) => void;
 
-// 朗读前清洗：去 markdown 标记/代码块/链接等"读不出来"的噪声,并截断。
-export function clipSpeechText(text: string, max = MAX_SPEECH_CHARS): string {
-  const clean = text
+/** 行内清洗（不截断）：去 markdown 标记/代码块/链接等"读不出来"的噪声。
+ * 句级流式路径（ttsSentenceStream）逐句复用同一套规则，保证与整轮朗读口径一致。 */
+export function sanitizeSpeechInline(text: string): string {
+  return text
     .replace(/```[\s\S]*?```/g, "（代码略）")
     .replace(/`([^`]*)`/g, "$1")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // 链接/图片取文字
@@ -36,6 +38,11 @@ export function clipSpeechText(text: string, max = MAX_SPEECH_CHARS): string {
     .replace(/\n{2,}/g, "。")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// 朗读前清洗：去 markdown 标记/代码块/链接等"读不出来"的噪声,并截断。
+export function clipSpeechText(text: string, max = MAX_SPEECH_CHARS): string {
+  const clean = sanitizeSpeechInline(text);
   return clean.length > max ? clean.slice(0, max) + "……以下省略" : clean;
 }
 
@@ -490,4 +497,223 @@ export async function speakText(
 export async function replayLastSpeech(bridge: DesktopBridge | null, settings?: TtsSettings): Promise<void> {
   if (!lastSpeech) return;
   await playCleanText(bridge, settings ?? lastSpeech.settings, lastSpeech.text);
+}
+
+// ── 句级流式播放队列（SpeechStream）──
+// 语音助手「LLM 边生成边朗读」的播放层：句子闭合即可 append，不必等整轮文本。
+// 必须住在本文件内共享 playbackSeq / setSpeaking / currentAudio / activeBridge 这组
+// 模块级单例互斥体——由此免费获得三件事：新朗读自动打断旧朗读、stopSpeaking() 一刀切
+// （barge-in 的取消语义零改动）、isSpeaking 广播直接接进状态机的「真起播闭锁」。
+
+/** 可追加的句级播放流。append/finalize 在被打断（seq 失配）后自动变 no-op。 */
+export interface SpeechStream {
+  /** 入队一句（已由 SentenceAssembler 清洗）。 */
+  append(sentence: string): void;
+  /** 声明不再有新句子；队列播尽后才落 isSpeaking=false。 */
+  finalize(): void;
+  /** 全部播完或被打断后 resolve（不 reject；打断语义由调用方按状态机判定）。 */
+  settled: Promise<void>;
+  /** 首句就失败且从未起播：调用方应降级走整轮朗读旧路径。 */
+  failedBeforeStart(): boolean;
+}
+
+/**
+ * 创建句级流式播放队列。引擎不可用（edge 无桥 / openai 缺配置）时返回 null，
+ * 调用方回退整轮朗读路径。
+ *
+ * ⚠️ isSpeaking 生命周期是本函数最大红线：首句真正起播才置 true；此后句间隙、合成
+ * 等待、队列暂空都【不得】落 false，直到「已 finalize 且队列播尽」或被 stopSpeaking
+ * 打断。句间误落 false 会被语音助手状态机当成自然播完 → 提前收轮 + 重开麦克风，
+ * 而 agent 可能还在生成——该性质由单测锁死。
+ */
+export function createSpeechStream(bridge: DesktopBridge | null, settings: TtsSettings): SpeechStream | null {
+  const engine = settings.engine;
+  // system 引擎：speechSynthesis 自带队列，独立实现见下。
+  if (engine.kind === "system") return createSystemSpeechStream(settings, engine);
+  if (engine.kind === "edge" && !bridge?.ttsSynthesizeEdge) return null;
+  // openai 引擎 v1 不接句级流式，返回 null 回退整轮朗读旧路径：该引擎的既有链路是
+  // 真流式 WAV 播放器（逐块剥 WAV 头），而句级队列走整块 POST——OMLX 类本地服务在
+  // stream:false / 逐句整块两种姿势下都可能返回多段 WAV 封装，HTMLAudio 直接播放
+  // 会把内嵌头当采样读出来，用户听到的是一段杂音（实测回归）。待句级队列接入
+  // makeWavStreamPlayer 后再放开。
+  if (engine.kind === "openai") return null;
+
+  stopSpeaking();
+  const seq = playbackSeq;
+  activeBridge = bridge;
+
+  // 走到这里只剩 edge 引擎：逐句(内部再按 30 字切块)合成整块 mp3,HTMLAudio 播放。
+  const synth = (chunkText: string): Promise<ArrayBuffer> =>
+    bridge!.ttsSynthesizeEdge!({ text: chunkText, voice: engine.voice, rate: engine.rate });
+
+  const chunkQueue: string[] = [];
+  const spoken: string[] = [];
+  let finalized = false;
+  let started = false;
+  let firstFailed = false;
+  let pumping = false;
+  let resolveSettled!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    resolveSettled = resolve;
+  });
+  const waiters: Array<() => void> = [];
+  const notify = () => {
+    waiters.splice(0).forEach((wake) => wake());
+  };
+  const waitForMore = () => new Promise<void>((resolve) => waiters.push(resolve));
+
+  /** 取下一块待合成文本；队列暂空且未 finalize 时挂起等待（期间不落 isSpeaking）。 */
+  async function nextChunk(): Promise<string | null> {
+    while (playbackSeq === seq) {
+      const chunk = chunkQueue.shift();
+      if (chunk !== undefined) return chunk;
+      if (finalized) return null;
+      await waitForMore();
+    }
+    return null;
+  }
+
+  async function pump(): Promise<void> {
+    let pendingSynth: Promise<ArrayBuffer | null> | null = null;
+    while (playbackSeq === seq) {
+      if (!pendingSynth) {
+        const text = await nextChunk();
+        if (text === null) break;
+        pendingSynth = synth(text).catch(() => null);
+      }
+      const buf = await pendingSynth;
+      pendingSynth = null;
+      if (playbackSeq !== seq) break;
+      // 预取：播放当前块时并行合成下一块（与 runChunkPipeline 同款首包/衔接优化）。
+      const upcoming = chunkQueue.shift();
+      if (upcoming !== undefined) pendingSynth = synth(upcoming).catch(() => null);
+      if (!buf) {
+        // 首句失败且从未起播 → 大概率是配置/网络问题，携带降级信号退出；
+        // 已开播后的失败只跳过该块（对齐 runChunkPipeline 的语义）。
+        if (!started) {
+          firstFailed = true;
+          break;
+        }
+        continue;
+      }
+      let done: Promise<void>;
+      try {
+        ({ done } = await startBlobPlayback(buf));
+      } catch {
+        if (!started) {
+          firstFailed = true;
+          break;
+        }
+        continue;
+      }
+      // 真起播（audio.play() 已 resolve）才置 true——比整轮路径更严格，杜绝假起播。
+      if (!started && playbackSeq === seq) {
+        started = true;
+        setSpeaking(true);
+      }
+      await done;
+    }
+    // 只有仍持有 seq（自然播尽/首句失败）才由我们落 false；被打断时 stopSpeaking 已处理。
+    if (playbackSeq === seq && started) setSpeaking(false);
+    resolveSettled();
+  }
+
+  return {
+    append(sentence: string): void {
+      if (playbackSeq !== seq) return;
+      const trimmed = sentence.trim();
+      if (!trimmed) return;
+      spoken.push(trimmed);
+      // 句内再按 30 字二次切块：长句也能保持小块首包与流水衔接。
+      chunkQueue.push(...splitSpeechChunks(trimmed, PIPELINE_TEXT_CHARS));
+      notify();
+      if (!pumping) {
+        pumping = true;
+        void pump();
+      }
+    },
+    finalize(): void {
+      if (playbackSeq !== seq) return;
+      finalized = true;
+      // 全部句子拼接写入 lastSpeech，保住「重播上一段」功能（与整轮路径口径一致）。
+      if (spoken.length > 0) {
+        lastSpeech = { text: spoken.join(""), settings };
+        emit();
+      }
+      notify();
+      if (!pumping) {
+        // 一句都没 append 就 finalize：无声轮，直接了结。
+        resolveSettled();
+      }
+    },
+    settled,
+    failedBeforeStart: () => firstFailed,
+  };
+}
+
+/** system 引擎的句级流：speechSynthesis 天然队列，逐句 speak。 */
+function createSystemSpeechStream(
+  settings: TtsSettings,
+  engine: Extract<TtsSettings["engine"], { kind: "system" }>,
+): SpeechStream | null {
+  const synth = (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+  if (!synth) return null;
+
+  stopSpeaking();
+  const seq = playbackSeq;
+  const spoken: string[] = [];
+  let finalized = false;
+  let started = false;
+  let outstanding = 0;
+  let resolveSettled!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    resolveSettled = resolve;
+  });
+
+  const maybeFinish = () => {
+    if (!finalized || outstanding > 0) return;
+    if (playbackSeq === seq && started) setSpeaking(false);
+    resolveSettled();
+  };
+
+  return {
+    append(sentence: string): void {
+      if (playbackSeq !== seq) return;
+      const trimmed = sentence.trim();
+      if (!trimmed) return;
+      spoken.push(trimmed);
+      outstanding += 1;
+      const utter = new SpeechSynthesisUtterance(trimmed);
+      if (engine.rate && engine.rate > 0) utter.rate = engine.rate;
+      if (engine.voice) {
+        const match = synth.getVoices().find((v) => v.name === engine.voice);
+        if (match) utter.voice = match;
+      }
+      utter.onstart = () => {
+        if (!started && playbackSeq === seq) {
+          started = true;
+          setSpeaking(true);
+        }
+      };
+      const settle = () => {
+        outstanding -= 1;
+        maybeFinish();
+      };
+      utter.onend = settle;
+      utter.onerror = settle;
+      synth.speak(utter);
+    },
+    finalize(): void {
+      if (playbackSeq !== seq) return;
+      finalized = true;
+      if (spoken.length > 0) {
+        lastSpeech = { text: spoken.join(""), settings };
+        emit();
+      }
+      maybeFinish();
+    },
+    settled,
+    // system 是本地引擎，utterance 失败率可忽略；不提供首句降级信号。
+    failedBeforeStart: () => false,
+  };
 }

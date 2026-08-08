@@ -38,8 +38,8 @@ export const OVERLAY_WINDOW_H = 304;
 // 语音球尺寸:240 球体 + 悬停提示胶囊(~30px) + 44px 操作钮排 + 间距。与
 // packages/views/cortex-desktop/personal/voice-assistant/VoiceOrb.tsx 里的同名常量
 // 保持一致(该文件据此排版语音球),改一处必须改两处。
-export const VOICE_OVERLAY_W = 280;
-export const VOICE_OVERLAY_H = 380;
+export const VOICE_OVERLAY_W = 320;
+export const VOICE_OVERLAY_H = 290;
 
 // 窗口双模式:pet(宠物,默认)/ voice(语音助手)。可见性拆两轴——
 // visibilityRequested 只表达「宠物 enabled」这一轴;voice 模式下窗口强制显示

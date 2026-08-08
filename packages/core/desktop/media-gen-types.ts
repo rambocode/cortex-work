@@ -318,9 +318,34 @@ function defaultIsKnownProvider(id: string): boolean {
 }
 
 // ── 语音识别（ASR）设置 ──────────────────────────────────────────────────────
-// 本地 SenseVoiceSmall 与在线 OpenAI 兼容协议共用一份设置，由 protocol 明确分流。
+// 本地 SenseVoiceSmall、本地流式 Zipformer 与在线 OpenAI 兼容协议共用一份设置，
+// 由 protocol 明确分流。
+//
+// 两个本地协议的区别（决定了 UI 文案与主进程走哪条管线）：
+//   local-sensevoice       → 句末整段推理，finish 时才开始算，用户能感到等待；
+//   local-zipformer-stream → 流式 transducer，喂 PCM 的同时解码，finish 近乎立即返回。
+// ⚠ 本类型在 apps/desktop/src/main/ipc/types.ts 有逐字镜像，改这里必须同步改那边。
 
-export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-sensevoice";
+export type AsrProtocol =
+  | "openai-transcriptions"
+  | "mimo-asr"
+  | "local-sensevoice"
+  | "local-zipformer-stream";
+
+/** 是否走主进程本地实时 PCM 流（stt:stream:*）而非整段上传。 */
+export function isLocalStreamingAsrProtocol(protocol: AsrProtocol): boolean {
+  return protocol === "local-sensevoice" || protocol === "local-zipformer-stream";
+}
+
+// 流式模型 id 在此处只做「协议↔model 是否自洽」的兜底判断，权威清单在
+// core/asr/streaming-models.ts。刻意不 import：本文件被逐字镜像进主进程 types.ts，
+// 引入跨模块依赖会让镜像失效。新增流式模型时两处都要加。
+const STREAMING_ASR_MODEL_NAMES: readonly string[] = ["zipformer-bilingual-zh-en-int8"];
+const STREAMING_ASR_FALLBACK_MODEL = "zipformer-bilingual-zh-en-int8";
+
+function isStreamingAsrModelName(value: string): boolean {
+  return STREAMING_ASR_MODEL_NAMES.includes(value);
+}
 export type LocalModelDownloadSource = "huggingface" | "hf-mirror";
 
 export interface AsrSettings {
@@ -356,6 +381,7 @@ const ASR_PROTOCOLS: readonly AsrProtocol[] = [
   "openai-transcriptions",
   "mimo-asr",
   "local-sensevoice",
+  "local-zipformer-stream",
 ];
 const LOCAL_MODEL_DOWNLOAD_SOURCES: readonly LocalModelDownloadSource[] = [
   "huggingface",
@@ -374,13 +400,21 @@ export function normalizeAsrSettings(raw: unknown): AsrSettings {
   const src = raw as Record<string, unknown>;
   if (src.protocol === "local-whisper") return defaults;
   const protocol = pickEnum(src.protocol, ASR_PROTOCOLS, defaults.protocol);
+  // 两个本地协议的 model 字段取值域完全不同（SenseVoice 的 GGUF id vs 流式模型 id）。
+  // 用户在 UI 里切协议时会一并改写 model，但半写入的旧档 / 手改配置可能出现协议与
+  // model 不匹配，届时主进程只会抛「无效模型」而无法自愈，故在归一化时兜底纠正。
+  const rawModel = pickString(src.model, defaults.model);
+  const model =
+    protocol === "local-zipformer-stream" && !isStreamingAsrModelName(rawModel)
+      ? STREAMING_ASR_FALLBACK_MODEL
+      : rawModel;
   return {
     enabled: pickBoolean(src.enabled, defaults.enabled),
     providerId: pickString(src.providerId, defaults.providerId),
     protocol,
     baseUrl: pickString(src.baseUrl, defaults.baseUrl),
     apiKey: pickString(src.apiKey, defaults.apiKey),
-    model: pickString(src.model, defaults.model),
+    model,
     localModelDownloadSource: pickEnum(
       src.localModelDownloadSource,
       LOCAL_MODEL_DOWNLOAD_SOURCES,

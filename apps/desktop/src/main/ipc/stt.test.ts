@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
   finish: vi.fn(),
   cancel: vi.fn(),
   transcribePcm: vi.fn(),
+  // 流式引擎（sherpa）：用 has() 模拟「requestId 归属哪个引擎」的会话表。
+  zipHas: vi.fn(),
+  zipStart: vi.fn(),
+  zipAppend: vi.fn(),
+  zipFinish: vi.fn(),
+  zipCancel: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -29,6 +35,24 @@ vi.mock("../capabilities/sensevoice/client", () => ({
     finishStream: (...args: unknown[]) => mocks.finish(...args),
     cancelStream: (...args: unknown[]) => mocks.cancel(...args),
     transcribePcm: (...args: unknown[]) => mocks.transcribePcm(...args),
+  },
+}));
+vi.mock("../capabilities/sherpa-asr/models", () => ({
+  getStreamingAsrModelStatus: vi.fn(),
+  downloadStreamingAsrModel: vi.fn(),
+  cancelStreamingAsrDownload: vi.fn(),
+  deleteStreamingAsrModel: vi.fn(),
+  checkStreamingAsrSources: vi.fn(),
+  setStreamingAsrProgressEmitter: vi.fn(),
+}));
+vi.mock("../capabilities/sherpa-asr/engine", () => ({
+  sherpaStreamingAsr: {
+    has: (...args: unknown[]) => mocks.zipHas(...args),
+    startStream: (...args: unknown[]) => mocks.zipStart(...args),
+    appendAudio: (...args: unknown[]) => mocks.zipAppend(...args),
+    finishStream: (...args: unknown[]) => mocks.zipFinish(...args),
+    cancelStream: (...args: unknown[]) => mocks.zipCancel(...args),
+    shutdown: vi.fn(),
   },
 }));
 vi.mock("../capabilities/asr/online-transcribe", () => ({
@@ -103,6 +127,70 @@ describe("stt IPC", () => {
     await expect(handlers["stt:stream:start"]?.({}, {
       requestId: "r", modelId: "sensevoice-small-q8", language: "auto",
     } as never)).rejects.toThrow(/尚未就绪/);
+  });
+
+  it("start 按 protocol 分流到流式引擎，且不去查 SenseVoice 模型状态", async () => {
+    await handlers["stt:stream:start"]?.({}, {
+      requestId: "r1",
+      modelId: "zipformer-bilingual-zh-en-int8",
+      language: "auto",
+      protocol: "local-zipformer-stream",
+    } as never);
+    expect(mocks.zipStart).toHaveBeenCalledWith({
+      requestId: "r1", modelId: "zipformer-bilingual-zh-en-int8",
+    });
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.getStatus).not.toHaveBeenCalled();
+  });
+
+  it("start 省略 protocol 时仍按 SenseVoice 处理（旧渲染端兼容）", async () => {
+    mocks.getStatus.mockResolvedValue({ state: "ready", path: "/model.gguf" });
+    await handlers["stt:stream:start"]?.({}, {
+      requestId: "r2", modelId: "sensevoice-small-q8", language: "auto",
+    } as never);
+    expect(mocks.start).toHaveBeenCalled();
+    expect(mocks.zipStart).not.toHaveBeenCalled();
+  });
+
+  it("audio/finish/cancel 依据会话归属分流，而不需要再传 protocol", async () => {
+    mocks.zipHas.mockReturnValue(true);
+    mocks.zipFinish.mockResolvedValue("流式结果");
+    await handlers["stt:stream:audio"]?.({}, { requestId: "r1", audio: new ArrayBuffer(4) } as never);
+    expect(mocks.zipAppend).toHaveBeenCalled();
+    expect(mocks.append).not.toHaveBeenCalled();
+
+    const finished = await handlers["stt:stream:finish"]?.({}, "r1" as never);
+    expect(finished).toEqual({ text: "流式结果" });
+    expect(mocks.finish).not.toHaveBeenCalled();
+
+    await handlers["stt:stream:cancel"]?.({}, "r1" as never);
+    expect(mocks.zipCancel).toHaveBeenCalledWith("r1");
+    expect(mocks.cancel).not.toHaveBeenCalled();
+  });
+
+  it("非流式会话的 audio/finish 仍走 SenseVoice", async () => {
+    mocks.zipHas.mockReturnValue(false);
+    mocks.finish.mockResolvedValue("整段结果");
+    await handlers["stt:stream:audio"]?.({}, { requestId: "r2", audio: new ArrayBuffer(4) } as never);
+    expect(mocks.append).toHaveBeenCalled();
+    expect(mocks.zipAppend).not.toHaveBeenCalled();
+
+    const finished = await handlers["stt:stream:finish"]?.({}, "r2" as never);
+    expect(finished).toEqual({ text: "整段结果" });
+  });
+
+  it("local-zipformer-stream 的整段转写走临时流式会话", async () => {
+    mocks.zipHas.mockReturnValue(true);
+    mocks.zipFinish.mockResolvedValue("整段流式结果");
+    const pcm = Buffer.from([1, 0, 2, 0]);
+    const result = await handlers["stt:transcribe"]?.({}, {
+      audio: wav(pcm), mimeType: "audio/wav", fileName: "a.wav",
+      asrSettings: { ...settings("local-zipformer-stream"), model: "zipformer-bilingual-zh-en-int8" },
+    } as never);
+    expect(result).toEqual({ text: "整段流式结果" });
+    // 整段路径不应误落到在线转写或 SenseVoice。
+    expect(mocks.transcribeOnline).not.toHaveBeenCalled();
+    expect(mocks.transcribePcm).not.toHaveBeenCalled();
   });
 
   it("已删除的 local-whisper 不会被当作在线协议发送", async () => {

@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- 唤醒词 KWS 隐藏窗口：无 UI，仅承载麦克风采集与 onnxruntime-web 推理（见 src/kws/main.ts）。 -->
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' cortex-kws: cortex-vad:; script-src 'self'; connect-src 'self' cortex-kws: cortex-vad: data: blob:; worker-src 'self' blob:"
+    />
+    <title>Cortex KWS</title>
+  </head>
+  <body>
+    <script type="module" src="/src/kws/main.ts"></script>
+  </body>
+</html>

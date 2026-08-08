@@ -43,8 +43,11 @@ export interface VadConfig {
 // RMS 约 0.04–0.12,安静房间底噪约 0.001–0.005,取 0.012/0.007 留足两侧余量。
 export const DEFAULT_VAD_CONFIG: VadConfig = {
   calibrationMs: 300,
-  // 句中思考停顿(~1s)不算说完;要更快发送用热键/🎙 手动提交。
-  silenceMs: 1100,
+  // 判停静音窗:每轮响应的第一笔纯等待,直接决定"说完到发送"的体感。1100 → 900:
+  // 借鉴实时语音产品(ChatGPT Realtime server VAD 默认 500ms)向下压,但我们的 ASR
+  // 无 partial、误切句会把一句话拆成两轮发送,代价高于多等 200ms,故保守取 900。
+  // 句中思考停顿(<900ms)不算说完;要更快发送用热键/🎙 手动提交。
+  silenceMs: 900,
   minSpeechMs: 300,
   maxIdleMs: 30_000,
   enterFactor: 3.5,

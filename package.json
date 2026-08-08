@@ -40,7 +40,10 @@
     "overrides": {
       "@types/react": "catalog:",
       "@types/react-dom": "catalog:",
-      "minimatch": "10.2.5"
+      "minimatch": "10.2.5",
+      "sherpa-onnx-darwin-arm64": "1.12.40",
+      "sherpa-onnx-darwin-x64": "1.12.40",
+      "sherpa-onnx-win-x64": "1.12.40"
     }
   },
   "devDependencies": {

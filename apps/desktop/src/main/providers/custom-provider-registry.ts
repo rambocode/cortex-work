@@ -120,9 +120,38 @@ function toModel(
       ? { headers: resolveHeaders(m.headers as Record<string, unknown>) }
       : {}),
     // compat 原样带上：它决定 role / max_tokens 字段名等线格式，丢了会让非 OpenAI 上游 400
-    //（详见 capability-resolver.ts 里的实测记录）。
-    ...(m.compat !== undefined ? { compat: m.compat } : {}),
+    //（详见 capability-resolver.ts 里的实测记录）。在此之上按模型族系补推 thinkingFormat
+    //（见 inferThinkingCompat）——用户显式写的 compat 键永远优先。
+    ...buildCompat(m),
   };
+}
+
+/**
+ * 按模型 id/name 族系推断 `compat.thinkingFormat`（仅 reasoning 模型、且用户未显式指定时）。
+ *
+ * 为什么需要：pi-ai 的 detectCompat 只认官方 provider id / 官方域名（如 baseUrl 含
+ * deepseek.com）。自定义网关代理的 DeepSeek/GLM/Qwen 两个条件都不满足 → thinkingFormat
+ * 落到默认 "openai" → 「关闭思考」时不会发 `thinking:{type:"disabled"}` 等停用参数 →
+ * 上游默认开思考，UI 关了思考却仍返回 reasoning_content（实测故障）。
+ * 网关一般把未知参数透传上游；若某严格网关拒收，用户可显式写 `compat.thinkingFormat`
+ * （含 "openai"）覆盖本推断。
+ */
+function inferThinkingCompat(m: Record<string, unknown>): string | undefined {
+  if (m.reasoning !== true) return undefined;
+  const key = `${typeof m.id === "string" ? m.id : ""} ${typeof m.name === "string" ? m.name : ""}`.toLowerCase();
+  if (/deepseek/.test(key)) return "deepseek";
+  if (/\bglm|zai/.test(key)) return "zai";
+  if (/qwen|qwq/.test(key)) return "qwen";
+  return undefined;
+}
+
+/** 合成最终 compat：推断值垫底，用户显式 compat 覆盖（getCompat 侧同样是显式优先）。 */
+function buildCompat(m: Record<string, unknown>): { compat?: unknown } {
+  const inferred = inferThinkingCompat(m);
+  const explicit = m.compat !== undefined && typeof m.compat === "object" && m.compat !== null ? (m.compat as Record<string, unknown>) : undefined;
+  if (!inferred && m.compat === undefined) return {};
+  if (!inferred) return { compat: m.compat };
+  return { compat: { thinkingFormat: inferred, ...(explicit ?? {}) } };
 }
 
 /**

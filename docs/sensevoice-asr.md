@@ -1,5 +1,9 @@
 # SenseVoiceSmall 本地语音识别
 
+> 本地识别现在有**两条**通道：本文的 SenseVoice（句末整段推理）与流式 Zipformer
+> （边说边解码，`docs/streaming-asr.md`）。两者共用 `stt:stream:*` 实时 PCM 通道，
+> 由 `AsrSettings.protocol` 分流，互不替代。
+
 ## 业务背景
 
 Cortex 的本地语音输入需要在不上传录音的前提下，缩短“松开录音后才开始处理”的等待。

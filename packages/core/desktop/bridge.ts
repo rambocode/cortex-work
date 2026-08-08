@@ -112,7 +112,9 @@ import type {
   ReplyRelearnResult,
   ReplySyncSnapshot,
   PetStateSnapshot,
+  VoiceAssistantFeed,
   VoiceAssistantSnapshot,
+  WakeWordSettings,
   VoiceAssistantCommand,
   VoiceAssistantControlAction,
   VoiceAssistantIntentResult,
@@ -174,6 +176,11 @@ import type {
   LocalAsrModelProgress,
   LocalAsrSourcesResult,
 } from "../asr/local-models";
+import type {
+  StreamingAsrModelStatus,
+  StreamingAsrModelProgress,
+  StreamingAsrSourcesResult,
+} from "../asr/streaming-models";
 import type { AsrSettings } from "./media-gen-types";
 // 研究引擎桥契约（真源单独成文件,见其头部注释:三处同形约定 + 1200 行上限的理由）。
 import type { CortexResearchBridge } from "./research-bridge";
@@ -720,8 +727,29 @@ export interface DesktopBridge {
   checkLocalAsrSources?(modelId?: string): Promise<LocalAsrSourcesResult>;
   /** 订阅下载进度推送（仿 onUpdateState；返回退订函数）。*/
   onLocalAsrDownloadProgress?(cb: (progress: LocalAsrModelProgress) => void): () => void;
-  /** 启动本地实时会话；sidecar 就绪且 BEGIN 已写入后返回。*/
-  startLocalAsrStream?(args: { requestId: string; modelId: string; language: string }): Promise<void>;
+  // ── 流式 Zipformer 本地模型（sherpa-onnx）。与上面 SenseVoice 一组并列，语义逐条对应。──
+  /** 列出所有流式 ASR 模型状态。*/
+  listStreamingAsrModels?(): Promise<StreamingAsrModelStatus[]>;
+  /** 查询单个流式模型状态（含下载进度快照）。*/
+  getStreamingAsrModelStatus?(modelId: string): Promise<StreamingAsrModelStatus>;
+  /** 下载流式模型（三件套 + 词表串行下载；进度经 onStreamingAsrDownloadProgress 推送）。*/
+  downloadStreamingAsrModel?(args: { modelId: string; sourceId?: string }): Promise<{ ok: boolean; message?: string; status?: StreamingAsrModelStatus }>;
+  /** 取消正在进行的流式模型下载（幂等）。*/
+  cancelStreamingAsrDownload?(modelId: string): Promise<{ ok: boolean; status?: StreamingAsrModelStatus }>;
+  /** 删除已下载的流式模型目录。*/
+  deleteStreamingAsrModel?(modelId: string): Promise<{ ok: boolean; message?: string; status?: StreamingAsrModelStatus }>;
+  /** 检测各下载源对指定流式模型的可达性。*/
+  checkStreamingAsrSources?(modelId?: string): Promise<StreamingAsrSourcesResult>;
+  /** 订阅流式模型下载进度（返回退订函数）。*/
+  onStreamingAsrDownloadProgress?(cb: (progress: StreamingAsrModelProgress) => void): () => void;
+  /**
+   * 启动本地实时会话。
+   *
+   * protocol 决定主进程用哪个引擎：local-zipformer-stream 走 sherpa 流式解码，
+   * 其余（含省略）按 SenseVoice 处理。之后的 append/finish/cancel 由主进程按
+   * requestId 反查归属，调用方不必重复传。
+   */
+  startLocalAsrStream?(args: { requestId: string; modelId: string; language: string; protocol?: string }): Promise<void>;
   /** 追加 16kHz/单声道/PCM16LE；主进程校验 requestId、顺序与 30 秒上限。*/
   appendLocalAsrAudio?(requestId: string, audio: ArrayBuffer): Promise<void>;
   /** 结束本地语句并等待一次整句结果。*/
@@ -882,12 +910,20 @@ export interface DesktopBridge {
   voiceAssistantActivate?(reason: "hotkey" | "pet" | "settings"): Promise<void>;
   /** 退出语音助手：窗口切回 pet 模式,按宠物 enabled 决定显隐。 */
   voiceAssistantDeactivate?(): Promise<void>;
+  /** 唤醒词运行状态(设置页展示;识别在独立 kws 隐藏窗口,IPC 域 wakeWord:*)。 */
+  wakeWordGetStatus?(): Promise<{ running: boolean; state: string; micPermission: string }>;
+  /** 应用唤醒词设置(开 → 拉起常驻 kws 窗口;关 → 销毁)。持久化仍走 voiceSettings。 */
+  wakeWordConfigure?(settings: WakeWordSettings): Promise<void>;
   /** 理解已纠错转写中的本地控制意图。失败必须返回 continue_chat，原文由控制器继续发送。 */
   understandVoiceAssistantIntent?(text: string): Promise<VoiceAssistantIntentResult>;
   /** 主窗口控制器上报状态快照(主进程缓存并转发 overlay)。 */
   reportVoiceAssistantState?(snapshot: VoiceAssistantSnapshot): void;
   /** 主窗口控制器上报麦克风电平(30Hz 节流,主进程只转发不缓存)。 */
   reportVoiceAssistantLevel?(level: number): void;
+  /** 主窗口上报「其它会话 agent 活动」卡片(节流;null = 隐藏),主进程缓存并转发 overlay。 */
+  reportVoiceAssistantFeed?(feed: VoiceAssistantFeed | null): void;
+  /** overlay 订阅活动卡片更新。 */
+  onVoiceAssistantFeed?(cb: (feed: VoiceAssistantFeed | null) => void): () => void;
   /** 主窗口订阅主进程下发的指令(热键/overlay 点击归一为 command)。返回退订函数。 */
   onVoiceAssistantCommand?(cb: (command: VoiceAssistantCommand) => void): () => void;
   /** overlay 语音球发起控制动作(经主进程转发主窗口;exit 同时走 deactivate 流程)。 */

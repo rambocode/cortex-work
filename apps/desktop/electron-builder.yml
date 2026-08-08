@@ -166,6 +166,13 @@ asarUnpack:
   # 故把 @firecrawl 作用域(主包 + anydoc-darwin-* 等平台子包)整体 unpack。
   # ⚠ 仓库外 ditto→/tmp 验证:若有 "Cannot find module"/.node 加载失败,按 docs/lessons.md 排查。
   - "**/node_modules/@firecrawl/**"
+  # 流式 ASR(sherpa-onnx):主包 sherpa-onnx-node(纯 JS) + 平台子包 sherpa-onnx-darwin-*
+  # (sherpa-onnx.node 与三个 dylib)。原生 .node 及其 dylib 依赖必须以真实文件解包——
+  # dylib 由 dlopen 按路径加载,asar 虚拟路径下必然失败。故两个作用域整体 unpack。
+  # ⚠ 版本红线见 capabilities/sherpa-asr/engine.ts:平台包被 pnpm.overrides 钉死在 1.12.40,
+  # 1.13.x 在 darwin-arm64 上识别结果恒为空且不报错。
+  - "**/node_modules/sherpa-onnx-node/**"
+  - "**/node_modules/sherpa-onnx-darwin-*/**"
 mac:
   category: public.app-category.productivity
   icon: assets/cortex-neuron-icon.png

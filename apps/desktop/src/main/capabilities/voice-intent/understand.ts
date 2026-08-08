@@ -7,6 +7,8 @@
 import { postChatCompletion } from "../../ipc/openai-chat";
 import { getPersistedState } from "../../ipc/store";
 import { getDefaultModelRef } from "../../providers/default-model";
+import { DIRECT_COMMANDS, FAST_PATH_MAX_CHARS, isFastPathVetoed, normalizeCommand } from "./commands";
+import { matchCommandFuzzy } from "./fuzzy";
 import type {
   VoiceAssistantIntentName,
   VoiceAssistantIntentResult,
@@ -16,6 +18,8 @@ import type {
 export interface VoiceIntentOptions {
   mode: VoiceIntentMode;
   modelRef?: { providerId: string; modelId: string } | null;
+  /** 拼音模糊 fast-path 开关（voiceSettings.commandFuzzyMatch，默认开）。 */
+  fuzzyMatch?: boolean;
 }
 
 interface VoiceIntentDeps {
@@ -34,6 +38,7 @@ interface VoiceIntentSettingsDeps extends VoiceIntentDeps {
     intentMode?: unknown;
     intentProviderId?: unknown;
     intentModelId?: unknown;
+    commandFuzzyMatch?: unknown;
   } | undefined>;
   defaultRef(): Promise<{ providerId: string; modelId: string } | null>;
 }
@@ -57,40 +62,8 @@ const ALLOWED_INTENTS = new Set<VoiceAssistantIntentName>([
   "disable_screen_context",
 ]);
 
-// 与 xiaozhi 的 cmd_exit 一样只做“整句相等”判断。疑问、引用或带任务正文的句子不应
-// 被包含匹配误杀，例如“怎么退出语音助手”必须继续进入聊天。
-const DIRECT_COMMANDS = new Map<string, Exclude<VoiceAssistantIntentName, "continue_chat">>([
-  ...[
-    "退出",
-    "关闭",
-    "再见",
-    "不聊了",
-    "退下",
-    "退下吧",
-    "你退下吧",
-    "可以退下了",
-    "退出语音助手",
-    "关闭语音助手",
-    "结束对话",
-    "结束语音助手",
-  ].map((command) => [command, "exit_assistant"] as const),
-  ...[
-    "新建对话",
-    "开始新对话",
-    "新开一个对话",
-    "换个新对话",
-  ].map((command) => [command, "new_conversation"] as const),
-  ...[
-    "开启屏幕上下文",
-    "打开屏幕上下文",
-    "带上屏幕",
-  ].map((command) => [command, "enable_screen_context"] as const),
-  ...[
-    "关闭屏幕上下文",
-    "不要看屏幕",
-    "不带屏幕",
-  ].map((command) => [command, "disable_screen_context"] as const),
-]);
+// 精确命令注册表与归一化已迁至 ./commands.ts（模板本体在 core/personal/voice-commands.ts，
+// 与 renderer 共享单一事实源）；拼音模糊匹配见 ./fuzzy.ts。
 
 const SYSTEM_PROMPT = `你是语音助手的意图分类器。只能输出一个 JSON 对象，禁止输出解释或 Markdown。
 可用函数：
@@ -105,13 +78,6 @@ const SYSTEM_PROMPT = `你是语音助手的意图分类器。只能输出一个
 1. “怎么退出了”“为什么关闭”等疑问不是退出，返回 continue_chat。
 2. 只有整句话的主要目的就是控制语音助手时才返回本地函数。
 3. 不确定、复合任务或不在函数列表中的意图一律返回 continue_chat。`;
-
-function normalizeCommand(text: string): string {
-  return text
-    .trim()
-    .toLocaleLowerCase("zh-Hans")
-    .replace(/[\s，。！？、,.!?；;：:“”‘’"']/gu, "");
-}
 
 /** 解析模型的严格函数 JSON；兼容供应商偶尔包一层 Markdown code fence。 */
 export function parseIntentResponse(raw: string): VoiceAssistantIntentResult {
@@ -144,6 +110,16 @@ export async function understandVoiceIntent(
   const normalized = normalizeCommand(text);
   const direct = DIRECT_COMMANDS.get(normalized);
   if (direct) return { name: direct, source: "direct" };
+  // 拼音模糊 fast-path（P0，参考 xiaozhi「简单指令离线」）：只对短句启用，疑问句硬否决，
+  // 与精确匹配一样先于三模式分流执行（nointent 下精确命令本就生效，容错版同理）。
+  if (
+    (options.fuzzyMatch ?? true) &&
+    normalized.length <= FAST_PATH_MAX_CHARS &&
+    !isFastPathVetoed(text)
+  ) {
+    const fuzzy = matchCommandFuzzy(normalized);
+    if (fuzzy) return { name: fuzzy, source: "direct_fuzzy" };
+  }
   if (options.mode === "nointent") return { name: "continue_chat", source: "disabled" };
   if (options.mode === "function_call") return { name: "continue_chat", source: "function_call" };
   const ref = options.modelRef;
@@ -184,5 +160,7 @@ export async function understandVoiceIntentFromSettings(
     const modelId = typeof settings?.intentModelId === "string" ? settings.intentModelId.trim() : "";
     modelRef = providerId && modelId ? { providerId, modelId } : await deps.defaultRef();
   }
-  return understandVoiceIntent(text, { mode, modelRef }, deps);
+  // 旧存档缺键 = 默认开启；显式 false 才关闭（与 renderer 侧 ?? true 口径一致）。
+  const fuzzyMatch = settings?.commandFuzzyMatch !== false;
+  return understandVoiceIntent(text, { mode, modelRef, fuzzyMatch }, deps);
 }

@@ -46,6 +46,26 @@ describe("understandVoiceIntent", () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it("拼音模糊 fast-path：同音错字本地命中，关闭开关后回归原行为", async () => {
+    const complete = vi.fn();
+    // 同音错字 → direct_fuzzy，不调用模型（默认开启）。
+    await expect(understandVoiceIntent("腿下", { mode: "function_call" }, { complete }))
+      .resolves.toEqual({ name: "exit_assistant", source: "direct_fuzzy" });
+    await expect(understandVoiceIntent("新建对画。", { mode: "nointent" }, { complete }))
+      .resolves.toEqual({ name: "new_conversation", source: "direct_fuzzy" });
+    // 疑问句硬否决：即使包含近音命令也必须进聊天。
+    await expect(understandVoiceIntent("能不能腿下", { mode: "function_call" }, { complete }))
+      .resolves.toEqual({ name: "continue_chat", source: "function_call" });
+    // 长句门：超过 10 字不启用模糊匹配。
+    await expect(
+      understandVoiceIntent("腿下之前帮我把这份文件总结一下", { mode: "function_call" }, { complete }),
+    ).resolves.toEqual({ name: "continue_chat", source: "function_call" });
+    // 开关关闭 → 与旧行为一致。
+    await expect(understandVoiceIntent("腿下", { mode: "function_call", fuzzyMatch: false }, { complete }))
+      .resolves.toEqual({ name: "continue_chat", source: "function_call" });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it("intent_llm 以严格函数 JSON 分类本地动作", async () => {
     const complete = vi.fn(async () => '{"function_call":{"name":"enable_screen_context"}}');
     await expect(understandVoiceIntent("以后回答时看一下我的屏幕", {

@@ -47,12 +47,15 @@ describe("语音功能默认设置", () => {
       dictationDictionary: [],
       chatPrompt: "",
       intentMode: "function_call",
+      commandFuzzyMatch: true,
       intentProviderId: "",
       intentModelId: "",
       transcriptPolish: true,
       polishProviderId: "",
       polishModelId: "",
       polishPrompt: "",
+      chatStreamTts: true,
+      wakeWord: { enabled: false, wordId: "hey-jarvis", sensitivity: "medium" },
     });
   });
 });

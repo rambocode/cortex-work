@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
 import type { AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
+import { isLocalStreamingAsrProtocol } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalAsrModelStatus } from "@cortex-work/core/asr/local-models";
 // 录音采集 + 16kHz WAV + 统一转写核心抽到 voiceRecorder（与 reply 气泡共用，见其文件头注释）。
 import { VoiceCapture, transcribeRecording } from "./voiceRecorder";
@@ -32,16 +33,25 @@ function isOnlineConfigReady(asr: AsrSettings): boolean {
 }
 
 /**
- * 判断本地 SenseVoiceSmall 模型是否就绪。
+ * 本地模型状态在本 hook 里只需要这几个字段，SenseVoice 与流式 Zipformer 的状态类型
+ * 在这部分是同形的，故用结构子集统一处理，避免为两条协议写两套订阅逻辑。
+ */
+type LocalModelStatusView = Pick<
+  LocalAsrModelStatus,
+  "state" | "downloadedBytes" | "totalBytes" | "speedBytesPerSecond"
+> & { modelId: string };
+
+/**
+ * 判断本地模型是否就绪。
  * state 必须为 "ready"，其余（missing/downloading/error）均不可用。
  */
-function isLocalModelReady(status: LocalAsrModelStatus | null): boolean {
+function isLocalModelReady(status: LocalModelStatusView | null): boolean {
   return status?.state === "ready";
 }
 
-/** 是否本地 SenseVoiceSmall 协议。 */
+/** 是否本地协议（SenseVoice 整段 / Zipformer 流式，两者都需要先下好模型）。 */
 function isLocalProtocol(asr: AsrSettings): boolean {
-  return asr.protocol === "local-sensevoice";
+  return isLocalStreamingAsrProtocol(asr.protocol);
 }
 
 // ── Hook 返回值 ────────────────────────────────────────────────────────────────
@@ -81,8 +91,8 @@ export function useComposerVoice({
 }): UseComposerVoiceResult {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  /** 本地模型状态（只在 local-sensevoice 协议时订阅）。 */
-  const [localModelStatus, setLocalModelStatus] = useState<LocalAsrModelStatus | null>(null);
+  /** 本地模型状态（只在本地协议时订阅，SenseVoice / 流式 Zipformer 共用这一份）。 */
+  const [localModelStatus, setLocalModelStatus] = useState<LocalModelStatusView | null>(null);
 
   // 进行中的录音会话（VoiceCapture 封装 MediaRecorder/MediaStream 生命周期）。
   const captureRef = useRef<VoiceCapture | null>(null);
@@ -102,32 +112,48 @@ export function useComposerVoice({
   // ── 本地模型状态订阅 ─────────────────────────────────────────────────────────
   // 仅本地协议时才查模型状态；切换协议立即重置状态。
   useEffect(() => {
-    if (!bridge || !bridge.getLocalAsrModelStatus || !isLocalProtocol(asrSettings)) {
+    // 两条本地协议各有一套模型管理 IPC（SenseVoice: stt:local:*，Zipformer: stt:streaming:*），
+    // 模型 id 取值域也不同，必须按 protocol 选对通道，否则查询会因「模型不在清单内」失败，
+    // 状态停在 null → 麦克风按钮被永久禁用。
+    const streaming = asrSettings.protocol === "local-zipformer-stream";
+    if (!bridge || !isLocalProtocol(asrSettings)) {
       setLocalModelStatus(null);
       return;
     }
     const modelId = asrSettings.model;
     let cancelled = false;
+    // 两侧的状态/进度类型只在 modelId 的字面量取值域上不同，这里统一收敛成
+    // LocalModelStatusView / 结构化 progress 再消费；分支写死而不是取函数并集，
+    // 否则 TS 会因为两个签名的 modelId 互不兼容而无法调用。
+    const queryStatus = (): Promise<LocalModelStatusView> =>
+      streaming
+        ? (bridge.getStreamingAsrModelStatus?.(modelId) ?? Promise.reject(new Error("bridge 不支持")))
+        : (bridge.getLocalAsrModelStatus?.(
+            modelId as Parameters<NonNullable<typeof bridge.getLocalAsrModelStatus>>[0],
+          ) ?? Promise.reject(new Error("bridge 不支持")));
 
-    bridge.getLocalAsrModelStatus(modelId as Parameters<typeof bridge.getLocalAsrModelStatus>[0])
+    queryStatus()
       .then((status) => { if (!cancelled) setLocalModelStatus(status); })
       .catch(() => { /* 模型不在清单内则忽略，按钮将隐藏/禁用 */ });
 
     // 订阅下载进度推送：乐观更新——直接用事件字段更新进度，
     // 避免每条进度都打 IPC 往返，防止乱序 resolve 把 ready 覆盖回 downloading。
     // 仅在终态（percent >= 100 或 complete）时才补拉完整状态刷新。
-    let unsubscribe: (() => void) | undefined;
-    if (bridge.onLocalAsrDownloadProgress) {
-      unsubscribe = bridge.onLocalAsrDownloadProgress((progress) => {
+    const onProgress = (progress: {
+      modelId: string;
+      percent?: number;
+      downloadedBytes: number;
+      totalBytes?: number;
+      speedBytesPerSecond?: number;
+    }): void => {
+      {
         if (cancelled || progress.modelId !== modelId) return;
         const percent = progress.percent;
         if (percent !== undefined && percent >= 100) {
           // 下载完成：补拉一次完整状态确认 ready（终态一次 IPC 可接受）
-          if (bridge.getLocalAsrModelStatus) {
-            bridge.getLocalAsrModelStatus(modelId as Parameters<typeof bridge.getLocalAsrModelStatus>[0])
-              .then((status) => { if (!cancelled) setLocalModelStatus(status); })
-              .catch(() => undefined);
-          }
+          queryStatus()
+            .then((status) => { if (!cancelled) setLocalModelStatus(status); })
+            .catch(() => undefined);
         } else {
           // 进行中：直接用事件字段乐观更新，不打 IPC 往返；
           // prev 为 null 说明初始快照未到，等快照落地后再推进度即可（init 请求保持）
@@ -142,8 +168,11 @@ export function useComposerVoice({
             };
           });
         }
-      });
-    }
+      }
+    };
+    const unsubscribe = streaming
+      ? bridge.onStreamingAsrDownloadProgress?.(onProgress)
+      : bridge.onLocalAsrDownloadProgress?.(onProgress);
 
     return () => {
       cancelled = true;

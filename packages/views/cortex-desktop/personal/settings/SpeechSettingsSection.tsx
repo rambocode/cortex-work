@@ -179,6 +179,20 @@ export function SpeechSettingsSection() {
             <option value="nointent">{t("speech.intentModeOff")}</option>
           </select>
         </SRow>
+        {/* 拼音容错 fast-path 独立于三模式：与精确命令同位执行（见主进程 voice-intent/fuzzy.ts）。 */}
+        <SwitchRow
+          label={t("speech.commandFuzzyMatch")}
+          desc={t("speech.commandFuzzyMatchDesc")}
+          value={voice.commandFuzzyMatch}
+          onChange={(commandFuzzyMatch) => setVoiceSettings({ commandFuzzyMatch })}
+        />
+        {/* 句级流式朗读：关闭 = 回退「整轮结束后朗读」旧路径（排障用）。 */}
+        <SwitchRow
+          label={t("speech.chatStreamTts")}
+          desc={t("speech.chatStreamTtsDesc")}
+          value={voice.chatStreamTts}
+          onChange={(chatStreamTts) => setVoiceSettings({ chatStreamTts })}
+        />
         {voice.intentMode === "intent_llm" ? (
           <>
             <ModelRefField
@@ -218,6 +232,41 @@ export function SpeechSettingsSection() {
               </div>
             </SRow>
             <SwitchRow label={t("speech.chatScreenContext")} desc={t("speech.chatScreenContextDesc")} value={voice.chatScreenContext} onChange={(chatScreenContext) => setVoiceSettings({ chatScreenContext })} />
+            {/* 唤醒词(端侧 KWS):持久化在 voiceSettings.wakeWord,运行时经桥热应用
+                (开 → 主进程拉起常驻 kws 隐藏窗口;关 → 销毁)。默认关,隐私敏感。 */}
+            {bridge?.wakeWordConfigure ? (
+              <>
+                <SwitchRow
+                  label={t("speech.wakeWord")}
+                  desc={t("speech.wakeWordDesc")}
+                  value={voice.wakeWord.enabled}
+                  onChange={(enabled) => {
+                    const wakeWord = { ...voice.wakeWord, enabled };
+                    setVoiceSettings({ wakeWord });
+                    void bridge.wakeWordConfigure?.(wakeWord);
+                  }}
+                />
+                {voice.wakeWord.enabled ? (
+                  <SRow label={t("speech.wakeWordSensitivity")} desc={t("speech.wakeWordSensitivityDesc")}>
+                    <select
+                      className="pw-set-input"
+                      value={voice.wakeWord.sensitivity}
+                      aria-label={t("speech.wakeWordSensitivity")}
+                      onChange={(event) => {
+                        const sensitivity = event.target.value as VoiceSettings["wakeWord"]["sensitivity"];
+                        const wakeWord = { ...voice.wakeWord, sensitivity };
+                        setVoiceSettings({ wakeWord });
+                        void bridge.wakeWordConfigure?.(wakeWord);
+                      }}
+                    >
+                      <option value="low">{t("speech.wakeWordSensitivityLow")}</option>
+                      <option value="medium">{t("speech.wakeWordSensitivityMedium")}</option>
+                      <option value="high">{t("speech.wakeWordSensitivityHigh")}</option>
+                    </select>
+                  </SRow>
+                ) : null}
+              </>
+            ) : null}
           </>
         ) : null}
       </SpeechCard>

@@ -282,7 +282,7 @@ describe("createApprovalExtension", () => {
     expect(hooks.customTools.map((t) => t.name)).not.toContain("gui_click");
     // 而审批能力挂在 extensionFactories 的 tool_call 事件上（唯一正确挂法）。
     const { api, toolCallHandlers } = fakePi();
-    (hooks.extensionFactories[0] as { factory: (pi: unknown) => void }).factory(api);
+    (hooks.extensionFactories.find((e) => (e as { name: string }).name === "cortex-approval") as { factory: (pi: unknown) => void }).factory(api);
     expect(toolCallHandlers).toHaveLength(1);
     expect(api.registerTool).not.toHaveBeenCalled();
 
@@ -540,7 +540,8 @@ describe("createPiNativeHooks", () => {
   it("缺省只注册 todo_write，无扩展", () => {
     const hooks = createPiNativeHooks(base);
     expect(hooks.customTools.map((t) => t.name)).toEqual([TODO_TOOL_NAME]);
-    expect(hooks.extensionFactories).toEqual([]);
+    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),此处只断言业务扩展为空。
+    expect(hooks.extensionFactories.filter((e) => e.name !== "cortex-payload-debug")).toEqual([]);
   });
 
   it("全开时的工具与扩展集合，顺序与旧 pi-session.ts 的 push 顺序一致", () => {
@@ -558,6 +559,7 @@ describe("createPiNativeHooks", () => {
       TODO_TOOL_NAME,
     ]);
     expect(hooks.extensionFactories.map((e) => (e as { name: string }).name)).toEqual([
+      "cortex-payload-debug",
       "cortex-approval",
       "cortex-sample-commands",
     ]);
@@ -575,7 +577,8 @@ describe("createPiNativeHooks", () => {
 
   it("审批开关关闭时不产出审批扩展", () => {
     const hooks = createPiNativeHooks({ ...base, approvalTools: ["bash"] });
-    expect(hooks.extensionFactories).toEqual([]);
+    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),此处只断言业务扩展为空。
+    expect(hooks.extensionFactories.filter((e) => e.name !== "cortex-payload-debug")).toEqual([]);
   });
 
   it("hasUiOutlet 被透传给审批 hook（集成阶段接线的关键路径）", async () => {
@@ -587,7 +590,7 @@ describe("createPiNativeHooks", () => {
       onApprovalDecision: rec.onDecision,
     });
     const { api, toolCallHandlers } = fakePi();
-    (hooks.extensionFactories[0] as { factory: (pi: unknown) => void }).factory(api);
+    (hooks.extensionFactories.find((e) => (e as { name: string }).name === "cortex-approval") as { factory: (pi: unknown) => void }).factory(api);
 
     const confirm = vi.fn(async () => false);
     const result = await toolCallHandlers[0]!(toolCall("bash", {}), fakeCtx({ confirm }));

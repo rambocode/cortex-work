@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { usePetStore } from "@cortex-work/core";
-import type { VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
+import type { VoiceAssistantFeed, VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
 import { Pet, VoiceOrb } from "@cortex-work/views/cortex-desktop";
 import "./pet-overlay.css";
 
@@ -77,11 +77,14 @@ function PetOverlayRoot() {
   const [voiceMode, setVoiceMode] = useState(false);
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceAssistantSnapshot | null>(null);
   const [voiceLevel, setVoiceLevel] = useState(0);
+  // 其它会话 agent 活动卡片(球体上方浮层,主窗口采集→主进程转发)。
+  const [voiceFeed, setVoiceFeed] = useState<VoiceAssistantFeed | null>(null);
   useEffect(() => bridge?.onPetOverlayCursor?.(setCursor), []);
   useEffect(() => bridge?.onPetOverlayMoveDir?.(setMoveDir), []);
   useEffect(() => bridge?.onVoiceAssistantMode?.((mode) => setVoiceMode(mode === "voice")), []);
   useEffect(() => bridge?.onVoiceAssistantSyncState?.(setVoiceSnapshot), []);
   useEffect(() => bridge?.onVoiceAssistantLevel?.(setVoiceLevel), []);
+  useEffect(() => bridge?.onVoiceAssistantFeed?.(setVoiceFeed), []);
   // 挂载时回放一次模式与快照,应对「overlay 晚于 voice 激活挂载」的时序竞态。
   useEffect(() => {
     bridge?.requestVoiceAssistantSync?.();
@@ -91,6 +94,7 @@ function PetOverlayRoot() {
       <VoiceOrb
         snapshot={voiceSnapshot}
         level={voiceLevel}
+        feed={voiceFeed}
         cursor={cursor}
         onControl={(action) => bridge?.voiceAssistantControl?.(action)}
       />

@@ -58,6 +58,8 @@ import { registerPetHandlers } from "./ipc/pet";
 import { registerPetdexHandlers } from "./ipc/petdex";
 import { registerAppSchemes } from "./protocol-schemes";
 import { registerVadAssetProtocol } from "./vad-assets";
+import { registerKwsAssetProtocol } from "./kws-assets";
+import { applyWakeWordSettings } from "./ipc/wake-word";
 import {
   resolveHotkeyRegistration,
   rebindCandidates,
@@ -642,6 +644,12 @@ if (!app.requestSingleInstanceLock()) {
     registerPetHandlers();
     registerPetdexHandlers(); // 公共宠物图鉴:拉取 + 磁盘缓存 + cortex-petdex:// 协议
     registerVadAssetProtocol(); // Silero VAD 静态资产:打包态经 cortex-vad:// 供给(dev 走 http 同源)
+    registerKwsAssetProtocol(); // 唤醒词 ONNX 模型:打包态经 cortex-kws:// 供给(dev 走 http 同源)
+    // 唤醒词自启:用户显式开启过才拉起常驻 kws 隐藏窗口(默认关,隐私敏感)。
+    void getPersistedState().then((state) => {
+      const wakeWord = state.voiceSettings?.wakeWord;
+      if (wakeWord?.enabled) applyWakeWordSettings(wakeWord);
+    }).catch((err) => log.warn("[kws] 唤醒词启动检查失败", err));
     // 内置 agent-browser 默认启用。Chrome 检测/下载在后台进行，不阻塞主窗口和 agent 启动。
     void getPersistedState().then((state) => {
       syncAgentBrowserRuntime(state.generalSettings?.agentBrowser?.enabled !== false);

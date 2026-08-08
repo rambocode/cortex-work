@@ -114,6 +114,35 @@ describe("syncCustomProvidersInto", () => {
     expect(m.cost).toEqual({ input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
   });
 
+  it("按模型族系推断 thinkingFormat：网关代理的 DeepSeek 才能真正关掉思考;显式 compat 优先", async () => {
+    state.defs = [
+      {
+        id: "ds-gw",
+        json: JSON.stringify({
+          name: "DS 网关",
+          baseUrl: "https://gw.example/v1",
+          api: "openai-completions",
+          apiKey: "${secret:GW_KEY}",
+          models: [
+            // 未写 compat 的 DeepSeek reasoning 模型 → 推断 deepseek(否则「关闭思考」
+            // 不会下发 thinking:{type:"disabled"},上游默认思考,实测故障)。
+            { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", input: ["text"], reasoning: true, contextWindow: 128000, maxTokens: 8192, cost: { input: 0, output: 0 } },
+            // 显式 compat.thinkingFormat 覆盖推断(严格网关拒收 thinking 参数时的逃生口)。
+            { id: "deepseek-v4", name: "DS", input: ["text"], reasoning: true, contextWindow: 128000, maxTokens: 8192, cost: { input: 0, output: 0 }, compat: { thinkingFormat: "openai" } },
+            // 非 reasoning 模型不推断。
+            { id: "deepseek-lite", name: "DS Lite", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 8192, cost: { input: 0, output: 0 } },
+          ],
+        }),
+      },
+    ];
+    const models = fakeModels();
+    await syncCustomProvidersInto(models);
+    const list = models.set.get("ds-gw")!.models as Record<string, unknown>[];
+    expect(list[0]!.compat).toEqual({ thinkingFormat: "deepseek" });
+    expect(list[1]!.compat).toEqual({ thinkingFormat: "openai" });
+    expect(list[2]!.compat).toBeUndefined();
+  });
+
   it("🔴 与内建供应商同名的自定义定义被跳过，绝不覆盖内建目录", async () => {
     // 事故回归：setProvider 按 id upsert，写进去就等于把 pi 内建 openai 的模型目录整个换掉。
     state.defs = [def("openai")];

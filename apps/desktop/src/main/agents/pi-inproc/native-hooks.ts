@@ -538,9 +538,44 @@ export interface PiNativeHooks {
  * 组装顺序与旧路径一致（审批 → 样例工具 → 样例命令 → askquestion → todo）；工具重名时
  * pi 侧后者覆盖前者，故顺序仍有语义，不要随手调整。
  */
+/** 【临时调试】DeepSeek「关闭思考仍思考」排查:观测真实发包的思考相关字段。
+ * 客户端各层已证伪(off 档应发 thinking:{type:"disabled"}),before_provider_request 是
+ * 发包前最后一站,打出实际 payload 即可在「扩展链改写」vs「服务端忽略」之间定案。
+ * 事件载荷是包裹对象 {type,payload},请求体在 event.payload;handler 必须返回 undefined
+ * ——任何返回值都会被当作替换后的请求体。只读不改写;定案后整个函数删除。 */
+function createPayloadDebugExtension(): InlineExtension {
+  return {
+    name: "cortex-payload-debug",
+    factory: (pi: ExtensionAPI) => {
+      (pi as unknown as { on(ev: string, cb: (event: { payload?: unknown }) => void): void }).on(
+        "before_provider_request",
+        (event) => {
+          try {
+            const p = (event?.payload ?? {}) as Record<string, unknown>;
+            const line = JSON.stringify({
+              model: p.model,
+              thinking: p.thinking,
+              reasoning_effort: p.reasoning_effort,
+              chat_template_kwargs: p.chat_template_kwargs,
+              enable_thinking: p.enable_thinking,
+            });
+            log.info("[pi-payload]", line);
+            // 双保险:worker 的 logger 汇聚链路若失效,stdout 仍会被主进程捕获。
+            console.log("[pi-payload]", line);
+          } catch { /* 观测失败不影响请求 */ }
+        },
+      );
+    },
+  };
+}
+
 export function createPiNativeHooks(options: PiNativeHooksOptions): PiNativeHooks {
   const customTools: ToolDefinition[] = [];
   const extensionFactories: InlineExtension[] = [];
+
+  // 【临时调试】发包观测扩展必须无条件注入:审批扩展在「完全访问」档不加载,挂在
+  // 那里会漏掉关审批的会话(实测踩到)。定案后连同 createPayloadDebugExtension 一起删。
+  extensionFactories.push(createPayloadDebugExtension());
 
   if (options.enableToolApproval) {
     extensionFactories.push(
