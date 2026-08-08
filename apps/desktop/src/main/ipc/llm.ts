@@ -115,6 +115,13 @@ export function registerLlmHandlers(): void {
     activeTtsStreams.set(streamId, controller);
     try {
       return await synthesizeEdgeTts({ ...req, signal: AbortSignal.any([AbortSignal.timeout(TTS_STREAM_TIMEOUT_MS), controller.signal]) });
+    } catch (err) {
+      // 用户停止播放（tts:cancelStreams → controller.abort）是正常流,不作为 IPC 错误上抛——
+      // 否则每次打断朗读都会在主进程刷一条「Error occurred in handler」。返回空音频即可:
+      // 渲染端流水线（runChunkPipeline）在取消时 playbackSeq 已失效,任何返回值都不会被播放。
+      // 超时（AbortSignal.timeout）等其它失败原因仍上抛,让设置页能展示真实错误。
+      if (controller.signal.aborted) return new ArrayBuffer(0);
+      throw err;
     } finally {
       activeTtsStreams.delete(streamId);
     }
