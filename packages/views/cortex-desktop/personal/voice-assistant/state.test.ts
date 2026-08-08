@@ -113,6 +113,25 @@ describe("transitionVoiceAssistant", () => {
     expect(transitionVoiceAssistant(listening, { type: "speechFinished" })).toBe(listening);
   });
 
+  it("rethink 仅在 speaking 有效:流式朗读的 willRetry 回 thinking,其余阶段 no-op", () => {
+    const speaking = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+      { type: "speak" },
+    ]);
+    // 起播前后都可迁(半途作废也要回 thinking)。
+    expect(transitionVoiceAssistant(speaking, { type: "rethink" })).toMatchObject({ phase: "thinking" });
+    const started = transitionVoiceAssistant(speaking, { type: "speechPlaybackStarted" });
+    expect(transitionVoiceAssistant(started, { type: "rethink" })).toMatchObject({ phase: "thinking" });
+    // 非 speaking 阶段 no-op。
+    for (const phase of ["idle", "listening", "transcribing", "thinking"] as const) {
+      const state: VoiceAssistantState = { active: true, phase };
+      expect(transitionVoiceAssistant(state, { type: "rethink" })).toBe(state);
+    }
+  });
+
   it("speaking 可被打断直接回 listening(设计稿的点击打断)", () => {
     const s = run(initialVoiceAssistantState, [
       { type: "activate" },
@@ -183,5 +202,52 @@ describe("transitionVoiceAssistant", () => {
       { type: "failed", message: "x" },
     ]);
     expect(transitionVoiceAssistant(failed, { type: "deactivate" })).toEqual(initialVoiceAssistantState);
+  });
+
+  it("exitAfterReply:thinking 打退出标记,speak 迁移保留,播完退出", () => {
+    const thinking = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+    ]);
+    const marked = transitionVoiceAssistant(thinking, { type: "exitAfterReply" });
+    expect(marked).toMatchObject({ phase: "thinking", exitAfterSpeech: true });
+    const speaking = transitionVoiceAssistant(marked, { type: "speak" });
+    expect(speaking).toMatchObject({ phase: "speaking", exitAfterSpeech: true });
+    const done = run(speaking, [{ type: "speechPlaybackStarted" }, { type: "speechFinished" }]);
+    expect(done).toEqual(initialVoiceAssistantState);
+  });
+
+  it("exitAfterReply:speaking 期打标同样生效,rethink 重试轮保留标记", () => {
+    const speaking = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+      { type: "speak" },
+    ]);
+    const marked = transitionVoiceAssistant(speaking, { type: "exitAfterReply" });
+    expect(marked).toMatchObject({ phase: "speaking", exitAfterSpeech: true });
+    // 句级流式 willRetry 回 thinking:退出标记随行,重试轮播完仍退。
+    expect(transitionVoiceAssistant(marked, { type: "rethink" })).toMatchObject({
+      phase: "thinking",
+      exitAfterSpeech: true,
+    });
+  });
+
+  it("exitAfterReply:用户插话(listening)取消退出;idle 等其它阶段忽略", () => {
+    const marked = run(initialVoiceAssistantState, [
+      { type: "activate" },
+      { type: "listening" },
+      { type: "speechEnd" },
+      { type: "sent" },
+      { type: "exitAfterReply" },
+    ]);
+    // 打断重听 → 标记清除(「等等」一句就能取消退出)。
+    expect(transitionVoiceAssistant(marked, { type: "listening" })).toEqual({ active: true, phase: "listening" });
+    // idle(轮已结束)忽略,不产生悬空退出标记。
+    const idle = run(initialVoiceAssistantState, [{ type: "activate" }]);
+    expect(transitionVoiceAssistant(idle, { type: "exitAfterReply" })).toBe(idle);
   });
 });

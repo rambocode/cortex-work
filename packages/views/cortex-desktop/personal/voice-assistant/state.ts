@@ -25,8 +25,13 @@ export type VoiceAssistantEvent =
   | { type: "sent" } // send 已受理 → 等回复
   | { type: "localReply" } // 本地意图已处理 → 不启动 agent，直接朗读确认
   | { type: "exitReply" } // 退出意图 → 先朗读确认，真正播完后再退出
+  // Agent 在轮中调用 voice_exit_assistant 工具 → 给在途 agent 轮打 exitAfterSpeech 标记,
+  // 本轮回复播完后退出。仅 thinking/speaking 合法;其它阶段(用户已打断/轮已结束)忽略——
+  // 与「插话取消退出」同一语义:用户插话说明还不想走。
+  | { type: "exitAfterReply" }
   | { type: "transcriptIgnored" } // 纯标点/纯符号噪声 → 静默回 idle 后重听
   | { type: "speak" } // 回合结束且有正文 → 朗读
+  | { type: "rethink" } // 句级流式专用:agent willRetry 使已朗读正文作废,回 thinking 等重试轮
   | { type: "speechPlaybackStarted" } // 已观察到本轮 TTS 真正起播
   | { type: "speechFinished" } // 起播后的 TTS 播完 → idle(宿主随后按连续对话回环重听)
   | { type: "speechFinishedListening" } // TTS 播完且麦克风已就绪 → 直接聆听，不重复开麦
@@ -66,8 +71,19 @@ export function transitionVoiceAssistant(
       }
       return event.type === "localReply" ? { active: true, phase: "speaking" } : state;
     case "thinking":
-      return event.type === "speak" ? { active: true, phase: "speaking" } : state;
+      if (event.type === "exitAfterReply") return { ...state, exitAfterSpeech: true };
+      // speak 迁移保留 exitAfterSpeech:工具在 thinking 期打的退出标记须活到播完那一刻。
+      return event.type === "speak"
+        ? { active: true, phase: "speaking", ...(state.exitAfterSpeech ? { exitAfterSpeech: true as const } : {}) }
+        : state;
     case "speaking": {
+      if (event.type === "exitAfterReply") return { ...state, exitAfterSpeech: true };
+      // 句级流式的 willRetry/首句失败回退:正文作废回 thinking,重试轮的 turn-end 走
+      // 整轮朗读旧路径。只有流式朗读路径会派发,起播与否均可迁(半途作废也要回)。
+      // exitAfterSpeech 随之保留:重试轮播完仍按用户要求退出。
+      if (event.type === "rethink") {
+        return { active: true, phase: "thinking", ...(state.exitAfterSpeech ? { exitAfterSpeech: true as const } : {}) };
+      }
       if (event.type === "speechPlaybackStarted") {
         return state.speechPlaybackStarted ? state : { ...state, speechPlaybackStarted: true };
       }

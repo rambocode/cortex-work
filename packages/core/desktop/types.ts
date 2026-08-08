@@ -1068,6 +1068,8 @@ export interface VoiceSettings {
   /** 意图模式参考 xiaozhi：function_call 复用 Agent 工具链且无前置延迟；
    * intent_llm 增加一道本地动作分类；nointent 关闭模型分类。精确退出命令始终保留。 */
   intentMode: VoiceIntentMode;
+  /** 短指令拼音容错匹配（「腿下」→「退下」）；独立于三模式，与精确命令同位执行。 */
+  commandFuzzyMatch: boolean;
   /** intent_llm 专用模型；两段任一为空时跟随全局默认模型。 */
   intentProviderId: string;
   intentModelId: string;
@@ -1078,6 +1080,18 @@ export interface VoiceSettings {
   polishModelId: string;
   /** 纠错指令(自定义 prompt);空 = 用内置 DEFAULT_POLISH_PROMPT。词典与转写文本由程序追加在其后。 */
   polishPrompt: string;
+  /** 句级流式朗读：Agent 边生成边按句 TTS，不等整轮结束（关闭 = 旧整轮朗读路径）。 */
+  chatStreamTts: boolean;
+  /** 唤醒词监听（默认关；隐私敏感：开启 = 常驻 hidden window 持续采集麦克风做端侧 KWS）。 */
+  wakeWord: WakeWordSettings;
+}
+
+/** 唤醒词设置。wordId 是随包 classifier 模型的白名单枚举（apps/desktop resources/kws）。 */
+export interface WakeWordSettings {
+  enabled: boolean;
+  wordId: "hey-jarvis";
+  /** 灵敏度→概率阈值：low=0.7 / medium=0.5 / high=0.35（越高越易触发也越易误唤醒）。 */
+  sensitivity: "low" | "medium" | "high";
 }
 
 export type VoiceIntentMode = "function_call" | "intent_llm" | "nointent";
@@ -1091,7 +1105,8 @@ export type VoiceAssistantIntentName =
 
 export interface VoiceAssistantIntentResult {
   name: VoiceAssistantIntentName;
-  source: "direct" | "function_call" | "intent_llm" | "disabled" | "fallback";
+  /** direct_fuzzy = 拼音模糊 fast-path 命中（P0 端侧指令容错，见 voice-intent/fuzzy.ts）。 */
+  source: "direct" | "direct_fuzzy" | "function_call" | "intent_llm" | "disabled" | "fallback";
 }
 
 /** 内置语音聊天提示词。约束口语化、免 markdown 输出以适配 TTS 朗读;空 chatPrompt 时使用,
@@ -1116,12 +1131,15 @@ export function defaultVoiceSettings(): VoiceSettings {
     dictationDictionary: [],
     chatPrompt: "",
     intentMode: "function_call",
+    commandFuzzyMatch: true,
     intentProviderId: "",
     intentModelId: "",
     transcriptPolish: true,
     polishProviderId: "",
     polishModelId: "",
     polishPrompt: "",
+    chatStreamTts: true,
+    wakeWord: { enabled: false, wordId: "hey-jarvis", sensitivity: "medium" },
   };
 }
 
@@ -1147,15 +1165,27 @@ export interface VoiceAssistantSnapshot {
 
 /** 主进程 → 主窗口控制器的指令（热键 / overlay 点击都归一成 command 下发）。 */
 export type VoiceAssistantCommand =
-  | { type: "activate"; reason: "hotkey" | "pet" | "settings" }
+  | { type: "activate"; reason: "hotkey" | "pet" | "settings" | "wakeword" }
   | { type: "deactivate" }
   | { type: "hotkey" }
   | { type: "ballClick" }
   | { type: "micToggle" }
-  | { type: "exit" };
+  | { type: "speakerToggle" } // 🔊:speaking 打断朗读;idle 重播上一段回复
+  | { type: "exit" }
+  // Agent 经语音控制工具触发的本地动作（与 ipc/types.ts 镜像）:LLM 在语音轮里理解
+  // 「好吧那你退下吧」等自然口语后调用工具 → 主进程验语音激活态 → 控制器执行。
+  | { type: "intentAction"; intent: Exclude<VoiceAssistantIntentName, "continue_chat"> };
 
 /** overlay 语音球可发起的控制动作（经主进程转发给主窗口控制器）。 */
-export type VoiceAssistantControlAction = "ballClick" | "micToggle" | "exit";
+export type VoiceAssistantControlAction = "ballClick" | "micToggle" | "speakerToggle" | "exit";
+
+/** 语音助手浮层的「其它会话 agent 活动」卡片:主窗口采集(标题=会话主题,text=流式
+ * 响应尾部)经主进程转发 overlay 实时显示;null = 隐藏(轮次结束/助手退出)。 */
+export interface VoiceAssistantFeed {
+  title: string;
+  text: string;
+}
+
 
 // 主进程 userData JSON 中持久化的全量状态。
 export interface PersistedState {
@@ -1429,8 +1459,11 @@ export interface CliStartRequest {
   // codex 每张作 -i 参数;pi 不读此字段,图片走 piPrompt 独立参数）。
   images?: CliImageRef[];
   // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数
-  //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略。
+  //（claude --effort / codex model_reasoning_effort）;不支持的 agent（pi）忽略（pi 用下面的 thinkingLevel）。
   effort?: ReasoningEffort;
+  // pi 思考档（fresh 单发路径,如 @mention 委派轮）:主进程 oneshot 传给 pi SDK,与 RPC 路径的
+  // PiOpenRequest.thinkingLevel 同刻度;claude/codex 忽略。与 ipc/types.ts 镜像。
+  thinkingLevel?: ThinkingLevel;
   // 访问范围（沙箱档）:claude/codex adapter 翻译成原生标志（claude --permission-mode /
   // codex -c sandbox_mode）;缺省 = full-auto（历史默认）。pi 不走本 DTO（走 PiOpenRequest）。
   permissionMode?: PermissionMode;

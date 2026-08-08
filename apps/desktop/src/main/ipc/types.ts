@@ -651,7 +651,14 @@ export interface MediaGenSettings {
   video: VideoGenSettings;
 }
 
-export type AsrProtocol = "openai-transcriptions" | "mimo-asr" | "local-sensevoice";
+// ⚠ 与 packages/core/desktop/media-gen-types.ts 逐字镜像，改一处必须改两处。
+// local-zipformer-stream 走 sherpa-onnx 流式 transducer（边说边解码），
+// local-sensevoice 走句末整段推理；两者都用 stt:stream:* 这条实时 PCM 通道。
+export type AsrProtocol =
+  | "openai-transcriptions"
+  | "mimo-asr"
+  | "local-sensevoice"
+  | "local-zipformer-stream";
 export type LocalModelDownloadSource = "huggingface" | "hf-mirror";
 
 export interface AsrSettings {
@@ -686,6 +693,8 @@ export interface VoiceSettings {
   chatPrompt: string;
   /** 参考 xiaozhi 的三模式意图策略；精确退出命令独立于模式始终保留。 */
   intentMode: VoiceIntentMode;
+  /** 短指令拼音容错匹配（「腿下」→「退下」）；独立于三模式，与精确命令同位执行。 */
+  commandFuzzyMatch: boolean;
   /** intent_llm 专用模型；两段任一为空时跟随全局默认模型。 */
   intentProviderId: string;
   intentModelId: string;
@@ -696,6 +705,18 @@ export interface VoiceSettings {
   polishModelId: string;
   /** 纠错指令(自定义 prompt);空 = 用内置 DEFAULT_POLISH_PROMPT。词典与转写文本由程序追加在其后。 */
   polishPrompt: string;
+  /** 句级流式朗读：Agent 边生成边按句 TTS，不等整轮结束（关闭 = 旧整轮朗读路径）。 */
+  chatStreamTts: boolean;
+  /** 唤醒词监听（默认关；隐私敏感：开启 = 常驻 hidden window 持续采集麦克风做端侧 KWS）。 */
+  wakeWord: WakeWordSettings;
+}
+
+/** 唤醒词设置。wordId 是随包 classifier 模型的白名单枚举（apps/desktop resources/kws）。 */
+export interface WakeWordSettings {
+  enabled: boolean;
+  wordId: "hey-jarvis";
+  /** 灵敏度→概率阈值：low=0.7 / medium=0.5 / high=0.35（越高越易触发也越易误唤醒）。 */
+  sensitivity: "low" | "medium" | "high";
 }
 
 export type VoiceIntentMode = "function_call" | "intent_llm" | "nointent";
@@ -709,7 +730,8 @@ export type VoiceAssistantIntentName =
 
 export interface VoiceAssistantIntentResult {
   name: VoiceAssistantIntentName;
-  source: "direct" | "function_call" | "intent_llm" | "disabled" | "fallback";
+  /** direct_fuzzy = 拼音模糊 fast-path 命中（P0 端侧指令容错，见 voice-intent/fuzzy.ts）。 */
+  source: "direct" | "direct_fuzzy" | "function_call" | "intent_llm" | "disabled" | "fallback";
 }
 
 /** 内置语音聊天提示词。约束口语化、免 markdown 输出以适配 TTS 朗读;空 chatPrompt 时使用,
@@ -734,12 +756,15 @@ export function defaultVoiceSettings(): VoiceSettings {
     dictationDictionary: [],
     chatPrompt: "",
     intentMode: "function_call",
+    commandFuzzyMatch: true,
     intentProviderId: "",
     intentModelId: "",
     transcriptPolish: true,
     polishProviderId: "",
     polishModelId: "",
     polishPrompt: "",
+    chatStreamTts: true,
+    wakeWord: { enabled: false, wordId: "hey-jarvis", sensitivity: "medium" },
   };
 }
 
@@ -765,15 +790,28 @@ export interface VoiceAssistantSnapshot {
 
 /** 主进程 → 主窗口控制器的指令（热键 / overlay 点击都归一成 command 下发）。 */
 export type VoiceAssistantCommand =
-  | { type: "activate"; reason: "hotkey" | "pet" | "settings" }
+  | { type: "activate"; reason: "hotkey" | "pet" | "settings" | "wakeword" }
   | { type: "deactivate" }
   | { type: "hotkey" }
   | { type: "ballClick" }
   | { type: "micToggle" }
-  | { type: "exit" };
+  | { type: "speakerToggle" } // 🔊:speaking 打断朗读;idle 重播上一段回复
+  | { type: "exit" }
+  // Agent 经语音控制工具（capabilities/voice-intent/assistant-tools.ts）触发的本地动作:
+  // LLM 在语音轮里理解「好吧那你退下吧」这类自然口语后调用工具 → 主进程验语音激活态 →
+  // 下发本命令由控制器执行(退出走 exitAfterSpeech,等本轮回复播完再关语音球)。
+  | { type: "intentAction"; intent: Exclude<VoiceAssistantIntentName, "continue_chat"> };
 
 /** overlay 语音球可发起的控制动作（经主进程转发给主窗口控制器）。 */
-export type VoiceAssistantControlAction = "ballClick" | "micToggle" | "exit";
+export type VoiceAssistantControlAction = "ballClick" | "micToggle" | "speakerToggle" | "exit";
+
+/** 语音助手浮层的「其它会话 agent 活动」卡片:主窗口采集(标题=会话主题,text=流式
+ * 响应尾部)经主进程转发 overlay 实时显示;null = 隐藏(轮次结束/助手退出)。 */
+export interface VoiceAssistantFeed {
+  title: string;
+  text: string;
+}
+
 
 export interface PersistedState {
   version: 1;
@@ -893,8 +931,12 @@ export interface CliStartRequest {
   // codex `--image <path>`、pi `@<path>` 文件参数。（pi 的 RPC 长驻路径另有原生 prompt.images,
   // 见 pi-rpc.ts,不走本字段。）与 core 镜像。
   images?: CliImageRef[];
-  // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略。
+  // 推理强度（自动化任务用）:各 agent adapter 尽力翻译成对应 CLI 参数;pi 忽略（pi 用下面的 thinkingLevel）。
   effort?: ReasoningEffort;
+  // pi 思考档（单发路径）:oneshot 传给 createAgentSessionFromServices（与 PiOpenRequest.thinkingLevel
+  // 同刻度 off/minimal/low/medium/high/xhigh/max）;claude/codex 忽略。delegate 跨体系透传时只映射
+  // 与 effort 同义的公共三档（low/medium/high）,pi 专属档无对应物不硬映射。与 core 镜像。
+  thinkingLevel?: string;
   // 访问范围（沙箱档）:claude/codex adapter 翻译成原生标志;缺省 = full-auto。pi 不走本 DTO。
   permissionMode?: PermissionMode;
   // 执行/审批策略:与 permissionMode 正交,adapter 据此决定 approval。缺省 = auto。

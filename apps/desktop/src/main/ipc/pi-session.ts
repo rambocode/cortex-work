@@ -35,6 +35,7 @@ import { unregisterResearchSession } from "../capabilities/research/server";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import { buildAutomationMcpServerConfig, unregisterAutomationSession } from "../capabilities/automation/server";
+import { ensureVoiceAssistantMcpServerConfig } from "../capabilities/voice-intent/assistant-tools";
 import { buildCalendarMcpServerConfig, unregisterCalendarSession } from "../capabilities/calendar/server";
 import { loadWorkflows } from "../workflow/store";
 import { collectBridgeServers } from "../agents/pi-mcp-bridge";
@@ -285,6 +286,10 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
     // 日历门控自带四道（非 macOS / helper 缺失 / 授权非 full / host 不可用）,故无独立开关。
     // allowWrite 只在这条路径为 true。探测失败降级不注入,不阻断 pi 启动。
     const calendarServer = await buildCalendarMcpServerConfig(prepared.uiSessionId, true).catch(() => null);
+    // 语音助手控制工具(voice_exit_assistant 等):常驻聊天路径注入——pi 工具集 open 时冻结,
+    // 语音助手常在会话已开后才激活,按轮注入意味着每次都得重开会话。安全门控在执行面:
+    // handler 验语音激活态,普通打字轮误调无副作用(见 assistant-tools.ts 文件头)。
+    const voiceAssistantServer = await ensureVoiceAssistantMcpServerConfig(prepared.uiSessionId).catch(() => null);
     const bridgeInputs = [
       ...userServers,
       ...(docServer ? [docServer] : []),
@@ -295,6 +300,7 @@ export async function preparePiOpenRequest(req: PiOpenRequest): Promise<PiOpenRe
       ...(loopServer ? [loopServer] : []),
       ...(automationServer ? [automationServer] : []),
       ...(calendarServer ? [calendarServer] : []),
+      ...(voiceAssistantServer ? [voiceAssistantServer] : []),
     ];
     const browserServer = buildBrowserMcpServerConfig(gs?.browserControl, prepared.uiSessionId);
     // 结构化桥接配置随 open 参数进 worker,由 capabilities.ts 原生注册成 customTools。

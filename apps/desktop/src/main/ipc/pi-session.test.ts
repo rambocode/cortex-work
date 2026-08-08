@@ -196,7 +196,11 @@ describe("pi:open MCP 桥接（结构化 bridgeServers 交给 worker,引擎收�
     await open({ uiSessionId: "ub", cwd: "/proj" });
     // 汇总用户 server(总开关开)+ 浏览器 server 交给 collectBridgeServers。
     expect(h.collectBridgeServers).toHaveBeenCalledWith(
-      [{ id: "fs" }, expect.objectContaining({ id: "agent-browser" })],
+      [
+        { id: "fs" },
+        expect.objectContaining({ id: "agent-browser" }),
+        expect.objectContaining({ id: "cortex-voice-assistant" }),
+      ],
       browser,
     );
     expect(h.openRequests[0]!.bridgeServers).toEqual(bridges);
@@ -214,10 +218,16 @@ describe("pi:open MCP 桥接（结构化 bridgeServers 交给 worker,引擎收�
 
     expect(h.buildAgentBrowserMcpServerConfig).toHaveBeenCalledWith(undefined, "ub3", "/app/agent-browser");
     expect(h.collectBridgeServers).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: "agent-browser" })],
+      [
+        expect.objectContaining({ id: "agent-browser" }),
+        expect.objectContaining({ id: "cortex-voice-assistant" }),
+      ],
       null,
     );
-    expect(h.openRequests[0]!.bridgeServers).toEqual([expect.objectContaining({ id: "agent-browser" })]);
+    expect(h.openRequests[0]!.bridgeServers).toEqual([
+      expect.objectContaining({ id: "agent-browser" }),
+      expect.objectContaining({ id: "cortex-voice-assistant" }),
+    ]);
   });
 });
 

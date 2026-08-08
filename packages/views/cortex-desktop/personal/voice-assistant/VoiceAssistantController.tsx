@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   dayKey,
   getTtsPlaybackState,
+  replayLastSpeech,
   resolveDefaultAgent,
   speakText,
   stopSpeaking,
@@ -25,8 +26,9 @@ import {
 } from "@cortex-work/core";
 import type { ChatImageRef, SessionMeta } from "@cortex-work/core";
 import { usePersonalActions } from "@cortex-work/core/personal/messages";
-import { setVoiceTurnListener } from "@cortex-work/core/personal/voiceTurn";
+import { setVoiceTurnListener, setVoiceTurnStreamListener } from "@cortex-work/core/personal/voiceTurn";
 import { DEFAULT_VOICE_CHAT_PROMPT } from "@cortex-work/core/desktop/types";
+import { isLocalStreamingAsrProtocol } from "@cortex-work/core/desktop/media-gen-types";
 import type { VoiceAssistantCommand, VoiceAssistantSnapshot } from "@cortex-work/core/desktop/types";
 import {
   VoiceCapture,
@@ -40,6 +42,7 @@ import {
   type VoiceVadMonitor,
 } from "./sileroVad";
 import { initialVoiceAssistantState, transitionVoiceAssistant, type VoiceAssistantState } from "./state";
+import { createVoiceTurnSpeaker, type VoiceTurnSpeaker } from "./streamingSpeaker";
 import { isIgnorableVoiceTranscript } from "./vad";
 
 // 全双工插话监听若未能及时建立，仍走这条保守回退：TTS 真正播完后留 650ms 给扬声器、
@@ -53,6 +56,16 @@ const LEVEL_MIN_DELTA = 0.02;
 const TURN_END_GRACE_MS = 600;
 // SenseVoiceSmall 单次推理上限；到点自动按当前语句提交，避免 PCM 缓存无限增长。
 const MAX_UTTERANCE_MS = 30_000;
+// 快速口头确认(借鉴 ChatGPT 语音"先应一声,复杂工作后台继续"):send 受理后首 token
+// 迟迟未到才播一句短确认,消解"说完没反应"的死寂。阈值不能太短——TTFT 快时抢先播
+// 确认反而拖慢真首句(真首句起播会经 stopSpeaking 打断确认语,已播的部分白播)。
+// 附带收益:这次合成把 Edge TTS 的 WSS 握手提前消化,真首句复用长连接首包更快。
+const ACK_DELAY_MS = 900;
+const ACK_PHRASES = ["好的，我来处理。", "收到，稍等一下。", "嗯，我看一下。"];
+// 转写纠错的竞速预算：polish 与意图/会话解析/截屏并行后，send 前最多再等这么久。
+// 快模型(p50 <1s)仍全额兑现纠错；慢模型/断网时放行 ASR 原文（语音提示词已声明转写
+// 可能有误，Agent 对少量错字鲁棒），迟到结果直接丢弃，避免旧串行路径最长 8s 的尾延迟。
+const POLISH_RACE_BUDGET_MS = 1500;
 const PRE_ROLL_BYTES = 16_000 * 2 * 0.32;
 
 function errorMessage(error: unknown): string {
@@ -99,6 +112,8 @@ export function VoiceAssistantController(): null {
   const lastLevelRef = useRef({ value: 0, at: 0 });
   const relistenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turnGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 快速口头确认定时器(send 受理时挂;真首句/打断/失败/退出都要清)。
+  const ackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 本轮是否观测到 running 置位(兜底判据:置位过又清零 = 一轮结束)。
   const sawRunningRef = useRef(false);
 
@@ -152,6 +167,25 @@ export function VoiceAssistantController(): null {
   const listenRef = useRef<(() => Promise<void>) | null>(null);
   // speaking 阶段后台开麦入口。经 ref 解耦 TTS 发起函数与下方 startListening 声明顺序。
   const bargeInRef = useRef<(() => Promise<void>) | null>(null);
+  // 句级流式朗读接管器(挂载 effect 内创建,跨轮复用)。
+  const speakerRef = useRef<VoiceTurnSpeaker | null>(null);
+
+  /** 打断点联动停轮：流式朗读期 agent 可能仍在生成，打断只停 TTS 的话，用户下一句 send
+   * 会撞「会话正忙」。必须在「先 dispatch 再 stopSpeaking」这对红线动作之后调用。 */
+  const stopStreamedRun = useCallback((): void => {
+    const speaker = speakerRef.current;
+    if (!speaker?.ownsRun()) return;
+    speaker.cancel();
+    const id = sessionIdRef.current;
+    if (id && usePersonalStore.getState().runningBySession[id]) {
+      void actionsRef.current.stop(id);
+      sawRunningRef.current = false;
+    }
+    if (turnGraceTimerRef.current) {
+      clearTimeout(turnGraceTimerRef.current);
+      turnGraceTimerRef.current = null;
+    }
+  }, []);
 
   /** 停掉录音侧资源(麦克风 + VAD);不触碰 TTS 与状态机。 */
   const stopCapture = useCallback((): void => {
@@ -306,12 +340,14 @@ export function VoiceAssistantController(): null {
         // 两次 MicVAD.start 争用单例；首段仍等待连续人声确认，确认后直接进入正常断句。
         captureModeRef.current = "listening";
         stopSpeaking();
+        stopStreamedRun();
         return;
       }
       // 后台录音尚未建立时，作废可能迟到的异步结果，再按普通灵敏度开一条干净录音流。
       recordingAttemptRef.current += 1;
       stopCapture();
       stopSpeaking();
+      stopStreamedRun();
     }
     if (!bargeIn && phase === "thinking") {
       // 打断长时间思考:停掉本轮 agent 运行(走主窗口正常停止管线,与手点停止一致)。
@@ -323,6 +359,12 @@ export function VoiceAssistantController(): null {
         clearTimeout(turnGraceTimerRef.current);
         turnGraceTimerRef.current = null;
       }
+      // 快速确认语可能已挂起/在播:打断思考一并清掉。
+      if (ackTimerRef.current) {
+        clearTimeout(ackTimerRef.current);
+        ackTimerRef.current = null;
+      }
+      stopSpeaking();
     }
     if (!bargeIn && relistenTimerRef.current) {
       clearTimeout(relistenTimerRef.current);
@@ -342,7 +384,9 @@ export function VoiceAssistantController(): null {
       // 先登记，sidecar/权限任一路失败时 catch 内的 stopCapture 都能释放刚申请的麦克风。
       captureRef.current = activeCapture;
       captureModeRef.current = bargeIn ? "barge-in" : "listening";
-      const useLocal = s.asrSettings.protocol === "local-sensevoice";
+      // 两个本地协议（SenseVoice / 流式 Zipformer）共用这条实时 PCM 通道，
+      // 差异只在主进程内部分流，渲染端的推流逻辑完全一致。
+      const useLocal = isLocalStreamingAsrProtocol(s.asrSettings.protocol);
       const requestId = useLocal ? crypto.randomUUID() : null;
       localStreamIdRef.current = requestId;
       pcmWriteErrorRef.current = null;
@@ -354,12 +398,13 @@ export function VoiceAssistantController(): null {
       const streamReady = useLocal
         ? (() => {
             if (!b.startLocalAsrStream || !b.appendLocalAsrAudio || !b.finishLocalAsrStream) {
-              return Promise.reject(new Error("当前桌面版本不支持 SenseVoice 实时识别"));
+              return Promise.reject(new Error("当前桌面版本不支持本地实时识别"));
             }
             return b.startLocalAsrStream({
               requestId: requestId!,
               modelId: s.asrSettings.model,
               language: s.asrSettings.language || "auto",
+              protocol: s.asrSettings.protocol,
             });
           })()
         : Promise.resolve();
@@ -424,6 +469,7 @@ export function VoiceAssistantController(): null {
                   dispatch({ type: "listening" });
                   captureModeRef.current = "listening";
                   stopSpeaking();
+                  stopStreamedRun();
                 } else if (currentPhase === "listening") {
                   // TTS 恰好自然结束：麦克风已被 finishSpeech 接续，继续沿用同一采集流。
                   captureModeRef.current = "listening";
@@ -482,7 +528,7 @@ export function VoiceAssistantController(): null {
       }
       dispatch({ type: "failed", message: errorMessage(err) });
     }
-  }, [dispatch, stopCapture]);
+  }, [dispatch, stopCapture, stopStreamedRun]);
 
   /** VAD 判停/手动提交:转写 → 纠错 → (可选)截屏 → 送进会话。 */
   const submit = useCallback(async (): Promise<void> => {
@@ -524,10 +570,10 @@ export function VoiceAssistantController(): null {
       const streamId = localStreamIdRef.current;
       localStreamIdRef.current = null;
       let text: string;
-      if (s.asrSettings.protocol === "local-sensevoice" && streamId && vadEngine === "silero") {
+      if (isLocalStreamingAsrProtocol(s.asrSettings.protocol) && streamId && vadEngine === "silero") {
         await pcmWriteRef.current;
         if (pcmWriteErrorRef.current) throw pcmWriteErrorRef.current;
-        if (!b.finishLocalAsrStream) throw new Error("当前桌面版本不支持 SenseVoice 实时识别");
+        if (!b.finishLocalAsrStream) throw new Error("当前桌面版本不支持本地实时识别");
         text = (await b.finishLocalAsrStream(streamId)).text.trim();
       } else {
         // 在线 ASR 与 Silero 不可用的本地降级都直接封装 VAD 语音段 PCM，避免完整
@@ -551,19 +597,19 @@ export function VoiceAssistantController(): null {
         return;
       }
       // 转写 LLM 纠错(开关/模型/prompt 由主进程按 voiceSettings 决定;失败原文返回)。
-      if ((s.voiceSettings.transcriptPolish ?? true) && b.polishTranscript) {
-        text = (await b.polishTranscript(text)).trim() || text;
-      }
-      // 纠错模型也可能把空白噪声收敛成纯标点；发送前重复同一确定性门控。
-      if (isIgnorableVoiceTranscript(text)) {
-        dispatch({ type: "transcriptIgnored" });
-        return;
-      }
-      // 纠错/分类都可能跨越用户点击退出；迟到的异步结果不能复活已经结束的语音轮。
-      if (!isActiveTranscribing(machineRef.current)) return;
+      // 不再串行 await 阻塞发送：与意图判定、会话解析、截屏并行，send 前按预算竞速采纳。
+      const polishPromise =
+        (s.voiceSettings.transcriptPolish ?? true) && b.polishTranscript
+          ? b
+              .polishTranscript(text)
+              .then((t) => t.trim() || text)
+              .catch(() => text)
+          : null;
 
       // 参考 xiaozhi：精确本地控制先拦截；function_call 普通文本不做串行前置分类，
       // 继续进入已有 Agent 工具链。旧壳没有此 bridge 时保持原来的 continue_chat 行为。
+      // 意图判定用 ASR 原文先行：本地精确命令原文即可命中，纠错反而可能改写命令措辞；
+      // 命中本地动作时提前 return，纠错结果自然丢弃。
       const intent = await b.understandVoiceAssistantIntent?.(text);
       if (!isActiveTranscribing(machineRef.current)) return;
       if (intent?.name === "exit_assistant") {
@@ -616,6 +662,25 @@ export function VoiceAssistantController(): null {
         }
       }
 
+      // 竞速采纳纠错结果：前面的意图/会话解析/截屏已与 polish 并行重叠，此处实际新增
+      // 等待 = max(0, polish 耗时 − 并行段耗时)，封顶 POLISH_RACE_BUDGET_MS。
+      if (polishPromise) {
+        const polished = await Promise.race([
+          polishPromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), POLISH_RACE_BUDGET_MS)),
+        ]);
+        if (polished !== null) {
+          text = polished;
+          // 纠错模型也可能把空白噪声收敛成纯标点；发送前重复同一确定性门控。
+          if (isIgnorableVoiceTranscript(text)) {
+            dispatch({ type: "transcriptIgnored" });
+            return;
+          }
+        }
+        // 竞速等待可能跨越用户点击退出；迟到的异步结果不能复活已经结束的语音轮。
+        if (!isActiveTranscribing(machineRef.current)) return;
+      }
+
       // 提示词沿用旧语音聊天口径:自定义优先,空则内置(约束口语化输出适配 TTS)。
       // 经 extraSystemPrompt 注入,转写文本自身保持干净的用户消息。
       const chatPrompt = s.voiceSettings.chatPrompt.trim() || DEFAULT_VOICE_CHAT_PROMPT;
@@ -627,6 +692,21 @@ export function VoiceAssistantController(): null {
       }
       if (!ok) throw new Error("会话正忙或无法发送，请稍后再说");
       dispatch({ type: "sent" });
+      // 快速口头确认:ACK_DELAY_MS 后仍停在 thinking 且句级流式尚未接管 → 播短确认。
+      // phase 保持 thinking(不迁状态机),isSpeaking 广播因阶段不符被 offSpeech 忽略;
+      // 真首句(流式 createSpeechStream / 整轮 speakText)起播时自动 stopSpeaking 打断。
+      if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
+      ackTimerRef.current = setTimeout(() => {
+        ackTimerRef.current = null;
+        const m = machineRef.current;
+        if (!m.active || m.phase !== "thinking") return;
+        if (speakerRef.current?.ownsRun()) return;
+        const ackBridge = bridgeRef.current;
+        if (!ackBridge) return;
+        const phrase = ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)]!;
+        // 瑕疵已知:确认语会写入"重播上一段";真回复到达后会覆盖,可接受。
+        void speakText(ackBridge, usePersonalStore.getState().ttsSettings, phrase, { allowFallback: true }).catch(() => {});
+      }, ACK_DELAY_MS);
     } catch (err) {
       dispatch({ type: "failed", message: errorMessage(err) });
     }
@@ -647,9 +727,15 @@ export function VoiceAssistantController(): null {
         clearTimeout(turnGraceTimerRef.current);
         turnGraceTimerRef.current = null;
       }
+      if (ackTimerRef.current) {
+        clearTimeout(ackTimerRef.current);
+        ackTimerRef.current = null;
+      }
       if (machineRef.current.phase !== "thinking") return;
       const trimmed = text.trim();
       if (!ok || !trimmed) {
+        // 确认语可能正在播;失败收场前停掉,避免 idle 态还在念"好的,我来处理"。
+        stopSpeaking();
         dispatch({ type: "failed", message: ok ? "本轮没有可朗读的回复" : "本轮执行失败，点击球体重试" });
         return;
       }
@@ -682,8 +768,12 @@ export function VoiceAssistantController(): null {
    * 会走用户自己的 autoSpeak 设置)。 */
   const teardown = useCallback((): void => {
     recordingAttemptRef.current += 1;
+    // 退出即弃流：不停 agent 轮(会话属于主窗口),只是不再有人流式朗读。
+    speakerRef.current?.cancel();
     stopCapture();
     stopSpeaking();
+    if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
+    ackTimerRef.current = null;
     if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
     relistenTimerRef.current = null;
     if (turnGraceTimerRef.current) clearTimeout(turnGraceTimerRef.current);
@@ -741,12 +831,50 @@ export function VoiceAssistantController(): null {
           else if (phase !== "transcribing") void startListening();
           return;
         }
+        case "speakerToggle": {
+          // 🔊 按钮:朗读中 → 打断(startListening 的 speaking 分支已封装「先切状态再停声
+          // + 停流式轮」红线);待机 → 重播上一段回复(无历史时 no-op)。其余阶段忽略。
+          const phase = machineRef.current.phase;
+          if (phase === "speaking") void startListening();
+          else if (phase === "idle") {
+            void replayLastSpeech(bridgeRef.current, usePersonalStore.getState().ttsSettings).catch(() => {});
+          }
+          return;
+        }
         case "exit":
           teardown();
           return;
+        case "intentAction": {
+          // Agent 在轮中调用语音控制工具(voice_exit_assistant 等)触发的本地动作。
+          // 主进程已验过语音激活态;这里按意图复用与 fast-path 相同的动作路径。
+          switch (command.intent) {
+            case "exit_assistant": {
+              // 给在途 agent 轮打 exitAfterSpeech:本轮回复(agent 自己的告别语)播完后
+              // 经 finishSpeech 关闭语音球。thinking/speaking 之外(用户已打断)事件被状态机
+              // 忽略——与「插话取消退出」同一语义,不强退。
+              dispatch({ type: "exitAfterReply" });
+              return;
+            }
+            case "new_conversation": {
+              // 下一轮起用新会话;本轮仍在旧会话中完成(流式渲染按 sessionId 路由,不受影响)。
+              void createVoiceSession().then((created) => {
+                if (created) sessionIdRef.current = created.id;
+              });
+              return;
+            }
+            case "enable_screen_context":
+            case "disable_screen_context": {
+              usePersonalStore
+                .getState()
+                .setVoiceSettings({ chatScreenContext: command.intent === "enable_screen_context" });
+              return;
+            }
+          }
+          return;
+        }
       }
     },
-    [activate, startListening, submit, teardown],
+    [activate, createVoiceSession, dispatch, startListening, submit, teardown],
   );
   const onCommandRef = useRef(onCommand);
   useEffect(() => {
@@ -759,11 +887,119 @@ export function VoiceAssistantController(): null {
     if (!b?.onVoiceAssistantCommand) return; // Web / 旧壳:无语音助手能力,整体降级
     const offCommand = b.onVoiceAssistantCommand((command) => onCommandRef.current(command));
 
+    // 句级流式朗读接管器：首句闭合即 thinking→speaking 并起播,不等整轮结束。
+    speakerRef.current = createVoiceTurnSpeaker({
+      getBridge: () => bridgeRef.current,
+      getTtsSettings: () => usePersonalStore.getState().ttsSettings,
+      onFirstSentence: () => {
+        // speak 只允许从 thinking 迁移；竞态下(用户已打断/退出)状态机拒绝,放弃接管。
+        if (dispatch({ type: "speak" }).phase !== "speaking") return false;
+        void bargeInRef.current?.();
+        return true;
+      },
+      onReset: () => {
+        // willRetry:已播内容来自失败尝试。先切回 thinking 再停声(顺序红线),重试轮的
+        // turn-end 落在 thinking,走整轮朗读旧路径,不重复不漏。
+        if (machineRef.current.phase === "speaking") {
+          dispatch({ type: "rethink" });
+          stopSpeaking();
+        }
+      },
+      onStreamFailed: () => {
+        // 首句合成失败且从未起播(配置/网络问题):回 thinking,turn-end 走旧路径重试整轮。
+        if (machineRef.current.phase === "speaking") {
+          dispatch({ type: "rethink" });
+          stopSpeaking();
+        }
+      },
+    });
+
+    // ── 其它会话 agent 活动卡片(overlay 球体上方浮层) ──
+    // 语音助手激活期间,别的会话若有 agent 在跑,把「会话标题 + 流式响应尾部」经主进程
+    // 转发到 overlay 实时滚动显示;轮次结束(running 清零)延迟隐藏。数据源直接复用
+    // voiceTurn 流式埋点(它对全部会话广播,语音会话分支之外的 delta 正好是这里要的)。
+    const FEED_TAIL_CHARS = 400;
+    const FEED_PUSH_MIN_MS = 120;
+    const FEED_HIDE_DELAY_MS = 1500;
+    let feedSessionId: string | null = null;
+    let feedText = "";
+    let feedLastPush = 0;
+    let feedHideTimer: ReturnType<typeof setTimeout> | null = null;
+    const pushFeed = (feed: { title: string; text: string } | null): void => {
+      bridgeRef.current?.reportVoiceAssistantFeed?.(feed);
+    };
+    const hideFeed = (): void => {
+      if (feedHideTimer) clearTimeout(feedHideTimer);
+      feedHideTimer = null;
+      feedSessionId = null;
+      feedText = "";
+      pushFeed(null);
+    };
+    const onOtherSessionDelta = (sessionId: string, delta: string): void => {
+      if (feedHideTimer) {
+        clearTimeout(feedHideTimer);
+        feedHideTimer = null;
+      }
+      // 多会话并发时跟随最新出声的那个(卡片只有一张,最近活跃者最相关)。
+      if (feedSessionId !== sessionId) {
+        feedSessionId = sessionId;
+        feedText = "";
+      }
+      feedText = (feedText + delta).slice(-FEED_TAIL_CHARS);
+      const now = Date.now();
+      if (now - feedLastPush < FEED_PUSH_MIN_MS) return;
+      feedLastPush = now;
+      const title =
+        usePersonalStore.getState().sessions.find((x) => x.id === sessionId)?.title?.trim() || "其它会话";
+      pushFeed({ title, text: feedText });
+    };
+    // 轮次结束(running 清零)→ 留一段可读时间后隐藏;期间有新 delta 会取消隐藏。
+    const offFeedRunning = usePersonalStore.subscribe((s) => {
+      if (!feedSessionId || feedHideTimer) return;
+      if (s.runningBySession[feedSessionId]) return;
+      feedHideTimer = setTimeout(hideFeed, FEED_HIDE_DELAY_MS);
+    });
+
+    // 句级流式增量：语音会话之外的流喂活动卡片;语音会话按「激活 + 开关开启 +
+    // (等回复中|已接管)」的守卫喂句级朗读。
+    setVoiceTurnStreamListener((ev) => {
+      if (!machineRef.current.active) return;
+      if (ev.sessionId !== sessionIdRef.current) {
+        if (ev.type === "delta") onOtherSessionDelta(ev.sessionId, ev.delta);
+        return;
+      }
+      const speaker = speakerRef.current;
+      if (!speaker) return;
+      if ((usePersonalStore.getState().voiceSettings.chatStreamTts ?? true) === false) return;
+      if (machineRef.current.phase !== "thinking" && !speaker.ownsRun(ev.runId)) return;
+      speaker.onStream(ev);
+    });
+
     // 回合完成钩子:只接管「语音助手激活 + 绑定会话 + 正在等回复」的轮次;
     // 返回 true 让 finalizeRun 跳过 autoSpeak,同一轮不读两遍。
     setVoiceTurnListener((ev) => {
       if (!machineRef.current.active) return false;
       if (ev.sessionId !== sessionIdRef.current) return false;
+      const speaker = speakerRef.current;
+      if (speaker?.ownsRun()) {
+        // 流式接管中(phase=speaking):正常轮补尾差收尾;失败轮先回 thinking 再停声,
+        // 沿旧路径报错(半截已播内容作废,与 willRetry 同款处理)。
+        if (turnGraceTimerRef.current) {
+          clearTimeout(turnGraceTimerRef.current);
+          turnGraceTimerRef.current = null;
+        }
+        if (!ev.ok) {
+          dispatch({ type: "rethink" });
+          stopSpeaking();
+          speaker.cancel();
+          handleTurnEnd(ev.ok, ev.text);
+          return true;
+        }
+        speaker.finish(ev.text);
+        return true;
+      }
+      // tracking 未接管的残留(首句未闭合的短回答):清掉装配器,走整轮朗读旧路径。
+      speaker?.cancel();
       if (machineRef.current.phase !== "thinking") return false;
       handleTurnEnd(ev.ok, ev.text);
       return true;
@@ -801,13 +1037,21 @@ export function VoiceAssistantController(): null {
         sawRunningRef.current = true;
         return;
       }
-      if (!sawRunningRef.current || machineRef.current.phase !== "thinking") return;
+      if (!sawRunningRef.current) return;
+      // 流式接管中 phase 已提前迁到 speaking:turn-end 若丢失,流永不 finalize、isSpeaking
+      // 卡 true——这条兜底与 thinking 同款宽限,超时按「已喂入文本」强制收尾。
+      const phase = machineRef.current.phase;
+      const streaming = phase === "speaking" && !!speakerRef.current?.ownsRun();
+      if (phase !== "thinking" && !streaming) return;
       sawRunningRef.current = false;
       if (turnGraceTimerRef.current) clearTimeout(turnGraceTimerRef.current);
       turnGraceTimerRef.current = setTimeout(() => {
         turnGraceTimerRef.current = null;
         if (machineRef.current.phase === "thinking") {
           dispatch({ type: "failed", message: "本轮已结束但未取得回复，点击球体继续" });
+        } else if (machineRef.current.phase === "speaking" && speakerRef.current?.ownsRun()) {
+          // finish("") = 不补尾差,只 flush 已装配内容并 finalize,防语音球永远停在 speaking。
+          speakerRef.current.finish("");
         }
       }, TURN_END_GRACE_MS);
     });
@@ -817,13 +1061,19 @@ export function VoiceAssistantController(): null {
       offSpeech();
       offAwaiting();
       offRunning();
+      offFeedRunning();
+      if (feedHideTimer) clearTimeout(feedHideTimer);
       setVoiceTurnListener(null);
+      setVoiceTurnStreamListener(null);
+      speakerRef.current?.cancel();
+      speakerRef.current = null;
       // 卸载即退出:释放麦克风/朗读,不留孤儿资源。
       recordingAttemptRef.current += 1;
       stopCapture();
       stopSpeaking();
       if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
       if (turnGraceTimerRef.current) clearTimeout(turnGraceTimerRef.current);
+      if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
     };
     // bridge 引用稳定(CoreProvider 注入),其余回调经 ref 转发,刻意只挂载一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
