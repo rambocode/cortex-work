@@ -14,6 +14,7 @@ import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands"
 export function PersonalComposer({
   session,
   running,
+  acceptComposerInsert = true,
   className,
   editing,
   onCancelEdit,
@@ -30,6 +31,8 @@ export function PersonalComposer({
 }: {
   session: SessionMeta;
   running: boolean;
+  /** 多窗格下仅活动会话消费全局「发送到 Chat」/场景 skill 插入，避免一份信号写进所有输入框。 */
+  acceptComposerInsert?: boolean;
   /** 透传给 ComposerShell 的类名(空会话落地态用 pw-landing-composer 与上方内容共用封顶列)。 */
   className?: string;
   /** 编辑重发:正在编辑的历史用户消息(原文填入输入框,顶部出提示条)。 */
@@ -99,7 +102,7 @@ export function PersonalComposer({
       className={className}
       editing={editing}
       slashCommands={slashCommands}
-      acceptComposerInsert
+      acceptComposerInsert={acceptComposerInsert}
       visionBlockSessionId={session.id}
       onSend={onSend}
       onStop={onStop}

@@ -140,8 +140,11 @@ function messageScrollSignature(messages: Message[]): string {
 }
 
 export function PersonalChatArea({
+  sessionId,
   onToast,
 }: {
+  // 拆分窗格可显式绑定会话；未传时沿用全局活动会话，保持所有既有调用不变。
+  sessionId?: string;
   onToast: (text: string) => void;
 }) {
   const projects = usePersonalStore((s) => s.projects);
@@ -163,7 +166,8 @@ export function PersonalChatArea({
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
 
-  const session: SessionMeta | undefined = sessions.find((x) => x.id === activeSessionId);
+  const resolvedSessionId = sessionId ?? activeSessionId;
+  const session: SessionMeta | undefined = sessions.find((x) => x.id === resolvedSessionId);
   const realProject: ProjectMeta | undefined =
     session && session.projectId ? projects.find((p) => p.id === session.projectId) : undefined;
   // 无项目会话:合成一个项目对象,使下游(send / EmptyState 守卫)无需特判;
@@ -224,13 +228,14 @@ export function PersonalChatArea({
   // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,
   // 防重渲染反复弹(计划 U5)。
   useEffect(() => {
-    if (!autoOpenPreviewUrl || !session) return;
+    // 拆分后两条会话都会挂载；只有用户当前聚焦的窗格可自动抢占全局右侧浏览器。
+    if (!autoOpenPreviewUrl || !session || session.id !== activeSessionId) return;
     const key = `${session.id}:${autoOpenPreviewUrl}`;
     if (autoOpenedPreviewKeys.includes(key)) return;
     markAutoOpenedPreview(key);
     openPreview(autoOpenPreviewUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpenPreviewUrl, session?.id, autoOpenedPreviewKeys]);
+  }, [autoOpenPreviewUrl, session?.id, activeSessionId, autoOpenedPreviewKeys]);
   const [showHiddenHistory, setShowHiddenHistory] = useState(false);
   const [ttsPlayback, setTtsPlayback] = useState(getTtsPlaybackState);
   // 编辑重发:正在编辑的历史用户消息(原文填入 composer,发送时截断其后所有消息)。
@@ -374,9 +379,8 @@ export function PersonalChatArea({
 
   // 点 typing 活动行 → 请求展开右侧「执行过程」面板(store nonce 信号,面板侧消费)。
   const handleActivityClick = useCallback(() => {
-    const sid = usePersonalStore.getState().activeSessionId;
-    if (sid) usePersonalStore.getState().requestOpenProcessPanel(sid);
-  }, []);
+    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id);
+  }, [session]);
 
   // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
   const renderTextTail = useCallback(
@@ -719,6 +723,7 @@ export function PersonalChatArea({
       <PersonalComposer
         session={session}
         running={running}
+        acceptComposerInsert={session.id === activeSessionId}
         className={landing ? "pw-landing-composer" : undefined}
         editing={editing}
         onCancelEdit={() => setEditing(null)}

@@ -19,7 +19,7 @@ import {
 import { useResponsiveLeftCollapsed } from "../../useResponsiveLeftCollapsed";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { PersonalSidebar } from "./PersonalSidebar";
-import { PersonalChatArea } from "../chat/PersonalChatArea";
+import { ConversationSplitView } from "./ConversationSplitView";
 import { PersonalProcessPanel } from "../chat/PersonalProcessPanel";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
@@ -279,7 +279,7 @@ export function PersonalWorkspace({
             ) : timelineProject ? (
               <TimelineView project={timelineProject} onToast={onToast} />
             ) : (
-              <PersonalChatArea onToast={onToast} />
+              <ConversationSplitView onToast={onToast} />
             )}
             {/* 右侧执行过程区（浮起 overlay，position:absolute 脱离 .pw-center-col 的 flex:1 规则，
                 锚到 .pw-center-col 的 relative）。独立门控：与上面的视图切换、rightOpen/rightView 解耦，

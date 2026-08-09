@@ -20,6 +20,7 @@ import { ProjectMenu } from "../projects/ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
 import { SidebarUserBar } from "./SidebarUserBar";
 import { relTime } from "./relTime";
+import { SESSION_DRAG_MIME } from "./conversation-drag";
 
 // relTime 已抽到 ./relTime（侧栏底部的 NotificationBell 也要用，留在这里会与它循环依赖）。
 // import + export 两句都要：本文件的会话行自己也调它，光 re-export 不会引入本模块作用域。
@@ -108,7 +109,16 @@ function SessionRow({
           />
         </div>
       ) : (
-        <button className={`pw-session ${active ? "is-active" : ""}`} onClick={onSelect}>
+        <button
+          className={`pw-session ${active ? "is-active" : ""}`}
+          draggable
+          title="拖到会话区右侧以拆分窗格"
+          onClick={onSelect}
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = "copy";
+            event.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
+          }}
+        >
           <span className="pw-session-title">{session.title}</span>
           <span className="pw-session-time">{relTime(session.updatedAt)}</span>
         </button>

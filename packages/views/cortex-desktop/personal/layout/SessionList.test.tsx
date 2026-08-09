@@ -6,6 +6,7 @@ import { CoreProvider, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge, SessionMeta } from "@cortex-work/core";
 
 import { SessionList } from "./PersonalSidebar";
+import { SESSION_DRAG_MIME } from "./conversation-drag";
 
 function sess(p: Partial<SessionMeta> & { id: string }): SessionMeta {
   return { title: p.id, agent: "claude", createdAt: 0, updatedAt: 1000, ...p };
@@ -69,6 +70,23 @@ describe("SessionList 分组会话超 5 折叠", () => {
     renderUI(<SessionList sessions={makeSessions(3)} {...base} onSelect={onSelect} />);
     fireEvent.click(screen.getByText("会话1"));
     expect(onSelect).toHaveBeenCalledWith("s1");
+  });
+
+  it("拖动会话行时只写入会话 id 的自定义 MIME payload", () => {
+    const values = new Map<string, string>();
+    const transfer = {
+      effectAllowed: "uninitialized",
+      setData: (type: string, value: string) => values.set(type, value),
+    } as unknown as DataTransfer;
+    renderUI(<SessionList sessions={makeSessions(2)} {...base} />);
+
+    const row = screen.getByText("会话1").closest("button");
+    expect(row).toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(row!, { dataTransfer: transfer });
+
+    expect(transfer.effectAllowed).toBe("copy");
+    expect(values.get(SESSION_DRAG_MIME)).toBe("s1");
+    expect(values.size).toBe(1);
   });
 });
 

@@ -5311,6 +5311,83 @@ button.sb-row {
   min-height: 0;
   min-width: 0;
 }
+/* 会话拆分只占中心内容行，不改变顶部会话头、右侧工具面板或底部终端的既有布局。
+   每个聊天实例各自维持消息滚动与 composer；窗格数量不设上限，超过可视宽度后横向滚动，
+   clamp 下限避免为了强塞更多窗格而把输入区压缩到不可操作。 */
+.pw-conversation-surface {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pw-conversation-surface > .chat { flex: 1; min-width: 0; min-height: 0; }
+.pw-conversation-split {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.pw-conversation-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 clamp(320px, 50%, 440px);
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-app);
+}
+.pw-conversation-pane + .pw-conversation-pane { border-left: 1px solid var(--border); }
+.pw-conversation-pane > .chat { flex: 1; min-width: 0; min-height: 0; }
+.pw-conversation-pane.is-active { box-shadow: inset 0 2px var(--accent); }
+.pw-split-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+}
+.pw-split-pane-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.pw-split-pane-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--text-4);
+}
+.pw-conversation-pane.is-active .pw-split-pane-dot { background: var(--accent); }
+.pw-session-drop-target {
+  position: absolute;
+  z-index: 12;
+  inset: 12px 12px 12px 51%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+  box-shadow: 0 12px 30px rgb(0 0 0 / 10%);
+  pointer-events: none;
+}
+.pw-session-drop-target strong { font-size: 13px; }
+.pw-session-drop-target span { color: var(--text-3); font-size: 11.5px; }
 .pw-term {
   flex-shrink: 0;
   display: flex;

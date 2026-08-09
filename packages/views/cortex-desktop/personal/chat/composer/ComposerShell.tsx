@@ -273,13 +273,15 @@ export function ComposerShell({
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   // 选项1(图2):选中 skill 后在输入框上方显示的 pill(icon + 友好名);textarea 只留参数,发送时拼回 cmd。
   const [selectedSkill, setSelectedSkill] = useState<{ cmd: string; displayName: string } | null>(null);
-  // 把 pill 单向镜像进 store,供落地页 SceneChips 展示对应 skill 的示例提示词。
-  // 真源仍是上面的本地 state:组件卸载(切会话/离开落地页)时清掉,避免 pill 跨会话残留在示例区。
+  // 把活动输入框的 pill 单向镜像进 store,供落地页 SceneChips 展示对应 skill 的示例提示词。
+  // 拆分窗格会同时挂载多个 ComposerShell，只有 acceptComposerInsert=true 的活动窗格可以镜像；
+  // 否则任一非活动窗格的空本地态都会把活动窗格刚写入的 skill 静默清掉。
   const setComposerSkill = usePersonalStore((s) => s.setComposerSkill);
   useEffect(() => {
+    if (!acceptComposerInsert) return;
     setComposerSkill(selectedSkill ?? undefined);
-  }, [selectedSkill, setComposerSkill]);
-  useEffect(() => () => setComposerSkill(undefined), [setComposerSkill]);
+    return () => setComposerSkill(undefined);
+  }, [acceptComposerInsert, selectedSkill, setComposerSkill]);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // 上传入口合并:图片/文档共用单个隐藏 input,经「+」菜单「文件」项触发,onChange 按 MIME 分流。
   const attachInputRef = useRef<HTMLInputElement>(null);
