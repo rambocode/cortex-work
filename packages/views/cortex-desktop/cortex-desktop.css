@@ -5312,8 +5312,8 @@ button.sb-row {
   min-width: 0;
 }
 /* 会话拆分只占中心内容行，不改变顶部会话头、右侧工具面板或底部终端的既有布局。
-   每个聊天实例各自维持消息滚动与 composer；窗格数量不设上限，超过可视宽度后横向滚动，
-   clamp 下限避免为了强塞更多窗格而把输入区压缩到不可操作。 */
+   拆分树支持任意层级的上下/左右组合；树节点携带最小网格跨度，超出可视区时双向滚动，
+   避免为了强塞更多窗格而把消息区和输入框压缩到不可操作。 */
 .pw-conversation-surface {
   position: relative;
   display: flex;
@@ -5322,24 +5322,45 @@ button.sb-row {
   overflow: hidden;
 }
 .pw-conversation-surface > .chat { flex: 1; min-width: 0; min-height: 0; }
-.pw-conversation-split {
+.pw-conversation-single {
+  position: relative;
   display: flex;
-  width: 100%;
+  flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+}
+.pw-conversation-single > .chat { flex: 1; min-width: 0; min-height: 0; }
+.pw-conversation-split {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.pw-conversation-branch {
+  display: flex;
+  flex: 1 0 100%;
+  width: 100%;
+  height: 100%;
+  background: var(--border);
+  gap: 1px;
+}
+.pw-conversation-branch.is-horizontal { flex-direction: row; }
+.pw-conversation-branch.is-vertical { flex-direction: column; }
+.pw-conversation-branch > .pw-conversation-branch,
+.pw-conversation-branch > .pw-conversation-pane {
+  flex: 1 1 0;
 }
 .pw-conversation-pane {
   position: relative;
   display: flex;
   flex-direction: column;
-  flex: 1 0 clamp(320px, 50%, 440px);
-  min-width: 0;
-  min-height: 0;
+  min-width: 320px;
+  min-height: 240px;
   background: var(--bg-app);
 }
-.pw-conversation-pane + .pw-conversation-pane { border-left: 1px solid var(--border); }
 .pw-conversation-pane > .chat { flex: 1; min-width: 0; min-height: 0; }
 .pw-conversation-pane.is-active { box-shadow: inset 0 2px var(--accent); }
 .pw-split-pane-head {
@@ -5373,7 +5394,6 @@ button.sb-row {
 .pw-session-drop-target {
   position: absolute;
   z-index: 12;
-  inset: 12px 12px 12px 51%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5386,6 +5406,10 @@ button.sb-row {
   box-shadow: 0 12px 30px rgb(0 0 0 / 10%);
   pointer-events: none;
 }
+.pw-session-drop-target.is-left { inset: 8px 50% 8px 8px; }
+.pw-session-drop-target.is-right { inset: 8px 8px 8px 50%; }
+.pw-session-drop-target.is-top { inset: 8px 8px 50% 8px; }
+.pw-session-drop-target.is-bottom { inset: 50% 8px 8px 8px; }
 .pw-session-drop-target strong { font-size: 13px; }
 .pw-session-drop-target span { color: var(--text-3); font-size: 11.5px; }
 .pw-term {

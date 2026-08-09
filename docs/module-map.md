@@ -36,7 +36,7 @@
 
 | 名词（含别名） | views | core | main |
 |---|---|---|---|
-| 会话 / 跑 Agent / CLI 流式管线 / 拖放拆分窗格 | `personal/chat/PersonalChatArea.tsx`（可显式绑定 session）、`personal/layout/ConversationSplitView.tsx`（左侧会话拖到右半区后追加并排窗格，数量不限）、`personal/layout/conversation-drag.ts`（拖放 MIME 契约）、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
+| 会话 / 跑 Agent / CLI 流式管线 / 拖放拆分窗格 | `personal/chat/PersonalChatArea.tsx`（可显式绑定 session）、`personal/layout/ConversationSplitView.tsx`（任意叶子窗格四向拖放拆分，数量不限）、`personal/layout/conversation-layout.ts`（二维拆分树）、`personal/layout/conversation-drag.ts`（拖放 MIME 与方向判定）、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
 | 追问 / 编辑重发 | `personal/chat/FollowupOverlay.tsx` | `personal/followup.ts` | `ipc/ask.ts`、`ipc/session-trim.ts` |
 | 圆桌（多角色 @ 调度） | `personal/chat/composer/MentionAutocomplete.tsx` | `personal/mention.ts` | `ipc/roundtable.ts` |
 | 角色库 | `personal/settings/RolesSettingsSection.tsx` | — | `ipc/roles.ts` |

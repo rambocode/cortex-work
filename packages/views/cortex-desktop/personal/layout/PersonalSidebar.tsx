@@ -112,7 +112,7 @@ function SessionRow({
         <button
           className={`pw-session ${active ? "is-active" : ""}`}
           draggable
-          title="拖到会话区右侧以拆分窗格"
+          title="拖到会话窗格的上、下、左、右以拆分"
           onClick={onSelect}
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = "copy";
