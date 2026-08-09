@@ -201,6 +201,27 @@ export type Message =
       uid?: string;
     }
   | {
+      // 委派子代理的一等会话卡片。原始 reasoning/tool/text 仍只进过程流；本卡只保存用户可回顾的
+      // 状态、步骤计数、最新活动与结论摘要，避免把子代理原文伪装成主会话最终回答。
+      kind: "subagentCard";
+      who: string;
+      time: string;
+      // 同一角色一轮可被多次委派，callId 把卡片与该次调用的预览/完整过程精确关联。
+      callId?: string;
+      roleId: string;
+      roleLabel: string;
+      roleColor?: string;
+      roleAvatar?: string;
+      status: "running" | "completed" | "failed";
+      startedAt: number;
+      finishedAt?: number;
+      steps: number;
+      activity?: string;
+      summary?: string;
+      error?: string;
+      uid?: string;
+    }
+  | {
       // agent 任务清单卡片:由 CliStreamEvent/PiSessionEvent 的 todo 事件折叠而来。
       // 同一 runId 覆盖更新(整表替换 todos),新 run 开新卡;全部 completed 时渲染端默认折叠。
       // 区别于 agentLog(瞬态过程流):todoList 进持久消息流并落盘(sanitizeForSave 保留)。

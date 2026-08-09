@@ -22,7 +22,11 @@ function makeState(sessionId: string, abort: () => void = () => {}): DelegateSes
     abort,
     pushEvent: () => {},
     bumpWatchdog: () => {},
-    callCounts: new Map(),
+    maxParallel: 256,
+    maxChildRuns: 25,
+    childRunCount: 0,
+    activeRuns: 0,
+    waiters: [],
     runSubAgent: async () => ({ text: "", ok: true }),
   };
 }
@@ -147,7 +151,11 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       abort: () => {},
       pushEvent: () => {},
       bumpWatchdog: () => {},
-      callCounts: new Map(),
+      maxParallel: 256,
+      maxChildRuns: 25,
+      childRunCount: 0,
+      activeRuns: 0,
+      waiters: [],
       runSubAgent: async () => ({ text: "", ok: true }),
     });
     const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
@@ -173,15 +181,20 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     await startDelegateHost();
     const sid = "context-session";
     const runSubAgent = vi.fn(async () => ({ text: "子 Agent 的分析结果", ok: true }));
+    const pushEvent = vi.fn();
     registerDelegateSession({
       sessionId: sid,
       runId: "main-run",
       roles: [{ id: "codex", label: "Codex", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }],
       signal: new AbortController().signal,
       abort: () => {},
-      pushEvent: () => {},
+      pushEvent,
       bumpWatchdog: () => {},
-      callCounts: new Map(),
+      maxParallel: 256,
+      maxChildRuns: 25,
+      childRunCount: 0,
+      activeRuns: 0,
+      waiters: [],
       runSubAgent,
     });
     const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
@@ -199,6 +212,20 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         "结合必要材料完成子任务",
         expect.any(Function),
       );
+      expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        type: "init",
+        roleId: "codex",
+        stage: "subagent",
+        subagentCallId: expect.any(String),
+      }));
+      const subagentCallId = pushEvent.mock.calls[0]?.[0]?.subagentCallId;
+      expect(pushEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+        type: "result",
+        ok: true,
+        text: "子 Agent 的分析结果",
+        roleId: "codex",
+        subagentCallId,
+      }));
       expect(agentTraceList()).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -214,6 +241,123 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
           }),
         ]),
       );
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("子执行异常时返回 tool error，并向 renderer 发送失败完成帧", async () => {
+    await startDelegateHost();
+    const sid = "failure-session";
+    const pushEvent = vi.fn();
+    registerDelegateSession({
+      sessionId: sid,
+      runId: "failure-run",
+      roles: [{ id: "review", label: "Reviewer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }],
+      signal: new AbortController().signal,
+      abort: () => {},
+      pushEvent,
+      bumpWatchdog: () => {},
+      maxParallel: 256,
+      maxChildRuns: 25,
+      childRunCount: 0,
+      activeRuns: 0,
+      waiters: [],
+      runSubAgent: async () => { throw new Error("spawn failed"); },
+    });
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const call = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "审查" } },
+      });
+      expect(call.status).toBe(200);
+      expect(call.body).toContain("spawn failed");
+      const subagentCallId = pushEvent.mock.calls[0]?.[0]?.subagentCallId;
+      expect(pushEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+        type: "result",
+        ok: false,
+        error: "spawn failed",
+        roleId: "review",
+        subagentCallId,
+      }));
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("达到单会话子任务上限后拒绝继续创建，不限制同一角色的合理重复调用", async () => {
+    await startDelegateHost();
+    const sid = "child-limit-session";
+    const state = makeState(sid);
+    state.roles = [{ id: "review", label: "Reviewer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }];
+    state.maxChildRuns = 1;
+    state.runSubAgent = vi.fn(async () => ({ text: "ok", ok: true }));
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const first = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "第一次" } },
+      });
+      const second = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "第二次" } },
+      });
+      expect(first.body).toContain("ok");
+      expect(second.body).toContain("上限 1");
+      expect(state.runSubAgent).toHaveBeenCalledTimes(1);
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("达到最大并行数后按顺序排队，前一任务释放槽位后再启动下一任务", async () => {
+    await startDelegateHost();
+    const sid = "parallel-limit-session";
+    const state = makeState(sid);
+    state.roles = [{ id: "review", label: "Reviewer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" }];
+    state.maxParallel = 1;
+    let finishFirst: (() => void) | undefined;
+    state.runSubAgent = vi.fn(async (_role, task) => {
+      if (task === "第一项") await new Promise<void>((resolve) => { finishFirst = resolve; });
+      return { text: task, ok: true };
+    });
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const first = post(cfg, {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "第一项" } },
+      });
+      await vi.waitFor(() => expect(state.runSubAgent).toHaveBeenCalledTimes(1));
+      const second = post(cfg, {
+        jsonrpc: "2.0",
+        id: 8,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "第二项" } },
+      });
+      await vi.waitFor(() => expect(state.waiters).toHaveLength(1));
+      expect(state.runSubAgent).toHaveBeenCalledTimes(1);
+
+      finishFirst?.();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.body).toContain("第一项");
+      expect(secondResult.body).toContain("第二项");
+      expect(state.runSubAgent).toHaveBeenCalledTimes(2);
+      expect(state.activeRuns).toBe(0);
+      expect(state.waiters).toHaveLength(0);
     } finally {
       stopDelegateHost();
       unregisterDelegateSession(sid);

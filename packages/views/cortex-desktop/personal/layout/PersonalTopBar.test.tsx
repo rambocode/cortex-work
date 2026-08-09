@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { CoreProvider, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
@@ -14,35 +14,17 @@ function renderHeader() {
   );
 }
 
-describe("PersonalCenterHeader 面板下拉(光标移出自动收起)", () => {
+describe("PersonalCenterHeader 右栏入口迁移", () => {
   afterEach(() => cleanup());
   beforeEach(() => {
     useCortexUIStore.setState({ rightOpen: false });
     usePersonalStore.setState({ terminalOpen: false, rightView: "files" });
   });
 
-  it("点击展开,光标移出菜单区域后短延迟自动收起", async () => {
+  it("顶部不再渲染右栏下拉与终端入口，由右侧竖向工具栏统一承载", () => {
     renderHeader();
-    const btn = screen.getByTitle("右侧面板");
-    const wrap = btn.closest(".pw-tb-menu-wrap") as HTMLElement;
-
-    fireEvent.click(btn);
-    expect(screen.getByText("展开右侧面板")).toBeInTheDocument();
-
-    fireEvent.mouseLeave(wrap);
-    await waitFor(() => expect(screen.queryByText("展开右侧面板")).toBeNull());
-  });
-
-  it("移出后立即移入 → 取消收起,菜单保持打开", async () => {
-    renderHeader();
-    const btn = screen.getByTitle("右侧面板");
-    const wrap = btn.closest(".pw-tb-menu-wrap") as HTMLElement;
-
-    fireEvent.click(btn);
-    fireEvent.mouseLeave(wrap);
-    fireEvent.mouseEnter(wrap);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(screen.getByText("展开右侧面板")).toBeInTheDocument();
+    expect(screen.queryByTitle("右侧面板")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("打开终端")).not.toBeInTheDocument();
   });
 });
 

@@ -71,6 +71,11 @@ export interface RoleConfig {
   systemPrompt: string;
   color?: string;
   avatar?: string; // emoji avatar
+  // 子代理目录可为角色覆盖底层模型与推理强度；为空时沿用该 Agent 的默认。
+  model?: string;
+  effort?: string;
+  // Kun 目录角色的工具策略。readOnly 会在主进程强制降为 plan/read-only，不能仅靠提示词约束。
+  toolPolicy?: "readOnly" | "inherit";
   createdAt: string; // ISO 8601
   updatedAt: string;
 }
@@ -162,8 +167,8 @@ export interface SessionMeta {
   // spawn,改值下一轮即生效;pi RPC 长驻,改值触发会话重开。
   // (历史的 dirPermission 目录轴已移除,迁移见 store/personal.ts migrateSession。)
   execPermission?: ExecPermission;
-  // (历史的会话级 subagentOrchestration 已升为全局设置 GeneralSettings.subagentOrchestration,
-  //  旧字段由 migrateSession 剥离。)
+  // 历史的会话级 subagentOrchestration 已移除，旧字段由 migrateSession 剥离；产品默认把
+  // 委派工具交给主模型自行判断。
   // 联网检索开关（会话级）:开启后主进程给该会话的 agent 注入研究引擎 MCP（web_search / web_read），
   // 由模型自行决定何时调用。缺省/false = 不注入,行为与从前完全一致。
   //
@@ -174,12 +179,39 @@ export interface SessionMeta {
   // 生效时机分两家:claude/codex 逐轮 fresh spawn,经 CliStartRequest.webSearch 传递,改值下一轮即生效;
   // pi 是长驻 RPC,工具集在 pi:open 时冻结,故 webSearch 计入 extensionFingerprint → 改值触发会话重开。
   webSearch?: boolean;
+  // 会话级持久目标（对齐 Kun goal mode）。目标不是一次性 prompt：active 时每轮都会注入
+  // 目标约束，并在回合成功结束后由会话层有限续跑；paused/complete/blocked 等终态不会续跑。
+  goal?: ThreadGoal;
   // /clear 后默认隐藏到此游标为止的历史消息；消息文件本身仍完整保留。
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
   archivedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export type ThreadGoalStatus =
+  | "active"
+  | "paused"
+  | "blocked"
+  | "usageLimited"
+  | "budgetLimited"
+  | "complete";
+
+/**
+ * 会话持久目标。公开字段与 Kun ThreadGoal 对齐；autoTurnCount 是 Cortex 的续跑安全计数，
+ * 只用于阻止无限自动轮次，不参与展示，也不会改变用户设置的 objective/tokenBudget。
+ */
+export interface ThreadGoal {
+  threadId: string;
+  objective: string;
+  status: ThreadGoalStatus;
+  tokenBudget?: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: string;
+  updatedAt: string;
+  autoTurnCount?: number;
 }
 
 export interface HiddenHistoryMeta {
@@ -705,10 +737,13 @@ export interface GeneralSettings {
   // import 语句——本文件已远超 1200 行硬上限，只能减不能加。主进程读 enabled/deepResearchEnabled/
   // searchServer 决定是否拉起 Research Worker，**进** main 镜像（main/ipc/types-research.ts）。
   researchEngine?: import("../research/settings").ResearchEngineSettings;
-  // 子 agent 编排(全局,原会话级开关升级而来):开启后主会话可经 ask_subagent 委派独立子 agent，
-  // 子结果回传主会话总结。缺省 = 关闭，只有显式 true 才启用。
-  // 仅 renderer 发送边界读,不进 main GeneralSettings 镜像。
+  // 已废弃：旧版本用于人工启停子 agent 编排。hydrate 会剥离旧存档值；可选字段只保留给
+  // 测试/紧急运行时兼容闸门，正常产品状态始终把工具交给主 Agent 自行决定是否调用。
+  /** @deprecated 不再持久化或提供 UI；仅显式 false 可作内部兼容闸门。 */
   subagentOrchestration?: boolean;
+  // Kun 对齐的子代理目录配置。仅 renderer 发送边界消费；主进程通过本轮 delegateRoles 接收
+  // 已解析角色，不读取这份持久化目录设置，避免 UI 配置与执行期协议耦合。
+  subagents?: import("../personal/subagents").SubagentSettings;
   // 公司知识库（远端 MCP server）。主进程读它构建注入配置,**进** main 镜像。
   knowledgeBase?: KnowledgeBaseSettings;
   // Computer Use（pi 操作真实桌面 GUI）。主进程读它做注入门控,**进** main 镜像。
@@ -1021,7 +1056,15 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   log: { enabled: true, retentionDays: 2 },
   agentBrowser: { enabled: true },
   piSkills: DEFAULT_PI_SKILLS,
-  subagentOrchestration: false,
+  // 与 personal/subagents.ts 的 DEFAULT_SUBAGENT_SETTINGS 保持同一持久化缺省；这里内联是为了
+  // 避免超大契约文件新增运行时依赖（类型仍通过 inline import 共享）。
+  subagents: {
+    useExistingAgents: true,
+    maxParallel: 256,
+    maxChildRuns: 25,
+    extensionAgentsEnabled: false,
+    profiles: {},
+  },
 };
 
 // 媒体生成/ASR 类型定义集中在 ./media-gen-types 以免本已超 1200 行的类型文件继续膨胀。
@@ -1480,6 +1523,9 @@ export interface CliStartRequest {
   // 委派（delegate）：本轮被 @ 的协作者角色。非空时主进程注入 cortex-delegate MCP server
   // （per-turn 工具集），主 agent 经 ask_<id> 工具自主委派子任务给这些协作者。与 ipc/types.ts 镜像。
   delegateRoles?: RoleConfig[];
+  // 委派运行护栏：达到并行上限时排队，达到本轮子任务上限时拒绝继续创建。
+  // renderer 从已归一化的全局子代理设置投影；主进程仍会防御性校验。
+  delegatePolicy?: { maxParallel: number; maxChildRuns: number };
   // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充。与 ipc/types.ts 镜像。
   extraExtensionPaths?: string[];
   // 本轮是否允许联网检索（SessionMeta.webSearch 的逐轮投影）。true 时主进程才注入研究引擎 MCP
@@ -1542,19 +1588,19 @@ export interface TrimSessionRequest {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // tool 事件:phase:"start" 带 input(完整调用参数,原始 JSON);phase:"end" 带 output(工具输出文本,
   // adapter 侧已截断)+ isError。start/end 靠 toolCallId 配对(运行过程详情视图用)。
-  | { type: "tool"; name: string; detail?: string; input?: unknown; output?: string; isError?: boolean; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "tool"; name: string; detail?: string; input?: unknown; output?: string; isError?: boolean; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // todo 事件:agent 任务清单整表快照(覆盖语义,每帧带全量 todos)。三端归一化产出:
   // claude TodoWrite / codex update_plan(todo_list item)/ pi 自定义 todo_write 工具。
-  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string };
 
 export interface CliExitEvent {
   runId: string;

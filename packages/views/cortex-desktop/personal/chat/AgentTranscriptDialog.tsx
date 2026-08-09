@@ -185,14 +185,25 @@ export function AgentTranscriptDialog({
   open,
   onClose,
   sessionId,
+  subagentCallId,
+  subagentLabel,
 }: {
   open: boolean;
   onClose: () => void;
   sessionId: string;
+  /** 传入后只展示某一次委派调用，避免同角色重复调用或主 Agent 事件混入。 */
+  subagentCallId?: string;
+  subagentLabel?: string;
 }) {
   const { t } = useTranslation("chat");
-  const events = usePersonalRunEvents(open ? sessionId : undefined);
-  const running = usePersonalStore((s) => !!s.runningBySession[sessionId]);
+  const allEvents = usePersonalRunEvents(open ? sessionId : undefined);
+  const events = useMemo(
+    () => subagentCallId ? allEvents.filter(({ ev }) => ev.subagentCallId === subagentCallId) : allEvents,
+    [allEvents, subagentCallId],
+  );
+  const sessionRunning = usePersonalStore((s) => !!s.runningBySession[sessionId]);
+  // 主 Agent 可能仍在整理最终答案，但已结束的子代理不应继续显示 live；作用域详情只看自身终态帧。
+  const running = sessionRunning && (!subagentCallId || !events.some(({ ev }) => ev.type === "result"));
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const filterMenu = useDismissableMenu();
@@ -208,7 +219,7 @@ export function AgentTranscriptDialog({
     if (!open) return;
     setSelected(new Set());
     setExpanded(new Set());
-  }, [open, sessionId]);
+  }, [open, sessionId, subagentCallId]);
 
   const { rows, stats } = useMemo(
     () => buildRows(events, running, t("transcript.toolFallback")),
@@ -250,7 +261,7 @@ export function AgentTranscriptDialog({
         className="pw-dlg pw-transcript-dlg"
         role="dialog"
         aria-modal="true"
-        aria-label={t("transcript.title")}
+        aria-label={subagentLabel ? t("transcript.subagentAria", { label: subagentLabel }) : t("transcript.title")}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -260,7 +271,9 @@ export function AgentTranscriptDialog({
         }}
       >
         <div className="pw-transcript-head">
-          <span className="pw-transcript-title">{t("transcript.title")}</span>
+          <span className="pw-transcript-title">
+            {subagentLabel ? t("transcript.subagentTitle", { label: subagentLabel }) : t("transcript.title")}
+          </span>
           {/* 筛选下拉:多选 checkbox,选项从事件派生。挂 useDismissableMenu 的点外/Esc 关闭范式。 */}
           <div className="pw-transcript-filter" ref={filterMenu.wrapRef}>
             <button

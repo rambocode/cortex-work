@@ -1,5 +1,5 @@
 // 个人工作区「中栏」顶部头：取代旧的全宽 TitleBar 在个人区的职责。
-// 三栏各自顶天后,中栏顶部承担窗口拖拽区 + 标题 + 更新按钮 + 右栏面板下拉。
+// 三栏各自顶天后,中栏顶部承担窗口拖拽区 + 标题 + 更新按钮。
 // 会话(chat)视图下顶栏改为承载会话标题块 + Agent 选择器（标题从旧 chat-head 上移,见设计稿）；
 // 其它视图(落地/自动化/timeline/设置)维持「个人工作区」标题。
 // 拖拽区由 CSS .pw-col-head 的 -webkit-app-region: drag 提供,交互子元素 no-drag。
@@ -15,7 +15,6 @@ import {
   useChatViewActive,
 } from "../chat/agentMeta";
 import { AgentSelect } from "../chat/AgentSelect";
-import { useDismissableMenu } from "../shared/useDismissableMenu";
 import { SidebarLeftControls } from "./SidebarControls";
 
 export function PersonalCenterHeader() {
@@ -33,13 +32,13 @@ export function PersonalCenterHeader() {
       <span className="pw-col-head-title">个人工作区</span>
       <div className="spacer" />
       <UpdateButton />
-      <PersonalPanelControls />
     </div>
   );
 }
 
 // 顶栏会话头（chat 视图）：会话标题块（agent 头像 + 标题 + agent 标签 + 路径展开）+ Agent 选择器
-// + 更新按钮 + 右栏/终端控制。数据全部从 usePersonalStore 直接取,无需层层传 props。
+// + 更新按钮。右栏与终端入口已统一迁到右侧竖向工具栏；数据全部从 usePersonalStore 直接取，
+// 无需层层传 props。
 function PersonalSessionHeader() {
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
@@ -64,7 +63,6 @@ function PersonalSessionHeader() {
         <span className="pw-col-head-title">个人工作区</span>
         <div className="spacer" />
         <UpdateButton />
-        <PersonalPanelControls />
       </div>
     );
   }
@@ -140,107 +138,6 @@ function PersonalSessionHeader() {
         }
       />
       <UpdateButton />
-      <PersonalPanelControls />
     </div>
-  );
-}
-
-// 终端开关 + 右栏面板下拉（选择 文件 / Skills / Tasks 视图,或收起面板）。
-function PersonalPanelControls() {
-  const rightOpen = useCortexUIStore((s) => s.rightOpen);
-  const toggleRight = useCortexUIStore((s) => s.toggleRight);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const terminalOpen = usePersonalStore((s) => s.terminalOpen);
-  const toggleTerminal = usePersonalStore((s) => s.toggleTerminal);
-  const rightView = usePersonalStore((s) => s.rightView);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-
-  const menu = useDismissableMenu();
-
-  const pick = (view: "files" | "skills" | "todos" | "notes" | "browser") => {
-    setRightView(view);
-    if (!rightOpen) setRightOpen(true);
-    menu.setOpen(false);
-  };
-
-  return (
-    <>
-      <button
-        className={`icon-btn ${terminalOpen ? "is-on" : ""}`}
-        title={terminalOpen ? "收起终端" : "打开终端"}
-        onClick={toggleTerminal}
-      >
-        <Icon.Terminal />
-      </button>
-      <div className="tb-divider" />
-      <div
-        className="pw-tb-menu-wrap"
-        ref={menu.wrapRef}
-        onMouseLeave={menu.onMouseLeave}
-        onMouseEnter={menu.onMouseEnter}
-      >
-        <button
-          className={`icon-btn ${rightOpen ? "is-on" : ""}`}
-          title="右侧面板"
-          onClick={() => menu.setOpen((v) => !v)}
-        >
-          <Icon.Sidebar />
-          <Icon.Chevron size={9} />
-        </button>
-        {menu.open ? (
-          <div className="pw-tb-menu" role="menu">
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("files")}>
-              <Icon.Folder size={14} />
-              <span>文件</span>
-              {rightOpen && rightView === "files" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("skills")}>
-              <Icon.Sparkle size={14} />
-              <span>Skills</span>
-              {rightOpen && rightView === "skills" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("todos")}>
-              <Icon.Task size={14} />
-              <span>Tasks</span>
-              {rightOpen && rightView === "todos" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("notes")}>
-              <Icon.Pin size={14} />
-              <span>闪记</span>
-              {rightOpen && rightView === "notes" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button className="pw-tb-menu-item" role="menuitem" onClick={() => pick("browser")}>
-              <Icon.Globe size={14} />
-              <span>浏览器</span>
-              {rightOpen && rightView === "browser" ? <Icon.Check size={13} /> : null}
-            </button>
-            <button
-              className="pw-tb-menu-item"
-              role="menuitem"
-              onClick={() => {
-                toggleTerminal?.();
-                menu.setOpen(false);
-              }}
-            >
-              <Icon.Terminal size={14} />
-              <span>终端</span>
-              {terminalOpen ? <Icon.Check size={13} /> : null}
-            </button>
-            <div className="pw-tb-menu-sep" />
-            <button
-              className="pw-tb-menu-item"
-              role="menuitem"
-              onClick={() => {
-                toggleRight();
-                menu.setOpen(false);
-              }}
-            >
-              <Icon.Sidebar size={14} />
-              <span>{rightOpen ? "收起右侧面板" : "展开右侧面板"}</span>
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </>
   );
 }

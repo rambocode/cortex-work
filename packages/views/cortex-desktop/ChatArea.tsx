@@ -16,6 +16,7 @@ import { chatMarkdownComponents, chatMarkdownUrlTransform } from "./personal/cha
 import { normalizeKnowledgeLinks } from "./personal/knowledge/KnowledgeDocRef";
 import { ChatImages } from "./personal/chat/ChatImages";
 import { ChatFiles } from "./personal/chat/ChatFiles";
+import { SubagentCardMessage } from "./personal/chat/SubagentCardMessage";
 
 // 会话流的语法高亮插件。必须是模块级常量:TextMessage 被 memo 包裹,内联字面量每次渲染都是新引用,
 // 会让 <Markdown> 的 props 恒变、白费 memo 短路(长会话流式输出时代价明显)。
@@ -787,6 +788,7 @@ export function MessageStream({
   stickToBottomKey,
   preserveAnchorKey,
   onActivityClick,
+  sessionId,
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -810,7 +812,9 @@ export function MessageStream({
   stickToBottomKey?: unknown;
   preserveAnchorKey?: unknown;
   // 个人工作区:点 typing 活动行展开「执行过程」面板。团队侧不传 → 活动行不可点,零回归。
-  onActivityClick?: () => void;
+  onActivityClick?: (subagent?: { callId: string; label: string }) => void;
+  // 个人工作区会话 id：子代理卡用它订阅该会话的瞬态运行事件，团队侧不传。
+  sessionId?: string;
 }) {
   const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -953,9 +957,11 @@ export function MessageStream({
             case "approve":
               return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
             case "typing":
-              return <TypingMessage key={key} m={m} onOpenProcess={onActivityClick} />;
+              return <TypingMessage key={key} m={m} onOpenProcess={onActivityClick ? () => onActivityClick() : undefined} />;
             case "roleHeader":
               return <RoleHeaderMessage key={key} m={m} />;
+            case "subagentCard":
+              return <SubagentCardMessage key={key} m={m} onOpenProcess={onActivityClick} sessionId={sessionId} />;
             case "stageTitle":
               return null;
             default:

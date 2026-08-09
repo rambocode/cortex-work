@@ -10,6 +10,7 @@
     "general": "通用",
     "archivedSessions": "已归档对话",
     "agent": "Agent",
+    "subagents": "子代理",
     "pi": "模型",
     "plugins": "插件",
     "browser": "浏览器",
@@ -607,13 +608,14 @@
     "defaultLabel": "新会话默认 Agent",
     "defaultDesc": "作为新会话的默认 Agent,并用于生成首页问候语。所选 Agent 不可用时自动回退。",
     "labelNotInstalled": "{{name}}（未安装）",
-    "orchestrationCard": "子 agent 编排",
-    "orchestrationLabel": "启用子 agent 编排",
-    "orchestrationDesc": "主会话保留原生上下文，将任务委派给独立子 agent；子结果回传主会话后，由主会话总结并输出。默认关闭。",
     "availabilityCard": "可用性",
     "builtin": "内置",
     "installed": "已安装",
     "notDetected": "未检测到 CLI"
+  },
+  "subagents": {
+    "title": "子代理",
+    "desc": "集中管理可委派子代理的运行策略、模型、推理强度、提示词与能力范围。这些设置与工作台右侧子代理面板保持一致。"
   },
   "pi": {
     "title": "模型",

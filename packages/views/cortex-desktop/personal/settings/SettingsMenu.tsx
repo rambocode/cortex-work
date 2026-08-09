@@ -57,6 +57,7 @@ import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsCont
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
 import { BrowserSection, isSettingsTypingTarget, MediaGenSection, ReplySection } from "./SettingsViewSupport";
+import { SubagentSettingsSection } from "./SubagentSettingsSection";
 // 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 type SettingsTab =
@@ -65,6 +66,7 @@ type SettingsTab =
   | "memory"
   | "archivedSessions"
   | "agent"
+  | "subagents"
   | "pi"
   | "plugins"
   | "browser"
@@ -88,6 +90,7 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   memory: { tabKey: "tabs.memory", icon: <Icon.Sparkle size={14} /> },
   archivedSessions: { tabKey: "tabs.archivedSessions", icon: <Icon.Archive size={14} /> },
   agent: { tabKey: "tabs.agent", icon: <Icon.Terminal size={14} /> },
+  subagents: { tabKey: "tabs.subagents", icon: <Icon.Bot size={14} /> },
   // 「模型」分区：接入供应商 + 设默认模型（原独立「供应商」tab 已并入）。
   // 枚举值仍是 "pi"——它是技术标识符,且 openSettings("pi") 有多处调用点;只有显示名改为「模型」。
   pi: { tabKey: "tabs.pi", icon: <Icon.Bot size={14} /> },
@@ -115,7 +118,7 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
 const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
   { groupKey: "tabGroups.general", items: ["profile", "general", "memory", "archivedSessions"] },
-  { groupKey: "tabGroups.models", items: ["pi", "agent", "roles"] },
+  { groupKey: "tabGroups.models", items: ["pi", "agent", "subagents", "roles"] },
   // 媒体生成挂「应用」组，统一语音设置与个性化能力并列。
   {
     groupKey: "tabGroups.apps",
@@ -650,24 +653,6 @@ function AgentSection() {
         </SRow>
       </SettingCard>
 
-      {/* 子 agent 编排(全局,原会话级开关升级而来):缺省关闭,仅显式 true 开启。
-          主会话续接原生上下文，经 ask_subagent 分离执行，结果回传主会话后总结。 */}
-      <SettingCard title={t("agent.orchestrationCard")}>
-        <SRow label={t("agent.orchestrationLabel")} desc={t("agent.orchestrationDesc")} end>
-          <button
-            type="button"
-            className="twk-toggle"
-            data-on={generalSettings.subagentOrchestration === true ? "1" : "0"}
-            role="switch"
-            aria-checked={generalSettings.subagentOrchestration === true}
-            aria-label={t("agent.orchestrationLabel")}
-            onClick={() => setGeneral({ subagentOrchestration: generalSettings.subagentOrchestration !== true })}
-          >
-            <i />
-          </button>
-        </SRow>
-      </SettingCard>
-
       <SettingCard title={t("agent.availabilityCard")}>
         {INTEGRATED_AGENTS.map((a) => {
           const on = a === "pi" || !!agentsAvailable?.[a];
@@ -1040,6 +1025,8 @@ export function PersonalSettingsView() {
             <ArchivedSessionsSection />
           ) : tab === "agent" ? (
             <AgentSection />
+          ) : tab === "subagents" ? (
+            <SubagentSettingsSection />
           ) : tab === "pi" ? (
             <ModelsSection />
           ) : tab === "pet" ? (

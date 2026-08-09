@@ -191,3 +191,84 @@ describe("PersonalComposer 当前产物 Chip", () => {
     expect(usePersonalStore.getState().sessions[0]?.artifacts).toEqual([activeArtifact]);
   });
 });
+
+describe("PersonalComposer 会话目标", () => {
+  it("从新增菜单进入目标输入态并提交目标，不把控制输入当作普通消息发送", () => {
+    const onSetGoal = vi.fn();
+    const onSend = vi.fn();
+    render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={fakeBridge([])}>
+        <PersonalComposer
+          session={session("pi")}
+          running={false}
+          onSend={onSend}
+          onStop={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onChangeThinking={() => {}}
+          onChangeExecPermission={() => {}}
+          onToggleSkills={() => {}}
+          onToggleWebSearch={() => {}}
+          onSetGoal={onSetGoal}
+          onSetGoalStatus={() => {}}
+          onClearGoal={() => {}}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "添加文件 / Skills" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "追求目标" }));
+    const input = screen.getByRole("textbox");
+    expect(input.getAttribute("placeholder")).toContain("目标");
+    fireEvent.change(input, { target: { value: "完成白板联调" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    expect(onSetGoal).toHaveBeenCalledWith("完成白板联调");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("活动目标展示暂停和清除控制，并透传用户动作", () => {
+    const onSetGoalStatus = vi.fn();
+    const onClearGoal = vi.fn();
+    const active = {
+      ...session("pi"),
+      goal: {
+        threadId: "s1",
+        objective: "持续推进目标",
+        status: "active" as const,
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 3,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    render(
+      <CoreProvider wsId="w" identity={{ userId: "u", name: "n" }} desktopBridge={fakeBridge([])}>
+        <PersonalComposer
+          session={active}
+          running={false}
+          onSend={() => {}}
+          onStop={() => {}}
+          onChangeModel={() => {}}
+          onChangePiModel={() => {}}
+          onChangeThinking={() => {}}
+          onChangeExecPermission={() => {}}
+          onToggleSkills={() => {}}
+          onToggleWebSearch={() => {}}
+          onSetGoal={() => {}}
+          onSetGoalStatus={onSetGoalStatus}
+          onClearGoal={onClearGoal}
+          onToast={() => {}}
+        />
+      </CoreProvider>,
+    );
+
+    expect(screen.getByText("持续推进目标")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "暂停目标" }));
+    fireEvent.click(screen.getByRole("button", { name: "清除目标" }));
+    expect(onSetGoalStatus).toHaveBeenCalledWith("paused");
+    expect(onClearGoal).toHaveBeenCalledOnce();
+  });
+});

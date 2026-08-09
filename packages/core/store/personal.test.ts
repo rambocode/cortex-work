@@ -6,12 +6,32 @@ import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } f
 const base: PersistedState = { version: 1, projects: [], sessions: [] };
 
 describe("通用设置默认值", () => {
-  it("子 agent 编排默认关闭，旧配置缺字段时 hydrate 也保持关闭", () => {
-    expect(DEFAULT_GENERAL_SETTINGS.subagentOrchestration).toBe(false);
+  it("子代理能力不再使用人工开关，并提供 Kun 对齐的运行护栏默认值", () => {
+    expect(DEFAULT_GENERAL_SETTINGS.subagentOrchestration).toBeUndefined();
+    expect(DEFAULT_GENERAL_SETTINGS.subagents).toMatchObject({ maxParallel: 256, maxChildRuns: 25 });
 
     usePersonalStore.getState().hydrate(base);
 
-    expect(usePersonalStore.getState().generalSettings.subagentOrchestration).toBe(false);
+    expect(usePersonalStore.getState().generalSettings.subagentOrchestration).toBeUndefined();
+    expect(usePersonalStore.getState().generalSettings.subagents).toMatchObject({ maxParallel: 256, maxChildRuns: 25 });
+  });
+
+  it("hydrate 剥离旧人工开关，并为旧版子代理目录补齐运行护栏", () => {
+    usePersonalStore.getState().hydrate({
+      ...base,
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        subagentOrchestration: false,
+        subagents: { useExistingAgents: false, extensionAgentsEnabled: false, profiles: {} } as never,
+      },
+    });
+
+    expect(usePersonalStore.getState().generalSettings.subagentOrchestration).toBeUndefined();
+    expect(usePersonalStore.getState().generalSettings.subagents).toMatchObject({
+      useExistingAgents: false,
+      maxParallel: 256,
+      maxChildRuns: 25,
+    });
   });
 });
 
@@ -44,6 +64,39 @@ describe("会话重命名", () => {
     usePersonalStore.getState().renameSession(session.id, " Session 1 ");
 
     expect(usePersonalStore.getState().sessions[0]).toBe(before);
+  });
+});
+
+describe("会话目标持久态", () => {
+  const session: SessionMeta = {
+    id: "goal-session",
+    title: "Goal",
+    agent: "pi",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  it("创建、暂停、恢复和清除都写回同一个 SessionMeta.goal", () => {
+    usePersonalStore.getState().hydrate({ ...base, sessions: [session] });
+
+    const created = usePersonalStore.getState().setSessionGoal(session.id, "  完成目标模式  ");
+    expect(created).toMatchObject({
+      threadId: session.id,
+      objective: "完成目标模式",
+      status: "active",
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    expect(toPersistedState(usePersonalStore.getState()).sessions[0]?.goal).toEqual(created);
+
+    usePersonalStore.getState().setSessionGoalStatus(session.id, "paused");
+    expect(usePersonalStore.getState().sessions[0]?.goal?.status).toBe("paused");
+
+    usePersonalStore.getState().setSessionGoalStatus(session.id, "active");
+    expect(usePersonalStore.getState().sessions[0]?.goal).toMatchObject({ status: "active", autoTurnCount: 0 });
+
+    usePersonalStore.getState().clearSessionGoal(session.id);
+    expect(usePersonalStore.getState().sessions[0]?.goal).toBeUndefined();
   });
 });
 

@@ -136,8 +136,8 @@ function userMsgUid(qc: QueryClient, sessionId: string, text: string): string {
   return hit?.uid ?? "";
 }
 
-// 编排开关现为全局设置且缺省关闭。本文件多数用例断言单发/pi RPC 路径,beforeEach 显式固定关闭;
-// 编排用例各自开启(见 enableOrchestration)。
+// 产品已移除编排开关，缺省状态会把委派工具交给模型自行决定。多数历史用例专门覆盖 pi RPC
+// 路径，beforeEach 用已废弃的显式 false 作为测试闸门；委派用例各自移除或开启该闸门。
 const setOrchestration = (on: boolean) =>
   usePersonalStore.setState({
     generalSettings: { ...usePersonalStore.getState().generalSettings, subagentOrchestration: on },
@@ -177,11 +177,11 @@ describe("send 分叉", () => {
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
-  it("编排全局设置缺省(未显式设置)= 默认关闭 → 普通主会话发送不注入子委派", async () => {
+  it("编排设置缺省时普通主会话默认获得子代理工具，由模型自行决定是否调用", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
-    // 清掉 beforeEach 的显式 false,模拟出厂缺省(字段缺失)。
+    // 清掉 beforeEach 的测试闸门，模拟真实出厂状态（字段缺失）。
     const { subagentOrchestration: _unset, ...rest } = usePersonalStore.getState().generalSettings;
     usePersonalStore.setState({ generalSettings: rest });
     await act(async () => {
@@ -194,8 +194,10 @@ describe("send 分叉", () => {
       agent: "claude",
       resumeSessionId: "c1",
     });
-    expect(req.delegateRoles).toBeUndefined();
-    expect(req.appendSystemPrompt ?? "").not.toContain("子 Agent");
+    expect(req.delegateRoles).toHaveLength(8);
+    expect(req.delegatePolicy).toEqual({ maxParallel: 256, maxChildRuns: 25 });
+    expect(req.appendSystemPrompt).toContain("你自行判断本轮是否需要协作");
+    expect(req.appendSystemPrompt).not.toContain("你必须先调用");
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
   });
 
@@ -226,14 +228,14 @@ describe("send 分叉", () => {
       resumeSessionId: "pi-main-session",
       permissionMode: "plan",
       approvalPolicy: "auto",
-      delegateRoles: [
-        expect.objectContaining({
-          id: "subagent",
-          label: "子 Agent",
-          agent: "pi",
-        }),
-      ],
     });
+    expect(req.delegateRoles).toHaveLength(8);
+    expect(req.delegateRoles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "general", label: "General Agent", agent: "pi" }),
+        expect.objectContaining({ id: "code-reviewer", label: "Code Reviewer", agent: "pi" }),
+      ]),
+    );
     expect(req.appendSystemPrompt).toContain("由你结合主会话上下文总结");
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
     expect(bridge.piOpen).not.toHaveBeenCalled();
@@ -284,8 +286,12 @@ describe("send 分叉", () => {
       expect.objectContaining({
         sessionId: "s-pi",
         resumeSessionId: "/sessions/s.jsonl",
-        delegateRoles: [expect.objectContaining({ id: "subagent", agent: "pi" })],
       }),
+    );
+    const delegateReq = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(delegateReq.delegateRoles).toHaveLength(8);
+    expect(delegateReq.delegateRoles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "general", agent: "pi" })]),
     );
     usePersonalStore.getState().setRunning(piSession.id, undefined);
 

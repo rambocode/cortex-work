@@ -68,9 +68,11 @@ import { emitVoiceTurnEnd, emitVoiceTurnStream } from "./voiceTurn";
 import { parseMentions } from "./mention";
 import { normalizeLoadedChat, sanitizeBranchGroups, type BranchGroup, type LoadedChat } from "./branches";
 import {
-  buildAutoSubagentRole,
+  buildConfiguredSubagentRoles,
   buildDelegateOrchestrationGuide,
 } from "./delegate-orchestration";
+import { normalizeSubagentSettings } from "./subagents";
+import { buildGoalSystemPrompt } from "./goal";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -270,6 +272,9 @@ interface RunState {
   roleCursors?: Map<string, FoldCursor>;
   roleHeaders?: Map<string, Extract<Message, { kind: "roleHeader" }>>;
   emittedRoleHeaders?: Set<string>;
+  // delegate 子代理卡当前实例（subagentCallId → 卡片）。模型可重复或并行调用同一角色，必须按
+  // 单次调用隔离，否则状态、摘要与过程会串到另一张卡上。
+  subagentCards?: Map<string, { uid: string; text: string; steps: number }>;
   // 当前活跃的角色 id（最近一个 init[roleId] 设定的），用于路由后续 text/tool/thinking 事件。
   activeRoleId?: string;
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
@@ -648,7 +653,14 @@ const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export function sanitizeForSave(messages: Message[]): Message[] {
   return messages
     .filter(survivesSanitize)
-    .map((m) => (m.kind === "todoList" && m.active ? { ...m, active: false } : m));
+    .map((m) => {
+      if (m.kind === "todoList" && m.active) return { ...m, active: false };
+      // 进程异常退出时磁盘快照不能永久显示“运行中”；内存态不受本次映射影响。
+      if (m.kind === "subagentCard" && m.status === "running") {
+        return { ...m, status: "failed", finishedAt: Date.now(), error: m.error ?? "子代理会话已中断" };
+      }
+      return m;
+    });
 }
 
 export function flushChat(qc: QueryClient, sessionId: string): void {
@@ -709,7 +721,14 @@ function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: C
     if (ev.type === "text" || ev.type === "thinking") {
       if (!ev.delta) return arr; // 空增量(如编排段边界信号)不产段
       const last = arr[arr.length - 1];
-      if (last && last.runId === runId && last.ev.type === ev.type) {
+      if (
+        last &&
+        last.runId === runId &&
+        last.ev.type === ev.type &&
+        last.ev.subagentCallId === ev.subagentCallId &&
+        last.ev.roleId === ev.roleId &&
+        last.ev.stage === ev.stage
+      ) {
         // 命中同类型打开段:原地合并(替换末条,保持数组长度,不触发环形裁剪)。
         const prevDelta = (last.ev as { delta: string }).delta;
         const combined =
@@ -719,10 +738,11 @@ function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: C
               ? (prevDelta + ev.delta).slice(0, MAX_RUN_SEGMENT) + "…"
               : prevDelta + ev.delta;
         const next = arr.slice();
-        next[next.length - 1] = { ...last, ts: Date.now(), ev: { type: ev.type, delta: combined } };
+        // 保留 roleId/subagentCallId 等元数据；预览和详情要靠 callId 对合并后的流式段做精确筛选。
+        next[next.length - 1] = { ...last, ts: Date.now(), ev: { ...last.ev, delta: combined } };
         return next;
       }
-      const opened = [...arr, { runId, ts: Date.now(), ev: { type: ev.type, delta: ev.delta } }];
+      const opened = [...arr, { runId, ts: Date.now(), ev }];
       return opened.length > MAX_RUN_EVENTS ? opened.slice(opened.length - MAX_RUN_EVENTS) : opened;
     }
     const next = [...arr, { runId, ts: Date.now(), ev }];
@@ -1041,6 +1061,110 @@ function foldTodoIntoCache(qc: QueryClient, sessionId: string, run: RunState, ru
   run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
 }
 
+/** 新建一张子代理运行卡。卡片只保存摘要态；完整工具输入/输出仍由过程流与 trace 承担。 */
+function beginSubagentCard(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  roleId: string,
+  callId: string,
+  fallbackLabel?: string,
+): void {
+  const role = run.roleHeaders?.get(roleId);
+  const cardUid = uid("sac");
+  const roleLabel = role?.roleLabel ?? fallbackLabel ?? roleId;
+  appendMsg(qc, sessionId, {
+    kind: "subagentCard",
+    who: run.agent,
+    time: realHHMM(),
+    callId,
+    roleId,
+    roleLabel,
+    roleColor: role?.roleColor,
+    roleAvatar: role?.roleAvatar,
+    status: "running",
+    startedAt: Date.now(),
+    steps: 0,
+    activity: `${roleLabel} 正在分析任务…`,
+    uid: cardUid,
+  });
+  if (!run.subagentCards) run.subagentCards = new Map();
+  run.subagentCards.set(callId, { uid: cardUid, text: "", steps: 0 });
+  // 卡片位于持久流尾部，后续主 Agent 正文必须另起一块。
+  run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
+}
+
+function updateSubagentCard(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  callId: string,
+  patch: Partial<Extract<Message, { kind: "subagentCard" }>>,
+): void {
+  const state = run.subagentCards?.get(callId);
+  if (!state) return;
+  setMessages(qc, sessionId, (prev) => {
+    const index = prev.findIndex((message) => message.kind === "subagentCard" && message.uid === state.uid);
+    if (index < 0) return prev;
+    const next = prev.slice();
+    next[index] = { ...(prev[index] as Extract<Message, { kind: "subagentCard" }>), ...patch };
+    return next;
+  });
+}
+
+function appendSubagentSummary(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  callId: string,
+  delta: string,
+): void {
+  const state = run.subagentCards?.get(callId);
+  if (!state) return;
+  // 卡片只承担可回顾结论，不复制无限增长的原始子会话；完整文本仍在 trace/过程详情。
+  state.text = (state.text + delta).slice(-8_000);
+  const oneLine = state.text.replace(/\s+/g, " ").trim();
+  updateSubagentCard(qc, sessionId, run, callId, {
+    summary: state.text,
+    activity: oneLine ? oneLine.slice(-140) : undefined,
+  });
+}
+
+function stepSubagentCard(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  callId: string,
+  detail: string,
+): void {
+  const state = run.subagentCards?.get(callId);
+  if (!state) return;
+  state.steps += 1;
+  updateSubagentCard(qc, sessionId, run, callId, { steps: state.steps, activity: detail });
+}
+
+function finishSubagentCard(
+  qc: QueryClient,
+  sessionId: string,
+  run: RunState,
+  callId: string,
+  ok: boolean,
+  error?: string,
+  resultText?: string,
+): void {
+  const state = run.subagentCards?.get(callId);
+  updateSubagentCard(qc, sessionId, run, callId, {
+    status: ok ? "completed" : "failed",
+    finishedAt: Date.now(),
+    activity: ok ? "执行完成" : "执行失败",
+    // 某些 adapter 只在最终 result 帧提供完整文本，没有逐段 text 事件；以 resultText 兜底，
+    // 保证完成卡片仍可展开结论。
+    summary: state?.text || resultText || undefined,
+    error: ok ? undefined : (error ?? "未知错误"),
+  });
+  run.subagentCards?.delete(callId);
+}
+
 // pi 产物卡折叠:artifact 事件 → **持久消息流**的 piArtifact 卡（会话内直接渲染产物本体）。
 // 同 filename 的**最后一张未删除卡**原地覆盖(content 全量替换 + version 自增,渲染端据 version
 // 重挂沙箱 iframe);没有可覆盖的卡则 append 新卡(含 delete 后重建——按时间线追加,不复活旧卡)。
@@ -1238,6 +1362,9 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   recordRunEvent(qc, sessionId, runId, ev);
 
   if (ev.type === "init") {
+    // delegate 子代理的 init 显式带 stage=subagent。正常发送路径已有 run.delegate；这里补齐
+    // renderer HMR/刷新后的恢复路径，避免恢复事件被误折叠成圆桌角色消息。
+    if (ev.roleId && ev.stage === "subagent") run.delegate = true;
     // 圆桌编排：roleId 标注角色起始，在聊天流插入 roleHeader 分隔符，初始化该角色折叠游标。
     if ("roleId" in ev && ev.roleId && runUsesNestedRoleEvents(run)) {
       run.phase = "thinking";
@@ -1247,6 +1374,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       if (run.delegate) {
         finalizeProcessAgentLog(qc, sessionId, run);
         finalizeRunReasoning(qc, run);
+        beginSubagentCard(qc, sessionId, run, ev.roleId, ev.subagentCallId ?? ev.roleId, ev.stageLabel);
         updateTypingMsg(qc, sessionId, run.typingUid, `${ev.stageLabel ?? "子 Agent"} 思考中…`);
         return;
       }
@@ -1365,6 +1493,15 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "tool") {
+    if (run.delegate && ev.roleId && ev.phase !== "end") {
+      stepSubagentCard(
+        qc,
+        sessionId,
+        run,
+        ev.subagentCallId ?? ev.roleId,
+        [cleanToolName(ev.name), ev.detail].filter(Boolean).join(" · ").slice(0, 180),
+      );
+    }
     // phase:"end"(工具完成帧)只进上面的运行事件流,不进 agentLog 折叠——否则每个工具在过程
     // 面板出现两次(start+end 各折一条)。同时跳过 typing/变更文件/拦截检测等 start 专属副作用。
     // 也修复既有潜伏 bug:orchestrate 的 pi 路径(mapPiToCliEvent)一直在产 end 事件并被翻倍折叠。
@@ -1396,6 +1533,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       return;
     }
     if (run.delegate && ev.roleId) {
+      appendSubagentSummary(qc, sessionId, run, ev.subagentCallId ?? ev.roleId, ev.delta);
       finalizeProcessAgentLog(qc, sessionId, run);
       foldReasoning(qc, run, ev.delta);
       return;
@@ -1442,6 +1580,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       finalizeProcessAgentLog(qc, sessionId, run);
       finalizeRunReasoning(qc, run);
       if (run.activeRoleId === ev.roleId) run.activeRoleId = undefined;
+      if (run.delegate) {
+        finishSubagentCard(qc, sessionId, run, ev.subagentCallId ?? ev.roleId, ev.ok, ev.error, ev.text);
+        return;
+      }
       if (!ev.ok) {
         const roleHeader = ensureRoleHeader(qc, sessionId, run, ev.roleId);
         appendMsg(qc, sessionId, {
@@ -3159,16 +3301,19 @@ export function usePersonalActions(): PersonalActions {
   const send = useCallback<PersonalActions["send"]>(
     async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs, artifact) => {
       if (!bridge) return false;
-      // 子 agent 编排的主体始终是当前主会话：主 agent 走正常 startCli/resume，
-      // 子 agent 仅作为 ask_* 工具执行者。显式 @mention 与全局自动编排共用同一条 delegate 链。
+      // 子代理能力默认交给主会话：主 Agent 自行判断本轮是否调用、调用哪些角色及调用次数；
+      // 显式 @mention 仍代表用户明确委派，只收窄为被点名角色。产物隔离发送暂不注入，避免把
+      // 产物专用 workspace 与普通会话的委派目录混用。
       const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
       const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
-      const autoDelegateOrchestration =
+      const automaticDelegationAvailable =
         !artifact &&
-        usePersonalStore.getState().generalSettings.subagentOrchestration === true &&
         !!bridge.startCli &&
-        !hasDelegateMentions;
-      const usesCliDelegate = hasDelegateMentions || autoDelegateOrchestration;
+        !hasDelegateMentions &&
+        // 旧字段不再由 UI 持久化，hydrate 也会剥离；仅保留显式 false 作为测试/紧急兼容闸门。
+        // 正常产品状态下字段缺失，因此默认把工具交给模型自行决定是否调用。
+        usePersonalStore.getState().generalSettings.subagentOrchestration !== false;
+      const usesCliDelegate = hasDelegateMentions || automaticDelegationAvailable;
       const hasImages = !!(images?.length || presavedImages?.length);
       const hasDocs = !!(docFiles?.length || presavedDocs?.length);
       // U6:codex `/skill:name`(无 args)时文本被收窄为空,但 invokedSkill 本身即本轮内容 →
@@ -3374,18 +3519,21 @@ export function usePersonalActions(): PersonalActions {
         sessionWebSearch: session.webSearch === true,
         query: text,
       });
+      // 活动目标是会话级执行约束，必须同时进入 CLI fresh turn 与 Pi 长驻 RPC 两条发送链。
+      // paused/complete/blocked 等状态由 builder 直接返回 undefined，暂停后下一轮不会再看到目标。
+      const goalAppend = session.goal ? buildGoalSystemPrompt(session.goal) : undefined;
       // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 文档清单;皆空仍传 undefined。
       // 附件块刻意不在此列:claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system
       // prompt,附件走 append 只在拖入那一轮生效,续轮 skill 指令即丢失 → 经 buildTurnPromptText 并入
       // prompt 文本随历史持久。
       // 证据段排在最后：它是本轮一次性资料，优先级低于全局指令与记忆（那两者是长期约束）。
       const appendSystemPrompt =
-        [globalAppend, extraSystemPrompt, docPrompt, evidenceAppend].filter(Boolean).join("\n\n") ||
+        [globalAppend, goalAppend, extraSystemPrompt, docPrompt, evidenceAppend].filter(Boolean).join("\n\n") ||
         undefined;
       // pi 例外:RPC 长驻会话,注入前缀随进程内历史持久,维持既有「附件并入 append 前缀」行为
       // (buildPiPromptMessage);其编辑重发定位(piEntryMatchesText 后缀匹配)已覆盖该形态。
       const piAppendSystemPrompt =
-        [globalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend]
+        [globalAppend, goalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend]
           .filter(Boolean)
           .join("\n\n") || undefined;
       // claude/codex 单发与编排:附件块前缀进 prompt 文本(run.promptText / 显示层仍存原始 text)。
@@ -3516,8 +3664,8 @@ export function usePersonalActions(): PersonalActions {
         // resolveSpawnAgentId 的 RISK-3 兜底)。
         const spawnAgent = resolveSpawnAgentId(sendSession, usePersonalStore.getState().derivedAgents);
         {
-          // 主会话统一走 startCli：普通发送不带 delegateRoles；自动编排注入同底层 agent 的
-          // ask_subagent；显式 @mention 注入指定角色。主 agent 的 resumeSessionId 始终保留。
+          // 主会话统一走 startCli：普通发送注入可用角色目录，由模型自行决定是否调用；显式
+          // @mention 只注入指定角色并要求完成用户委派。主 Agent 的 resumeSessionId 始终保留。
           const enabledSkillRecords = await resolveEnabledSkillRecords(
             bridge,
             projectPath,
@@ -3533,14 +3681,37 @@ export function usePersonalActions(): PersonalActions {
               ...(artifact && invokedSkill ? { artifactSkill: invokedSkill } : {}),
             },
           );
+          const subagentSettings = normalizeSubagentSettings(
+            usePersonalStore.getState().generalSettings.subagents,
+          );
           const delegateRoles = hasDelegateMentions
             ? earlyMentions.map((mention) => mention.role)
-            : autoDelegateOrchestration
-              ? [buildAutoSubagentRole(spawnAgent)]
+            : automaticDelegationAvailable
+              ? buildConfiguredSubagentRoles(
+                  spawnAgent,
+                  subagentSettings,
+                )
               : undefined;
           if (delegateRoles?.length) {
             run.delegate = true;
             run.roleCursors = new Map();
+            // 角色展示元数据随本轮解析结果进入 RunState；目录角色不在用户 roles 库里，若只在事件
+            // 到达时查全局库，会退化成裸 roleId，卡片无法显示 Kun 的名称与颜色。
+            run.roleHeaders = new Map(
+              delegateRoles.map((role) => [
+                role.id,
+                {
+                  kind: "roleHeader" as const,
+                  who: sendSession.agent,
+                  time: realHHMM(),
+                  uid: uid("rh"),
+                  roleId: role.id,
+                  roleLabel: role.label,
+                  roleColor: role.color,
+                  roleAvatar: role.avatar,
+                },
+              ]),
+            );
           }
           // Pi 只要走 fresh startCli（@mention 委派或隔离产物）都必须继承当前供应商；否则即使
           // 普通长驻会话已配置 API key，fresh 进程仍会退回 Pi 默认 provider 并报未登录。
@@ -3559,7 +3730,7 @@ export function usePersonalActions(): PersonalActions {
           }
           const delegateGuide = delegateRoles?.length
             ? buildDelegateOrchestrationGuide(delegateRoles, {
-                requireDelegation: autoDelegateOrchestration,
+                requireDelegation: hasDelegateMentions,
               })
             : undefined;
           const appendWithDelegate =
@@ -3598,6 +3769,12 @@ export function usePersonalActions(): PersonalActions {
             permissionMode: adapterPerm.permissionMode,
             approvalPolicy: adapterPerm.approvalPolicy,
             delegateRoles,
+            delegatePolicy: delegateRoles?.length
+              ? {
+                  maxParallel: subagentSettings.maxParallel,
+                  maxChildRuns: subagentSettings.maxChildRuns,
+                }
+              : undefined,
             // 会话级联网:主进程据此决定是否注入研究引擎 MCP（web_search / web_read）。
             // 逐轮 fresh spawn,改开关下一轮即生效,无需重开。
             webSearch: sendSession.webSearch === true,

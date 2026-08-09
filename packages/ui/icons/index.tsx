@@ -335,6 +335,14 @@ export const Icon = {
       <circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" />
     </IconBase>
   ),
+  // Target：会话目标模式（同心圆 + 准星）。
+  Target: (p: IconProps) => (
+    <IconBase {...p}>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </IconBase>
+  ),
   X: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M6 6l12 12" />

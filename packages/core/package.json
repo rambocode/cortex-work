@@ -44,6 +44,7 @@
     "./personal/sessionIdle": "./personal/sessionIdle.ts",
     "./personal/sheet-annotation": "./personal/sheet-annotation.ts",
     "./personal/mention": "./personal/mention.ts",
+    "./personal/subagents": "./personal/subagents.ts",
     "./personal/followup": "./personal/followup.ts",
     "./personal/automation": "./personal/automation.ts",
     "./personal/workflow": "./personal/workflow.ts",

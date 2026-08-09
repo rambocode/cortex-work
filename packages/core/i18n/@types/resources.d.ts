@@ -269,6 +269,31 @@ export default interface Resources {
     "stream": {
       "empty": "这里还没有对话内容,从下方输入框开始 →"
     },
+    "subagentCard": {
+      "agent": "代理",
+      "closePreview": "关闭预览",
+      "completed": "完成",
+      "currentConclusion": "当前结论",
+      "expandConclusion": "展开结论",
+      "failed": "失败",
+      "preview": "预览",
+      "previewAria": "预览 {{title}} 的执行进度",
+      "resultDone": "子代理执行完成",
+      "resultFailed": "执行失败：{{error}}",
+      "retry": "正在重试（{{attempt}}）",
+      "running": "进行中",
+      "stepCount": "{{count}} 步",
+      "thinking": "正在思考…",
+      "toolDone": "{{name}} · {{detail}} · 完成",
+      "toolDoneNoDetail": "{{name}} · 完成",
+      "toolFailed": "{{name}} · {{detail}} · 失败",
+      "toolFailedNoDetail": "{{name}} · 失败",
+      "toolStart": "{{name}} · {{detail}} · 调用",
+      "toolStartNoDetail": "{{name}} · 调用",
+      "viewFullProcess": "查看完整过程",
+      "viewProcess": "查看过程",
+      "waiting": "正在等待子代理产生过程…"
+    },
     "todoList": {
       "doneSummary": "已完成 {{count}} 项任务",
       "inProgress": "进行中",
@@ -298,6 +323,8 @@ export default interface Resources {
       "statTokens": "Tokens",
       "statTokensCached": "缓存 {{tokens}}",
       "statTools": "工具调用",
+      "subagentAria": "子代理过程：{{label}}",
+      "subagentTitle": "子代理过程 · {{label}}",
       "title": "运行过程详情",
       "toolFallback": "工具",
       "typeResult": "结果",
@@ -1572,9 +1599,6 @@ export default interface Resources {
       "installed": "已安装",
       "labelNotInstalled": "{{name}}（未安装）",
       "notDetected": "未检测到 CLI",
-      "orchestrationCard": "子 agent 编排",
-      "orchestrationDesc": "主会话保留原生上下文，将任务委派给独立子 agent；子结果回传主会话后，由主会话总结并输出。默认关闭。",
-      "orchestrationLabel": "启用子 agent 编排",
       "title": "Agent"
     },
     "archivedSessions": {
@@ -2623,6 +2647,10 @@ export default interface Resources {
       "timeoutLabel": "超时(ms)",
       "title": "语音转文字"
     },
+    "subagents": {
+      "desc": "集中管理可委派子代理的运行策略、模型、推理强度、提示词与能力范围。这些设置与工作台右侧子代理面板保持一致。",
+      "title": "子代理"
+    },
     "tabGroups": {
       "apps": "应用",
       "automation": "自动化",
@@ -2648,6 +2676,7 @@ export default interface Resources {
       "research": "研究",
       "roles": "角色",
       "speech": "语音",
+      "subagents": "子代理",
       "timeline": "时间线",
       "writing": "写作"
     },

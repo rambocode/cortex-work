@@ -967,6 +967,243 @@ input, textarea { font: inherit; color: inherit; }
 }
 .msg.is-me .reply-quote { max-width: 76%; }
 
+/* Kun 对齐的个人会话版心：正文更宽、更松，普通消息不重复展示头像；用户输入保留右侧卡片，
+   Agent 正文维持无气泡的文档式阅读。团队会话沿用原样。 */
+.pw-personal-chat .msgs { padding: 24px clamp(28px, 6vw, 72px) 32px; }
+.pw-personal-chat .msgs-inner { max-width: 980px; }
+.pw-personal-chat .msg { gap: 0; margin-bottom: 10px; padding-block: 4px; }
+.pw-personal-chat .msg > .m-avatar { display: none; }
+.pw-personal-chat .msg .m-text { font-size: 15px; line-height: 1.68; }
+.pw-personal-chat .msg.is-me .m-text {
+  max-width: min(76%, 720px);
+  padding: 14px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  box-shadow: 0 5px 18px rgb(30 45 70 / 4%);
+}
+.pw-personal-chat .m-turn-usage { margin-left: 0; }
+
+/* 子代理任务卡：复刻 Kun 会话里的独立 crew 卡片。卡头把结论、预览和完整过程拆成独立
+   交互；底部状态线用颜色表达运行/完成/失败。 */
+.pw-subagent-card {
+  position: relative;
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  box-shadow: 0 14px 34px rgb(60 78 110 / 8%);
+}
+.pw-subagent-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  color: inherit;
+  text-align: left;
+}
+.pw-subagent-card-head { display: flex; align-items: stretch; min-width: 0; }
+.pw-subagent-card-main:hover { background: color-mix(in srgb, var(--bg-hover) 55%, transparent); }
+.pw-subagent-card-avatar {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 50%;
+  color: var(--accent);
+  background: radial-gradient(circle at 50% 35%, #fff, color-mix(in srgb, currentColor 10%, var(--bg-card)));
+  font-size: 23px;
+}
+.pw-subagent-card-avatar i {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  color: #fff;
+  background: var(--green);
+}
+.pw-subagent-card-avatar .spinner {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgb(255 255 255 / 48%);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+.pw-subagent-card-copy { flex: 1; min-width: 0; }
+.pw-subagent-card-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.pw-subagent-card-title em { color: var(--green); font-size: 11px; font-style: normal; font-weight: 650; }
+.pw-subagent-card-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-subagent-card-title b {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+.pw-subagent-card.is-running .pw-subagent-card-title b { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pw-subagent-card.is-failed .pw-subagent-card-title b { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.pw-subagent-card-meta,
+.pw-subagent-card-activity,
+.pw-subagent-card-expand { display: block; margin-top: 3px; }
+.pw-subagent-card-meta { color: var(--text-3); font-size: 11px; }
+.pw-subagent-card-activity {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-subagent-card-expand { color: var(--link); font-size: 11.5px; font-weight: 600; }
+.pw-subagent-card-stats { flex: 0 0 auto; min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+.pw-subagent-card-stats strong { display: block; color: var(--text-1); font-size: 13px; }
+.pw-subagent-card-stats span { display: block; margin-top: 2px; color: var(--text-3); font-size: 10.5px; }
+.pw-subagent-card-main > svg { flex: 0 0 auto; color: var(--text-3); transform: rotate(-90deg); transition: transform .14s ease; }
+.pw-subagent-card-main > svg.is-open { transform: rotate(0); }
+.pw-subagent-card-line { height: 3px; background: var(--green); }
+.pw-subagent-card.is-running .pw-subagent-card-line {
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 25%, transparent), var(--accent));
+  background-size: 180% 100%;
+  animation: pw-sa-progress 1.6s linear infinite;
+}
+.pw-subagent-card.is-failed .pw-subagent-card-line { background: var(--red); }
+.pw-subagent-card-result {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.pw-subagent-card-result .is-error { color: var(--red); }
+.pw-subagent-card-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 13px 0 4px;
+}
+.pw-subagent-card-process {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  color: var(--link);
+  background: var(--bg-card);
+  font-size: 11px;
+  font-weight: 600;
+}
+.pw-subagent-card-process:hover,
+.pw-subagent-card-process.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+
+/* 子代理实时预览：使用 portal 脱离消息滚动区裁剪，位置由卡片预览按钮计算。 */
+.pw-subagent-peek {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--bg-card) 96%, transparent);
+  box-shadow: 0 18px 48px rgb(42 57 86 / 18%);
+  backdrop-filter: blur(18px);
+}
+.pw-subagent-peek-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px 12px 11px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-subagent-peek-head > span { flex: 1; min-width: 0; }
+.pw-subagent-peek-head strong,
+.pw-subagent-peek-head small { display: block; }
+.pw-subagent-peek-head strong { overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.pw-subagent-peek-head small { margin-top: 2px; color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.pw-subagent-peek-head button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--text-3);
+}
+.pw-subagent-peek-head button:hover { color: var(--accent); background: var(--bg-hover); }
+.pw-subagent-peek-body { min-height: 96px; overflow-y: auto; padding: 9px 12px 12px; }
+.pw-subagent-peek-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pw-subagent-peek-step i {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  flex: 0 0 20px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.pw-subagent-peek-step span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-subagent-peek-step[data-kind="result"] i { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.pw-subagent-peek-step[data-kind="retry"] i { color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.pw-subagent-peek-empty { padding: 24px 8px; color: var(--text-3); font-size: 12px; text-align: center; }
+.pw-subagent-peek-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--text-2);
+  background: var(--bg-card-2);
+  font-size: 12px;
+}
+.pw-subagent-peek-summary strong { color: var(--text-1); font-size: 11px; }
+.pw-subagent-peek-summary span {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+@media (max-width: 760px) {
+  .pw-subagent-card-head { flex-wrap: wrap; }
+  .pw-subagent-card-actions { width: 100%; justify-content: flex-end; padding: 0 13px 9px; }
+}
+@keyframes pw-sa-progress { to { background-position: -180% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pw-subagent-card.is-running .pw-subagent-card-line,
+  .pw-subagent-card-avatar .spinner { animation: none; }
+}
+
 /* Reply quote */
 .reply-quote {
   margin-bottom: 6px;
@@ -1409,6 +1646,40 @@ input, textarea { font: inherit; color: inherit; }
   padding: 8px 40px 14px;
   flex-shrink: 0;
 }
+
+/* 会话目标浮条：与 Kun 一样位于 composer 正上方，目标文本单行截断，控制按钮不挤压输入区。 */
+.pw-goal-floater {
+  width: min(728px, 100%);
+  min-height: 42px;
+  margin: 0 auto 8px;
+  padding: 6px 9px 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 12px 34px rgba(20, 47, 95, 0.1);
+}
+.pw-goal-floater > strong { flex: none; color: var(--text-1); font-size: 12px; }
+.pw-goal-objective { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.pw-goal-time { flex: none; color: var(--text-4); font-size: 11px; }
+.pw-goal-floater > button {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-4);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+.pw-goal-floater > button:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-goal-floater[data-goal-status="paused"] { opacity: 0.82; }
+.pw-goal-mode-pill { cursor: default; }
 .composer {
   /* 限制输入框可见宽度上限 728px 并在会话区居中:约束放在本体而非 .composer-wrap,
      不受外层 padding 与密度变体影响,宽屏下两侧自动留白 */
@@ -4145,6 +4416,40 @@ button.sb-row {
   border-top-left-radius: var(--pw-float-radius);
   border-top-right-radius: var(--pw-float-radius);
 }
+
+/* 右侧竖向工具栏：原顶栏下拉的全部入口在这里常驻。工具栏参与 flex 布局而非盖在内容上，
+   所以中栏、右面板和点击热区不会互相遮挡；选中态与现有 icon-btn 共用主题色。 */
+.pw-right-rail {
+  width: 48px;
+  flex: 0 0 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 6px 8px;
+  border-left: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+  -webkit-app-region: no-drag;
+}
+.pw-right-rail button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-3);
+  background: transparent;
+  transition: color .12s ease, background .12s ease, border-color .12s ease;
+}
+.pw-right-rail button:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-right-rail button.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+}
+.pw-right-rail-spacer { flex: 1; }
+.pw-right-rail-sep { width: 24px; height: 1px; background: var(--border-soft); }
 /* 左缘拖拽条:仅查看文件（详情/文件预览）时显示,双击恢复自动宽度 */
 .pw-rp-resizer {
   position: absolute;
@@ -4175,6 +4480,13 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
+/* 会话白板是宽内容面板：560px 起步、允许拖拽，并让画布根节点完整占满内容区。 */
+.pw-prompts:has(.pw-code-canvas) {
+  width: var(--rp-custom-width, min(62vw, max(560px, calc(100vw - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+}
+.pw-prompts:has(.pw-code-canvas) .pw-rp-resizer { display: block; }
+.pw-code-canvas { min-height: 0; flex: 1; }
 /* 深度研究面板(/skill:research 的右栏)：与上面的产物编辑器**同一条宽度公式**。
    报告是长文本 + 引用抽屉，窄栏读不了；而中栏仍要留够 660px 才能继续对话。
    两处必须一起改（PersonalRightPanel 的 RP_LEFT_RESERVED_ARTIFACT 判定也把 research
@@ -4199,6 +4511,15 @@ button.sb-row {
   min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
 }
 .pw-prompts:has(.pw-pa-panel) .pw-rp-resizer { display: block; }
+
+/* 子代理目录是管理型侧栏，不是浏览器/产物这类宽内容面板：固定限制在 420px，避免复用其他
+   右栏已经持久化的 --rp-custom-width 后横向铺满会话区。窄窗口允许继续收缩到可用空间，
+   但正常桌面窗口至少保留 360px，保证角色名称、状态和开关仍能同排展示。 */
+.pw-prompts:has(.pw-sa-panel) {
+  width: min(420px, calc(100vw - 48px));
+  min-width: min(360px, calc(100vw - 48px));
+  max-width: 420px;
+}
 
 /* 产物面板放大:绝对定位铺满 .pw-upper,盖住中栏。
    为什么不是把 flex 宽度撑到 100%:那会让中栏被压到 min-width 后重排(消息气泡换行、
@@ -10769,6 +11090,268 @@ button.sb-row {
 }
 .pw-role-color-swatch.is-active { border-color: var(--text-1); }
 .pw-role-avatar-input { max-width: 60px !important; text-align: center; font-size: 18px; }
+
+/* ── 子代理管理（右栏）────────────────────────────────────────────────────── */
+.pw-sa-panel {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--bg-app);
+}
+.pw-sa-settings {
+  width: 100%;
+  padding: 0 0 24px;
+}
+.pw-sa-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-card));
+}
+.pw-sa-intro > div { min-width: 0; }
+.pw-sa-intro strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-intro p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.pw-sa-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 2px 8px;
+}
+.pw-sa-section-title strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-section-title span { color: var(--text-3); font-size: 11px; }
+.pw-sa-callout,
+.pw-sa-extension {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: 0 2px 8px rgb(30 45 70 / 5%);
+}
+.pw-sa-callout > div,
+.pw-sa-extension-head > div { flex: 1; min-width: 0; }
+.pw-sa-callout strong,
+.pw-sa-extension strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-callout p,
+.pw-sa-extension p {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.pw-sa-callout.is-compact { padding-block: 12px; }
+.pw-sa-limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.pw-sa-limits > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.pw-sa-limits > label > span { flex: 1; min-width: 0; }
+.pw-sa-limits strong { display: block; color: var(--text-1); font-size: 11.5px; }
+.pw-sa-limits small { display: block; margin-top: 3px; color: var(--text-3); font-size: 10px; line-height: 1.4; }
+.pw-sa-number {
+  width: 66px;
+  height: 32px;
+  flex: 0 0 66px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: 0;
+  color: var(--text-1);
+  background: var(--bg-card-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
+.pw-sa-number:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.pw-sa-panel .pw-sa-limits { grid-template-columns: 1fr; }
+.pw-sa-extension { display: block; }
+.pw-sa-extension-head { display: flex; align-items: center; gap: 12px; }
+.pw-sa-extension-head span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.pw-sa-toggle {
+  width: 38px;
+  height: 22px;
+  flex: 0 0 38px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background .14s ease;
+}
+.pw-sa-toggle span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 22%);
+  transition: transform .14s ease;
+}
+.pw-sa-toggle.is-on { background: var(--accent); }
+.pw-sa-toggle.is-on span { transform: translateX(16px); }
+.pw-sa-toggle:disabled { cursor: not-allowed; opacity: .45; }
+.pw-sa-summary { display: flex; align-items: center; gap: 8px; padding: 12px 2px 9px; }
+.pw-sa-summary strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-summary span { color: var(--text-3); font-size: 11px; }
+.pw-sa-summary .spacer { flex: 1; }
+.pw-sa-search {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-3);
+  background: var(--bg-card);
+}
+.pw-sa-search:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.pw-sa-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text-1);
+  background: transparent;
+  font-size: 12px;
+}
+.pw-sa-search button { color: var(--text-3); }
+.pw-sa-filters {
+  display: flex;
+  gap: 6px;
+  padding: 10px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pw-sa-filters::-webkit-scrollbar { display: none; }
+.pw-sa-filters button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--bg-card);
+  font-size: 11px;
+}
+.pw-sa-filters button:hover { background: var(--bg-hover); }
+.pw-sa-filters button.is-active { color: #fff; border-color: var(--accent); background: var(--accent); }
+.pw-sa-list { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+.pw-sa-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--bg-app));
+  opacity: .72;
+}
+.pw-sa-card.is-enabled { opacity: 1; background: var(--bg-card); }
+.pw-sa-card-head { display: flex; align-items: center; gap: 9px; padding: 10px; }
+.pw-sa-avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #fff, color-mix(in srgb, currentColor 9%, var(--bg-card)));
+}
+.pw-sa-card-main { flex: 1; min-width: 0; text-align: left; }
+.pw-sa-card-title { display: flex; align-items: center; gap: 6px; }
+.pw-sa-card-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-sa-card-title em {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 9px;
+  font-style: normal;
+}
+.pw-sa-card-title em.is-readonly { color: var(--text-3); background: var(--bg-card-2); }
+.pw-sa-card-desc {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-sa-always { flex: 0 0 auto; color: var(--text-3); font-size: 10px; }
+.pw-sa-card-head > .pw-icon-btn { transform: rotate(-90deg); }
+.pw-sa-card-head > .pw-icon-btn[aria-expanded="true"] { transform: rotate(0); }
+.pw-sa-editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-card-2);
+}
+.pw-sa-editor label > span,
+.pw-sa-effort > span { display: block; margin-bottom: 5px; color: var(--text-3); font-size: 10.5px; }
+.pw-sa-editor input,
+.pw-sa-editor select,
+.pw-sa-editor textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: 0;
+  color: var(--text-1);
+  background: var(--bg-card);
+  font: inherit;
+  font-size: 11.5px;
+}
+.pw-sa-editor input,
+.pw-sa-editor select { height: 32px; padding: 0 8px; }
+.pw-sa-editor textarea { min-height: 64px; padding: 8px; resize: vertical; line-height: 1.45; }
+.pw-sa-editor .is-wide,
+.pw-sa-effort { grid-column: 1 / -1; }
+.pw-sa-effort > div { display: flex; gap: 5px; }
+.pw-sa-effort button {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-2);
+  background: var(--bg-card);
+  font-size: 10.5px;
+}
+.pw-sa-effort button.is-active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-card)); }
+.pw-sa-empty { padding: 32px 12px; color: var(--text-3); font-size: 12px; text-align: center; }
 
 /* ── 真任务系统（TasksView / SuggestionChips，替换文档聚合式 Tasks）───────────── */
 .pw-todos .pw-task-tabs {

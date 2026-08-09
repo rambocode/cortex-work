@@ -14,6 +14,7 @@ import {
   piSupportedThinkingLevels,
   useDesktopBridge,
   usePersonalStore,
+  parseGoalCommand,
 } from "@cortex-work/core";
 import { petActivity } from "@cortex-work/core/pet";
 import { useComposerVoice } from "./useComposerVoice";
@@ -28,6 +29,8 @@ import type {
   PendingImage,
   PersonalAttachment,
   ConversationArtifactRef,
+  ThreadGoal,
+  ThreadGoalStatus,
 } from "@cortex-work/core";
 import { CustomizePill } from "./CustomizePill";
 import { ModelThinkingPill } from "./ModelThinkingPill";
@@ -188,6 +191,10 @@ export function ComposerShell({
   artifact,
   onOpenArtifact,
   onRemoveArtifact,
+  goal,
+  onSetGoal,
+  onSetGoalStatus,
+  onClearGoal,
 }: {
   agent: AgentKind;
   // agent 选择(opt-in,仅新会话落地页用):选中的派生 id + 候选/门控数据 + 切换回调。
@@ -257,6 +264,11 @@ export function ComposerShell({
   artifact?: ConversationArtifactRef;
   onOpenArtifact?: () => void;
   onRemoveArtifact?: () => void;
+  /** 会话持久目标；传 handlers 即启用 Kun 对齐的目标输入态、浮条与控制命令。 */
+  goal?: ThreadGoal;
+  onSetGoal?: (objective: string) => void;
+  onSetGoalStatus?: (status: Extract<ThreadGoalStatus, "active" | "paused">) => void;
+  onClearGoal?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const bridge = useDesktopBridge();
@@ -273,6 +285,9 @@ export function ComposerShell({
   const [tryPlugin, setTryPlugin] = useState<{ id: string; name: string; icon?: string } | null>(null);
   // 选项1(图2):选中 skill 后在输入框上方显示的 pill(icon + 友好名);textarea 只留参数,发送时拼回 cmd。
   const [selectedSkill, setSelectedSkill] = useState<{ cmd: string; displayName: string } | null>(null);
+  const [goalInputMode, setGoalInputMode] = useState(false);
+  const [goalNow, setGoalNow] = useState(() => Date.now());
+  const goalRunStartedRef = useRef<number | null>(null);
   // 把活动输入框的 pill 单向镜像进 store,供落地页 SceneChips 展示对应 skill 的示例提示词。
   // 拆分窗格会同时挂载多个 ComposerShell，只有 acceptComposerInsert=true 的活动窗格可以镜像；
   // 否则任一非活动窗格的空本地态都会把活动窗格刚写入的 skill 静默清掉。
@@ -336,6 +351,28 @@ export function ComposerShell({
 
   // 以显式文本发送（「插入并运行」自动提交用）:不读闭包 text state,避免 setText 异步后发到旧值。
   const sendText = async (textToSend: string) => {
+    const goalCommand = onSetGoal ? parseGoalCommand(textToSend) : false;
+    if (goalCommand) {
+      if (goalCommand.action === "menu") {
+        setGoalInputMode(true);
+      } else if (goalCommand.action === "set") {
+        onSetGoal?.(goalCommand.objective);
+      } else if (goalCommand.action === "pause") {
+        onSetGoalStatus?.("paused");
+      } else if (goalCommand.action === "resume") {
+        onSetGoalStatus?.("active");
+      } else if (goalCommand.action === "clear") {
+        onClearGoal?.();
+      }
+      setText("");
+      return;
+    }
+    if (goalInputMode && textToSend.trim() && !textToSend.trim().startsWith("/")) {
+      onSetGoal?.(textToSend.trim());
+      setGoalInputMode(false);
+      setText("");
+      return;
+    }
     // 纯图 / 纯文档(无文本)也允许发送。
     if ((!textToSend.trim() && images.length === 0 && docFiles.length === 0) || running || sending) return;
     setSending(true);
@@ -610,6 +647,12 @@ export function ComposerShell({
       taRef.current?.focus();
       return;
     }
+    if (c.cmd === "/goal" && onSetGoal) {
+      setText("");
+      setGoalInputMode(true);
+      taRef.current?.focus();
+      return;
+    }
     onSend(c.cmd, []);
     setText("");
   };
@@ -717,12 +760,63 @@ export function ComposerShell({
     }
   };
 
+  useEffect(() => {
+    if (!running || goal?.status !== "active") {
+      goalRunStartedRef.current = null;
+      setGoalNow(Date.now());
+      return;
+    }
+    if (goalRunStartedRef.current == null) goalRunStartedRef.current = Date.now();
+    const timer = window.setInterval(() => setGoalNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [goal?.createdAt, goal?.objective, goal?.status, running]);
+
+  const goalElapsedSeconds = goal
+    ? goal.timeUsedSeconds + (goalRunStartedRef.current ? Math.max(0, Math.floor((goalNow - goalRunStartedRef.current) / 1000)) : 0)
+    : 0;
+  const goalElapsedLabel = goalElapsedSeconds >= 3600
+    ? `${Math.floor(goalElapsedSeconds / 3600)}h ${Math.floor((goalElapsedSeconds % 3600) / 60)}m`
+    : goalElapsedSeconds >= 60
+      ? `${Math.floor(goalElapsedSeconds / 60)}m ${goalElapsedSeconds % 60}s`
+      : `${goalElapsedSeconds}s`;
+
   return (
     <div className={`composer-wrap${className ? ` ${className}` : ""}`}>
       {/* 图片能力阻断提示条放在这里（而不是外层聊天区）：待发图片是 ComposerShell 的内部状态，
           「移除图片」必须由持有它的组件执行，否则只能靠一层 store 中转，徒增一条隐式契约。 */}
       {visionBlockSessionId ? (
         <VisionBlockBanner sessionId={visionBlockSessionId} onRemoveImages={() => setImages([])} />
+      ) : null}
+      {goal ? (
+        <div className="pw-goal-floater" data-goal-status={goal.status}>
+          <Icon.Target size={14} />
+          <strong>{goal.status === "active" ? "正在追求目标" : goal.status === "paused" ? "目标已暂停" : "目标已停止"}</strong>
+          <span className="pw-goal-objective" title={goal.objective}>{goal.objective}</span>
+          <span className="pw-goal-time">· {goalElapsedLabel}</span>
+          <button
+            type="button"
+            title="编辑目标"
+            aria-label="编辑目标"
+            onClick={() => {
+              setText(goal.objective);
+              setGoalInputMode(true);
+              requestAnimationFrame(() => taRef.current?.focus());
+            }}
+          >
+            <Icon.Edit size={13} />
+          </button>
+          <button
+            type="button"
+            title={goal.status === "active" ? "暂停目标" : "恢复目标"}
+            aria-label={goal.status === "active" ? "暂停目标" : "恢复目标"}
+            onClick={() => onSetGoalStatus?.(goal.status === "active" ? "paused" : "active")}
+          >
+            {goal.status === "active" ? <Icon.Stop size={12} /> : <Icon.Run size={12} />}
+          </button>
+          <button type="button" title="清除目标" aria-label="清除目标" onClick={onClearGoal}>
+            <Icon.Trash size={13} />
+          </button>
+        </div>
       ) : null}
       <div
         className={`composer ${dragOver ? "pw-drop-target" : ""}`}
@@ -951,7 +1045,9 @@ export function ComposerShell({
                 ? t("composer.steerPlaceholder")
                 : running
                 ? t("composer.runningPlaceholder")
-                : placeholder ?? t("composer.defaultPlaceholder", { name: AGENT_LABEL[agent] })
+                : goalInputMode
+                  ? "描述你希望 Agent 持续完成的目标…"
+                  : placeholder ?? t("composer.defaultPlaceholder", { name: AGENT_LABEL[agent] })
             }
             rows={1}
           />
@@ -1012,6 +1108,20 @@ export function ComposerShell({
                   <Icon.Paperclip size={14} />
                   <span>{t("composer.uploadFile")}</span>
                 </button>
+                {onSetGoal ? (
+                  <button
+                    className="pw-tb-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setGoalInputMode(true);
+                      attachMenu.setOpen(false);
+                      requestAnimationFrame(() => taRef.current?.focus());
+                    }}
+                  >
+                    <Icon.Target size={14} />
+                    <span>追求目标</span>
+                  </button>
+                ) : null}
                 <button
                   className={`pw-tb-menu-item ${useOwnSkills ? "is-on" : ""}`}
                   role="menuitemcheckbox"
@@ -1084,6 +1194,24 @@ export function ComposerShell({
               <Icon.Globe size={13} />
               <span>{t("composer.webSearch.label")}</span>
             </button>
+          ) : null}
+          {goalInputMode ? (
+            <button
+              className="pill is-on"
+              type="button"
+              title="取消目标输入"
+              aria-label="取消目标输入"
+              onClick={() => setGoalInputMode(false)}
+            >
+              <Icon.Target size={13} />
+              <span>目标</span>
+              <Icon.X size={11} />
+            </button>
+          ) : goal?.status === "active" ? (
+            <span className="pill is-on pw-goal-mode-pill" title="当前目标模式已启用">
+              <Icon.Target size={13} />
+              <span>目标</span>
+            </span>
           ) : null}
           <div className="spacer" />
           {/* agent + 模型 + 推理强度合并为单个 pill(Image #3 行式下钻)。

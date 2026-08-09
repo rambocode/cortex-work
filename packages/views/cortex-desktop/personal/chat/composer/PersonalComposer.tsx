@@ -5,7 +5,7 @@
 import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_AGENT_THINKING, prewarmPiSession, useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import type { AgentThinkingValue, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta } from "@cortex-work/core";
+import type { AgentThinkingValue, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta, ThreadGoalStatus } from "@cortex-work/core";
 import { hasSearchBackend, normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
 import { ComposerShell } from "./ComposerShell";
 import { upsertConversationArtifact } from "../artifactDispatch";
@@ -27,6 +27,9 @@ export function PersonalComposer({
   onChangeExecPermission,
   onToggleSkills,
   onToggleWebSearch,
+  onSetGoal,
+  onSetGoalStatus,
+  onClearGoal,
   onToast,
 }: {
   session: SessionMeta;
@@ -56,6 +59,11 @@ export function PersonalComposer({
   onToggleSkills: () => void;
   /** 会话级「联网」开关(写 SessionMeta.webSearch)。研究引擎未开时下方不会渲染该 pill。 */
   onToggleWebSearch: () => void;
+  // 目标模式是个人会话的渐进增强能力；保留可选签名让独立 composer、旧测试夹具和
+  // 尚未接入会话持久态的宿主继续复用同一组件，缺省时不会展示目标入口。
+  onSetGoal?: (objective: string) => void;
+  onSetGoalStatus?: (status: Extract<ThreadGoalStatus, "active" | "paused">) => void;
+  onClearGoal?: () => void;
   onToast: (text: string) => void;
 }) {
   // slash 命令(内建 + 已启用 skill),与新会话落地页共用同一 hook(见 useSlashCommands)。
@@ -117,6 +125,10 @@ export function PersonalComposer({
       webSearch={session.webSearch === true}
       webSearchUnavailable={webSearchUnavailable}
       researchSkillAvailable={researchSkillAvailable}
+      goal={session.goal}
+      onSetGoal={onSetGoal}
+      onSetGoalStatus={onSetGoalStatus}
+      onClearGoal={onClearGoal}
       {...(researchAvailable ? { onToggleWebSearch } : {})}
       onCancelEdit={onCancelEdit}
       onToast={onToast}

@@ -62,6 +62,11 @@ export interface RoleConfig {
   systemPrompt: string;
   color?: string;
   avatar?: string;
+  // 与 core 镜像：子代理目录按角色覆盖模型/推理强度，空值沿用 Agent 默认。
+  model?: string;
+  effort?: string;
+  // 与 core 镜像：只读角色由子进程权限模式强制执行，不依赖 persona 自觉。
+  toolPolicy?: "readOnly" | "inherit";
   createdAt: string;
   updatedAt: string;
 }
@@ -953,6 +958,9 @@ export interface CliStartRequest {
   // 委派（delegate）：本轮被 @ 的协作者角色。非空时 cli.ts 注入 cortex-delegate MCP server
   // （per-turn 工具集），主 agent 经 ask_<id> 工具自主委派子任务给这些协作者。与 core 镜像。
   delegateRoles?: RoleConfig[];
+  // 委派运行护栏：达到并行上限时排队，达到本轮子任务上限时拒绝继续创建。
+  // 主进程入口会再次校验，不能信任 renderer 传入的数值。
+  delegatePolicy?: { maxParallel: number; maxChildRuns: number };
   // pi 专属:除 piExtensionPath 外的额外 -e 扩展路径（如 delegate 桥接）。主进程内部填充，
   // pi.ts buildArgs 逐个 -e 注入。与 core 镜像。
   extraExtensionPaths?: string[];
@@ -1030,19 +1038,19 @@ export interface AgentProjectInfo {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // tool 事件:phase:"start" 带 input(完整调用参数,原始 JSON);phase:"end" 带 output(工具输出文本,
   // adapter 侧已截断)+ isError。start/end 靠 toolCallId 配对(运行过程详情视图用)。
-  | { type: "tool"; name: string; detail?: string; input?: unknown; output?: string; isError?: boolean; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
-  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string }
+  | { type: "tool"; name: string; detail?: string; input?: unknown; output?: string; isError?: boolean; phase?: "start" | "end"; toolCallId?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "thinking"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "turn"; stopReason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "retry"; attempt: number; maxAttempts?: number; reason?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "result"; ok: boolean; text?: string; error?: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // todo 事件:agent 任务清单整表快照(覆盖语义,每帧带全量 todos)。三端归一化产出:
   // claude TodoWrite / codex update_plan(todo_list item)/ pi 自定义 todo_write 工具。
-  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string };
+  | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }>; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string };
 
 // 圆桌编排启动参数（渲染端 → roundtable:start）。
 // 管线式调度：主 agent 先执行用户 prompt，其输出作为 @mentioned agent 的上下文（KTD4）。

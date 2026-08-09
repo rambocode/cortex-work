@@ -12,6 +12,7 @@ import { skillTitleCase, skillSourceTag } from "../../skills/skillDisplay";
 // 内建 slash 命令(发送拦截在 PersonalChatArea.onSend）。kind:"builtin" = 选中即执行。
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/clear", desc: "隐藏当前历史记录（可展开）", kind: "builtin" },
+  { cmd: "/goal", desc: "设置并持续推进一个会话目标", kind: "builtin" },
 ];
 // /compact 仅 pi 会话有（压缩走 pi RPC）。
 const PI_SLASH_COMMANDS: SlashCommand[] = [

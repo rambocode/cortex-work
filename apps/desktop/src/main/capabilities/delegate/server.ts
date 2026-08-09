@@ -18,6 +18,7 @@
 //   DelegateSessionState 的回调（runSubAgent/pushEvent/bumpWatchdog/abort）由 cli.ts 在 cli:start
 //   构造并 registerDelegateSession 注入。cli.ts 单向 import 本模块的 register/build/host 函数。
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
@@ -34,8 +35,10 @@ export function safeToolId(id: string): string {
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
 export const DELEGATE_SERVER_ID = "cortex-delegate";
 
-// 每协作者本轮调用次数上限：防主 agent 一轮内狂调同一 ask_<id>（R10 资源放大护栏）。
-const MAX_CALLS_PER_ROLE = 3;
+const DEFAULT_MAX_PARALLEL = 256;
+const DEFAULT_MAX_CHILD_RUNS = 25;
+const MAX_PARALLEL_LIMIT = 256;
+const MAX_CHILD_RUNS_LIMIT = 10_000;
 
 // 委派 MCP host 实例（独立 port/token，与 browser/doc-extract/media-gen 互不干扰）。
 const delegateHost = createMcpHost(DELEGATE_SERVER_ID);
@@ -66,16 +69,28 @@ export interface DelegateSessionState {
   pushEvent: (ev: CliStreamEvent) => void;
   // 喂主进程 inactivity 看门狗（cli.ts 的看门狗只看主 agent stdout，长子任务期间主 agent 静默会被误杀）。
   bumpWatchdog: () => void;
-  // 每角色本轮调用计数（roleId → 次数），防主 agent 一轮内狂调同一协作者（R10）。
-  callCounts: Map<string, number>;
+  // 运行策略由设置页投影；主进程注册时仍会归一，避免 renderer 伪造负数或超大值。
+  maxParallel: number;
+  maxChildRuns: number;
+  // 以下字段只属于本轮运行时门闩：先预占子任务配额，再进入并行槽；达到并行上限时 FIFO 排队。
+  childRunCount: number;
+  activeRuns: number;
+  waiters: DelegateWaiter[];
   // cli.ts 注入：spawn 子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
   runSubAgent: (role: RoleConfig, task: string, onEvent: (ev: CliStreamEvent) => void) => Promise<SubAgentResult>;
 }
+
+type DelegateWaiter = {
+  resolve: (acquired: boolean) => void;
+  onAbort: () => void;
+};
 
 const sessionStateMap = new Map<string, DelegateSessionState>();
 
 export function registerDelegateSession(state: DelegateSessionState): void {
   // 幂等：同 session 多轮 run 覆盖写（runId/sender/roles 每轮更新）；清理由 unregisterDelegateSession 负责。
+  state.maxParallel = normalizeLimit(state.maxParallel, DEFAULT_MAX_PARALLEL, MAX_PARALLEL_LIMIT);
+  state.maxChildRuns = normalizeLimit(state.maxChildRuns, DEFAULT_MAX_CHILD_RUNS, MAX_CHILD_RUNS_LIMIT);
   sessionStateMap.set(state.sessionId, state);
 }
 
@@ -102,6 +117,51 @@ function textResult(text: string): ToolResult {
 }
 function errorResult(text: string): ToolResult {
   return { content: [{ type: "text", text }], isError: true };
+}
+
+function normalizeLimit(value: number, fallback: number, max: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(1, Math.floor(value)));
+}
+
+/**
+ * 获取本轮委派的并行槽。已满时按到达顺序等待；主会话取消会移除等待者并返回 false，
+ * 避免一个永远不会启动的子任务把 MCP tool call 悬挂到进程退出。
+ */
+async function acquireDelegateSlot(state: DelegateSessionState): Promise<boolean> {
+  if (state.signal.aborted) return false;
+  if (state.activeRuns < state.maxParallel) {
+    state.activeRuns += 1;
+    return true;
+  }
+  return new Promise<boolean>((resolve) => {
+    const waiter: DelegateWaiter = {
+      resolve,
+      onAbort: () => {
+        const index = state.waiters.indexOf(waiter);
+        if (index >= 0) state.waiters.splice(index, 1);
+        resolve(false);
+      },
+    };
+    state.waiters.push(waiter);
+    state.signal.addEventListener("abort", waiter.onAbort, { once: true });
+  });
+}
+
+/** 释放一个槽并唤醒首个仍有效的等待者；槽位转交在同一同步段完成，不会短暂超发。 */
+function releaseDelegateSlot(state: DelegateSessionState): void {
+  state.activeRuns = Math.max(0, state.activeRuns - 1);
+  while (state.waiters.length > 0) {
+    const waiter = state.waiters.shift()!;
+    state.signal.removeEventListener("abort", waiter.onAbort);
+    if (state.signal.aborted) {
+      waiter.resolve(false);
+      continue;
+    }
+    state.activeRuns += 1;
+    waiter.resolve(true);
+    break;
+  }
 }
 
 // ── 单个 ask_<id> 工具注册 ────────────────────────────────────────────────────
@@ -137,42 +197,84 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
             `全部数据/材料——它是独立进程，看不到你当前对话的内容。`,
         );
       }
-      // 调用次数护栏（R10）：超限拒绝，提示主 agent 整合已有结果或换协作者。
-      const used = state.callCounts.get(role.id) ?? 0;
-      if (used >= MAX_CALLS_PER_ROLE) {
+      // 单会话子任务上限是总量护栏，不限制同一角色的合理重复调用；是否调用多少次仍由模型决定。
+      // JS handler 的检查与递增处于同一同步段，并发 tool call 也不会共同越过上限。
+      if (state.childRunCount >= state.maxChildRuns) {
         return errorResult(
-          `协作者「${role.label}」本轮已被委派 ${used} 次（上限 ${MAX_CALLS_PER_ROLE}），请基于已有结果整合，或委派其他协作者。`,
+          `本轮已创建 ${state.childRunCount} 个子任务（上限 ${state.maxChildRuns}），请基于已有结果完成回答。`,
         );
       }
-      state.callCounts.set(role.id, used + 1);
+      state.childRunCount += 1;
+      const acquired = await acquireDelegateSlot(state);
+      if (!acquired) return errorResult("已取消");
+      // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
+      // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
+      const subagentCallId = randomUUID();
       // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
-      state.pushEvent({ type: "init", sessionId: state.sessionId, roleId: role.id, stageLabel: role.label });
+      // stage=subagent 是 HMR/刷新恢复标识：renderer 内存中的 run.delegate 丢失后，仍能把后续
+      // roleId 事件识别为子代理卡片，而不是误当成圆桌角色消息。
+      state.pushEvent({
+        type: "init",
+        sessionId: state.sessionId,
+        roleId: role.id,
+        stage: "subagent",
+        stageLabel: role.label,
+        subagentCallId,
+      });
       // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
       const onEvent = (ev: CliStreamEvent) => {
-        state.pushEvent(ev);
+        state.pushEvent({
+          ...ev,
+          roleId: role.id,
+          subagentCallId,
+        });
         state.bumpWatchdog();
       };
-      const result = await state.runSubAgent(role, taskText, onEvent);
-      recordAgentTrace({
-        scope: "delegate",
-        phase: "context-return",
-        summary: `子 Agent「${role.label}」结果回传主会话`,
-        runId: state.runId,
-        sessionId: state.sessionId,
-        agent: role.agent,
-        data: {
-          roleId: role.id,
-          taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
-          resultPreview:
-            result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
-          ok: result.ok,
-          returnedToMain: true,
-        },
-      });
-      if (!result.ok) {
-        return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
+      try {
+        let result: SubAgentResult;
+        try {
+          result = await state.runSubAgent(role, taskText, onEvent);
+        } catch (err) {
+          // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
+          // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
+          const message = err instanceof Error ? err.message : String(err);
+          state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
+          return errorResult(`协作者「${role.label}」执行失败：${message}`);
+        }
+        recordAgentTrace({
+          scope: "delegate",
+          phase: "context-return",
+          summary: `子 Agent「${role.label}」结果回传主会话`,
+          runId: state.runId,
+          sessionId: state.sessionId,
+          agent: role.agent,
+          data: {
+            roleId: role.id,
+            taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
+            resultPreview:
+              result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
+            ok: result.ok,
+            returnedToMain: true,
+          },
+        });
+        if (!result.ok) {
+          state.pushEvent({
+            type: "result",
+            ok: false,
+            error: result.error ?? "未知错误",
+            roleId: role.id,
+            subagentCallId,
+          });
+          return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
+        }
+        // 子进程的原始 result 在 cli.ts 内部收口，不直接转发；由 delegate host 在 tool_result
+        // 返回主 Agent 前补发一次角色级完成帧，驱动会话卡片从“进行中”进入完成态。
+        state.pushEvent({ type: "result", ok: true, text: result.text, roleId: role.id, subagentCallId });
+        return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
+      } finally {
+        // 成功、失败和适配器异常都必须释放并行槽，否则后续排队任务会永久挂起。
+        releaseDelegateSlot(state);
       }
-      return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
     },
   );
 }

@@ -207,6 +207,79 @@ describe("personal message agent session helpers", () => {
     expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
   });
 
+  it("HMR 恢复后的 delegate 事件仍折叠为一张子代理卡片", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const runId = "delegate-recovered";
+
+    __handleCliEventForTest(qc, runId, {
+      type: "init",
+      sessionId: "s1",
+      roleId: "code-reviewer",
+      stage: "subagent",
+      stageLabel: "Code Reviewer",
+      subagentCallId: "call-review-1",
+    }, "s1");
+    __handleCliEventForTest(qc, runId, {
+      type: "tool",
+      name: "Read",
+      detail: "src/a.ts",
+      phase: "start",
+      roleId: "code-reviewer",
+      subagentCallId: "call-review-1",
+    }, "s1");
+    __handleCliEventForTest(qc, runId, {
+      type: "text",
+      delta: "发现一个阻断问题",
+      roleId: "code-reviewer",
+      subagentCallId: "call-review-1",
+    }, "s1");
+    __handleCliEventForTest(qc, runId, {
+      type: "result",
+      ok: true,
+      roleId: "code-reviewer",
+      subagentCallId: "call-review-1",
+    }, "s1");
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    const cards = messages.filter(
+      (message): message is Extract<Message, { kind: "subagentCard" }> => message.kind === "subagentCard",
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      roleId: "code-reviewer",
+      callId: "call-review-1",
+      roleLabel: "Code Reviewer",
+      status: "completed",
+      steps: 1,
+      summary: "发现一个阻断问题",
+    });
+    expect(messages.some((message) => message.kind === "roleHeader")).toBe(false);
+  });
+
+  it("同一角色重复委派时按 callId 隔离卡片与流式过程段", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const runId = "delegate-repeat";
+    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+
+    emit({ type: "init", sessionId: "s1", roleId: "review", stage: "subagent", stageLabel: "Reviewer", subagentCallId: "call-a" });
+    emit({ type: "thinking", delta: "检查 A", roleId: "review", subagentCallId: "call-a" });
+    emit({ type: "init", sessionId: "s1", roleId: "review", stage: "subagent", stageLabel: "Reviewer", subagentCallId: "call-b" });
+    emit({ type: "thinking", delta: "检查 B", roleId: "review", subagentCallId: "call-b" });
+
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    const cards = messages.filter(
+      (message): message is Extract<Message, { kind: "subagentCard" }> => message.kind === "subagentCard",
+    );
+    expect(cards.map((card) => card.callId)).toEqual(["call-a", "call-b"]);
+
+    const thinkingEvents = (qc.getQueryData<RunEvent[]>(personalRunEventsKeys.detail("s1")) ?? [])
+      .filter(({ ev }) => ev.type === "thinking");
+    expect(thinkingEvents).toHaveLength(2);
+    expect(thinkingEvents.map(({ ev }) => ev.subagentCallId)).toEqual(["call-a", "call-b"]);
+  });
+
   it("当前会话的产物运行成功后自动打开右栏编辑器", () => {
     const artifact = {
       kind: "slides" as const,
@@ -688,6 +761,25 @@ describe("同流折叠 foldCliEvent(纯函数)", () => {
 });
 
 describe("sanitizeForSave 落盘清理(过程不落盘:思考与工具步骤皆丢弃)", () => {
+  it("保留子代理卡片，并把异常退出时的运行态归一为失败", () => {
+    const [card] = sanitizeForSave([{
+      kind: "subagentCard",
+      who: "codex",
+      time: "10:00",
+      roleId: "explore",
+      roleLabel: "Repository Explorer",
+      status: "running",
+      startedAt: 1,
+      steps: 2,
+      uid: "card-1",
+    }]);
+    expect(card).toMatchObject({
+      kind: "subagentCard",
+      status: "failed",
+      error: "子代理会话已中断",
+    });
+  });
+
   it("丢弃 typing / reasoning / agentLog,只保留问答正文", () => {
     const input: Message[] = [
       { kind: "text", who: "me", time: "10:00", text: "问", uid: "u1" },

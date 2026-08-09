@@ -23,6 +23,7 @@ import { ConversationSplitView } from "./ConversationSplitView";
 import { PersonalProcessPanel } from "../chat/PersonalProcessPanel";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
+import { PersonalRightRail } from "./PersonalRightRail";
 import { TerminalPanel } from "../terminal/TerminalPanel";
 import { TimelineView } from "../timeline/TimelineView";
 import { NewSessionLanding } from "../home/NewSessionLanding";
@@ -295,6 +296,7 @@ export function PersonalWorkspace({
               researchExportTargets={researchExportTargets}
             />
           ) : null}
+          <PersonalRightRail />
         </div>
         <TerminalPanel onToast={onToast} />
       </div>

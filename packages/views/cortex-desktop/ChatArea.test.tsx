@@ -4,8 +4,8 @@
 
 import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { CoreProvider } from "@cortex-work/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CoreProvider, personalRunEventsKeys } from "@cortex-work/core";
 import type { Contact, DesktopBridge, Message } from "@cortex-work/core";
 import * as ChatAreaModule from "./ChatArea";
 import { MessageStream } from "./ChatArea";
@@ -152,6 +152,67 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     const { container } = renderTeamStream(messages);
     expect(container.querySelector(".reasoning-block")).toBeInTheDocument();
     expect(container.querySelector(".agent-log")).toBeInTheDocument();
+  });
+
+  it("子代理卡显示角色状态、步骤和可展开结论，并从卡片进入统一过程详情", () => {
+    const onOpenProcess = vi.fn();
+    const messages: Message[] = [{
+      kind: "subagentCard",
+      who: "pi",
+      time: "10:00",
+      uid: "sa1",
+      callId: "call-review-1",
+      roleId: "code-reviewer",
+      roleLabel: "Code Reviewer",
+      roleColor: "#2563eb",
+      status: "completed",
+      startedAt: 1_000,
+      finishedAt: 14_000,
+      steps: 3,
+      activity: "执行完成",
+      summary: "发现一个阻断问题",
+    }];
+    const qc = new QueryClient();
+    qc.setQueryData(personalRunEventsKeys.detail("session-1"), [
+      {
+        runId: "run-1",
+        ts: 2_000,
+        ev: {
+          type: "tool",
+          name: "Read",
+          detail: "src/a.ts",
+          phase: "start",
+          subagentCallId: "call-review-1",
+        },
+      },
+    ]);
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          onActivityClick={onOpenProcess}
+          sessionId="session-1"
+        />
+      </CoreProvider>,
+    );
+    expect(view.getByText("Code Reviewer")).toBeInTheDocument();
+    expect(view.getByText("3 步")).toBeInTheDocument();
+    expect(view.queryByText("发现一个阻断问题")).not.toBeInTheDocument();
+    fireEvent.click(view.getByText("展开结论"));
+    expect(view.getByText("发现一个阻断问题")).toBeInTheDocument();
+    fireEvent.click(view.getByText("预览"));
+    expect(view.container.querySelector(".pw-subagent-card-result")).not.toBeInTheDocument();
+    expect(view.getByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).toHaveTextContent("Read · src/a.ts · 调用");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(view.queryByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).not.toBeInTheDocument();
+    fireEvent.click(view.getByText("预览"));
+    fireEvent.click(view.getByText("查看过程"));
+    expect(onOpenProcess).toHaveBeenCalledWith({ callId: "call-review-1", label: "Code Reviewer" });
+    expect(view.queryByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).not.toBeInTheDocument();
   });
 });
 

@@ -30,6 +30,7 @@ import type {
   PromptNode,
   PushSettings,
   SessionMeta,
+  ThreadGoalStatus,
   SpotlightIntent,
   TimelineSettings,
   TodoMeta,
@@ -68,6 +69,8 @@ import { migratePiSettings, normalizeProviderProfile } from "../desktop/provider
 import { fromAdapterPermissions } from "../personal/permissionMode";
 import { usePiArtifactsStore } from "./piArtifacts";
 import { migrateProfile } from "../personal/avatars";
+import { normalizeSubagentSettings } from "../personal/subagents";
+import { createThreadGoal, updateThreadGoalStatus } from "../personal/goal";
 
 let seq = 0;
 function newId(prefix: string): string {
@@ -82,6 +85,8 @@ export type RightView =
   | "todos"
   | "notes"
   | "browser"
+  | "canvas"
+  | "subagents"
   | "artifact"
   | "research"
   // 知识库文档预览（点会话正文里的 kb:// 引用打开）。
@@ -203,7 +208,7 @@ export interface PersonalState {
   knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
   // 展开「执行过程」面板的请求(点聊天流 typing 活动行触发)。nonce 让同会话重复点击也能触发;
   // 用请求信号而非提升面板 userOpen,保留面板「每轮默认收起」的既有逻辑。瞬态,不进 toPersistedState。
-  processPanelOpenReq?: { sessionId: string; nonce: number };
+  processPanelOpenReq?: { sessionId: string; nonce: number; subagentCallId?: string; subagentLabel?: string };
   // 已 auto_open 自动打开过的「会话:URL」键集合。防探测结果在重渲染/多会话来回切换中
   // 反复自动弹面板(同键不再触发)。用数组而非单槽,否则切到别的会话再切回会重复弹
   // (安全/正确性评审)。瞬态,不进 toPersistedState。
@@ -333,6 +338,10 @@ export interface PersonalState {
     opts?: { noProjectDir?: string },
   ) => SessionMeta;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
+  // 会话目标 actions：所有入口共用同一持久态，避免 composer、slash 与自动续跑各维护副本。
+  setSessionGoal: (id: string, objective: string) => SessionMeta["goal"];
+  setSessionGoalStatus: (id: string, status: ThreadGoalStatus) => void;
+  clearSessionGoal: (id: string) => void;
   renameSession: (id: string, title: string) => void;
   archiveSession: (id: string) => void;
   unarchiveSession: (id: string) => void;
@@ -352,7 +361,7 @@ export interface PersonalState {
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   // 请求展开「执行过程」面板(nonce 递增触发,面板侧 useEffect 消费)。
-  requestOpenProcessPanel: (sessionId: string) => void;
+  requestOpenProcessPanel: (sessionId: string, subagent?: { callId: string; label: string }) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
   // 设置/清空某会话的图片能力拦截提示（hint=undefined 清空,如移除图片/换模型/新一轮发送）。
@@ -559,10 +568,13 @@ function hydrateWritingLlmSettings(raw: WritingLlmSettings | undefined): Writing
 function resolveGeneralSettings(s: PersistedState): GeneralSettings {
   const g = s.generalSettings;
   if (!g) return DEFAULT_GENERAL_SETTINGS;
+  // 旧版“启用子代理编排”开关不再属于产品设置：升级后无论旧值为何都剥离，避免历史的
+  // false 继续阻止主模型获得委派工具。类型字段暂留只服务测试与紧急运行时兼容。
+  const { subagentOrchestration: _legacySubagentSwitch, ...currentSettings } = g;
   const mcp = g.mcp ? migrateLegacyAgentBrowserMcp(g.mcp) : undefined;
   return {
     ...DEFAULT_GENERAL_SETTINGS,
-    ...g,
+    ...currentSettings,
     ...(mcp ? { mcp } : {}),
     desktopBehavior: { ...DEFAULT_GENERAL_SETTINGS.desktopBehavior, ...g.desktopBehavior },
     notifications: { ...DEFAULT_GENERAL_SETTINGS.notifications, ...g.notifications },
@@ -576,6 +588,9 @@ function resolveGeneralSettings(s: PersistedState): GeneralSettings {
     plugins: { ...DEFAULT_PLUGIN_ENABLE, ...g.plugins },
     // 浏览器控制:旧档无 browserControl 或缺子字段时逐字段兜 DEFAULT_BROWSER_CONTROL（U1）。
     browserControl: { ...DEFAULT_BROWSER_CONTROL, ...g.browserControl },
+    // 子代理目录是嵌套设置；顶层 spread 不足以补齐老存档缺失的并行/单轮上限，非法值也
+    // 必须在 hydrate 边界钳制，保证执行层收到完整、安全的设置形状。
+    subagents: normalizeSubagentSettings(g.subagents),
   };
 }
 
@@ -625,8 +640,8 @@ function migrateSession(sess: SessionMeta): SessionMeta {
     const { dirPermission: _dropped, ...rest } = withDir;
     s = rest;
   }
-  // ④ 剥离已升为全局设置的会话级 subagentOrchestration（现读 GeneralSettings,默认关闭;
-  //    旧会话字段不迁移值，全局编排只有用户在设置中显式开启才生效）。
+  // ④ 剥离旧会话级 subagentOrchestration；产品已移除人工开关，旧会话字段不能继续影响
+  //    默认向主模型提供的委派能力。
   const withOrch = s as SessionMeta & { subagentOrchestration?: boolean };
   if (withOrch.subagentOrchestration !== undefined) {
     const { subagentOrchestration: _dropped2, ...rest } = withOrch;
@@ -638,6 +653,28 @@ function migrateSession(sess: SessionMeta): SessionMeta {
   //    只动 claude:pi 的模型值来自用户自配 provider,与本表无关。
   if (s.agent === "claude" && s.model === "opus") {
     s = { ...s, model: "claude-opus-5[1m]" };
+  }
+  // ⑥ 目标存档防御性归一：旧/手改 JSON 的空目标或非法状态不能触发后台自动续跑。
+  if (s.goal) {
+    const validStatuses: ThreadGoalStatus[] = [
+      "active", "paused", "blocked", "usageLimited", "budgetLimited", "complete",
+    ];
+    if (!s.goal.objective?.trim() || !validStatuses.includes(s.goal.status)) {
+      const { goal: _droppedGoal, ...rest } = s;
+      s = rest;
+    } else {
+      s = {
+        ...s,
+        goal: {
+          ...s.goal,
+          threadId: s.id,
+          objective: s.goal.objective.trim().slice(0, 4000),
+          tokensUsed: Math.max(0, Math.floor(s.goal.tokensUsed || 0)),
+          timeUsedSeconds: Math.max(0, Math.floor(s.goal.timeUsedSeconds || 0)),
+          autoTurnCount: Math.max(0, Math.floor(s.goal.autoTurnCount || 0)),
+        },
+      };
+    }
   }
   return s;
 }
@@ -1041,6 +1078,34 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...patch, updatedAt: Date.now() } : x)),
     })),
 
+  setSessionGoal: (id, objective) => {
+    const session = get().sessions.find((item) => item.id === id);
+    if (!session) return undefined;
+    const goal = createThreadGoal(id, objective, session.goal);
+    set((state) => ({
+      sessions: state.sessions.map((item) =>
+        item.id === id ? { ...item, goal, updatedAt: Date.now() } : item,
+      ),
+    }));
+    return goal;
+  },
+
+  setSessionGoalStatus: (id, status) =>
+    set((state) => ({
+      sessions: state.sessions.map((item) =>
+        item.id === id && item.goal
+          ? { ...item, goal: updateThreadGoalStatus(item.goal, status), updatedAt: Date.now() }
+          : item,
+      ),
+    })),
+
+  clearSessionGoal: (id) =>
+    set((state) => ({
+      sessions: state.sessions.map((item) =>
+        item.id === id ? { ...item, goal: undefined, updatedAt: Date.now() } : item,
+      ),
+    })),
+
   renameSession: (id, title) => {
     const normalized = title.trim();
     if (!normalized) return;
@@ -1166,8 +1231,15 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   // nonce 用「上个值 +1」而非时间戳:同会话快速连点也保证变化,且不依赖时钟。
-  requestOpenProcessPanel: (sessionId) =>
-    set((s) => ({ processPanelOpenReq: { sessionId, nonce: (s.processPanelOpenReq?.nonce ?? 0) + 1 } })),
+  requestOpenProcessPanel: (sessionId, subagent) =>
+    set((s) => ({
+      processPanelOpenReq: {
+        sessionId,
+        nonce: (s.processPanelOpenReq?.nonce ?? 0) + 1,
+        subagentCallId: subagent?.callId,
+        subagentLabel: subagent?.label,
+      },
+    })),
 
   setModeBlockHint: (sessionId, hint) =>
     set((s) => ({ modeBlockHints: { ...s.modeBlockHints, [sessionId]: hint } })),

@@ -1,5 +1,5 @@
-// 个人工作区右栏容器。视图（文件 / Skills）由顶栏面板按钮的下拉菜单选择
-// （状态在 usePersonalStore.rightView）,面板内不再有 tab 行。
+// 个人工作区右栏容器。视图由最右侧竖向工具栏选择（状态在
+// usePersonalStore.rightView），面板内不再重复放 tab 行。
 //   文件   → FilesView（项目全部文件 + 最近变更/diff）
 //   Skills → PromptPanel（Prompt 库,可拖入聊天）
 // 仅查看文件（Tasks 详情 / 文件预览）时左缘可拖拽调宽（宽度经 --rp-custom-width
@@ -17,6 +17,8 @@ import { PromptPanel } from "../skills/PromptPanel";
 import { TasksView } from "../tasks/TasksView";
 import { NotesView } from "../notes/NotesView";
 import { BrowserView } from "../browser/BrowserView";
+import { SubagentsPanel } from "../subagents/SubagentsPanel";
+import { PersonalWhiteboardPanel } from "./PersonalWhiteboardPanel";
 import { ArtifactEditorPanel } from "../../design/ArtifactEditorPanel";
 import { SlidesDeckHeadActions } from "../../design/slides/SlidesDeckHeadActions";
 import { ResearchArtifactPanel } from "../../research/ResearchArtifactPanel";
@@ -30,6 +32,8 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   todos: "Tasks",
   notes: "闪记",
   browser: "浏览器",
+  canvas: "白板",
+  subagents: "子代理",
   artifact: "产物",
   research: "深度研究",
   knowledge: "知识库文档",
@@ -53,7 +57,7 @@ export const RP_LEFT_RESERVED_ARTIFACT = 660;
 /// files 同档：文件预览态是与产物同款的 in-flow 展宽面板（中栏压缩自适应,非覆盖）。
 function isWidePanel(view: string): boolean {
   // piArtifacts 同档:HTML 产物(仪表盘/图表)在 320px 窄栏里没有可用性。
-  return view === "artifact" || view === "research" || view === "knowledge" || view === "piArtifacts";
+  return view === "artifact" || view === "research" || view === "knowledge" || view === "piArtifacts" || view === "canvas";
 }
 
 /// 拖拽调宽时给中栏保留的最小宽度（按当前视图档位）。
@@ -65,7 +69,7 @@ function reservedWidthForView(view: string): number {
 /// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。files 例外:文件打开预览态
 /// (filePreviewOpen)本就是覆盖中栏的宽层,与产物/知识库同权开放放大/收缩。
 function canMaximize(view: string, filePreviewOpen: boolean): boolean {
-  return view === "artifact" || view === "knowledge" || view === "piArtifacts" || (view === "files" && filePreviewOpen);
+  return view === "artifact" || view === "knowledge" || view === "piArtifacts" || view === "canvas" || (view === "files" && filePreviewOpen);
 }
 
 export function PersonalRightPanel({
@@ -94,6 +98,10 @@ export function PersonalRightPanel({
   const activeArtifact = activeSession?.activeArtifact;
   const researchRefs = activeSession?.researchSessions;
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
+  const activeProjectPath = usePersonalStore((s) => {
+    const session = s.sessions.find((item) => item.id === s.activeSessionId);
+    return s.projects.find((project) => project.id === session?.projectId)?.path ?? session?.noProjectDir ?? "";
+  });
 
   // 面板内「回看另一条研究」的临时选择（D6：只切展示，不写回会话归属）。
   // 换会话即失效——上一条对话看到哪儿，不该带进下一条对话。
@@ -201,7 +209,7 @@ export function PersonalRightPanel({
         onMouseDown={startResize}
         onDoubleClick={() => setWidth(undefined)}
       />
-      <div className="pw-col-head pw-rp-head">
+      {view === "canvas" ? null : <div className="pw-col-head pw-rp-head">
         {/* 演示文稿产物:标题与播放/导出并入这一行,面板内不再叠第二条工具栏(省一行高度)。 */}
         {view === "artifact" && activeArtifact?.kind === "slides" ? (
           <SlidesDeckHeadActions fallbackTitle={activeArtifact.title} />
@@ -223,7 +231,7 @@ export function PersonalRightPanel({
         <button className="pw-icon-btn" title="关闭面板" onClick={() => setRightOpen(false)}>
           <Icon.X size={14} />
         </button>
-      </div>
+      </div>}
       {view === "artifact" ? (
         activeArtifact ? <ArtifactEditorPanel artifact={activeArtifact} /> : null
       ) : view === "research" ? (
@@ -245,6 +253,14 @@ export function PersonalRightPanel({
         <NotesView onToast={onToast} />
       ) : view === "browser" ? (
         <BrowserView onToast={onToast} />
+      ) : view === "canvas" && activeSessionId ? (
+        <PersonalWhiteboardPanel
+          sessionId={activeSessionId}
+          workspaceRoot={activeProjectPath}
+          onCollapse={() => setRightOpen(false)}
+        />
+      ) : view === "subagents" ? (
+        <SubagentsPanel />
       ) : view === "piArtifacts" ? (
         <PiArtifactsPanel />
       ) : (

@@ -361,6 +361,42 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
 });
 
 describe("delegate 派生 agent 基础类型", () => {
+  it("Kun 只读角色强制使用原生 read-only 权限，不继承主会话 full-auto", async () => {
+    const child = Object.assign(fakeChild(), {
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    const controller = new AbortController();
+    const done = __runDelegateSubAgentForTest(
+      {
+        runId: "parent-run",
+        sessionId: "parent-session",
+        agent: "codex",
+        cwd: "/tmp",
+        prompt: "parent",
+        permissionMode: "full-auto",
+      },
+      {
+        id: "code-reviewer",
+        label: "Code Reviewer",
+        agent: "codex",
+        systemPrompt: "只读审查",
+        toolPolicy: "readOnly",
+        createdAt: "",
+        updatedAt: "",
+      },
+      "审查变更",
+      vi.fn(),
+      controller.signal,
+    );
+
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args).toEqual(expect.arrayContaining(["-c", "sandbox_mode=read-only"]));
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    child.emit("close", 0);
+    await expect(done).resolves.toMatchObject({ ok: true });
+  });
+
   it("派生 Pi 子 agent 继承 Pi 主会话 model/provider 并走 in-process 单发（不 spawn）", async () => {
     setLocalAgentProfilesLoader(() => [{ id: "my-pi", base: "pi" }]);
     const controller = new AbortController();

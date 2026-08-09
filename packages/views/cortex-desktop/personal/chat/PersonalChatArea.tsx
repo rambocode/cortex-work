@@ -1,7 +1,7 @@
 // 个人工作区中间内容区：session 头部（agent/项目信息）+ 消息流（复用团队侧
 // MessageStream 渲染管线）+ PersonalComposer。消息数据来自 personal query cache。
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   resolveDefaultAgent,
@@ -26,6 +26,10 @@ import {
   anchorForAgentMessage,
   isLastAgentReplyOfTail,
   pagerPosition,
+  GOAL_CONTINUATION_PROMPT,
+  goalCanAutoContinue,
+  goalStatusFromAssistantText,
+  parseGoalCommand,
 } from "@cortex-work/core";
 import type { FollowupSessionCtx, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import type { Conversation, Message } from "@cortex-work/core/types";
@@ -56,9 +60,31 @@ import {
   prepareResearchDispatch,
   upsertConversationResearch,
 } from "./researchDispatch";
+import { shouldSendPromptToCodeCanvas } from "@cortex-work/core/design/canvas/code-canvas";
+import { buildCodeCanvasOutboundText } from "@cortex-work/core/design/canvas/code-canvas-outbound";
+import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shape-store";
+import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-selection-store";
+import { useCanvasViewportStore } from "@cortex-work/core/design/canvas/canvas-viewport-store";
+import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
+
+function latestAssistantTurnText(messages: Message[]): string {
+  let userIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === "text" && message.who === "me") {
+      userIndex = index;
+      break;
+    }
+  }
+  return messages
+    .slice(userIndex + 1)
+    .filter((message) => message.kind === "text" && message.who !== "me" && typeof message.text === "string")
+    .map((message) => (message.kind === "text" ? String(message.text) : ""))
+    .join("\n");
+}
 
 // U6:/skill:name 三路派发已抽到 skillDispatch.ts(写作助手面板复用);此处 re-export 保持
 // 既有引用(含单测 import 路径)不变。
@@ -163,6 +189,11 @@ export function PersonalChatArea({
   const autoOpenedPreviewKeys = usePersonalStore((s) => s.autoOpenedPreviewKeys);
   const markAutoOpenedPreview = usePersonalStore((s) => s.markAutoOpenedPreview);
   const setRightView = usePersonalStore((s) => s.setRightView);
+  const rightView = usePersonalStore((s) => s.rightView);
+  const setSessionGoal = usePersonalStore((s) => s.setSessionGoal);
+  const setSessionGoalStatus = usePersonalStore((s) => s.setSessionGoalStatus);
+  const clearSessionGoal = usePersonalStore((s) => s.clearSessionGoal);
+  const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
 
@@ -202,6 +233,121 @@ export function PersonalChatArea({
   // 分支回复:刷新=归档旧回复为分支重新生成;回复下方「‹ i/n ›」分页器切换查看/续聊各分支。
   const branchGroups = usePersonalBranches(session?.id);
   const { regenerate, switchBranch } = useBranchActions();
+  const goalRunRef = useRef<{ runId: string; startedAt: number } | null>(null);
+  const goalContinuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goalFinishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const allMessagesRef = useRef(allMessages);
+  allMessagesRef.current = allMessages;
+
+  const buildWhiteboardAppend = useCallback(
+    async (text: string): Promise<string | undefined> => {
+      if (!session || !project?.path) return undefined;
+      const whiteboardOpen = rightOpen && rightView === "canvas";
+      const selectedIds = useCanvasSelectionStore.getState().selectedIds;
+      if (!shouldSendPromptToCodeCanvas({ text, whiteboardOpen, hasSelection: selectedIds.size > 0 })) {
+        return undefined;
+      }
+      setRightView("canvas");
+      setRightOpen(true);
+      return buildCodeCanvasOutboundText({
+        baseText: "",
+        canvasBrief: text,
+        workspaceRoot: project.path,
+        threadId: session.id,
+        currentDocument: useCanvasShapeStore.getState().document,
+        currentDocumentKey: useCanvasShapeStore.getState().documentKey,
+        selectedIds,
+        viewBox: useCanvasViewportStore.getState().vbox,
+        designContext: useDesignWorkspaceStore.getState().designContext,
+      });
+    },
+    [project?.path, rightOpen, rightView, session, setRightOpen, setRightView],
+  );
+
+  const startOrReplaceGoal = useCallback(
+    (objective: string) => {
+      if (!session || !project) return;
+      const goal = setSessionGoal(session.id, objective);
+      if (!goal) return;
+      // 对齐 Kun：创建/替换目标后立即发起首轮，而不是只挂一个不会执行的 UI 标签。
+      void send({ ...session, goal }, project.path, goal.objective, []);
+    },
+    [project, send, session, setSessionGoal],
+  );
+
+  const changeGoalStatus = useCallback(
+    (status: "active" | "paused") => {
+      if (!session?.goal || !project) return;
+      setSessionGoalStatus(session.id, status);
+      if (status === "active" && !runningBySession[session.id]) {
+        const resumed = { ...session.goal, status: "active" as const, autoTurnCount: 0, updatedAt: new Date().toISOString() };
+        // Kun GUI 在 idle resume 后不立即续跑是其已知缺口；Cortex 在这里补齐真实恢复语义。
+        void send({ ...session, goal: resumed }, project.path, GOAL_CONTINUATION_PROMPT, []);
+      }
+    },
+    [project, runningBySession, send, session, setSessionGoalStatus],
+  );
+
+  useEffect(() => {
+    const runId = session ? runningBySession[session.id] : undefined;
+    if (runId) {
+      if (goalRunRef.current?.runId !== runId) goalRunRef.current = { runId, startedAt: Date.now() };
+      return;
+    }
+    const finished = goalRunRef.current;
+    if (!finished || !session?.goal || !project) return;
+    goalRunRef.current = null;
+
+    // running store 会先于 80ms 消息渲染节流复位。稍后从 ref 读取最终缓存投影，确保 completion
+    // 标记和 turnUsage 已到达；直接用本次 render 的 allMessages 会误判未完成并多开一轮。
+    goalFinishTimerRef.current = setTimeout(() => {
+      goalFinishTimerRef.current = null;
+      const current = usePersonalStore.getState().sessions.find((item) => item.id === session.id);
+      const goal = current?.goal;
+      if (!goal || goal.status !== "active") return;
+      const finalMessages = allMessagesRef.current;
+      const terminalStatus = goalStatusFromAssistantText(latestAssistantTurnText(finalMessages));
+      const elapsed = Math.max(0, Math.round((Date.now() - finished.startedAt) / 1000));
+      const usage = finalMessages.find(
+        (message) => message.kind === "turnUsage" && message.runId === finished.runId,
+      );
+      const tokens = usage?.kind === "turnUsage"
+        ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+        : 0;
+      const accounted = {
+        ...goal,
+        tokensUsed: goal.tokensUsed + tokens,
+        timeUsedSeconds: goal.timeUsedSeconds + elapsed,
+        updatedAt: new Date().toISOString(),
+      };
+      if (terminalStatus) {
+        updateSession(session.id, { goal: { ...accounted, status: terminalStatus } });
+        return;
+      }
+      if (accounted.tokenBudget != null && accounted.tokensUsed >= accounted.tokenBudget) {
+        updateSession(session.id, { goal: { ...accounted, status: "usageLimited" } });
+        return;
+      }
+      if (!goalCanAutoContinue(accounted)) {
+        updateSession(session.id, { goal: { ...accounted, status: "blocked" } });
+        return;
+      }
+
+      const continuing = { ...accounted, autoTurnCount: (accounted.autoTurnCount ?? 0) + 1 };
+      updateSession(session.id, { goal: continuing });
+      goalContinuationTimerRef.current = setTimeout(() => {
+        goalContinuationTimerRef.current = null;
+        const latest = usePersonalStore.getState().sessions.find((item) => item.id === session.id);
+        if (latest?.goal?.status !== "active" || usePersonalStore.getState().runningBySession[session.id]) return;
+        void send({ ...latest, goal: latest.goal }, project.path, GOAL_CONTINUATION_PROMPT, []);
+      }, 2000);
+    }, 160);
+  }, [project, runningBySession, send, session, updateSession]);
+
+  useEffect(() => () => {
+    if (goalContinuationTimerRef.current) clearTimeout(goalContinuationTimerRef.current);
+    if (goalFinishTimerRef.current) clearTimeout(goalFinishTimerRef.current);
+  }, []);
 
   // auto_open(仅环回,SSRF 收紧):**只信主信号**(最近一轮 assistant 正文)。process 流
   // (agentLog)无 user 消息、无法按轮次切片,从后往前扫可能取到上一轮旧 URL → 误自动打开。
@@ -377,9 +523,9 @@ export function PersonalChatArea({
     [project, realProject, bridge, requestBrowserUrl, requestFilePreview, setRightOpen, onToast],
   );
 
-  // 点 typing 活动行 → 请求展开右侧「执行过程」面板(store nonce 信号,面板侧消费)。
-  const handleActivityClick = useCallback(() => {
-    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id);
+  // typing 打开整轮过程；子代理卡传入 callId 后只打开该次委派的过程，重复调用同一角色也不会串流。
+  const handleActivityClick = useCallback((subagent?: { callId: string; label: string }) => {
+    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id, subagent);
   }, [session]);
 
   // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
@@ -654,6 +800,7 @@ export function PersonalChatArea({
         stickToBottomKey={scrollStickKey}
         preserveAnchorKey={win.expandNonce}
         onActivityClick={handleActivityClick}
+        sessionId={session.id}
         leadingContent={
           showHiddenHistory ? (
             <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />
@@ -728,6 +875,16 @@ export function PersonalChatArea({
         editing={editing}
         onCancelEdit={() => setEditing(null)}
         onSend={async (text, attachments, images, docFiles) => {
+          const goalCommand = parseGoalCommand(text);
+          if (goalCommand) {
+            if (goalCommand.action === "set") startOrReplaceGoal(goalCommand.objective);
+            else if (goalCommand.action === "pause") changeGoalStatus("paused");
+            else if (goalCommand.action === "resume") changeGoalStatus("active");
+            else if (goalCommand.action === "clear") clearSessionGoal(session.id);
+            // `/goal` 本身由 ComposerShell 切入目标输入态；即便经其它入口到这里，也不能作为
+            // 普通消息发给 agent。控制命令不消费附件，返回 false 保留待发文件。
+            return false;
+          }
           // 编辑重发:截断目标消息及其后内容,按新文本重发(复用原消息已落盘图,见 editResend)。
           // 本期编辑态不增删图,composer 的待发 images 忽略;返回 true 让 composer 清空。
           if (editing) {
@@ -854,18 +1011,23 @@ export function PersonalChatArea({
           const artifactPrompt = artifact
             ? buildConversationArtifactPrompt(artifact)
             : undefined;
+          // 白板意图优先于当前绑定的设计产物：明确“画架构图/白板”应作用于会话级
+          // `.kun-canvas/code-<sessionId>`，不能误发到另一个 artifact workspace。
+          const whiteboardAppend = artifactDispatch.handledSkill
+            ? undefined
+            : await buildWhiteboardAppend(text);
           return send(
             session,
             project.path,
             outText,
             attachments,
-            artifactPrompt,
+            [whiteboardAppend, whiteboardAppend ? undefined : artifactPrompt].filter(Boolean).join("\n\n") || undefined,
             images,
             undefined,
             docFiles,
             invokedSkill,
             undefined,
-            artifact,
+            whiteboardAppend ? undefined : artifact,
           );
         }}
         onStop={() => void stopRun(session.id)}
@@ -876,6 +1038,9 @@ export function PersonalChatArea({
         onChangeExecPermission={(p) => updateSession(session.id, { execPermission: p })}
         onToggleSkills={() => updateSession(session.id, { useOwnSkills: session.useOwnSkills !== true })}
         onToggleWebSearch={() => updateSession(session.id, { webSearch: session.webSearch !== true })}
+        onSetGoal={startOrReplaceGoal}
+        onSetGoalStatus={changeGoalStatus}
+        onClearGoal={() => clearSessionGoal(session.id)}
         onToast={onToast}
       />
 

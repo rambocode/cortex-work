@@ -41,40 +41,53 @@ export function PersonalProcessPanel() {
 
   // 运行过程详情弹层开关。切会话时关闭,避免弹层残留展示上一个会话。
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [subagentScope, setSubagentScope] = useState<{ callId: string; label?: string }>();
   useEffect(() => {
     setTranscriptOpen(false);
+    setSubagentScope(undefined);
   }, [activeSessionId]);
   // 外部打开请求(点聊天流 typing 活动行):nonce 变化即打开一次弹层。
   const openReq = usePersonalStore((s) => s.processPanelOpenReq);
   useEffect(() => {
-    if (openReq && openReq.sessionId === activeSessionId) setTranscriptOpen(true);
+    if (openReq && openReq.sessionId === activeSessionId) {
+      setSubagentScope(
+        openReq.subagentCallId ? { callId: openReq.subagentCallId, label: openReq.subagentLabel } : undefined,
+      );
+      setTranscriptOpen(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openReq?.nonce]);
 
-  // 门控：中栏非会话区 / 当前会话既无过程也未运行 → 不渲染。
-  // 扩展命令轮且无过程步骤 → 不渲染（命令输出在消息流,入口无内容,避免空态闪现）。
-  if (!chatViewActive || !activeSessionId || (process.length === 0 && !runId)) return null;
-  if (isExtensionCommand && process.length === 0) return null;
+  // 子代理卡可独立打开其调用详情，即使会话级过程入口此刻不可见，也不能把已发出的 scoped 请求
+  // 被下面的门控吞掉。FAB 自身仍遵循原来的过程/运行状态门控。
+  if (!chatViewActive || !activeSessionId) return null;
+  const showFab = (process.length > 0 || !!runId) && !(isExtensionCommand && process.length === 0);
+  if (!showFab && !(transcriptOpen && subagentScope)) return null;
 
   // 圆形状态 icon:运行中转圈、完成绿勾;点击打开详情弹层。原生 <button> → 键盘/读屏可达。
   return (
     <>
-      <button
+      {showFab ? <button
         type="button"
         className="pw-process is-collapsed"
         data-active={active}
         aria-label={t("transcript.openButton")}
         title={t("transcript.openButton")}
-        onClick={() => setTranscriptOpen(true)}
+        onClick={() => {
+          setSubagentScope(undefined);
+          setTranscriptOpen(true);
+        }}
       >
         <span className="pw-process-fab-ic" aria-hidden="true">
           {active ? <span className="spinner" /> : <Icon.CheckCircle size={18} />}
         </span>
-      </button>
+      </button> : null}
       <AgentTranscriptDialog
         open={transcriptOpen}
         onClose={() => setTranscriptOpen(false)}
         sessionId={activeSessionId}
+        subagentCallId={subagentScope?.callId}
+        subagentLabel={subagentScope?.label}
       />
     </>
   );

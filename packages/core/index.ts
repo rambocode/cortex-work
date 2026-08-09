@@ -70,6 +70,33 @@ export {
   type ArchivedGroup,
   type ArchivedPartition,
 } from "./store/archivedSessions";
+export {
+  BUILTIN_AGENT_CATALOG,
+  BUILTIN_AGENT_CATALOG_BY_ID,
+  DEFAULT_SUBAGENT_SETTINGS,
+  SUBAGENT_MAX_CHILD_RUNS_RANGE,
+  SUBAGENT_MAX_PARALLEL_RANGE,
+  enabledSubagentCatalog,
+  normalizeSubagentSettings,
+  type BuiltinAgentCatalogEntry,
+  type BuiltinAgentCategory,
+  type BuiltinAgentFamily,
+  type SubagentProfileOverride,
+  type SubagentSettings,
+} from "./personal/subagents";
+export {
+  MAX_GOAL_OBJECTIVE_LENGTH,
+  MAX_AUTOMATIC_GOAL_TURNS,
+  GOAL_CONTINUATION_PROMPT,
+  parseGoalCommand,
+  normalizeGoalObjective,
+  createThreadGoal,
+  updateThreadGoalStatus,
+  buildGoalSystemPrompt,
+  goalStatusFromAssistantText,
+  goalCanAutoContinue,
+  type GoalCommand,
+} from "./personal/goal";
 export { usePetStore, type PetState, type PetKind, type PetStore } from "./store/pet";
 // 快捷回复助手（reply）客户端态 store（U5/U9）。持久化经 usePersonalPersistence 合并进 PersistedState。
 export {
@@ -115,6 +142,8 @@ export {
   type NotificationSettings,
   type LogSettings,
   type SessionMeta,
+  type ThreadGoal,
+  type ThreadGoalStatus,
   type ConversationArtifactKind,
   type ConversationArtifactRef,
   type ConversationArtifactCreateRequest,

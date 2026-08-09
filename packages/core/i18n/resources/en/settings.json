@@ -10,6 +10,7 @@
     "general": "General",
     "archivedSessions": "Archived",
     "agent": "Agent",
+    "subagents": "Sub-agents",
     "pi": "Models",
     "plugins": "Plugins",
     "browser": "Browser",
@@ -607,13 +608,14 @@
     "defaultLabel": "Default agent for new sessions",
     "defaultDesc": "Used as the default for new sessions, and to generate the home greeting. Falls back automatically when the chosen agent is unavailable.",
     "labelNotInstalled": "{{name}} (not installed)",
-    "orchestrationCard": "Sub-agent orchestration",
-    "orchestrationLabel": "Enable sub-agent orchestration",
-    "orchestrationDesc": "The main session keeps its native context and delegates work to an independent sub-agent. Results return to the main session for synthesis and final output. Off by default.",
     "availabilityCard": "Availability",
     "builtin": "Built-in",
     "installed": "Installed",
     "notDetected": "CLI not detected"
+  },
+  "subagents": {
+    "title": "Sub-agents",
+    "desc": "Manage delegated sub-agent runtime policy, models, reasoning effort, prompts, and capabilities in one place. These settings stay in sync with the workspace sub-agent panel."
   },
   "pi": {
     "title": "Models",

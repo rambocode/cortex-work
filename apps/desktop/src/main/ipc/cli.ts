@@ -464,12 +464,20 @@ function runDelegateSubAgent(
     // 子 agent 用各自 agent 的默认 model，绝不跨体系继承主会话 model：主会话 model 属于主 agent 的
     // provider 体系——pi 的 deepseek 传给 codex（ChatGPT）会 400；反之 codex/claude 的 gpt/claude
     // model 串给 pi 也不匹配 pi 的 provider。仅当「子是 pi 且主也是 pi」时同体系，才继承。
-    model: roleBaseAgent === "pi" && parentIsPi ? parent.model : undefined,
+    model: role.model || (roleBaseAgent === "pi" && parentIsPi ? parent.model : undefined),
     // 思考档透传:同体系直传;跨体系只透传公共三档(见 commonEffortOf)。effort(low/medium/high)
     // 本身是 pi thinkingLevel 刻度的子集,可直接作 pi 子 agent 的思考档。
-    effort: roleBaseAgent === "pi" ? undefined : (parent.effort ?? commonEffortOf(parent.thinkingLevel)),
-    thinkingLevel: roleBaseAgent === "pi" ? (parent.thinkingLevel ?? parent.effort) : undefined,
-    permissionMode: parent.permissionMode,
+    effort:
+      roleBaseAgent === "pi"
+        ? undefined
+        : (commonEffortOf(role.effort) ?? parent.effort ?? commonEffortOf(parent.thinkingLevel)),
+    thinkingLevel:
+      roleBaseAgent === "pi"
+        ? (role.effort ?? parent.thinkingLevel ?? parent.effort)
+        : undefined,
+    // Kun 的 readOnly 是执行策略，不是展示标签：无论主会话权限多高，都把该角色降为原生
+    // plan/read-only 模式。inherit 才沿用主会话权限，防止审查类角色意外改写工作区。
+    permissionMode: role.toolPolicy === "readOnly" ? "plan" : parent.permissionMode,
     approvalPolicy: parent.approvalPolicy,
     // 协作者 persona 作为子 agent 系统提示(三端 adapter 原生支持 appendSystemPrompt)。
     appendSystemPrompt: role.systemPrompt || undefined,
@@ -505,7 +513,9 @@ function runDelegateSubAgent(
   // 临时诊断：给 codex 子 agent 开 RUST_LOG，让它把内部失败原因（WebSocket 连接 / 认证 / plugin
   // 加载）写到 stderr——所有终端复现均成功，唯 Electron 主进程失败，需 codex 自身日志定位。
   const subEnv = spawnEnvForDef(req, adapter);
-  if (roleBaseAgent === "codex" && !subEnv.RUST_LOG) subEnv.RUST_LOG = "info";
+  // 委派诊断要求 info；继承到的全局 RUST_LOG=warn 会吞掉 WebSocket/认证失败上下文，导致只看到
+  // 子进程退出码而无法定位。该覆盖只作用于一次性 Codex 子进程，不改主进程环境。
+  if (roleBaseAgent === "codex") subEnv.RUST_LOG = "info";
   // pi 协作者无条件走 in-process 单发(图片校验在 oneshot 内部,错误码/文案与 buildArgs 时代一致);
   // 刻意不注入 MCP 桥 / todo:子 agent 拿不到 delegate 工具是防递归的核心不变量,todo 事件在
   // 委派流里也不渲染。claude/codex 原样 spawn。
@@ -899,7 +909,11 @@ export function registerCliHandlers(): void {
         abort: () => controller.abort(),
         pushEvent: (ev) => sendEvent(ev),
         bumpWatchdog: () => bumpRunWatchdog(req.runId),
-        callCounts: new Map(),
+        maxParallel: req.delegatePolicy?.maxParallel ?? 256,
+        maxChildRuns: req.delegatePolicy?.maxChildRuns ?? 25,
+        childRunCount: 0,
+        activeRuns: 0,
+        waiters: [],
         runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
       };
       registerDelegateSession(state);
