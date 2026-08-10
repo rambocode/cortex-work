@@ -24,13 +24,13 @@ flowchart LR
   N --> B
   B --> C[buildConfiguredSubagentRoles]
   C --> D[cli:start delegateRoles]
-  D --> E[ask_role MCP tools]
+  D --> E[explore_agent / ask_role MCP tools]
   E --> F[独立子会话]
   F --> G[roleId + callId + childSessionId 事件]
   G --> H[会话子代理卡]
   G --> I[过程详情和 trace]
   G --> L[side SessionMeta + 独立 chat 文件]
-  L --> M[进入子会话 / 返回父会话]
+  L --> M[查看过程 / 返回主对话]
   F --> J[tool result 回主会话]
   J --> K[主 Agent 汇总最终回答]
 ```
@@ -43,21 +43,21 @@ flowchart LR
 - 场景切换会写入角色的 `surfaces`；发送边界依据普通代码会话、写作 skill 或设计/Slides 产物选择场景，`buildConfiguredSubagentRoles` 只注入当前场景可用的角色。
 - “自动模型角色”中的标题生成会直接配置 `oneshotCli`，代码审查会作为 `code-reviewer` 的目录默认模型；单角色显式覆盖优先。上下文压缩由 Pi 长驻会话运行时管理，当前版本没有独立会话摘要任务，因此这两项明确显示只读状态，不保存伪配置。
 - `packages/core/personal/delegate-orchestration.ts` 将当前场景的内置角色与自定义角色解析为 `RoleConfig[]`；关闭“使用现有代理”时保留原匿名角色行为。
-- `apps/desktop/src/main/ipc/cli.ts` 在子会话创建时应用角色级 `agent`、`model`、`effort` 和 `systemPrompt` 覆盖；`readOnly` 角色会强制使用原生 `plan/read-only` 权限，不能继承主会话的写权限。
+- `apps/desktop/src/main/ipc/cli.ts` 在子会话创建时应用角色级 `agent`、`model`、`effort` 和 `systemPrompt` 覆盖；显式角色模型优先，未覆盖且父子使用同一底层 Agent 时继承父会话实际模型。`readOnly` 角色会强制使用原生 `plan/read-only` 权限，不能继承主会话的写权限。
 - delegate host 为每一次调用分别生成 `subagentCallId` 和 `childSessionId`。前者隔离卡片与过程，后者标识持久化 side 会话；同一角色重复或并行委派不会互相混入。
 - delegate host 以 `maxParallel` 管理 FIFO 并行槽，以 `maxChildRuns` 管理本轮总任务数；不再硬编码“每个角色最多 3 次”。
 - `packages/core/personal/messages.ts` 把带 `roleId`、`subagentCallId` 和 `childSessionId` 的事件折叠为持久化 `subagentCard`，同时把委派任务与子 Agent 回复写入子会话自己的 chat 文件。子进程的原生 `init.sessionId` 只写子会话 `agentSessionIds`，不会覆盖父会话续接槽。
-- `SessionMeta.relation="side"`、`parentSessionId` 和 `parentSubagentCallId` 构成父子关系。side 会话不进入侧栏、全局搜索或归档列表，只能从父卡片进入；子会话顶部提供返回父会话入口。删除父会话会级联清理子会话元数据、chat 文件和 Pi 运行态。
-- 卡片的“预览”使用锚定浮层展示最近活动和当前结论；“查看过程”打开按调用过滤的 transcript，可查看工具输入、输出、思考与统计。预览与结论展开互斥，进入完整过程时自动关闭预览。
+- `SessionMeta.relation="side"`、`parentSessionId` 和 `parentSubagentCallId` 构成父子关系。side 会话不进入侧栏、全局搜索或归档列表，只能从父卡片进入；过程页不提供输入框，底部用“返回主对话”状态条替代。删除父会话会级联清理子会话元数据、chat 文件和 Pi 运行态。
+- 卡片按当前界面语言展示角色类型；内置 Repository Explorer 显示为“探索 / 代理 探索代理”，同时标明实际运行模型。展开结论使用 GitHub Flavored Markdown 渲染；“预览”使用锚定浮层，正文优先读取子会话持久化的真实输出，最近步骤仅作次要补充；“查看过程”直接进入这一次委派对应的只读 side 会话，不再保留单独的“进入子会话”按钮或按调用过滤的 transcript 弹层。
 - 异常退出时，落盘中的运行卡归一为失败，避免重启后永久显示“进行中”。
 
 ## 边界
 
-- 子代理不继承主会话文本历史；主 Agent 必须把任务和必要材料写进 `task`。
-- 仓库或项目探索优先调用只读 `ask_explore`；互不依赖的探索问题应在同一轮并行发出，返回后主 Agent 只做窄范围补充检查并负责整合与最终验证。
+- 子代理不继承主会话文本历史；主 Agent 必须把任务和必要材料写进 `task`，Repository Explorer 则使用 Kun 同款 `{ title, query }` 契约。
+- 仓库或项目探索优先调用只读 `explore_agent`。复杂探索必须按互不重叠的范围动态拆成多个并行调用，整项目分析先枚举产品定位、后端或核心实现、前端交互、测试与完成度等所有适用证据面；数量由实际问题决定，禁止固定次数、为减少调用次数合并独立证据面，或把整仓调查塞进一次调用。返回后主 Agent 只做窄范围补充检查并负责整合与最终验证。
 - 子代理没有 delegate 工具，避免递归资源放大。
-- 用户进入子会话后可以继续追问并复用该子 Agent 的原生会话；side 会话的后续发送仍不注入 delegate 工具，显式 `@角色` 也不会突破防递归边界。
+- side 子会话只用于查看委派任务、子 Agent 输出和过程，不接受继续发送；后续需求需返回主对话，由主 Agent 结合完整上下文继续编排。
 - 普通会话默认提供已启用角色目录；模型按任务收益调用一个或多个，琐碎任务可以不调用。显式 `@角色` 仍优先并收窄为用户点名角色。
 - 模型覆盖是可选值；空值沿用所选 Agent 的默认配置。
 - renderer 刷新后，delegate 的 `stage=subagent` 事件会恢复卡片语义，不会误折叠成圆桌角色消息。
-- 子会话的委派任务、回复和续接 id 会持久化；完整 reasoning/tool 过程仍沿用现有瞬态运行数据策略，不写入聊天记录。应用重启后可继续进入并追问子会话，但不承诺恢复原始工具输入/输出。
+- 子会话的委派任务、回复和续接 id 会持久化；完整 reasoning/tool 过程仍沿用现有瞬态运行数据策略，不写入聊天记录。应用重启后仍可进入子会话回看任务与输出，但不承诺恢复原始工具输入/输出。

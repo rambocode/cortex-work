@@ -74,7 +74,7 @@ function renderMessageStream(messages: Message[]) {
 describe("PersonalChatArea side 子会话导航", () => {
   afterEach(() => cleanup());
 
-  it("展示关系返回条并切回父会话", async () => {
+  it("底部以返回条替代输入框并切回父会话", async () => {
     usePersonalStore.setState({
       homeOpen: false,
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
@@ -99,7 +99,8 @@ describe("PersonalChatArea side 子会话导航", () => {
     });
 
     renderArea();
-    const button = await screen.findByRole("button", { name: /正在查看子代理会话.*返回父会话/ });
+    const button = await screen.findByRole("button", { name: /正在查看代理过程.*父会话.*返回主对话/ });
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     fireEvent.click(button);
     expect(usePersonalStore.getState().activeSessionId).toBe("parent");
   });

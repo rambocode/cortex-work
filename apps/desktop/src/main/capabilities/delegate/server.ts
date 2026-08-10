@@ -1,4 +1,4 @@
-// 委派（delegate）MCP host：把「本轮被 @ 的协作者」暴露成主 agent 可调用的 ask_<id> 工具，
+// 委派（delegate）MCP host：把「本轮被 @ 的协作者」暴露成主 agent 可调用的 MCP 工具，
 // 让主 agent 理解意图后**自主**用 function tool call 委派子任务，而非宿主硬编码管线串联。
 //
 // 架构（KTD/复用 createMcpHost）：
@@ -34,6 +34,8 @@ export function safeToolId(id: string): string {
 
 // 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（codex -c mcp_servers.<id>）。
 export const DELEGATE_SERVER_ID = "cortex-delegate";
+/** Repository Explorer 与 Kun 保持一致的一等工具名。 */
+export const EXPLORE_AGENT_TOOL_NAME = "explore_agent";
 
 const DEFAULT_MAX_PARALLEL = 256;
 const DEFAULT_MAX_CHILD_RUNS = 25;
@@ -169,8 +171,145 @@ function releaseDelegateSlot(state: DelegateSessionState): void {
   }
 }
 
-// ── 单个 ask_<id> 工具注册 ────────────────────────────────────────────────────
-function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessionState): void {
+// ── 单个委派工具执行与注册 ────────────────────────────────────────────────────
+async function executeDelegateTool(
+  role: RoleConfig,
+  state: DelegateSessionState,
+  task: string,
+  subagentTitle?: string,
+): Promise<ToolResult> {
+  if (state.signal.aborted) return errorResult("已取消");
+  // task/query 必须自包含；空输入直接返回明确错误，避免独立子进程因拿不到主会话上下文而无效退出。
+  const taskText = typeof task === "string" ? task.trim() : "";
+  if (!taskText) {
+    return errorResult(
+      `委派给「${role.label}」失败：任务为空。请提供完整的任务描述，并附上协作者所需的` +
+        `全部数据/材料——它是独立进程，看不到你当前对话的内容。`,
+    );
+  }
+  const taskTitle = subagentTitle?.trim() || undefined;
+  // 单会话子任务上限是总量护栏，不限制同一角色的合理重复调用；是否调用多少次仍由模型决定。
+  // JS handler 的检查与递增处于同一同步段，并发 tool call 也不会共同越过上限。
+  if (state.childRunCount >= state.maxChildRuns) {
+    return errorResult(
+      `本轮已创建 ${state.childRunCount} 个子任务（上限 ${state.maxChildRuns}），请基于已有结果完成回答。`,
+    );
+  }
+  state.childRunCount += 1;
+  const acquired = await acquireDelegateSlot(state);
+  if (!acquired) return errorResult("已取消");
+  // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
+  // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
+  const subagentCallId = randomUUID();
+  // childSessionId 是 Cortex 侧持久 side 会话 id，与原生 agent 的 resume id 分离。后者要等
+  // 子进程 init 才能得到；提前分配应用 id 才能在第一帧就创建可进入的独立会话。
+  const childSessionId = randomUUID();
+  // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
+  // stage=subagent 是 HMR/刷新恢复标识：renderer 内存中的 run.delegate 丢失后，仍能把后续
+  // roleId 事件识别为子代理卡片，而不是误当成圆桌角色消息。
+  state.pushEvent({
+    type: "init",
+    sessionId: state.sessionId,
+    roleId: role.id,
+    stage: "subagent",
+    stageLabel: role.label,
+    subagentCallId,
+    childSessionId,
+    subagentTask: taskText,
+    subagentTitle: taskTitle,
+    subagentAgentId: role.agent,
+    subagentModel: role.model,
+    subagentReadOnly: role.toolPolicy === "readOnly",
+  });
+  // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
+  const onEvent = (ev: CliStreamEvent) => {
+    state.pushEvent({
+      ...ev,
+      roleId: role.id,
+      subagentCallId,
+      // 子进程 init 同样携带应用侧 child id，使 renderer HMR 后只收到后续帧时仍能恢复父子绑定。
+      ...(ev.type === "init" ? {
+        childSessionId,
+        subagentTask: taskText,
+        subagentTitle: taskTitle,
+        subagentAgentId: role.agent,
+        subagentModel: ev.subagentModel ?? role.model,
+        subagentReadOnly: role.toolPolicy === "readOnly",
+      } : {}),
+    });
+    state.bumpWatchdog();
+  };
+  try {
+    let result: SubAgentResult;
+    try {
+      result = await state.runSubAgent(role, taskText, onEvent, childSessionId);
+    } catch (err) {
+      // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
+      // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
+      const message = err instanceof Error ? err.message : String(err);
+      state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
+      return errorResult(`协作者「${role.label}」执行失败：${message}`);
+    }
+    recordAgentTrace({
+      scope: "delegate",
+      phase: "context-return",
+      summary: `子 Agent「${role.label}」结果回传主会话`,
+      runId: state.runId,
+      sessionId: state.sessionId,
+      agent: role.agent,
+      data: {
+        roleId: role.id,
+        taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
+        resultPreview:
+          result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
+        ok: result.ok,
+        returnedToMain: true,
+      },
+    });
+    if (!result.ok) {
+      state.pushEvent({
+        type: "result",
+        ok: false,
+        error: result.error ?? "未知错误",
+        roleId: role.id,
+        subagentCallId,
+      });
+      return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
+    }
+    // 子进程的原始 result 在 cli.ts 内部收口，不直接转发；由 delegate host 在 tool_result
+    // 返回主 Agent 前补发一次角色级完成帧，驱动会话卡片从“进行中”进入完成态。
+    state.pushEvent({ type: "result", ok: true, text: result.text, roleId: role.id, subagentCallId });
+    return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
+  } finally {
+    // 成功、失败和适配器异常都必须释放并行槽，否则后续排队任务会永久挂起。
+    releaseDelegateSlot(state);
+  }
+}
+
+function registerDelegateTool(mcp: McpServer, role: RoleConfig, state: DelegateSessionState): void {
+  if (role.id === "explore") {
+    mcp.registerTool(
+      EXPLORE_AGENT_TOOL_NAME,
+      {
+        description:
+          "Use this first for any repository or project exploration. " +
+          "Complex questions MUST be split into multiple parallel explore_agent calls with non-overlapping scopes " +
+          "(for example one call for API wiring, another for UI, another for tests). " +
+          "Never pack a whole-repo investigation into a single call. " +
+          "Each call needs a short distinct title (2-6 words) and a narrow self-contained query. " +
+          "整项目分析要先枚举所有适用的独立证据面，例如产品定位、后端或核心实现、前端交互、测试与完成度；" +
+          "不得为了减少调用次数把彼此独立的证据面合并。拆分数量由问题范围动态决定，不得固定调用次数。",
+        inputSchema: {
+          title: z.string().min(1).describe("本次探索的简短标题，建议 2-6 个词，用于子 Agent 卡片和会话标题。"),
+          query: z.string().min(1).describe("范围明确且自包含的只读探索任务；子 Agent 看不到主会话上下文。"),
+        },
+      },
+      async ({ title, query }: { title: string; query: string }): Promise<ToolResult> =>
+        executeDelegateTool(role, state, query, title),
+    );
+    return;
+  }
+
   const toolName = "ask_" + safeToolId(role.id);
   // description 带角色 persona，帮助主 agent 判断「这是谁、擅长什么、何时该委派给它」（R8）。
   const personaLine = role.systemPrompt ? `角色设定：${role.systemPrompt.slice(0, 240)}。` : "";
@@ -182,121 +321,13 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
         `⚠️ 协作者是一个独立进程，看不到你当前对话的任何上下文——你必须在 task 参数里写明完整的任务描述，` +
         `并附上它完成任务所需的全部数据/材料（例如你已搜集到的内容）。它执行后会把结果返回给你，供你整合。`,
       inputSchema: {
-        task: z
-          .string()
-          .min(1)
-          .describe(
-            `交给协作者「${role.label}」的完整任务描述，必须自包含：写清要做什么 + 附上所需的全部数据/材料` +
-              `（协作者看不到你的对话上下文，凡未写进 task 的信息它都拿不到）。`,
-          ),
+        task: z.string().min(1).describe(
+          `交给协作者「${role.label}」的完整任务描述，必须自包含：写清要做什么 + 附上所需的全部数据/材料` +
+            `（协作者看不到你的对话上下文，凡未写进 task 的信息它都拿不到）。`,
+        ),
       },
     },
-    async ({ task }: { task: string }): Promise<ToolResult> => {
-      if (state.signal.aborted) return errorResult("已取消");
-      // task 自包含校验：空/纯空白直接返回明确错误，引导主 agent 重传——子 agent 是独立进程看不到主 agent
-      // 上下文，且 codex 等收到空 prompt 会直接 exit 1（"No prompt provided via stdin"）。
-      const taskText = typeof task === "string" ? task.trim() : "";
-      if (!taskText) {
-        return errorResult(
-          `委派给「${role.label}」失败：task 为空。请在 task 参数里提供完整的任务描述，并附上协作者所需的` +
-            `全部数据/材料——它是独立进程，看不到你当前对话的内容。`,
-        );
-      }
-      // 单会话子任务上限是总量护栏，不限制同一角色的合理重复调用；是否调用多少次仍由模型决定。
-      // JS handler 的检查与递增处于同一同步段，并发 tool call 也不会共同越过上限。
-      if (state.childRunCount >= state.maxChildRuns) {
-        return errorResult(
-          `本轮已创建 ${state.childRunCount} 个子任务（上限 ${state.maxChildRuns}），请基于已有结果完成回答。`,
-        );
-      }
-      state.childRunCount += 1;
-      const acquired = await acquireDelegateSlot(state);
-      if (!acquired) return errorResult("已取消");
-      // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
-      // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
-      const subagentCallId = randomUUID();
-      // childSessionId 是 Cortex 侧持久 side 会话 id，与原生 agent 的 resume id 分离。后者要等
-      // 子进程 init 才能得到；提前分配应用 id 才能在第一帧就创建可进入的独立会话。
-      const childSessionId = randomUUID();
-      // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
-      // stage=subagent 是 HMR/刷新恢复标识：renderer 内存中的 run.delegate 丢失后，仍能把后续
-      // roleId 事件识别为子代理卡片，而不是误当成圆桌角色消息。
-      state.pushEvent({
-        type: "init",
-        sessionId: state.sessionId,
-        roleId: role.id,
-        stage: "subagent",
-        stageLabel: role.label,
-        subagentCallId,
-        childSessionId,
-        subagentTask: taskText,
-        subagentAgentId: role.agent,
-        subagentModel: role.model,
-        subagentReadOnly: role.toolPolicy === "readOnly",
-      });
-      // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
-      const onEvent = (ev: CliStreamEvent) => {
-        state.pushEvent({
-          ...ev,
-          roleId: role.id,
-          subagentCallId,
-          // 子进程 init 同样携带应用侧 child id，使 renderer HMR 后只收到后续帧时仍能恢复父子绑定。
-          ...(ev.type === "init" ? {
-            childSessionId,
-            subagentTask: taskText,
-            subagentAgentId: role.agent,
-            subagentModel: ev.subagentModel ?? role.model,
-            subagentReadOnly: role.toolPolicy === "readOnly",
-          } : {}),
-        });
-        state.bumpWatchdog();
-      };
-      try {
-        let result: SubAgentResult;
-        try {
-          result = await state.runSubAgent(role, taskText, onEvent, childSessionId);
-        } catch (err) {
-          // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
-          // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
-          const message = err instanceof Error ? err.message : String(err);
-          state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
-          return errorResult(`协作者「${role.label}」执行失败：${message}`);
-        }
-        recordAgentTrace({
-          scope: "delegate",
-          phase: "context-return",
-          summary: `子 Agent「${role.label}」结果回传主会话`,
-          runId: state.runId,
-          sessionId: state.sessionId,
-          agent: role.agent,
-          data: {
-            roleId: role.id,
-            taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
-            resultPreview:
-              result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
-            ok: result.ok,
-            returnedToMain: true,
-          },
-        });
-        if (!result.ok) {
-          state.pushEvent({
-            type: "result",
-            ok: false,
-            error: result.error ?? "未知错误",
-            roleId: role.id,
-            subagentCallId,
-          });
-          return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
-        }
-        // 子进程的原始 result 在 cli.ts 内部收口，不直接转发；由 delegate host 在 tool_result
-        // 返回主 Agent 前补发一次角色级完成帧，驱动会话卡片从“进行中”进入完成态。
-        state.pushEvent({ type: "result", ok: true, text: result.text, roleId: role.id, subagentCallId });
-        return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
-      } finally {
-        // 成功、失败和适配器异常都必须释放并行槽，否则后续排队任务会永久挂起。
-        releaseDelegateSlot(state);
-      }
-    },
+    async ({ task }: { task: string }): Promise<ToolResult> => executeDelegateTool(role, state, task),
   );
 }
 
@@ -319,7 +350,7 @@ export function startDelegateHost(): Promise<McpHostHandle> {
     } catch (e) { /* 诊断写失败忽略 */ }
     if (!state) return;
     for (const role of state.roles) {
-      registerAskTool(mcp, role, state);
+      registerDelegateTool(mcp, role, state);
     }
   });
   delegateHostStartPromise.finally(() => {

@@ -211,6 +211,9 @@
   },
   "subagentCard": {
     "agent": "代理",
+    "explore": "探索",
+    "exploreAgent": "探索代理",
+    "model": "模型",
     "running": "进行中",
     "completed": "完成",
     "failed": "失败",
@@ -228,16 +231,18 @@
     "expandConclusion": "展开结论",
     "preview": "预览",
     "viewProcess": "查看过程",
-    "openSession": "进入子会话",
     "viewFullProcess": "查看完整过程",
     "closePreview": "关闭预览",
     "previewAria": "预览 {{title}} 的执行进度",
     "waiting": "正在等待子代理产生过程…",
-    "currentConclusion": "当前结论"
+    "currentConclusion": "当前结论",
+    "agentOutput": "子 Agent 输出",
+    "waitingOutput": "正在等待子 Agent 产生输出…"
   },
   "subagentThread": {
-    "title": "正在查看子代理会话",
-    "returnToParent": "返回父会话"
+    "title": "正在查看代理过程",
+    "description": "这是「{{title}}」委派的子代理过程，可随时返回主对话。",
+    "returnToParent": "返回主对话"
   },
   "transcript": {
     "title": "运行过程详情",

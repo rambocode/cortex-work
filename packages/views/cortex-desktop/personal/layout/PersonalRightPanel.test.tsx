@@ -29,10 +29,32 @@ describe("PersonalRightPanel 拖拽调宽", () => {
       homeOpen: true,
       projects: [],
       sessions: [],
+      activeSessionId: undefined,
       todos: [],
       rightView: "todos",
       rightPanelWidth: undefined,
     });
+  });
+
+  it("画板没有当前会话时显示专用空态，不回退到 Skills 库", () => {
+    usePersonalStore.setState({ rightView: "canvas", activeSessionId: undefined });
+    useCortexUIStore.setState({ rightOpen: true });
+
+    renderPanel();
+
+    expect(screen.queryByText("Skills 库")).not.toBeInTheDocument();
+    expect(screen.getByText("请先选择会话")).toBeInTheDocument();
+  });
+
+  it("子代理侧栏使用 Kun 同款标题层级", () => {
+    usePersonalStore.setState({ rightView: "subagents" });
+    useCortexUIStore.setState({ rightOpen: true });
+
+    const { container } = renderPanel();
+    const head = container.querySelector(".pw-rp-head.is-subagents");
+
+    expect(head?.querySelector(".pw-col-head-title")?.textContent).toBe("子代理");
+    expect(head?.querySelector(".pw-rp-head-subtitle")?.textContent).toBe("· 配置模型");
   });
 
   it("切到没有当前产物的会话时关闭遗留的产物右栏", async () => {

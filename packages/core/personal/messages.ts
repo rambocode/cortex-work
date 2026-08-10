@@ -1137,6 +1137,7 @@ function ensureSubagentSession(
     providerId: ev.subagentProviderId,
     readOnly: ev.subagentReadOnly,
     task: ev.subagentTask,
+    taskTitle: ev.subagentTitle,
   });
   if (!child) return undefined;
 
@@ -1236,6 +1237,7 @@ function beginSubagentCard(
   callId: string,
   fallbackLabel?: string,
   childSession?: SessionMeta,
+  taskTitle?: string,
 ): void {
   if (run.subagentCards?.has(callId)) return;
   const role = run.roleHeaders?.get(roleId);
@@ -1247,6 +1249,7 @@ function beginSubagentCard(
     time: realHHMM(),
     callId,
     childSessionId: childSession?.id,
+    taskTitle: taskTitle?.trim() || undefined,
     roleId,
     roleLabel,
     roleColor: role?.roleColor,
@@ -1560,7 +1563,7 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
         const roleLabel = ev.stageLabel ?? ev.roleId;
         const childSession = ensureSubagentSession(qc, sessionId, ev.roleId, roleLabel, callId, ev);
         const alreadyStarted = run.subagentCards?.has(callId) === true;
-        beginSubagentCard(qc, sessionId, run, ev.roleId, callId, ev.stageLabel, childSession);
+        beginSubagentCard(qc, sessionId, run, ev.roleId, callId, ev.stageLabel, childSession, ev.subagentTitle);
         const childState = run.subagentCards?.get(callId);
         if (childState && childSession) {
           childState.childSessionId = childSession.id;
@@ -3511,15 +3514,16 @@ export function usePersonalActions(): PersonalActions {
   const send = useCallback<PersonalActions["send"]>(
     async (session, projectPath, text, attachments, extraSystemPrompt, images, presavedImages, docFiles, invokedSkill, presavedDocs, artifact) => {
       if (!bridge) return false;
+      // side 会话是父会话委派执行过程的只读投影。UI 不提供 composer，这里再做领域层守卫，
+      // 防止快捷键、旧渲染进程或未来其他调用方绕过界面向子会话直接发送消息。
+      if (session.relation === "side") return false;
       // 子代理能力默认交给主会话：主 Agent 自行判断本轮是否调用、调用哪些角色及调用次数；
       // 显式 @mention 仍代表用户明确委派，只收窄为被点名角色。产物隔离发送暂不注入，避免把
       // 产物专用 workspace 与普通会话的委派目录混用。
-      const sideSession = session.relation === "side";
-      const earlyMentions = sideSession ? [] : parseMentions(text, usePersonalStore.getState().roles);
-      const hasDelegateMentions = !sideSession && earlyMentions.length > 0 && !!bridge.startCli;
+      const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
+      const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
       const automaticDelegationAvailable =
         !artifact &&
-        !sideSession &&
         !!bridge.startCli &&
         !hasDelegateMentions &&
         // 旧字段不再由 UI 持久化，hydrate 也会剥离；仅保留显式 false 作为测试/紧急兼容闸门。
@@ -3753,7 +3757,7 @@ export function usePersonalActions(): PersonalActions {
 
       // Pi 无委派时继续复用 RPC 长驻会话；委派时主会话改走可注入 ask_* 工具的 startCli，
       // 并用原生 resumeSessionId 续接同一 Pi session。
-      if (session.agent === "pi" && !artifact && !usesCliDelegate && !sideSession) {
+      if (session.agent === "pi" && !artifact && !usesCliDelegate) {
         await sendPiTurn(qc, bridge, session, projectPath, text, piAppendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }

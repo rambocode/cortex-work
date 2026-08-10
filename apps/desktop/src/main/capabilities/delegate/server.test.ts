@@ -8,6 +8,7 @@ import {
   buildDelegateMcpServerConfig,
   startDelegateHost,
   stopDelegateHost,
+  EXPLORE_AGENT_TOOL_NAME,
   type DelegateSessionState,
 } from "./server";
 import { __resetAgentTraceForTest, agentTraceList } from "../../ipc/agent-trace";
@@ -171,6 +172,42 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(list.status).toBe(200);
       // 真实 host 返回 SSE，body 含注册的工具名（端到端验证 tools/list 真返回 ask_codex）。
       expect(list.body).toContain("ask_codex");
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("Repository Explorer 暴露 Kun 同款 title/query 契约并透传任务标题", async () => {
+    await startDelegateHost();
+    const sid = "explore-session";
+    const runSubAgent = vi.fn<DelegateSessionState["runSubAgent"]>(async () => ({ text: "结构分析完成", ok: true }));
+    const pushEvent = vi.fn();
+    const state = makeState(sid);
+    state.roles = [{ id: "explore", label: "Repository Explorer", agent: "pi", systemPrompt: "", toolPolicy: "readOnly", createdAt: "", updatedAt: "" }];
+    state.runSubAgent = runSubAgent;
+    state.pushEvent = pushEvent;
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const list = await post(cfg, { jsonrpc: "2.0", id: 21, method: "tools/list", params: {} });
+      expect(list.body).toContain(EXPLORE_AGENT_TOOL_NAME);
+      expect(list.body).not.toContain("ask_explore");
+      expect(list.body).toContain("title");
+      expect(list.body).toContain("query");
+      expect(list.body).toContain("multiple parallel explore_agent calls with non-overlapping scopes");
+      expect(list.body).toContain("one call for API wiring, another for UI, another for tests");
+      expect(list.body).toContain("整项目分析要先枚举所有适用的独立证据面");
+      const call = await post(cfg, {
+        jsonrpc: "2.0", id: 22, method: "tools/call",
+        params: { name: EXPLORE_AGENT_TOOL_NAME, arguments: { title: "Project structure", query: "只读分析目录与技术栈" } },
+      });
+      expect(call.status).toBe(200);
+      expect(call.body).toContain("结构分析完成");
+      expect(runSubAgent).toHaveBeenCalledWith(expect.objectContaining({ id: "explore" }), "只读分析目录与技术栈", expect.any(Function), expect.any(String));
+      expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        type: "init", subagentTask: "只读分析目录与技术栈", subagentTitle: "Project structure", subagentReadOnly: true,
+      }));
     } finally {
       stopDelegateHost();
       unregisterDelegateSession(sid);

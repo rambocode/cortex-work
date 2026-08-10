@@ -32,7 +32,7 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
   todos: "Tasks",
   notes: "闪记",
   browser: "浏览器",
-  canvas: "白板",
+  canvas: "画板",
   subagents: "子代理",
   artifact: "产物",
   research: "深度研究",
@@ -209,10 +209,17 @@ export function PersonalRightPanel({
         onMouseDown={startResize}
         onDoubleClick={() => setWidth(undefined)}
       />
-      {view === "canvas" ? null : <div className="pw-col-head pw-rp-head">
+      {view === "canvas" ? null : <div className={`pw-col-head pw-rp-head${view === "subagents" ? " is-subagents" : ""}`}>
         {/* 演示文稿产物:标题与播放/导出并入这一行,面板内不再叠第二条工具栏(省一行高度)。 */}
         {view === "artifact" && activeArtifact?.kind === "slides" ? (
           <SlidesDeckHeadActions fallbackTitle={activeArtifact.title} />
+        ) : view === "subagents" ? (
+          <>
+            <Icon.Bot size={17} />
+            <span className="pw-col-head-title">子代理</span>
+            <span className="pw-rp-head-subtitle">· 配置模型</span>
+            <div className="spacer" />
+          </>
         ) : (
           <>
             <span className="pw-col-head-title">{RIGHT_VIEW_TITLE[view] ?? "面板"}</span>
@@ -253,19 +260,27 @@ export function PersonalRightPanel({
         <NotesView onToast={onToast} />
       ) : view === "browser" ? (
         <BrowserView onToast={onToast} />
-      ) : view === "canvas" && activeSessionId ? (
-        <PersonalWhiteboardPanel
-          sessionId={activeSessionId}
-          workspaceRoot={activeProjectPath}
-          onCollapse={() => setRightOpen(false)}
-        />
+      ) : view === "canvas" ? (
+        activeSessionId ? (
+          <PersonalWhiteboardPanel
+            sessionId={activeSessionId}
+            workspaceRoot={activeProjectPath}
+            onCollapse={() => setRightOpen(false)}
+          />
+        ) : (
+          <div className="pw-canvas-empty" role="status">
+            <Icon.Palette size={30} />
+            <strong>请先选择会话</strong>
+            <span>画板与当前会话关联，选择或新建会话后即可使用。</span>
+          </div>
+        )
       ) : view === "subagents" ? (
         <SubagentsPanel />
       ) : view === "piArtifacts" ? (
         <PiArtifactsPanel />
-      ) : (
+      ) : view === "skills" ? (
         <PromptPanel onToast={onToast} bare />
-      )}
+      ) : null}
     </aside>
   );
 }

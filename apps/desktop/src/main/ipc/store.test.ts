@@ -42,6 +42,7 @@ vi.mock("../providers/credentials", () => ({
 }));
 
 const storePath = () => join(state.home, "personal-workspace.json");
+const recoveryPath = () => join(state.home, "personal-workspace.recovery.json");
 
 /** 带旧供应商配置（含明文 apiKey）的历史存档。 */
 const LEGACY_STATE = {
@@ -166,6 +167,25 @@ describe("主进程窄写通道", () => {
     const next = await readStore();
     expect(next.rightPanelWidth).toBe(420);
     expect(next.generalSettings).toEqual({ workspaceRoot: "/tmp/ws" });
+  });
+
+  it("全量快照把非空项目和会话清零前，先保留不含设置密钥的恢复索引", async () => {
+    const previous = {
+      version: 1,
+      projects: [{ id: "p1", name: "项目", path: "/workspace", createdAt: 1 }],
+      sessions: [{ id: "s1", title: "历史会话", agent: "pi", projectId: "p1", createdAt: 1, updatedAt: 1 }],
+      providerSettings: { providers: [{ id: "custom", apiKey: "sk-DO-NOT-BACKUP" }] },
+    };
+    await writeStore(previous);
+    const { getPersistedState, updatePersistedState } = await loadModule();
+    await getPersistedState();
+
+    await updatePersistedState((current) => ({ ...current, projects: [], sessions: [] }));
+
+    const recovery = JSON.parse(await fsp.readFile(recoveryPath(), "utf8")) as Record<string, unknown>;
+    expect(recovery).toMatchObject({ version: 1, projects: previous.projects, sessions: previous.sessions });
+    expect(JSON.stringify(recovery)).not.toContain("sk-DO-NOT-BACKUP");
+    expect(recovery).not.toHaveProperty("providerSettings");
   });
 });
 

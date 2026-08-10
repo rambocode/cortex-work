@@ -211,6 +211,9 @@
   },
   "subagentCard": {
     "agent": "Agent",
+    "explore": "Explore",
+    "exploreAgent": "Explorer agent",
+    "model": "Model",
     "running": "Running",
     "completed": "Done",
     "failed": "Failed",
@@ -228,16 +231,18 @@
     "expandConclusion": "Expand conclusion",
     "preview": "Preview",
     "viewProcess": "View process",
-    "openSession": "Open child session",
     "viewFullProcess": "View full process",
     "closePreview": "Close preview",
     "previewAria": "Preview progress for {{title}}",
     "waiting": "Waiting for subagent activity…",
-    "currentConclusion": "Current conclusion"
+    "currentConclusion": "Current conclusion",
+    "agentOutput": "Subagent output",
+    "waitingOutput": "Waiting for subagent output…"
   },
   "subagentThread": {
-    "title": "Viewing subagent session",
-    "returnToParent": "Return to parent session"
+    "title": "Viewing agent process",
+    "description": "This subagent process was delegated by \"{{title}}\". You can return to the main conversation at any time.",
+    "returnToParent": "Return to main conversation"
   },
   "transcript": {
     "title": "Run transcript",

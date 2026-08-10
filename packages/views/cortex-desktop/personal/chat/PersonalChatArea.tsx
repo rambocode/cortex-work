@@ -526,9 +526,9 @@ export function PersonalChatArea({
     [project, realProject, bridge, requestBrowserUrl, requestFilePreview, setRightOpen, onToast],
   );
 
-  // typing 打开整轮过程；子代理卡传入 callId 后只打开该次委派的过程，重复调用同一角色也不会串流。
-  const handleActivityClick = useCallback((subagent?: { callId: string; label: string }) => {
-    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id, subagent);
+  // typing 仍打开当前主会话整轮过程；子代理卡自己的“查看过程”直接进入独立 side 会话。
+  const handleActivityClick = useCallback(() => {
+    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id);
   }, [session]);
 
   // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
@@ -773,23 +773,13 @@ export function PersonalChatArea({
   // 空会话 = 新会话落地态:挂 pw-landing 让 Hero/chips/输入框共用同一封顶居中列,
   // 与 NewSessionLanding 视觉一致;一旦有消息就回到普通会话布局。
   const landing = convo === null;
+  const parentSession = session.relation === "side" && session.parentSessionId
+    ? sessions.find((candidate) => candidate.id === session.parentSessionId)
+    : undefined;
   // pw-personal-chat:个人会话作用域类——CSS 据此隐藏消息头里的发送者名(悬停头像见名),
   // 团队会话(同用 MessageStream)不受影响。
   return (
     <main className={landing ? "chat pw-landing pw-personal-chat" : "chat pw-personal-chat"}>
-      {session.relation === "side" && session.parentSessionId ? (
-        <button
-          type="button"
-          className="pw-subagent-return"
-          onClick={() => setActiveSession(session.parentSessionId!)}
-        >
-          <Icon.ChevronLeft size={14} />
-          <span>
-            <strong>{t("subagentThread.title")}</strong>
-            <small>{t("subagentThread.returnToParent")}</small>
-          </span>
-        </button>
-      ) : null}
       {/* 会话还没有任何消息时,中栏就是「新会话落地页」——渲染与 NewSessionLanding 同一份
           HomeBoard(Hero + 场景 tab/chips),两处不再各写一套内容。区别只在于:落地页底部
           还要选项目,这里项目已经由会话定死,GitBar 只读展示。 */}
@@ -829,6 +819,18 @@ export function PersonalChatArea({
       />
       )}
 
+      {parentSession ? (
+        <div className="pw-subagent-return-wrap">
+          <button type="button" className="pw-subagent-return" onClick={() => setActiveSession(parentSession.id)}>
+            <span className="pw-subagent-return-icon"><Icon.Bot size={17} /></span>
+            <span className="pw-subagent-return-copy">
+              <strong>{t("subagentThread.title")}</strong>
+              <small>{t("subagentThread.description", { title: parentSession.title })}</small>
+            </span>
+            <span className="pw-subagent-return-action"><Icon.Reply size={14} />{t("subagentThread.returnToParent")}</span>
+          </button>
+        </div>
+      ) : (<>
       {/* askquestion 富卡片:渲染在消息流与输入框之间(输入框正上方,KTD-3)。 */}
       {conversationArtifacts(session).map((artifact) => (
         <button
@@ -1067,10 +1069,11 @@ export function PersonalChatArea({
         onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}
       />
+      </>)}
 
       {/* 追问浮层(U5):单实例,条件挂载。onClose 关状态 + 焦点归还触发按钮(浮层内部
           已在关闭时 cancel() 清在途子进程)。followupSessionCtx 在此恒非空(session 存在)。 */}
-      {followup && followupSessionCtx ? (
+      {!parentSession && followup && followupSessionCtx ? (
         <FollowupOverlay
           seed={{ text: followup.seedText }}
           sessionCtx={followupSessionCtx}

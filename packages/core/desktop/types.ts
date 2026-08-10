@@ -1597,7 +1597,7 @@ export interface TrimSessionRequest {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string; childSessionId?: string; childAgentSessionId?: string; subagentTask?: string; subagentAgentId?: string; subagentBaseAgent?: AgentKind; subagentModel?: string; subagentProviderId?: string; subagentReadOnly?: boolean }
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string; childSessionId?: string; childAgentSessionId?: string; subagentTask?: string; subagentTitle?: string; subagentAgentId?: string; subagentBaseAgent?: AgentKind; subagentModel?: string; subagentProviderId?: string; subagentReadOnly?: boolean }
   | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // tool 事件:phase:"start" 带 input(完整调用参数,原始 JSON);phase:"end" 带 output(工具输出文本,
   // adapter 侧已截断)+ isError。start/end 靠 toolCallId 配对(运行过程详情视图用)。

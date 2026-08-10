@@ -812,7 +812,7 @@ export function MessageStream({
   stickToBottomKey?: unknown;
   preserveAnchorKey?: unknown;
   // 个人工作区:点 typing 活动行展开「执行过程」面板。团队侧不传 → 活动行不可点,零回归。
-  onActivityClick?: (subagent?: { callId: string; label: string }) => void;
+  onActivityClick?: () => void;
   // 个人工作区会话 id：子代理卡用它订阅该会话的瞬态运行事件，团队侧不传。
   sessionId?: string;
 }) {
@@ -961,7 +961,7 @@ export function MessageStream({
             case "roleHeader":
               return <RoleHeaderMessage key={key} m={m} />;
             case "subagentCard":
-              return <SubagentCardMessage key={key} m={m} onOpenProcess={onActivityClick} sessionId={sessionId} />;
+              return <SubagentCardMessage key={key} m={m} sessionId={sessionId} />;
             case "stageTitle":
               return null;
             default:

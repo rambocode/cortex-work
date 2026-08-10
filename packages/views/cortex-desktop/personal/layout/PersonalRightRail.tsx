@@ -14,7 +14,7 @@ const ITEMS: Array<{
   { view: "todos", label: "Tasks", icon: Icon.Task },
   { view: "notes", label: "闪记", icon: Icon.Pin },
   { view: "browser", label: "浏览器", icon: Icon.Globe },
-  { view: "canvas", label: "白板", icon: Icon.Palette },
+  { view: "canvas", label: "画板", icon: Icon.Palette },
   { view: "subagents", label: "子代理", icon: Icon.Bot },
 ];
 

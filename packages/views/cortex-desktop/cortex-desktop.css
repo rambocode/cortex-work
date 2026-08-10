@@ -436,7 +436,10 @@ input, textarea { font: inherit; color: inherit; }
 
 /* 个人工作区(独有 .pw-main):中栏铺满做底,右栏浮起为卡片(左栏已改回贴边通栏,见 .sidebar)。
    .body 底色 = --bg-app(中栏同色),右栏卡片外边距透出此底,即「中栏铺底、右栏浮其上」。 */
-.body:has(.pw-main) { background: var(--bg-app); }
+.body:has(.pw-main) {
+  --pw-workspace-surface: #f4f4f1;
+  background: var(--pw-workspace-surface);
+}
 
 /* ---------- Sidebar ---------- */
 .sidebar {
@@ -454,6 +457,8 @@ input, textarea { font: inherit; color: inherit; }
      box-shadow,故侧栏需 position+z-index 自建层叠层级,让投影绘到中栏白底之上。 */
   position: relative;
   z-index: 1;
+  --bg-sidebar: var(--pw-workspace-surface);
+  background: var(--pw-workspace-surface);
   border-right: 1px solid var(--border);
   box-shadow: inset -3px 0px 20px 0px rgb(180 177 169 / 18%)
 }
@@ -481,11 +486,11 @@ input, textarea { font: inherit; color: inherit; }
 }
 /* 主内容区重新铺不透明底,把磨砂约束在左侧菜单栏区域,不蔓延到中/右栏。 */
 :root[data-vibrancy="sidebar"] .pw-main {
-  background: var(--bg-app);
+  background: var(--pw-workspace-surface);
 }
-/* 左侧菜单栏:白霜叠色,透出底层 vibrancy 材质的模糊感,随壁纸明暗自适应。 */
+/* 个人工作区要求三栏使用固定底色；此处覆盖 vibrancy 叠色，避免左栏受壁纸颜色影响。 */
 :root[data-vibrancy="sidebar"] .body:has(.pw-main) > .sidebar {
-  background: var(--bg-sidebar-glass);
+  background: var(--pw-workspace-surface);
 }
 
 /* ---------- Org / workspace switcher ---------- */
@@ -905,6 +910,8 @@ input, textarea { font: inherit; color: inherit; }
 .pw-personal-chat .m-head .who,
 .pw-personal-chat .m-head .agent-tag { display: none; }
 .msg.is-grouped .m-avatar { visibility: hidden; height: 0; margin-top: 0; }
+/* 个人会话连续消息无需为已隐藏头像保留列宽和 flex gap；团队会话继续沿用头像列对齐。 */
+.pw-personal-chat .msg.is-grouped .m-avatar { display: none; }
 .msg.is-grouped .m-head { display: none; }
 .msg .m-body { flex: 1; min-width: 0; }
 .msg .m-head {
@@ -970,6 +977,10 @@ input, textarea { font: inherit; color: inherit; }
 /* Kun 对齐的个人会话版心：阅读列封顶 730px，并保留 MessageStream 原有的头像与连续消息分组语义；
    用户输入保留右侧卡片，Agent 正文维持无气泡的文档式阅读。团队会话沿用原样。 */
 .pw-personal-chat .msgs { padding: 24px clamp(28px, 6vw, 72px) 32px; }
+.pw-personal-chat {
+  --bg-app: var(--pw-workspace-surface);
+  background: var(--pw-workspace-surface);
+}
 .pw-personal-chat .msgs-inner { max-width: 730px; }
 .pw-personal-chat .msg { margin-bottom: 10px; padding-block: 4px; }
 .pw-personal-chat .msg .m-text { font-size: 15px; line-height: 1.68; }
@@ -981,24 +992,29 @@ input, textarea { font: inherit; color: inherit; }
   box-shadow: 0 5px 18px rgb(30 45 70 / 4%);
 }
 
-/* side 子会话的轻量返回条：它属于会话关系导航，不放进消息时间线，也不占用左侧默认列表。 */
+/* side 子会话底部返回条：替代 composer，明确当前页面只读且属于父会话委派过程。 */
+.pw-subagent-return-wrap { flex: 0 0 auto; padding: 12px clamp(28px, 6vw, 72px) 18px; }
 .pw-subagent-return {
-  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 12px clamp(28px, 6vw, 72px) 0;
-  padding: 9px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-  border-radius: 12px;
+  gap: 14px;
+  width: min(100%, 1090px);
+  min-height: 92px;
+  margin: 0 auto;
+  padding: 18px 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 18px;
   color: var(--text-2);
-  background: color-mix(in srgb, var(--accent) 5%, var(--bg-card));
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-card));
+  box-shadow: 0 10px 32px rgb(42 57 86 / 7%);
   text-align: left;
 }
 .pw-subagent-return:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg-card)); }
-.pw-subagent-return span { display: flex; flex-direction: column; gap: 1px; }
-.pw-subagent-return strong { color: var(--text-1); font-size: 12px; font-weight: 650; }
-.pw-subagent-return small { color: var(--text-3); font-size: 10.5px; }
+.pw-subagent-return-icon { width: 34px; height: 34px; display: grid; flex: 0 0 34px; place-items: center; border-radius: 10px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.pw-subagent-return-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 5px; }
+.pw-subagent-return strong { color: var(--text-1); font-size: 14px; font-weight: 650; }
+.pw-subagent-return small { overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pw-subagent-return-action { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--accent); font-size: 12px; font-weight: 650; }
 
 /* 子代理任务卡：复刻 Kun 会话里的独立 crew 卡片。卡头把结论、预览和完整过程拆成独立
    交互；底部状态线用颜色表达运行/完成/失败。 */
@@ -1110,9 +1126,11 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-2);
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
+  white-space: normal;
 }
-.pw-subagent-card-result .is-error { color: var(--red); }
+.pw-subagent-card-result > :first-child { margin-top: 0; }
+.pw-subagent-card-result > :last-child { margin-bottom: 0; }
+.pw-subagent-card-result .is-error { color: var(--red); white-space: pre-wrap; }
 .pw-subagent-card-actions {
   flex: 0 0 auto;
   display: flex;
@@ -1197,25 +1215,26 @@ input, textarea { font: inherit; color: inherit; }
 .pw-subagent-peek-step[data-kind="result"] i { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
 .pw-subagent-peek-step[data-kind="retry"] i { color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
 .pw-subagent-peek-empty { padding: 24px 8px; color: var(--text-3); font-size: 12px; text-align: center; }
-.pw-subagent-peek-summary {
+.pw-subagent-peek-output {
   display: grid;
   gap: 4px;
-  margin-top: 6px;
   padding: 9px 10px;
   border-radius: 10px;
   color: var(--text-2);
   background: var(--bg-card-2);
   font-size: 12px;
 }
-.pw-subagent-peek-summary strong { color: var(--text-1); font-size: 11px; }
-.pw-subagent-peek-summary span {
+.pw-subagent-peek-output strong { color: var(--text-1); font-size: 11px; }
+.pw-subagent-peek-output span {
   display: -webkit-box;
   overflow: hidden;
   line-height: 1.5;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 8;
 }
+.pw-subagent-peek-output em { color: var(--text-3); font-size: 12px; font-style: normal; }
+.pw-subagent-peek-steps { margin-top: 8px; padding-top: 5px; border-top: 1px solid var(--border-soft); }
 @media (max-width: 760px) {
   .pw-subagent-card-head { flex-wrap: wrap; }
   .pw-subagent-card-actions { width: 100%; justify-content: flex-end; padding: 0 13px 9px; }
@@ -4428,6 +4447,8 @@ button.sb-row {
 /* 右栏浮起卡片:去分隔线,加圆角/阴影,左侧间隙改由中栏透出(margin-left:0)。
    不用 overflow:hidden(否则裁掉左缘拖拽条 .pw-rp-resizer),改给顶部头加圆角。 */
 .body:has(.pw-main) .pw-upper > .right {
+  --bg-right: var(--pw-workspace-surface);
+  background: var(--pw-workspace-surface);
   border-left: none;
   margin: var(--pw-float-gap);
   margin-left: 0;
@@ -4450,7 +4471,7 @@ button.sb-row {
   gap: 6px;
   padding: 9px 6px 8px;
   border-left: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+  background: var(--pw-workspace-surface);
   -webkit-app-region: no-drag;
 }
 .pw-right-rail button {
@@ -4472,6 +4493,21 @@ button.sb-row {
 }
 .pw-right-rail-spacer { flex: 1; }
 .pw-right-rail-sep { width: 24px; height: 1px; background: var(--border-soft); }
+/* 画板以当前会话作为落盘与流式操作边界；未选择会话时显示专用空态，不能回退成 Skills。 */
+.pw-canvas-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-3);
+  text-align: center;
+}
+.pw-canvas-empty strong { color: var(--text-1); font-size: 14px; font-weight: 650; }
+.pw-canvas-empty span { max-width: 240px; font-size: 12px; line-height: 1.6; }
 /* 左缘拖拽条:仅查看文件（详情/文件预览）时显示,双击恢复自动宽度 */
 .pw-rp-resizer {
   position: absolute;
@@ -5633,7 +5669,14 @@ button.sb-row {
 .md-body strong { font-weight: 600; color: var(--text-1); }
 
 /* ---------- Personal workspace: 底部终端（跨聊天区 + Prompt 库） ---------- */
-.pw-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pw-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--pw-workspace-surface);
+}
 .pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
 /* 中栏列:顶部头(.pw-col-head)固定占满首行;会话/页面在左列,执行过程区在右列占位。 */
@@ -11165,9 +11208,24 @@ button.sb-row {
 .pw-sa-panel {
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
-  padding: 14px;
-  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--pw-workspace-surface, var(--bg-app));
+}
+.pw-rp-head.is-subagents {
+  height: 46px;
+  gap: 8px;
+  padding: 0 16px;
+}
+.pw-rp-head.is-subagents > svg { color: var(--accent); }
+.pw-rp-head.is-subagents .pw-col-head-title { font-size: 14px; font-weight: 600; }
+.pw-rp-head-subtitle { color: var(--text-3); font-size: 11px; }
+.pw-rp-head.is-subagents > .pw-icon-btn { width: 24px; height: 24px; }
+.pw-sa-panel-controls {
+  flex: 0 0 auto;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border-soft);
 }
 .pw-sa-settings {
   width: 100%;
@@ -11204,26 +11262,26 @@ button.sb-row {
 .pw-sa-extension {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px;
+  gap: 12px;
+  padding: 10px 12px;
   margin-bottom: 10px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg-card);
-  box-shadow: 0 2px 8px rgb(30 45 70 / 5%);
+  box-shadow: 0 2px 8px rgb(30 45 70 / 4%);
 }
 .pw-sa-callout > div,
-.pw-sa-extension-head > div { flex: 1; min-width: 0; }
+.pw-sa-extension-head > div:first-child { flex: 1; min-width: 0; }
 .pw-sa-callout strong,
-.pw-sa-extension strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-extension strong { color: var(--text-1); font-size: 12px; }
 .pw-sa-callout p,
 .pw-sa-extension p {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: var(--text-3);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 10.5px;
+  line-height: 1.5;
 }
-.pw-sa-callout.is-compact { padding-block: 12px; }
+.pw-sa-callout.is-compact { padding-block: 10px; }
 .pw-sa-limits {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11258,13 +11316,48 @@ button.sb-row {
 }
 .pw-sa-number:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 .pw-sa-panel .pw-sa-limits { grid-template-columns: 1fr; }
-.pw-sa-extension { display: block; }
+.pw-sa-extension { display: block; margin-bottom: 12px; }
 .pw-sa-extension-head { display: flex; align-items: center; gap: 12px; }
-.pw-sa-extension-head span {
+.pw-sa-extension-head > div:first-child > span {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 10.5px;
+}
+.pw-sa-extension-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+.pw-sa-extension-control > span {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.pw-sa-extension-control > span.is-enabled { color: var(--accent); }
+.pw-sa-extension-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.pw-sa-extension-foot > span { color: var(--text-3); font-size: 10px; }
+.pw-sa-extension-foot > button {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+.pw-sa-extension-foot > button:hover { background: var(--accent-soft); }
+.pw-sa-extension-foot > button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
 }
 .pw-sa-toggle {
   width: 38px;
@@ -11287,18 +11380,27 @@ button.sb-row {
 .pw-sa-toggle.is-on { background: var(--accent); }
 .pw-sa-toggle.is-on span { transform: translateX(16px); }
 .pw-sa-toggle:disabled { cursor: not-allowed; opacity: .45; }
-.pw-sa-summary { display: flex; align-items: center; gap: 8px; padding: 12px 2px 9px; }
-.pw-sa-summary strong { color: var(--text-1); font-size: 13px; }
+.pw-sa-panel .pw-sa-toggle { width: 36px; height: 20px; flex-basis: 36px; }
+.pw-sa-panel .pw-sa-toggle span { width: 16px; height: 16px; }
+.pw-sa-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pw-sa-summary strong { color: var(--text-1); font-size: 12px; }
 .pw-sa-summary span { color: var(--text-3); font-size: 11px; }
-.pw-sa-summary .spacer { flex: 1; }
+.pw-sa-summary .pw-sa-available-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+}
 .pw-sa-search {
-  height: 38px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 11px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 9px;
   color: var(--text-3);
   background: var(--bg-card);
 }
@@ -11316,36 +11418,59 @@ button.sb-row {
 .pw-sa-filters {
   display: flex;
   gap: 6px;
-  padding: 10px 0;
+  padding: 8px 0 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .pw-sa-filters::-webkit-scrollbar { display: none; }
 .pw-sa-filters button {
   flex: 0 0 auto;
-  padding: 5px 9px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-2);
   background: var(--bg-card);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 .pw-sa-filters button:hover { background: var(--bg-hover); }
 .pw-sa-filters button.is-active { color: #fff; border-color: var(--accent); background: var(--accent); }
-.pw-sa-list { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+.pw-sa-list-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  scrollbar-gutter: stable;
+}
+.pw-sa-list { display: flex; flex-direction: column; gap: 10px; padding-bottom: 4px; }
+.pw-sa-panel .pw-sa-panel-category { margin: 0; }
+.pw-sa-panel .pw-sa-callout,
+.pw-sa-panel .pw-sa-extension,
+.pw-sa-panel .pw-sa-panel-category,
+.pw-sa-panel .pw-sa-panel-category .pw-sa-category-defaults,
+.pw-sa-panel .pw-sa-card,
+.pw-sa-panel .pw-sa-editor { background: #fff; }
+.pw-sa-panel .pw-sa-panel-category .pw-sa-category-defaults { margin: 0 8px 8px; }
+.pw-sa-panel-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
 .pw-sa-card {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-card) 88%, var(--bg-app));
+  border-radius: 11px;
+  background: #fff;
   opacity: .72;
 }
-.pw-sa-card.is-enabled { opacity: 1; background: var(--bg-card); }
-.pw-sa-card-head { display: flex; align-items: center; gap: 9px; padding: 10px; }
+.pw-sa-card.is-enabled { opacity: 1; background: #fff; }
+.pw-sa-card-head { min-height: 54px; display: flex; align-items: center; gap: 8px; padding: 7px 8px; }
 .pw-sa-avatar {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   display: grid;
   place-items: center;
   border: 1px solid;
@@ -11353,12 +11478,12 @@ button.sb-row {
   background: radial-gradient(circle at 50% 35%, #fff, color-mix(in srgb, currentColor 9%, var(--bg-card)));
 }
 .pw-sa-card-main { flex: 1; min-width: 0; text-align: left; }
-.pw-sa-card-title { display: flex; align-items: center; gap: 6px; }
+.pw-sa-card-title { display: flex; align-items: center; gap: 5px; }
 .pw-sa-card-title strong {
   min-width: 0;
   overflow: hidden;
   color: var(--text-1);
-  font-size: 12.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -11374,14 +11499,14 @@ button.sb-row {
 .pw-sa-card-title em.is-readonly { color: var(--text-3); background: var(--bg-card-2); }
 .pw-sa-card-desc {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   overflow: hidden;
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pw-sa-always { flex: 0 0 auto; color: var(--text-3); font-size: 10px; }
+.pw-sa-always { flex: 0 0 auto; color: var(--text-3); font-size: 9.5px; }
 .pw-sa-card-head > .pw-icon-btn { transform: rotate(-90deg); }
 .pw-sa-card-head > .pw-icon-btn[aria-expanded="true"] { transform: rotate(0); }
 .pw-sa-editor {

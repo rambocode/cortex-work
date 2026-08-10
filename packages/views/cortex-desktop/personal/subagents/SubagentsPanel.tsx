@@ -33,6 +33,16 @@ const CATEGORY_LABEL: Record<BuiltinAgentCategory, string> = {
   research: "研究",
 };
 
+// 分类顺序与 Kun 目录保持一致；不能从 catalog 首次出现顺序推导，否则研究角色会被排到审查前面。
+const CATEGORY_ORDER: readonly BuiltinAgentCategory[] = [
+  "development",
+  "review",
+  "quality",
+  "planning",
+  "operations",
+  "research",
+];
+
 const EFFORTS = [
   { id: "", label: "自适应" },
   { id: "off", label: "关闭" },
@@ -665,10 +675,7 @@ function ProfilesTab({
     () => new Set(["review", "quality", "planning", "operations", "research"]),
   );
   const baseCount = BUILTIN_AGENT_CATALOG.filter((entry) => entry.family === "base").length;
-  const categories = useMemo(
-    () => [...new Set(BUILTIN_AGENT_CATALOG.map((entry) => entry.category))],
-    [],
-  );
+  const categories = CATEGORY_ORDER;
   const visible = useMemo(() => catalogFor(query, filter), [filter, query]);
   const visibleCustom = useMemo(() => {
     if (filter !== "all" && filter !== "custom") return [];
@@ -876,6 +883,49 @@ function SettingsEditor({
   );
 }
 
+function PanelAgentCard({
+  entry,
+  settings,
+  derivedAgents,
+  expanded,
+  save,
+  onToggle,
+}: {
+  entry: BuiltinAgentCatalogEntry;
+  settings: SubagentSettings;
+  derivedAgents: readonly { id: string; label?: string }[];
+  expanded: boolean;
+  save: (next: SubagentSettings) => void;
+  onToggle: () => void;
+}) {
+  const base = entry.family === "base";
+  const profile = settings.profiles[entry.id] ?? {};
+  const enabled = isEntryEnabled(settings, entry);
+  const copy = getSubagentCopy(entry);
+
+  return (
+    <article className={`pw-sa-card ${enabled ? "is-enabled" : ""}`}>
+      <div className="pw-sa-card-head">
+        <span className="pw-sa-avatar" style={{ color: entry.color, borderColor: `${entry.color}55` }}><Icon.Bot size={19} /></span>
+        <button type="button" className="pw-sa-card-main" onClick={onToggle}>
+          <span className="pw-sa-card-title"><strong>{copy.name}</strong><em>{base ? "基础" : CATEGORY_LABEL[entry.category]}</em>{entry.toolPolicy === "readOnly" ? <em className="is-readonly">只读</em> : null}</span>
+          <span className="pw-sa-card-desc">{copy.description}</span>
+        </button>
+        {base ? <span className="pw-sa-always">始终可用</span> : <Toggle checked={enabled} disabled={!settings.extensionAgentsEnabled} label={`启用 ${copy.name}`} onChange={(next) => save(patchProfile(settings, entry.id, { enabled: next }))} />}
+        <button type="button" className="pw-icon-btn" aria-label={`配置 ${copy.name}`} aria-expanded={expanded} onClick={onToggle}><Icon.Chevron size={14} /></button>
+      </div>
+      {expanded ? (
+        <div className="pw-sa-editor">
+          <label><span>运行 Agent</span><select value={profile.agent ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { agent: event.target.value || undefined }))}><option value="">跟随主会话</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="pi">Cortex</option>{derivedAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label ?? agent.id}</option>)}</select></label>
+          <label><span>模型</span><input value={profile.model ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { model: event.target.value || undefined }))} placeholder="跟随默认模型" /></label>
+          <div className="pw-sa-effort-field"><span>推理强度</span><EffortPicker value={profile.effort ?? ""} onChange={(effort) => save(patchProfile(settings, entry.id, { effort: effort || undefined }))} /></div>
+          <label className="is-wide"><span>附加提示词</span><textarea value={profile.systemPrompt ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { systemPrompt: event.target.value || undefined }))} placeholder="在内置角色说明之后追加，可留空" rows={3} /></label>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function PanelEditor({
   settings,
   derivedAgents,
@@ -886,8 +936,13 @@ function PanelEditor({
   save: (next: SubagentSettings) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<CategoryFilter>("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Kun 的侧栏默认只展示基础代理，避免 45 个角色在首次打开时形成一条过长目录；
+  // 完整设置页仍保留全部角色与运行上限配置。
+  const [filter, setFilter] = useState<CategoryFilter>("base");
+  // 与 Kun 首屏一致：分类全部展开，同时展开第一个基础代理供用户直接查看默认配置。
+  const [expandedId, setExpandedId] = useState<string | null>(BUILTIN_AGENT_CATALOG[0]?.id ?? null);
+  // Kun 的侧栏分类首次进入全部展开；这里只记录用户主动收起的分类。
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<BuiltinAgentCategory>>(() => new Set());
   const baseCount = BUILTIN_AGENT_CATALOG.filter((entry) => entry.family === "base").length;
   const extensionCount = BUILTIN_AGENT_CATALOG.length - baseCount;
   const availableCount = baseCount + (settings.extensionAgentsEnabled
@@ -895,80 +950,91 @@ function PanelEditor({
         (entry) => entry.family !== "base" && settings.profiles[entry.id]?.enabled === true,
       ).length
     : 0);
-  const categories = useMemo(
-    () => [...new Set(BUILTIN_AGENT_CATALOG.map((entry) => entry.category))],
-    [],
-  );
+  const categories = CATEGORY_ORDER;
   const visible = useMemo(() => catalogFor(query, filter), [filter, query]);
+  const grouped = useMemo(
+    () => categories
+      .map((category) => ({
+        category,
+        entries: visible.filter((entry) => entry.category === category),
+      }))
+      .filter((group) => group.entries.length > 0),
+    [categories, visible],
+  );
 
   return (
     <div className="pw-sa-panel">
-      <section className="pw-sa-intro">
-        <Icon.Sparkle size={16} />
-        <div>
-          <strong>由主模型自主委派</strong>
-          <p>是否调用、选择哪些角色以及调用多少次由主模型按任务自行决定；这里仅设置运行护栏与可用角色。</p>
+      {/* 与 Kun 一致：控制区固定，只有下方角色目录滚动。运行上限属于完整设置页，
+          不在 420px 会话侧栏重复展示，避免首屏被两张大表单卡占满。 */}
+      <div className="pw-sa-panel-controls">
+        <section className="pw-sa-callout is-compact">
+          <div><strong>使用现有代理</strong><p>关闭后，主 Agent 会为每个任务定义一次性匿名角色。</p></div>
+          <Toggle checked={settings.useExistingAgents} label="使用现有代理" onChange={(next) => save({ ...settings, useExistingAgents: next })} />
+        </section>
+        <section className="pw-sa-extension">
+          <div className="pw-sa-extension-head">
+            <div><strong>扩展代理</strong><span>写作、设计、规划与专项工程角色 · {extensionCount}</span></div>
+            <div className="pw-sa-extension-control">
+              <span className={settings.extensionAgentsEnabled ? "is-enabled" : ""}>
+                {settings.extensionAgentsEnabled ? "已启用" : "已关闭"}
+              </span>
+              <Toggle checked={settings.extensionAgentsEnabled} label="启用扩展代理" onChange={(next) => save({ ...settings, extensionAgentsEnabled: next })} />
+            </div>
+          </div>
+          <div className="pw-sa-extension-foot">
+            <span>基础代理始终可用</span>
+            <button type="button" onClick={() => save({ ...settings, extensionAgentsEnabled: !settings.extensionAgentsEnabled })}>
+              {settings.extensionAgentsEnabled ? "仅保留基础代理" : "启用扩展代理"}
+            </button>
+          </div>
+        </section>
+
+        <div className="pw-sa-summary">
+          <strong>{BUILTIN_AGENT_CATALOG.length} 个可委派角色</strong>
+          <span className="pw-sa-available-count">当前可用 {availableCount}</span>
         </div>
-      </section>
-
-      <div className="pw-sa-section-title"><strong>运行策略</strong><span>设置并行委派与单个会话运行上限</span></div>
-      <section className="pw-sa-callout is-compact">
-        <div><strong>使用现有代理</strong><p>关闭后，主 Agent 会为每个任务定义一次性匿名角色。</p></div>
-        <Toggle checked={settings.useExistingAgents} label="使用现有代理" onChange={(next) => save({ ...settings, useExistingAgents: next })} />
-      </section>
-      <section className="pw-sa-limits">
-        <PolicySetting title="最大并行子代理数" description="达到上限后，新任务会等待空闲槽位。">
-          <BoundedNumberInput label="最大并行子代理数" value={settings.maxParallel} min={1} max={256} onCommit={(next) => save({ ...settings, maxParallel: next })} />
-        </PolicySetting>
-        <PolicySetting title="单个会话的子任务上限" description="限制一轮主会话最多创建多少个子代理任务。">
-          <BoundedNumberInput label="单个会话的子任务上限" value={settings.maxChildRuns} min={1} max={10_000} onCommit={(next) => save({ ...settings, maxChildRuns: next })} />
-        </PolicySetting>
-      </section>
-
-      <div className="pw-sa-section-title"><strong>子代理配置</strong><span>配置可委派角色、模型、推理强度与提示词</span></div>
-      <section className="pw-sa-extension">
-        <div className="pw-sa-extension-head">
-          <div><strong>扩展代理</strong><span>基础代理以外的角色 · {extensionCount}</span></div>
-          <Toggle checked={settings.extensionAgentsEnabled} label="启用扩展代理" onChange={(next) => save({ ...settings, extensionAgentsEnabled: next })} />
-        </div>
-        <p>基础代理始终可用；打开后可逐项启用写作、设计、规划与专项工程角色。</p>
-      </section>
-
-      <div className="pw-sa-summary">
-        <strong>{BUILTIN_AGENT_CATALOG.length} 个可委派角色</strong>
-        <span>基础 {baseCount}</span><span className="spacer" /><span>当前可用 {availableCount}</span>
+        <CatalogToolbar query={query} filter={filter} categories={categories} baseCount={baseCount} onQuery={setQuery} onFilter={setFilter} />
       </div>
-      <CatalogToolbar query={query} filter={filter} categories={categories} baseCount={baseCount} onQuery={setQuery} onFilter={setFilter} />
 
-      <div className="pw-sa-list">
-        {visible.map((entry) => {
-          const base = entry.family === "base";
-          const profile = settings.profiles[entry.id] ?? {};
-          const enabled = isEntryEnabled(settings, entry);
-          const expanded = expandedId === entry.id;
-          return (
-            <article key={entry.id} className={`pw-sa-card ${enabled ? "is-enabled" : ""}`}>
-              <div className="pw-sa-card-head">
-                <span className="pw-sa-avatar" style={{ color: entry.color, borderColor: `${entry.color}55` }}><Icon.Bot size={19} /></span>
-                <button type="button" className="pw-sa-card-main" onClick={() => setExpandedId(expanded ? null : entry.id)}>
-                  <span className="pw-sa-card-title"><strong>{entry.name}</strong><em>{base ? "基础" : CATEGORY_LABEL[entry.category]}</em>{entry.toolPolicy === "readOnly" ? <em className="is-readonly">只读</em> : null}</span>
-                  <span className="pw-sa-card-desc">{entry.description}</span>
+      <div className="pw-sa-list-scroll">
+        <div className="pw-sa-list">
+          {grouped.map(({ category, entries }) => {
+            const collapsed = collapsedCategories.has(category);
+            return (
+              <section key={category} className={`pw-sa-category pw-sa-panel-category ${collapsed ? "is-collapsed" : ""}`}>
+                <button type="button" className="pw-sa-category-head" aria-expanded={!collapsed} onClick={() => setCollapsedCategories((current) => {
+                  const next = new Set(current);
+                  if (next.has(category)) next.delete(category);
+                  else next.add(category);
+                  return next;
+                })}>
+                  <Icon.ChevronRight size={13} />
+                  <strong>{CATEGORY_LABEL[category]}</strong>
+                  <span>{entries.length}</span>
                 </button>
-                {base ? <span className="pw-sa-always">始终可用</span> : <Toggle checked={enabled} disabled={!settings.extensionAgentsEnabled} label={`启用 ${entry.name}`} onChange={(next) => save(patchProfile(settings, entry.id, { enabled: next }))} />}
-                <button type="button" className="pw-icon-btn" aria-label={`配置 ${entry.name}`} aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : entry.id)}><Icon.Chevron size={14} /></button>
-              </div>
-              {expanded ? (
-                <div className="pw-sa-editor">
-                  <label><span>运行 Agent</span><select value={profile.agent ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { agent: event.target.value || undefined }))}><option value="">跟随主会话</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="pi">Cortex</option>{derivedAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label ?? agent.id}</option>)}</select></label>
-                  <label><span>模型</span><input value={profile.model ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { model: event.target.value || undefined }))} placeholder="跟随默认模型" /></label>
-                  <div className="pw-sa-effort-field"><span>推理强度</span><EffortPicker value={profile.effort ?? ""} onChange={(effort) => save(patchProfile(settings, entry.id, { effort: effort || undefined }))} /></div>
-                  <label className="is-wide"><span>附加提示词</span><textarea value={profile.systemPrompt ?? ""} onChange={(event) => save(patchProfile(settings, entry.id, { systemPrompt: event.target.value || undefined }))} placeholder="在内置角色说明之后追加，可留空" rows={3} /></label>
-                </div>
-              ) : null}
-            </article>
-          );
-        })}
-        {visible.length === 0 ? <div className="pw-sa-empty">没有匹配的子代理</div> : null}
+                {collapsed ? null : (
+                  <>
+                    <CategoryDefaults entries={entries} settings={settings} save={save} />
+                    <div className="pw-sa-panel-category-list">
+                      {entries.map((entry) => (
+                        <PanelAgentCard
+                          key={entry.id}
+                          entry={entry}
+                          settings={settings}
+                          derivedAgents={derivedAgents}
+                          expanded={expandedId === entry.id}
+                          save={save}
+                          onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+            );
+          })}
+          {visible.length === 0 ? <div className="pw-sa-empty">没有匹配的子代理</div> : null}
+        </div>
       </div>
     </div>
   );

@@ -270,13 +270,16 @@ export default interface Resources {
       "empty": "这里还没有对话内容,从下方输入框开始 →"
     },
     "subagentCard": {
+      "agentOutput": "子 Agent 输出",
       "agent": "代理",
       "closePreview": "关闭预览",
       "completed": "完成",
       "currentConclusion": "当前结论",
+      "explore": "探索",
+      "exploreAgent": "探索代理",
       "expandConclusion": "展开结论",
       "failed": "失败",
-      "openSession": "进入子会话",
+      "model": "模型",
       "preview": "预览",
       "previewAria": "预览 {{title}} 的执行进度",
       "resultDone": "子代理执行完成",
@@ -293,11 +296,13 @@ export default interface Resources {
       "toolStartNoDetail": "{{name}} · 调用",
       "viewFullProcess": "查看完整过程",
       "viewProcess": "查看过程",
-      "waiting": "正在等待子代理产生过程…"
+      "waiting": "正在等待子代理产生过程…",
+      "waitingOutput": "正在等待子 Agent 产生输出…"
     },
     "subagentThread": {
-      "returnToParent": "返回父会话",
-      "title": "正在查看子代理会话"
+      "description": "这是「{{title}}」委派的子代理过程，可随时返回主对话。",
+      "returnToParent": "返回主对话",
+      "title": "正在查看代理过程"
     },
     "todoList": {
       "doneSummary": "已完成 {{count}} 项任务",

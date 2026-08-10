@@ -210,6 +210,8 @@ export type Message =
       callId?: string;
       // 委派产生的独立 side 会话；存在时卡片可直接进入该子会话。
       childSessionId?: string;
+      // 工具调用显式提供的任务标题；缺失时兼容旧消息，回退角色名称。
+      taskTitle?: string;
       roleId: string;
       roleLabel: string;
       roleColor?: string;

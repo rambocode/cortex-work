@@ -164,6 +164,20 @@ afterEach(() => {
 });
 
 describe("send 分叉", () => {
+  it("side 子会话保持只读，领域层拒绝任何绕过 UI 的发送", async () => {
+    const bridge = makeBridge();
+    const qc = new QueryClient();
+    const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
+    const sideSession: SessionMeta = { ...claudeSession, id: "side-1", relation: "side", parentSessionId: "s-claude" };
+    let sent = true;
+    await act(async () => {
+      sent = await result.current.send(sideSession, "/proj", "绕过输入框发送", []);
+    });
+    expect(sent).toBe(false);
+    expect(bridge.startCli).not.toHaveBeenCalled();
+    expect(bridge.piPrompt).not.toHaveBeenCalled();
+  });
+
   it("pi 走 piOpen+piPrompt,不走 startCli", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
@@ -197,8 +211,9 @@ describe("send 分叉", () => {
     expect(req.delegateRoles).toHaveLength(8);
     expect(req.delegatePolicy).toEqual({ maxParallel: 256, maxChildRuns: 25 });
     expect(req.appendSystemPrompt).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
-    expect(req.appendSystemPrompt).toContain("任何仓库或项目探索都必须先调用 `ask_explore`");
-    expect(req.appendSystemPrompt).toContain("同一轮同时发出多个 `ask_explore`");
+    expect(req.appendSystemPrompt).toContain("必须调用合适的协作者工具");
+    expect(req.appendSystemPrompt).toContain("任何仓库或项目探索都必须先调用 `explore_agent`");
+    expect(req.appendSystemPrompt).toContain("互不重叠的范围动态拆成多个并行 `explore_agent`");
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
   });
 

@@ -8,7 +8,9 @@ import {
   type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
-import { cleanToolName, usePersonalRunEvents, usePersonalStore, type RunEvent } from "@cortex-work/core";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { cleanToolName, usePersonalChat, usePersonalRunEvents, usePersonalStore, type RunEvent } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Message } from "@cortex-work/core/types";
 import { Icon } from "@cortex-work/ui/icons";
@@ -31,10 +33,9 @@ function previewLabel(event: RunEvent, labels: PreviewLabels): PreviewStep | nul
     const text = ev.delta.replace(/\s+/g, " ").trim();
     return { kind: "thinking", text: text || labels.thinking };
   }
-  if (ev.type === "text") {
-    const text = ev.delta.replace(/\s+/g, " ").trim();
-    return text ? { kind: "text", text } : null;
-  }
+  // 子 Agent 正文由其独立会话持久化，预览区从该会话读取完整输出；事件列表只保留过程步骤，
+  // 避免把流式 text delta 截断成多个重复片段。
+  if (ev.type === "text") return null;
   if (ev.type === "tool") {
     const name = cleanToolName(ev.name) || ev.name;
     const detail = ev.detail?.replace(/\s+/g, " ").trim();
@@ -53,8 +54,8 @@ function previewLabel(event: RunEvent, labels: PreviewLabels): PreviewStep | nul
   return null;
 }
 
-// 与 Kun 的 peek 交互一致：锚定卡片按钮、点外或 Esc 关闭、在空间不足时向上展开。这里只展示
-// 当前 callId 的实时摘要；完整输入输出仍交给“查看过程”弹层，避免在预览里泄漏超长工具载荷。
+// 与 Kun 的 peek 交互一致：锚定卡片按钮、点外或 Esc 关闭、在空间不足时向上展开。正文以
+// 子会话实际输出为唯一真源，过程步骤仅作次要补充，避免父卡摘要与子 Agent 输出不一致。
 function SubagentPreviewPopover({
   open,
   anchor,
@@ -62,7 +63,7 @@ function SubagentPreviewPopover({
   status,
   elapsed,
   events,
-  summary,
+  output,
   onClose,
   onOpenProcess,
 }: {
@@ -72,7 +73,7 @@ function SubagentPreviewPopover({
   status: string;
   elapsed: string;
   events: RunEvent[];
-  summary?: string;
+  output?: string;
   onClose: () => void;
   onOpenProcess: () => void;
 }) {
@@ -170,8 +171,12 @@ function SubagentPreviewPopover({
         </button>
       </div>
       <div className="pw-subagent-peek-body">
+        <div className="pw-subagent-peek-output">
+          <strong>{t("subagentCard.agentOutput")}</strong>
+          {output ? <span>{output}</span> : <em>{t("subagentCard.waitingOutput")}</em>}
+        </div>
         {steps.length > 0 ? (
-          steps.map((step, index) => (
+          <div className="pw-subagent-peek-steps">{steps.map((step, index) => (
             <div className="pw-subagent-peek-step" data-kind={step.kind} key={`${step.kind}-${index}`}>
               <i>
                 {step.kind === "tool" ? (
@@ -184,15 +189,7 @@ function SubagentPreviewPopover({
               </i>
               <span>{step.text}</span>
             </div>
-          ))
-        ) : (
-          <div className="pw-subagent-peek-empty">{t("subagentCard.waiting")}</div>
-        )}
-        {summary ? (
-          <div className="pw-subagent-peek-summary">
-            <strong>{t("subagentCard.currentConclusion")}</strong>
-            <span>{summary}</span>
-          </div>
+          ))}</div>
         ) : null}
       </div>
     </div>,
@@ -200,19 +197,21 @@ function SubagentPreviewPopover({
   );
 }
 
-// Kun 对齐的子代理任务卡：结论展开、实时预览、完整过程是三个独立交互。预览与结论互斥，
-// “查看过程”按 callId 打开独立详情，不能退回混合全会话事件的通用入口。
+// Kun 对齐的子代理任务卡：预览直接读取子会话输出，“查看过程”进入只读子会话；卡片不再保留
+// 另一个“进入子会话”入口，确保同一行为只有一个清晰入口。
 export const SubagentCardMessage = memo(function SubagentCardMessage({
   m,
-  onOpenProcess,
   sessionId,
 }: {
   m: Extract<Message, { kind: "subagentCard" }>;
-  onOpenProcess?: (subagent?: { callId: string; label: string }) => void;
   sessionId?: string;
 }) {
   const { t } = useTranslation("chat");
   const setActiveSession = usePersonalStore((state) => state.setActiveSession);
+  const childSession = usePersonalStore((state) =>
+    m.childSessionId ? state.sessions.find((candidate) => candidate.id === m.childSessionId) : undefined,
+  );
+  const childChat = usePersonalChat(m.childSessionId);
   const [expanded, setExpanded] = useState(false);
   const [peekOpen, setPeekOpen] = useState(false);
   const previewButtonRef = useRef<HTMLButtonElement>(null);
@@ -238,11 +237,28 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
       ? t("subagentCard.completed")
       : t("subagentCard.failed");
   const hasConclusion = !!(m.summary?.trim() || m.error?.trim());
+  const childOutput = useMemo(() => {
+    for (let index = childChat.allMessages.length - 1; index >= 0; index -= 1) {
+      const message = childChat.allMessages[index];
+      if (message?.kind === "text" && message.who !== "me" && typeof message.text === "string") {
+        const text = message.text.trim();
+        if (text) return text;
+      }
+    }
+    return m.summary?.trim() || m.error?.trim() || undefined;
+  }, [childChat.allMessages, m.error, m.summary]);
   const openProcess = () => {
-    if (!m.callId || !onOpenProcess) return;
+    if (!m.childSessionId) return;
     setPeekOpen(false);
-    onOpenProcess({ callId: m.callId, label: m.roleLabel });
+    setActiveSession(m.childSessionId);
   };
+  // 内置探索角色在运行协议里仍保留稳定的英文 roleId/roleLabel，展示层统一转成产品中文；
+  // 自定义角色继续显示用户配置的名称，避免误译或丢失其业务语义。
+  const roleKindLabel = m.roleId === "explore" ? t("subagentCard.explore") : t("subagentCard.agent");
+  const agentTypeLabel = m.roleId === "explore" ? t("subagentCard.exploreAgent") : m.roleLabel;
+  const agentMeta = `${t("subagentCard.agent")} ${agentTypeLabel}${
+    childSession?.model ? ` · ${t("subagentCard.model")} ${childSession.model}` : ""
+  }`;
 
   return (
     <section className={`pw-subagent-card is-${m.status}`}>
@@ -265,11 +281,11 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
           </span>
           <span className="pw-subagent-card-copy">
             <span className="pw-subagent-card-title">
-              <em>{t("subagentCard.agent")}</em>
-              <strong>{m.roleLabel}</strong>
+              <em>{roleKindLabel}</em>
+              <strong>{m.taskTitle || m.roleLabel}</strong>
               <b>{statusLabel}</b>
             </span>
-            <span className="pw-subagent-card-meta">{m.roleId}</span>
+            <span className="pw-subagent-card-meta">{agentMeta}</span>
             {m.activity ? <span className="pw-subagent-card-activity">{m.activity}</span> : null}
             {hasConclusion && !expanded && !peekOpen ? (
               <span className="pw-subagent-card-expand">{t("subagentCard.expandConclusion")}</span>
@@ -281,7 +297,7 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
           </span>
           {hasConclusion ? <Icon.Chevron size={15} className={expanded && !peekOpen ? "is-open" : ""} /> : null}
         </button>
-        {m.callId && onOpenProcess ? (
+        {m.callId ? (
           <div className="pw-subagent-card-actions">
             <button
               ref={previewButtonRef}
@@ -296,17 +312,9 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
               <Icon.Eye size={13} />
               {t("subagentCard.preview")}
             </button>
-            <button type="button" className="pw-subagent-card-process" onClick={openProcess}>
-              {t("subagentCard.viewProcess")}
-              <Icon.ChevronRight size={11} />
-            </button>
-            {m.childSessionId && m.status !== "running" ? (
-              <button
-                type="button"
-                className="pw-subagent-card-process is-primary"
-                onClick={() => setActiveSession(m.childSessionId!)}
-              >
-                {t("subagentCard.openSession")}
+            {m.childSessionId ? (
+              <button type="button" className="pw-subagent-card-process" onClick={openProcess}>
+                {t("subagentCard.viewProcess")}
                 <Icon.ChevronRight size={11} />
               </button>
             ) : null}
@@ -316,17 +324,23 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
       <div className="pw-subagent-card-line" />
       {expanded && !peekOpen ? (
         <div className="pw-subagent-card-result">
-          {m.error ? <div className="is-error">{m.error}</div> : <div>{m.summary}</div>}
+          {m.error ? (
+            <div className="is-error">{m.error}</div>
+          ) : (
+            // 子 Agent 的结论是可信 Markdown 文本而不是 HTML；react-markdown 默认不执行原始 HTML，
+            // remark-gfm 仅补齐表格、任务列表等常用语法，避免把子会话输出退化为纯文本。
+            <Markdown remarkPlugins={[remarkGfm]}>{m.summary ?? ""}</Markdown>
+          )}
         </div>
       ) : null}
       <SubagentPreviewPopover
         open={peekOpen}
         anchor={previewButtonRef.current}
-        title={m.roleLabel}
+        title={m.taskTitle || m.roleLabel}
         status={statusLabel}
         elapsed={elapsed}
         events={events}
-        summary={m.summary}
+        output={childOutput}
         onClose={() => setPeekOpen(false)}
         onOpenProcess={openProcess}
       />

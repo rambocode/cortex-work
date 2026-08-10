@@ -208,7 +208,7 @@ export interface PersonalState {
   knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
   // 展开「执行过程」面板的请求(点聊天流 typing 活动行触发)。nonce 让同会话重复点击也能触发;
   // 用请求信号而非提升面板 userOpen,保留面板「每轮默认收起」的既有逻辑。瞬态,不进 toPersistedState。
-  processPanelOpenReq?: { sessionId: string; nonce: number; subagentCallId?: string; subagentLabel?: string };
+  processPanelOpenReq?: { sessionId: string; nonce: number };
   // 已 auto_open 自动打开过的「会话:URL」键集合。防探测结果在重渲染/多会话来回切换中
   // 反复自动弹面板(同键不再触发)。用数组而非单槽,否则切到别的会话再切回会重复弹
   // (安全/正确性评审)。瞬态,不进 toPersistedState。
@@ -351,6 +351,7 @@ export interface PersonalState {
     providerId?: string;
     readOnly?: boolean;
     task?: string;
+    taskTitle?: string;
   }) => SessionMeta | undefined;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
   // 会话目标 actions：所有入口共用同一持久态，避免 composer、slash 与自动续跑各维护副本。
@@ -377,7 +378,7 @@ export interface PersonalState {
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   // 请求展开「执行过程」面板(nonce 递增触发,面板侧 useEffect 消费)。
-  requestOpenProcessPanel: (sessionId: string, subagent?: { callId: string; label: string }) => void;
+  requestOpenProcessPanel: (sessionId: string) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
   // 设置/清空某会话的图片能力拦截提示（hint=undefined 清空,如移除图片/换模型/新一轮发送）。
@@ -1095,7 +1096,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     if (existing) return existing;
     const parent = state.sessions.find((session) => session.id === input.parentSessionId);
     if (!parent) return undefined;
-    const taskTitle = input.task?.replace(/\s+/g, " ").trim();
+    const taskTitle = (input.taskTitle || input.task)?.replace(/\s+/g, " ").trim();
     const now = Date.now();
     const child: SessionMeta = {
       id: input.id,
@@ -1113,8 +1114,8 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       effort: parent.effort,
       thinkingLevel: parent.thinkingLevel,
       useOwnSkills: parent.useOwnSkills,
-      // readOnly 是子角色的强约束；inherit 才沿用父会话权限。后续直接进入子会话继续追问时
-      // 仍保持同一权限边界，不能因离开委派执行器而悄悄升级为可写。
+      // readOnly 是子角色的强约束；inherit 才沿用父会话权限。子会话过程页不提供输入框，
+      // 这里仍保存权限边界，避免未来其他入口绕过只读约束。
       execPermission: input.readOnly ? "plan" : parent.execPermission,
       createdAt: now,
       updatedAt: now,
@@ -1296,13 +1297,11 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   // nonce 用「上个值 +1」而非时间戳:同会话快速连点也保证变化,且不依赖时钟。
-  requestOpenProcessPanel: (sessionId, subagent) =>
+  requestOpenProcessPanel: (sessionId) =>
     set((s) => ({
       processPanelOpenReq: {
         sessionId,
         nonce: (s.processPanelOpenReq?.nonce ?? 0) + 1,
-        subagentCallId: subagent?.callId,
-        subagentLabel: subagent?.label,
       },
     })),
 

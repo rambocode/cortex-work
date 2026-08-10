@@ -55,29 +55,29 @@ describe("子代理右栏", () => {
     expect(usePersonalStore.getState().terminalOpen).toBe(true);
   });
 
-  it("显示 Kun 的 45 个角色，基础角色常驻，扩展角色可启用并配置", () => {
+  it("侧栏默认展示基础代理，切到全部后可启用并配置扩展角色", () => {
     const view = render(wrapper(<SubagentsPanel />));
     expect(screen.getByText("45 个可委派角色")).toBeInTheDocument();
-    expect(screen.getByText("基础 8")).toBeInTheDocument();
-    expect(screen.getByText("General Agent")).toBeInTheDocument();
-    expect(screen.getByText("Frontend UI Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "启用 Frontend UI Engineer" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "基础代理 8" })).toHaveClass("is-active");
+    const categoryHeads = Array.from(view.container.querySelectorAll<HTMLButtonElement>(".pw-sa-list .pw-sa-category-head"));
+    expect(categoryHeads.find((button) => button.textContent === "开发1")).toHaveAttribute("aria-expanded", "true");
+    expect(categoryHeads.find((button) => button.textContent === "审查4")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("通用代理")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配置 通用代理" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("前端 UI 工程师")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "全部 45" }));
+    expect(screen.getByText("前端 UI 工程师")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "启用 前端 UI 工程师" })).toBeDisabled();
 
     expect(screen.queryByRole("switch", { name: "启用子代理编排" })).toBeNull();
-    expect(screen.getByText("由主模型自主委派")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("spinbutton", { name: "最大并行子代理数" }), { target: { value: "4" } });
-    fireEvent.blur(screen.getByRole("spinbutton", { name: "最大并行子代理数" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "单个会话的子任务上限" }), { target: { value: "12" } });
-    fireEvent.blur(screen.getByRole("spinbutton", { name: "单个会话的子任务上限" }));
+    expect(screen.queryByRole("spinbutton", { name: "最大并行子代理数" })).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "启用扩展代理" }));
-    expect(screen.getByRole("switch", { name: "启用 Frontend UI Engineer" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("switch", { name: "启用 Frontend UI Engineer" }));
-    expect(usePersonalStore.getState().generalSettings.subagents?.maxParallel).toBe(4);
-    expect(usePersonalStore.getState().generalSettings.subagents?.maxChildRuns).toBe(12);
+    expect(screen.getByRole("switch", { name: "启用 前端 UI 工程师" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("switch", { name: "启用 前端 UI 工程师" }));
     expect(usePersonalStore.getState().generalSettings.subagents?.extensionAgentsEnabled).toBe(true);
     expect(usePersonalStore.getState().generalSettings.subagents?.profiles["frontend-ui-engineering"]?.enabled).toBe(true);
 
-    fireEvent.click(view.getByRole("button", { name: "配置 Frontend UI Engineer" }));
+    fireEvent.click(view.getByRole("button", { name: "配置 前端 UI 工程师" }));
     fireEvent.change(screen.getByLabelText("运行 Agent"), { target: { value: "codex" } });
     expect(usePersonalStore.getState().generalSettings.subagents?.profiles["frontend-ui-engineering"]?.agent).toBe("codex");
   });
@@ -87,6 +87,12 @@ describe("子代理右栏", () => {
     expect(screen.getByRole("heading", { name: "子代理" })).toBeInTheDocument();
     expect(screen.getByText(/集中管理可委派子代理的运行策略/)).toBeInTheDocument();
     expect(screen.getByText("修改会自动生效")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "最大并行子代理数" }), { target: { value: "4" } });
+    fireEvent.blur(screen.getByRole("spinbutton", { name: "最大并行子代理数" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "单个会话的子任务上限" }), { target: { value: "12" } });
+    fireEvent.blur(screen.getByRole("spinbutton", { name: "单个会话的子任务上限" }));
+    expect(usePersonalStore.getState().generalSettings.subagents?.maxParallel).toBe(4);
+    expect(usePersonalStore.getState().generalSettings.subagents?.maxChildRuns).toBe(12);
     fireEvent.click(screen.getByRole("tab", { name: "子代理配置" }));
 
     const filters = view.container.querySelector(".pw-sa-filters");

@@ -5,8 +5,8 @@
 import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { CoreProvider, personalRunEventsKeys, usePersonalStore } from "@cortex-work/core";
+import { afterEach, describe, expect, it } from "vitest";
+import { CoreProvider, personalChatKeys, personalRunEventsKeys, usePersonalStore } from "@cortex-work/core";
 import type { Contact, DesktopBridge, Message } from "@cortex-work/core";
 import * as ChatAreaModule from "./ChatArea";
 import { MessageStream } from "./ChatArea";
@@ -33,6 +33,9 @@ describe("个人会话头像样式", () => {
     expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.msg\s*\{[^}]*gap:\s*0/);
     expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.m-turn-usage\s*\{[^}]*margin-left:\s*0/);
     expect(desktopCss).toMatch(/\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*visibility:\s*hidden/);
+    expect(desktopCss).toMatch(
+      /\.pw-personal-chat\s+\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*display:\s*none/,
+    );
   });
 });
 
@@ -166,26 +169,37 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     expect(container.querySelector(".agent-log")).toBeInTheDocument();
   });
 
-  it("子代理卡显示角色状态、步骤和可展开结论，并从卡片进入统一过程详情", () => {
-    const onOpenProcess = vi.fn();
+  it("探索代理卡显示中文类型、渲染 Markdown 结论，并由查看过程进入子会话", () => {
     const messages: Message[] = [{
       kind: "subagentCard",
       who: "pi",
       time: "10:00",
       uid: "sa1",
-      callId: "call-review-1",
-      childSessionId: "child-review-1",
-      roleId: "code-reviewer",
-      roleLabel: "Code Reviewer",
+      callId: "call-explore-1",
+      childSessionId: "child-explore-1",
+      taskTitle: "检查项目边界",
+      roleId: "explore",
+      roleLabel: "Repository Explorer",
       roleColor: "#2563eb",
       status: "completed",
       startedAt: 1_000,
       finishedAt: 14_000,
       steps: 3,
       activity: "执行完成",
-      summary: "发现一个阻断问题",
+      summary: "## 核心结论\n\n- 发现一个 **阻断问题**",
     }];
     const qc = new QueryClient();
+    usePersonalStore.setState({
+      activeSessionId: "session-1",
+      sessions: [
+        { id: "session-1", title: "主会话", agent: "pi", createdAt: 1, updatedAt: 1 },
+        { id: "child-explore-1", title: "Repository Explorer · 检查项目边界", agent: "pi", model: "deepseek-v4-pro", relation: "side", parentSessionId: "session-1", createdAt: 1, updatedAt: 1 },
+      ],
+    });
+    qc.setQueryData<Message[]>(personalChatKeys.detail("child-explore-1"), [
+      { kind: "text", who: "me", time: "10:00", text: "检查项目边界" },
+      { kind: "text", who: "pi", time: "10:01", text: "子 Agent 的完整检查结果" },
+    ]);
     qc.setQueryData(personalRunEventsKeys.detail("session-1"), [
       {
         runId: "run-1",
@@ -195,7 +209,7 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
           name: "Read",
           detail: "src/a.ts",
           phase: "start",
-          subagentCallId: "call-review-1",
+          subagentCallId: "call-explore-1",
         },
       },
     ]);
@@ -207,27 +221,30 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
           onSelectFile={() => {}}
           activeFile=""
           onApprove={() => {}}
-          onActivityClick={onOpenProcess}
           sessionId="session-1"
         />
       </CoreProvider>,
     );
-    expect(view.getByText("Code Reviewer")).toBeInTheDocument();
+    expect(view.getByText("检查项目边界")).toBeInTheDocument();
+    expect(view.getByText("探索")).toBeInTheDocument();
+    expect(view.getByText("代理 探索代理 · 模型 deepseek-v4-pro")).toBeInTheDocument();
     expect(view.getByText("3 步")).toBeInTheDocument();
-    fireEvent.click(view.getByText("进入子会话"));
-    expect(usePersonalStore.getState().activeSessionId).toBe("child-review-1");
-    expect(view.queryByText("发现一个阻断问题")).not.toBeInTheDocument();
+    expect(view.queryByText("进入子会话")).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "核心结论" })).not.toBeInTheDocument();
     fireEvent.click(view.getByText("展开结论"));
-    expect(view.getByText("发现一个阻断问题")).toBeInTheDocument();
+    expect(view.getByRole("heading", { name: "核心结论" })).toBeInTheDocument();
+    expect(view.getByText("阻断问题").tagName).toBe("STRONG");
     fireEvent.click(view.getByText("预览"));
     expect(view.container.querySelector(".pw-subagent-card-result")).not.toBeInTheDocument();
-    expect(view.getByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).toHaveTextContent("Read · src/a.ts · 调用");
+    const preview = view.getByRole("dialog", { name: "预览 检查项目边界 的执行进度" });
+    expect(preview).toHaveTextContent("子 Agent 的完整检查结果");
+    expect(preview).toHaveTextContent("Read · src/a.ts · 调用");
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(view.queryByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).not.toBeInTheDocument();
+    expect(view.queryByRole("dialog", { name: "预览 检查项目边界 的执行进度" })).not.toBeInTheDocument();
     fireEvent.click(view.getByText("预览"));
     fireEvent.click(view.getByText("查看过程"));
-    expect(onOpenProcess).toHaveBeenCalledWith({ callId: "call-review-1", label: "Code Reviewer" });
-    expect(view.queryByRole("dialog", { name: "预览 Code Reviewer 的执行进度" })).not.toBeInTheDocument();
+    expect(usePersonalStore.getState().activeSessionId).toBe("child-explore-1");
+    expect(view.queryByRole("dialog", { name: "预览 检查项目边界 的执行进度" })).not.toBeInTheDocument();
   });
 });
 

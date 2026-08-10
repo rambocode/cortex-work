@@ -22,7 +22,7 @@ describe("delegate orchestration", () => {
     );
     expect(guide).toContain("主会话 Agent");
     expect(guide).toContain("用户已显式点名协作者");
-    expect(guide).toContain("必须调用对应的 ask_ 工具");
+    expect(guide).toContain("必须调用对应的协作者工具");
     expect(guide).toContain("作为工具结果返回给主会话");
     expect(guide).toContain("由你结合主会话上下文总结并输出最终回答");
   });
@@ -33,6 +33,7 @@ describe("delegate orchestration", () => {
       { requireDelegation: false },
     );
     expect(guide).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
+    expect(guide).toContain("必须调用合适的协作者工具");
     expect(guide).toContain("只有琐碎工作、紧密耦合的串行步骤");
     expect(guide).toContain("才直接处理");
   });
@@ -41,8 +42,11 @@ describe("delegate orchestration", () => {
     const roles = buildConfiguredSubagentRoles("pi", undefined);
     const guide = buildDelegateOrchestrationGuide(roles, { requireDelegation: false });
 
-    expect(guide).toContain("任何仓库或项目探索都必须先调用 `ask_explore`");
-    expect(guide).toContain("同一轮同时发出多个 `ask_explore`");
+    expect(guide).toContain("任何仓库或项目探索都必须先调用 `explore_agent`");
+    expect(guide).toContain("互不重叠的范围动态拆成多个并行 `explore_agent`");
+    expect(guide).toContain("one call for API wiring, another for UI, another for tests");
+    expect(guide).toContain("整项目分析要先枚举所有适用的独立证据面");
+    expect(guide).toContain("拆分数量由问题范围决定，不得固定调用次数");
     expect(guide).toContain("Repository Explorer 返回后");
   });
 

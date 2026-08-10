@@ -255,25 +255,6 @@ describe("PersonalProcessPanel 点击 icon 打开详情弹层", () => {
     await waitFor(() => expect(view.container.querySelector(".pw-transcript-dlg")).toBeInTheDocument());
   });
 
-  it("子代理卡请求只展示该 callId 的过程，且无会话级过程 FAB 时仍能打开", async () => {
-    const { view, sessionId } = renderPanel({
-      runEvents: [
-        { ...toolRunEvent("run-1", "Read", "src/target.ts"), ev: { ...toolRunEvent("run-1", "Read", "src/target.ts").ev, subagentCallId: "call-target" } },
-        { ...toolRunEvent("run-1", "Bash", "echo unrelated"), ev: { ...toolRunEvent("run-1", "Bash", "echo unrelated").ev, subagentCallId: "call-other" } },
-      ],
-    });
-    expect(view.container.querySelector(".pw-process.is-collapsed")).not.toBeInTheDocument();
-    act(() => {
-      usePersonalStore.getState().requestOpenProcessPanel(sessionId, {
-        callId: "call-target",
-        label: "Repository Explorer",
-      });
-    });
-    await waitFor(() => expect(view.getByRole("dialog", { name: "子代理过程：Repository Explorer" })).toBeInTheDocument());
-    expect(view.getByText("src/target.ts")).toBeInTheDocument();
-    expect(view.queryByText("echo unrelated")).not.toBeInTheDocument();
-  });
-
   it("切会话 → 已打开的弹层自动关闭(不残留上一会话内容)", async () => {
     const { view } = renderPanel({
       process: [logMsg({ uid: "l1", active: true, items: [{ ic: "running", text: "Bash · ls" }] })],

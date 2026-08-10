@@ -361,6 +361,22 @@ describe("cli:start MCP 接线 + 续接回退(M2 U2/U4)", () => {
 });
 
 describe("delegate 派生 agent 基础类型", () => {
+  it("同底层 Agent 默认继承父会话模型，角色显式模型覆盖优先", async () => {
+    for (const [roleModel, expectedModel] of [[undefined, "gpt-5.4"], ["gpt-5.5", "gpt-5.5"]] as const) {
+      const child = Object.assign(fakeChild(), { stdin: Object.assign(new EventEmitter(), { end: vi.fn() }) });
+      spawnMock.mockReturnValueOnce(child);
+      const done = __runDelegateSubAgentForTest(
+        { runId: "r", sessionId: "s", agent: "codex", cwd: "/tmp", prompt: "parent", model: "gpt-5.4" },
+        { id: "explore", label: "Repository Explorer", agent: "codex", model: roleModel, systemPrompt: "", createdAt: "", updatedAt: "" },
+        "分析项目", vi.fn(), new AbortController().signal, `child-${expectedModel}`,
+      );
+      const args = spawnMock.mock.calls.at(-1)?.[1] as string[];
+      expect(args).toEqual(expect.arrayContaining(["--model", expectedModel]));
+      child.emit("close", 0);
+      await expect(done).resolves.toMatchObject({ ok: true });
+    }
+  });
+
   it("Kun 只读角色强制使用原生 read-only 权限，不继承主会话 full-auto", async () => {
     const child = Object.assign(fakeChild(), {
       stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),

@@ -454,8 +454,11 @@ function runDelegateSubAgent(
   const adapter = getAgentDef(role.agent);
   const spawnKey = randomUUID();
   const roleBaseAgent = baseAgentKindOf(role.agent);
-  // 主会话 base agent 是否 pi：决定 pi 协作者能否继承主会话 model/provider（同 deepseek 体系才匹配）。
-  const parentIsPi = baseAgentKindOf(parent.agent) === "pi";
+  const parentBaseAgent = baseAgentKindOf(parent.agent);
+  // 同一底层 Agent 的默认角色继承父会话实际模型，确保相同问题不会因为委派而静默切模型；
+  // 跨体系仍禁止继承，避免把 DeepSeek 模型名传给 Codex/Claude 等不兼容 provider。
+  const sameBaseAgent = roleBaseAgent === parentBaseAgent;
+  const parentIsPi = parentBaseAgent === "pi";
   const req: CliStartRequest = {
     runId: spawnKey,
     // 应用侧 child session id 也作为本次 fresh 运行的 UI session id。它不会注册 delegate state，
@@ -464,10 +467,8 @@ function runDelegateSubAgent(
     agent: role.agent,
     cwd: parent.cwd,
     prompt: task,
-    // 子 agent 用各自 agent 的默认 model，绝不跨体系继承主会话 model：主会话 model 属于主 agent 的
-    // provider 体系——pi 的 deepseek 传给 codex（ChatGPT）会 400；反之 codex/claude 的 gpt/claude
-    // model 串给 pi 也不匹配 pi 的 provider。仅当「子是 pi 且主也是 pi」时同体系，才继承。
-    model: role.model || (roleBaseAgent === "pi" && parentIsPi ? parent.model : undefined),
+    // 角色显式覆盖优先；未覆盖且同一 base agent 时继承父会话模型。跨体系改用子 Agent 默认模型。
+    model: role.model || (sameBaseAgent ? parent.model : undefined),
     // 思考档透传:同体系直传;跨体系只透传公共三档(见 commonEffortOf)。effort(low/medium/high)
     // 本身是 pi thinkingLevel 刻度的子集,可直接作 pi 子 agent 的思考档。
     effort:

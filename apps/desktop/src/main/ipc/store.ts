@@ -3,7 +3,7 @@
 
 import { BrowserWindow, ipcMain } from "electron";
 import { existsSync, promises as fsp } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { mediaCustomSecretName, type MediaModality } from "@cortex-work/core/desktop/media-provider-directory";
 import type { PersistedState, PushSettings } from "./types";
 import { ensureMigrated, workspaceStorePath } from "../paths";
@@ -51,10 +51,65 @@ export async function getWorkspaceRoot(): Promise<string | undefined> {
   return existsSync(root) ? root : undefined;
 }
 
+type RecoverySnapshot = Pick<PersistedState, "version" | "projects" | "sessions"> & {
+  capturedAt: number;
+};
+
+function recoveryScore(snapshot: Pick<PersistedState, "projects" | "sessions">): number {
+  return snapshot.projects.length + snapshot.sessions.length;
+}
+
+/**
+ * 全量快照即将把非空项目或会话数组清零时，先保存一份只含索引的恢复点。
+ *
+ * 恢复文件刻意不复制 settings/provider/reply 等其它分片，避免把明文旧密钥或无关隐私再备份
+ * 一份；若已有恢复点更完整则保留旧文件，防止连续空写把最后一份有效索引也覆盖掉。
+ */
+async function preserveRecoverySnapshot(path: string, next: PersistedState): Promise<void> {
+  let previous: PersistedState;
+  try {
+    previous = JSON.parse(await fsp.readFile(path, "utf8")) as PersistedState;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(previous.projects) || !Array.isArray(previous.sessions)) return;
+  const clearsProjects = previous.projects.length > 0 && next.projects.length === 0;
+  const clearsSessions = previous.sessions.length > 0 && next.sessions.length === 0;
+  if (!clearsProjects && !clearsSessions) return;
+
+  const recoveryPath = join(dirname(path), "personal-workspace.recovery.json");
+  try {
+    const existing = JSON.parse(await fsp.readFile(recoveryPath, "utf8")) as RecoverySnapshot;
+    if (
+      Array.isArray(existing.projects) &&
+      Array.isArray(existing.sessions) &&
+      recoveryScore(existing) >= recoveryScore(previous)
+    ) {
+      return;
+    }
+  } catch {
+    // 首次生成或旧恢复点损坏时，继续用当前有效权威态重建。
+  }
+
+  const recovery: RecoverySnapshot = {
+    version: 1,
+    capturedAt: Date.now(),
+    projects: previous.projects,
+    sessions: previous.sessions,
+  };
+  const tmp = `${recoveryPath}.tmp`;
+  await fsp.writeFile(tmp, JSON.stringify(recovery, null, 2), "utf8");
+  await fsp.rename(tmp, recoveryPath);
+  log.warn(
+    `检测到破坏性全量快照，已保存恢复索引：projects=${previous.projects.length} sessions=${previous.sessions.length}`,
+  );
+}
+
 async function savePersistedState(state: PersistedState): Promise<void> {
   await ensureMigrated();
   const path = storePath();
   await fsp.mkdir(dirname(path), { recursive: true });
+  await preserveRecoverySnapshot(path, state);
   const tmp = path + ".tmp";
   await fsp.writeFile(tmp, JSON.stringify(state, null, 2), "utf8");
   await fsp.rename(tmp, path);
