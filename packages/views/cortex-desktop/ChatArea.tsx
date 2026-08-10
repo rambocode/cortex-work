@@ -18,6 +18,7 @@ import { ChatImages } from "./personal/chat/ChatImages";
 import { ChatFiles } from "./personal/chat/ChatFiles";
 import { SubagentCardMessage } from "./personal/chat/SubagentCardMessage";
 import { ConversationProcessTimeline } from "./personal/chat/ConversationProcessTimeline";
+import { UserMessageContent } from "./personal/chat/userMessageCollapse";
 
 // 会话流的语法高亮插件。必须是模块级常量:TextMessage 被 memo 包裹,内联字面量每次渲染都是新引用,
 // 会让 <Markdown> 的 props 恒变、白费 memo 短路(长会话流式输出时代价明显)。
@@ -174,53 +175,58 @@ const TextMessage = memo(function TextMessage({
     () => (renderMd ? normalizeKnowledgeLinks(m.text as string) : ""),
     [renderMd, m.text],
   );
+  const messageContent = (
+    <>
+      {m.reply ? (
+        <div className="reply-quote">
+          <span className="rq-who">{whoMeta(m.reply.who, profile).name}</span>
+          {m.reply.text}
+        </div>
+      ) : null}
+      {renderMd ? (
+        <div className="m-text md-body">
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={MD_REHYPE_PLUGINS}
+            components={fileLinkComponents}
+            urlTransform={onOpenFile ? chatMarkdownUrlTransform : undefined}
+          >
+            {mdText}
+          </Markdown>
+        </div>
+      ) : (
+        <div className="m-text">{renderRich(m.text)}</div>
+      )}
+      {m.attachments && m.attachments.length > 0 ? (
+        <div className="attach-row msg-attach-row">
+          {m.attachments.map((a, i) => (
+            <span key={`${a.name}-${i}`} className="attach-pill">
+              <span
+                className="ap-thumb"
+                style={{
+                  background:
+                    a.kind === "todo"
+                      ? "linear-gradient(135deg,#4f7f62,#2d5c45)"
+                      : "linear-gradient(135deg,#c96442,#a84e30)",
+                }}
+              >
+                {a.kind === "todo" ? "TD" : "SK"}
+              </span>
+              <span>{a.name}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {m.images && m.images.length > 0 ? <ChatImages images={m.images} /> : null}
+      {m.files && m.files.length > 0 ? <ChatFiles files={m.files} onOpenFile={onOpenFile} /> : null}
+    </>
+  );
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
       <div className="m-body">
         <MessageHeader who={m.who} time={m.time} hideTime={hideTime} />
-        {m.reply ? (
-          <div className="reply-quote">
-            <span className="rq-who">{whoMeta(m.reply.who, profile).name}</span>
-            {m.reply.text}
-          </div>
-        ) : null}
-        {renderMd ? (
-          <div className="m-text md-body">
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={MD_REHYPE_PLUGINS}
-              components={fileLinkComponents}
-              urlTransform={onOpenFile ? chatMarkdownUrlTransform : undefined}
-            >
-              {mdText}
-            </Markdown>
-          </div>
-        ) : (
-          <div className="m-text">{renderRich(m.text)}</div>
-        )}
-        {m.attachments && m.attachments.length > 0 ? (
-          <div className="attach-row msg-attach-row">
-            {m.attachments.map((a, i) => (
-              <span key={`${a.name}-${i}`} className="attach-pill">
-                <span
-                  className="ap-thumb"
-                  style={{
-                    background:
-                      a.kind === "todo"
-                        ? "linear-gradient(135deg,#4f7f62,#2d5c45)"
-                        : "linear-gradient(135deg,#c96442,#a84e30)",
-                  }}
-                >
-                  {a.kind === "todo" ? "TD" : "SK"}
-                </span>
-                <span>{a.name}</span>
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {m.images && m.images.length > 0 ? <ChatImages images={m.images} /> : null}
-        {m.files && m.files.length > 0 ? <ChatFiles files={m.files} onOpenFile={onOpenFile} /> : null}
+        {m.who === "me" ? <UserMessageContent>{messageContent}</UserMessageContent> : messageContent}
         {renderTail?.(m)}
       </div>
     </div>

@@ -358,6 +358,10 @@ export default interface Resources {
       "label": "本轮 Token 用量",
       "output": "输出 {{count}}",
       "unit": "tokens"
+    },
+    "userMessage": {
+      "collapse": "收起",
+      "expand": "展开"
     }
   },
   "common": {

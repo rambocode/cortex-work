@@ -59,6 +59,7 @@ import {
   fileToPendingDocFile,
   isAcceptedDoc,
   isBinaryDoc,
+  mergeReferencedLocalDocs,
   pendingDocFromPath,
 } from "./docIntake";
 
@@ -383,7 +384,10 @@ export function ComposerShell({
     // 待发图/文档仍按 consumed 在 await 后清(保留「未消费则留待重试」语义):先存快照再传参,
     // React setter 不改当前闭包已绑定的 attachments/images/docFiles,本次入参不受上面清空影响。
     const sentImages = images.length ? images : undefined;
-    const sentDocs = docFiles.length ? docFiles : undefined;
+    // 用户显式写成反引号绝对路径的文档同样走附件落盘链：先复制到会话隔离目录，再由
+    // extract_document 解析。不能把原路径直接开放给 MCP，否则会击穿文档工具的限根边界。
+    const sentDocList = mergeReferencedLocalDocs(textToSend, docFiles);
+    const sentDocs = sentDocList.length ? sentDocList : undefined;
     setText("");
     setAttachments([]);
     setTryPlugin(null); // 发送后清插件试用 pill
@@ -394,6 +398,9 @@ export function ComposerShell({
       if (consumed) {
         setImages([]); // 仅真正消费才清待发图/文档
         setDocFiles([]);
+      } else if (sentDocList.length !== docFiles.length) {
+        // 自动识别出的路径此前不在 state 中；落盘失败时转成可见 pill，允许用户直接重试。
+        setDocFiles(sentDocList);
       }
     } finally {
       setSending(false);

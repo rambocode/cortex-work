@@ -10,6 +10,10 @@
     "sharedAgent": "共享 Agent",
     "agent": "Agent"
   },
+  "userMessage": {
+    "expand": "展开",
+    "collapse": "收起"
+  },
   "reasoning": {
     "title": "思考过程"
   },

@@ -5,7 +5,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreProvider, personalChatKeys, personalRunEventsKeys, usePersonalStore } from "@cortex-work/core";
 import type { Contact, DesktopBridge, Message } from "@cortex-work/core";
 import * as ChatAreaModule from "./ChatArea";
@@ -36,6 +36,50 @@ describe("个人会话头像样式", () => {
     expect(desktopCss).toMatch(
       /\.pw-personal-chat\s+\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*display:\s*none/,
     );
+  });
+});
+
+describe("用户消息气泡自动折叠", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("内容总高度超限时默认折叠正文和图片，并允许展开后再次收起", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("pw-user-message-content") ? 480 : 0;
+    });
+    const view = renderTeamStream([
+      {
+        kind: "text",
+        who: "me",
+        time: "10:00",
+        uid: "u-long",
+        text: "很长的用户输入",
+        images: [{ path: "/tmp/brief.png", name: "brief.png", mimeType: "image/png" }],
+      },
+    ]);
+
+    const shell = view.container.querySelector(".pw-user-message-shell")!;
+    expect(shell).toHaveClass("is-collapsed");
+    expect(shell.querySelector(".msg-img-row")).toBeInTheDocument();
+
+    fireEvent.click(view.getByRole("button", { name: "展开" }));
+    expect(shell).toHaveClass("is-expanded");
+    expect(view.getByRole("button", { name: "收起" })).toBeInTheDocument();
+
+    fireEvent.click(view.getByRole("button", { name: "收起" }));
+    expect(shell).toHaveClass("is-collapsed");
+  });
+
+  it("短消息不显示折叠按钮，用户气泡使用固定白色背景", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(80);
+    const view = renderTeamStream([
+      { kind: "text", who: "me", time: "10:00", uid: "u-short", text: "短消息" },
+    ]);
+
+    expect(view.queryByRole("button", { name: "展开" })).not.toBeInTheDocument();
+    expect(desktopCss).toMatch(/\.msg\.is-me\s+\.m-text\s*\{[^}]*background:\s*#fff/);
   });
 });
 

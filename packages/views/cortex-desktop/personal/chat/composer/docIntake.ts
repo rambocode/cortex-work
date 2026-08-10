@@ -118,6 +118,31 @@ export function pendingDocFromPath(path: string, name: string): PendingDocFile {
   };
 }
 
+/**
+ * 把用户在消息中用反引号明确引用的本地绝对文档路径并入待发附件。
+ *
+ * 这里不直接授权文档 MCP 读取原路径：发送层仍会经 `doc:save` 把文件复制到本会话
+ * `chat-docs`，之后 `extract_document` 只读取隔离副本。仅识别反引号块，避免普通正文里
+ * 偶然出现的 `/foo.pdf` 被静默读取；URL、相对路径和不支持的扩展名一律忽略。
+ */
+export function mergeReferencedLocalDocs(text: string, existing: PendingDocFile[]): PendingDocFile[] {
+  const merged = [...existing];
+  const knownPaths = new Set(existing.map((doc) => doc.srcPath).filter((path): path is string => !!path));
+
+  for (const match of text.matchAll(/`([^`\r\n]+)`/g)) {
+    if (merged.length >= MAX_DOCS_PER_MESSAGE) break;
+    const path = match[1]?.trim() ?? "";
+    const isAbsolute = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+    if (!isAbsolute || knownPaths.has(path)) continue;
+    const name = path.split(/[\\/]/).pop() ?? "";
+    if (!isAcceptedDoc(name)) continue;
+    merged.push(pendingDocFromPath(path, name));
+    knownPaths.add(path);
+  }
+
+  return merged;
+}
+
 export async function fileToPendingDocFile(file: File): Promise<PendingDocFile> {
   const ext = docExtOf(file.name);
   intakeSeq += 1;

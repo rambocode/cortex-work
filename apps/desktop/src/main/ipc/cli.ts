@@ -1013,6 +1013,9 @@ export function registerCliHandlers(): void {
     if (baseAgentKindOf(req.agent) === "pi") {
       // pi 的 adapter.mcpInjection==="none"，不会经过上面的 builtinServers 块。这里按轮重新读取
       // 设置并复用同一套 research gate；slides 走 cli:start 单发，每轮都会得到 fresh 工具集。
+      // 文档抽取不依赖用户设置，必须和 gateway 长驻会话一样常驻注入。漏掉它时自动子 Agent
+      // 会把 Pi 切到本分支，模型仍能运行却看不到 extract_document，只能静默回退到 bash。
+      const docCfg = buildDocExtractMcpServerConfig(req.sessionId);
       let researchCfg: McpServerConfig | null = null;
       let mediaGenCfg: McpServerConfig | null = null;
       let loopCfg: McpServerConfig | null = null;
@@ -1040,6 +1043,7 @@ export function registerCliHandlers(): void {
           ? await ensureDesignDelegateMcpServerConfig(req.sessionId)
           : null,
         slidesSessionActive ? await ensureSlidesMcpServerConfig(req.sessionId) : null,
+        docCfg,
         researchCfg,
         mediaGenCfg,
         loopCfg,

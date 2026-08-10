@@ -8,6 +8,7 @@ import {
   fileToPendingDocFile,
   isAcceptedDoc,
   isBinaryDoc,
+  mergeReferencedLocalDocs,
   pendingDocFromPath,
 } from "./docIntake";
 
@@ -48,6 +49,28 @@ describe("pendingDocFromPath(应用内拖入:已知路径作 srcPath)", () => {
     expect(p.status).toBe("ready");
     expect(p.name).toBe("report.xlsx");
     expect(p.mimeType).toMatch(/spreadsheetml/);
+  });
+});
+
+describe("mergeReferencedLocalDocs(文本中显式引用的本地文档)", () => {
+  it("识别反引号包裹的 macOS / Windows 绝对路径并转成待发文档", () => {
+    const docs = mergeReferencedLocalDocs(
+      "读取 `/Users/mike/Downloads/招标 文件.pdf` 和 `C:\\Users\\mike\\合同.docx`",
+      [],
+    );
+    expect(docs.map((doc) => ({ name: doc.name, path: doc.srcPath }))).toEqual([
+      { name: "招标 文件.pdf", path: "/Users/mike/Downloads/招标 文件.pdf" },
+      { name: "合同.docx", path: "C:\\Users\\mike\\合同.docx" },
+    ]);
+  });
+
+  it("忽略 URL、相对路径和不支持格式，并与已有附件按 srcPath 去重", () => {
+    const existing = [pendingDocFromPath("/tmp/a.pdf", "a.pdf")];
+    const docs = mergeReferencedLocalDocs(
+      "`/tmp/a.pdf` `https://example.com/b.pdf` `docs/c.pdf` `/tmp/archive.zip`",
+      existing,
+    );
+    expect(docs).toEqual(existing);
   });
 });
 

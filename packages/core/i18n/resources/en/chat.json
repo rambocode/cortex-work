@@ -10,6 +10,10 @@
     "sharedAgent": "Shared Agent",
     "agent": "Agent"
   },
+  "userMessage": {
+    "expand": "Show more",
+    "collapse": "Show less"
+  },
   "reasoning": {
     "title": "Thinking process"
   },
