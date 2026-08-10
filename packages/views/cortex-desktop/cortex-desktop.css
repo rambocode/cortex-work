@@ -967,12 +967,11 @@ input, textarea { font: inherit; color: inherit; }
 }
 .msg.is-me .reply-quote { max-width: 76%; }
 
-/* Kun 对齐的个人会话版心：正文更宽、更松，普通消息不重复展示头像；用户输入保留右侧卡片，
-   Agent 正文维持无气泡的文档式阅读。团队会话沿用原样。 */
+/* Kun 对齐的个人会话版心：阅读列封顶 730px，并保留 MessageStream 原有的头像与连续消息分组语义；
+   用户输入保留右侧卡片，Agent 正文维持无气泡的文档式阅读。团队会话沿用原样。 */
 .pw-personal-chat .msgs { padding: 24px clamp(28px, 6vw, 72px) 32px; }
-.pw-personal-chat .msgs-inner { max-width: 980px; }
-.pw-personal-chat .msg { gap: 0; margin-bottom: 10px; padding-block: 4px; }
-.pw-personal-chat .msg > .m-avatar { display: none; }
+.pw-personal-chat .msgs-inner { max-width: 730px; }
+.pw-personal-chat .msg { margin-bottom: 10px; padding-block: 4px; }
 .pw-personal-chat .msg .m-text { font-size: 15px; line-height: 1.68; }
 .pw-personal-chat .msg.is-me .m-text {
   max-width: min(76%, 720px);
@@ -981,7 +980,25 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 18px;
   box-shadow: 0 5px 18px rgb(30 45 70 / 4%);
 }
-.pw-personal-chat .m-turn-usage { margin-left: 0; }
+
+/* side 子会话的轻量返回条：它属于会话关系导航，不放进消息时间线，也不占用左侧默认列表。 */
+.pw-subagent-return {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px clamp(28px, 6vw, 72px) 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 12px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-card));
+  text-align: left;
+}
+.pw-subagent-return:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg-card)); }
+.pw-subagent-return span { display: flex; flex-direction: column; gap: 1px; }
+.pw-subagent-return strong { color: var(--text-1); font-size: 12px; font-weight: 650; }
+.pw-subagent-return small { color: var(--text-3); font-size: 10.5px; }
 
 /* 子代理任务卡：复刻 Kun 会话里的独立 crew 卡片。卡头把结论、预览和完整过程拆成独立
    交互；底部状态线用颜色表达运行/完成/失败。 */
@@ -1116,6 +1133,11 @@ input, textarea { font: inherit; color: inherit; }
 }
 .pw-subagent-card-process:hover,
 .pw-subagent-card-process.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+.pw-subagent-card-process.is-primary {
+  color: #fff;
+  background: var(--accent);
+}
+.pw-subagent-card-process.is-primary:hover { color: #fff; background: color-mix(in srgb, var(--accent) 86%, #000); }
 
 /* 子代理实时预览：使用 portal 脱离消息滚动区裁剪，位置由卡片预览按钮计算。 */
 .pw-subagent-peek {
@@ -7803,12 +7825,18 @@ button.sb-row {
    底层工作区不卸载、仅被遮挡 → 侧栏隐藏、终端 PTY 存活。两栏复用 token 化的
    .pw-dlg-nav / .pw-dlg-body;右栏内容限宽居中,避免整窗下表单横向拉伸。 */
 .pw-settings-page {
+  /* 设置页使用独立的稳定列宽。200pt 在 Electron 的 CSS 坐标系中按 200px 呈现，
+     不跟随正文限宽变化，避免菜单被右侧复杂表单反向挤压。 */
+  --pw-settings-nav-width: 200px;
+  /* Kun 深色选中态：浅色主题会在设置页 token 块中覆写为深底浅字。 */
+  --pw-settings-nav-selected: #eeeeee;
+  --pw-settings-nav-selected-fg: #252222;
   position: fixed;
   inset: 0;
   z-index: 200;
   display: flex;
   flex-direction: row;
-  background: var(--bg-app);
+  background: var(--bg-sidebar);
 }
 .pw-settings-back {
   display: flex;
@@ -8193,25 +8221,37 @@ button.sb-row {
 
 /* A. 浅色模式:去暖统一白(仅颜色) */
 :root:not([data-theme="dark"]) .pw-settings-page {
-  --bg-card-2: #ffffff;     /* 分组卡片 → 纯白 */
+  /* Kun 默认主题使用统一的中性灰工作台和浅色卡片，左右两栏共享同一底色。 */
+  --bg-card: #f8f8f8;
+  --bg-card-2: #f8f8f8;
   --bg-input: #ffffff;
-  --bg-soft: #ffffff;       /* 补齐未定义变量:供应商/Pi/模型 详情面板的 fallback,避免透明 */
+  --bg-soft: #f1f1f1;       /* 补齐未定义变量:供应商/Pi/模型 详情面板的 fallback,避免透明 */
   --bg-right: #fafafa;      /* 头像/宠物卡 → 中性极浅 */
-  --bg-sidebar: #f7f7f6;    /* 左导航 → 中性浅灰 */
-  --bg-hover: #f2f2f1;      /* 导航/控件 hover → 中性 */
-  --bg-active: #eaeae8;     /* 导航选中 → 中性 */
-  --bg-chip: #f1f1ef;       /* 能力徽标底 → 中性 */
-  --border: #e8e8e5;        /* 细线描边 → 去暖中性 */
-  --border-soft: #f0f0ee;   /* 行间分隔线 */
-  --border-strong: #d8d8d4;
-  background: #ffffff;       /* 覆盖层底色(替代 var(--bg-app)) */
+  --bg-sidebar: #ededed;
+  --bg-hover: #e6e6e6;
+  --bg-active: #e6e6e6;
+  --bg-chip: #f1f1f1;
+  --border: #dcdfe3;
+  --border-soft: #e4e5e7;
+  --border-strong: #c8cbd0;
+  --text-1: #3c3f43;
+  --text-2: #5f6268;
+  --text-3: #686b72;
+  --pw-settings-nav-selected: #3c3f43;
+  --pw-settings-nav-selected-fg: #fcfcfc;
+  background: var(--bg-sidebar);
 }
 
 /* B. 排版精修(不含颜色,深浅两色都生效) */
 /* 顶部留白放在内容列而非滚动容器:滚动容器自身的 padding-top 会让 sticky 元素的吸附点
    低于可视顶边,滚过的内容从缝里露出来(快捷回复分区 sticky 头,见反馈截图)。
    放到 .pw-settings-content 上视觉等价(留白随内容滚走),且吸附点=容器真实顶边。 */
-.pw-settings-page .pw-dlg-body { padding: 0 32px 48px; }
+.pw-settings-page .pw-dlg-body {
+  min-width: 0;
+  padding: 0 clamp(20px, 3vw, 40px) 48px;
+  /* 左右两栏共用同一背景层，内容卡片继续用 --bg-card-2 建立层级。 */
+  background: var(--bg-sidebar);
+}
 /* 设置页「已自动保存」反馈 pill：内容区顶部右侧浮动,默认隐藏,修改设置后短暂浮现。 */
 .pw-settings-saved {
   position: absolute;
@@ -8235,14 +8275,44 @@ button.sb-row {
   pointer-events: none;
 }
 .pw-settings-saved.is-visible { opacity: 1; transform: none; }
-.pw-settings-page .pw-settings-content { max-width: 800px; padding-top: 28px; }
+.pw-settings-page .pw-settings-content {
+  max-width: 920px;
+  padding-top: 28px;
+}
 .pw-settings-page .pw-dlg-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 .pw-settings-page .pw-dlg-desc { font-size: 13px; max-width: 600px; margin-bottom: 8px; line-height: 1.6; }
-.pw-settings-page .pw-dlg-nav { width: 300px; }
-/* 二级菜单项：在组标题（.pw-dlg-nav-h）下额外缩进 10px（基础 padding-left 10 → 20），
-   形成层级感；width:100% 让 hover/选中背景铺满菜单宽，而非只贴文本宽（flex 列里 button
-   默认不拉伸到交叉轴满宽，同 .pw-settings-back 显式 width:100% 的原因）。 */
-.pw-settings-page .pw-dlg-nav-item { width: 100%; padding-left: 20px; }
+.pw-settings-page .pw-dlg-nav {
+  width: var(--pw-settings-nav-width);
+  flex: 0 0 var(--pw-settings-nav-width);
+  border-right-color: var(--border-soft);
+}
+/* 设置菜单复刻 Kun 的胶囊交互：未选中仅在 hover 时浮出浅灰，选中项使用高对比实心底。
+   固定高度和透明边框可确保 hover、点击与键盘聚焦时不产生尺寸抖动。 */
+.pw-settings-page .pw-dlg-nav-item {
+  width: 100%;
+  height: 36px;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 400;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.pw-settings-page .pw-dlg-nav-item + .pw-dlg-nav-item { margin-top: 4px; }
+.pw-settings-page .pw-dlg-nav-item:hover {
+  color: var(--text-1);
+  background: var(--bg-hover);
+}
+.pw-settings-page .pw-dlg-nav-item.is-active,
+.pw-settings-page .pw-dlg-nav-item.is-active:hover {
+  color: var(--pw-settings-nav-selected-fg);
+  background: var(--pw-settings-nav-selected);
+  font-weight: 500;
+}
+.pw-settings-page .pw-dlg-nav-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 1px;
+}
 /* 分组导航：组标题收敛为小标题观感（参考 .twk-sect:小字/大写/字距/弱色阶,与 .pw-dlg-nav-h
    的页标题观感区分）;非首组上方留间距,凸显组边界。作用域限定设置页,不影响通用弹窗。 */
 .pw-settings-page .pw-dlg-nav-h {
@@ -8292,7 +8362,7 @@ button.sb-row {
   container: design-settings / inline-size;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
 }
 .pw-design-heading { display: flex; flex-direction: column; gap: 4px; }
 .pw-design-settings .pw-dlg-desc { margin-bottom: 0; }
@@ -11352,6 +11422,553 @@ button.sb-row {
 }
 .pw-sa-effort button.is-active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-card)); }
 .pw-sa-empty { padding: 32px 12px; color: var(--text-3); font-size: 12px; text-align: center; }
+
+/* Kun 设置页对齐：设置入口使用独立的页签与双栏目录，右侧工作台仍沿用上面的紧凑清单。
+   所有尺寸都以 Kun 1280×840 设置窗口为基准，并仅在子代理设置根节点内覆盖共享原语。 */
+.pw-settings-page .pw-settings-content:has(.pw-sa-settings) {
+  /* 子代理的双栏目录可以利用导航收窄后释放的空间；仍受父容器与视口宽度约束。 */
+  max-width: 960px;
+  /* Kun 设置滚动区顶部为 56px；标题不能贴着窗口上沿。 */
+  padding-top: 56px;
+}
+.pw-sa-settings {
+  /* Kun 子代理设置使用稳定蓝色作为交互强调色；只在此子树覆写，避免改变 Cortex 其它设置。 */
+  --accent: #3b82f6;
+  --accent-soft: rgb(59 130 246 / 10%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.pw-sa-settings-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.pw-sa-settings-page-header > div { min-width: 0; }
+.pw-sa-settings-page-header h1 {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+.pw-sa-settings-page-header p {
+  max-width: 680px;
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pw-sa-settings-page-header > span {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: var(--text-2);
+  background: var(--bg-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+.pw-sa-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-sidebar) 60%, transparent);
+  scrollbar-width: none;
+}
+.pw-sa-tabs::-webkit-scrollbar { display: none; }
+.pw-sa-tabs button {
+  flex: 0 0 auto;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.pw-sa-tabs button:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-sa-tabs button.is-active {
+  color: var(--text-1);
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+.pw-sa-settings-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  /* 卡片外壳保持页面灰底，只有内容行使用与激活 Tab 相同的浅色 surface。 */
+  background: transparent;
+}
+.pw-sa-settings-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pw-sa-settings-card > header h2 {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 600;
+}
+.pw-sa-settings-card > header p {
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pw-sa-policy-card > header > span {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.pw-sa-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-soft);
+}
+.pw-sa-policy-grid > :first-child { grid-column: 1 / -1; }
+.pw-sa-policy-setting {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--bg-card);
+}
+@media (max-width: 700px) {
+  .pw-settings-page .pw-settings-content:has(.pw-sa-settings) { padding-top: 32px; }
+  .pw-sa-settings-page-header { flex-direction: column; gap: 12px; }
+  .pw-sa-settings-page-header > span { align-self: flex-start; }
+}
+.pw-sa-policy-setting > div:first-child { flex: 1; min-width: 0; }
+.pw-sa-policy-setting strong { color: var(--text-1); font-size: 12.5px; font-weight: 600; }
+.pw-sa-policy-setting p { margin: 3px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.45; }
+.pw-sa-settings .pw-sa-number {
+  width: 112px;
+  height: 36px;
+  flex-basis: 112px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.pw-sa-profiles-card { overflow: visible; }
+.pw-sa-profiles-head > div { min-width: 0; }
+.pw-sa-profiles-head > div > span { display: flex; align-items: center; gap: 9px; }
+.pw-sa-profiles-head > div > span > em {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--bg-chip);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+.pw-sa-new {
+  flex: 0 0 auto;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.pw-sa-new:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.pw-sa-new:disabled { opacity: .55; cursor: not-allowed; }
+.pw-sa-catalog-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 13px 16px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-app) 92%, transparent);
+  backdrop-filter: blur(14px);
+}
+.pw-sa-surfaces {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.pw-sa-surfaces button {
+  height: 26px;
+  border-radius: 9px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.pw-sa-surfaces button:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-sa-surfaces button.is-active { color: var(--accent); background: var(--bg-card); }
+.pw-sa-settings .pw-sa-search {
+  height: 34px;
+  padding-inline: 12px;
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.pw-sa-settings .pw-sa-search input { font-size: 12.5px; }
+.pw-sa-settings .pw-sa-filters { gap: 6px; padding: 0; }
+.pw-sa-settings .pw-sa-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.pw-sa-settings .pw-sa-filters button > span { opacity: .72; }
+.pw-sa-catalog-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 390px;
+}
+.pw-sa-catalog-list {
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border-right: 1px solid var(--border-soft);
+}
+.pw-sa-category {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-soft));
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.pw-sa-category.is-collapsed { border-color: var(--border-soft); }
+.pw-sa-category-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--text-1);
+  text-align: left;
+}
+.pw-sa-category-head:hover { background: var(--bg-hover); }
+.pw-sa-category-head > svg { color: var(--text-3); transform: rotate(90deg); transition: transform .14s ease; }
+.pw-sa-category.is-collapsed .pw-sa-category-head > svg { transform: none; }
+.pw-sa-category-head strong { font-size: 12px; font-weight: 600; }
+.pw-sa-category-head span { color: var(--text-3); font-size: 10.5px; }
+.pw-sa-category-defaults {
+  margin: 0 12px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-app) 72%, var(--bg-card));
+}
+.pw-sa-category-defaults > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pw-sa-category-defaults > header strong { color: var(--text-1); font-size: 11.5px; font-weight: 600; }
+.pw-sa-category-defaults > header p { margin: 3px 0 0; color: var(--text-3); font-size: 9.5px; }
+.pw-sa-category-defaults > header button { color: var(--text-3); font-size: 9.5px; }
+.pw-sa-category-defaults > header button:hover { color: var(--text-1); }
+.pw-sa-category-defaults > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  align-items: end;
+  gap: 12px;
+  margin-top: 10px;
+}
+.pw-sa-category-defaults label > span,
+.pw-sa-category-defaults > div > div > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-3);
+  font-size: 9.5px;
+}
+.pw-sa-category-defaults input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: 0;
+  color: var(--text-1);
+  background: var(--bg-card);
+  font-size: 11px;
+}
+.pw-sa-category-defaults input:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.pw-sa-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.pw-sa-catalog-agent {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 11px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  color: var(--text-1);
+  background: var(--bg-card);
+  text-align: left;
+  transition: background .14s ease, border-color .14s ease, opacity .14s ease;
+}
+.pw-sa-catalog-agent:hover { border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); background: var(--bg-hover); }
+.pw-sa-catalog-agent.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.pw-sa-catalog-agent.is-disabled { opacity: .58; }
+.pw-sa-avatar-shell {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #fff, color-mix(in srgb, var(--accent) 6%, var(--bg-card)));
+}
+.pw-sa-avatar-shell.is-large { width: 50px; height: 50px; flex-basis: 50px; }
+.pw-sa-brand-logo { display: inline-flex; align-items: center; justify-content: center; }
+.pw-sa-brand-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgb(31 45 64 / 14%));
+}
+.pw-sa-brand-logo.is-disabled img { filter: grayscale(1) opacity(.7); }
+.pw-sa-catalog-copy { flex: 1; min-width: 0; }
+.pw-sa-catalog-title { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.pw-sa-catalog-title strong { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.pw-sa-catalog-title em {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 600;
+}
+.pw-sa-catalog-title em.is-base { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.pw-sa-catalog-desc { display: block; margin-top: 3px; overflow: hidden; color: var(--text-3); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.pw-sa-catalog-copy small {
+  display: inline-flex;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 2px 6px;
+  overflow: hidden;
+  border-radius: 5px;
+  color: var(--text-3);
+  background: var(--bg-chip);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-sa-catalog-agent > svg { color: var(--text-3); }
+.pw-sa-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: 9.5px;
+}
+.pw-sa-pagination > div { display: flex; align-items: center; gap: 10px; }
+.pw-sa-pagination button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-3);
+}
+.pw-sa-pagination button:disabled { opacity: .45; }
+.pw-sa-pagination strong { min-width: 28px; color: var(--text-2); font-size: 10px; text-align: center; }
+.pw-sa-catalog-inspector { min-width: 0; padding: 16px; background: color-mix(in srgb, var(--bg-app) 64%, var(--bg-card)); }
+.pw-sa-details { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 16px; }
+.pw-sa-details > header { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--border-soft); }
+.pw-sa-details > header > div { min-width: 0; }
+.pw-sa-details > header > div > span { display: flex; align-items: center; gap: 6px; }
+.pw-sa-details > header strong { color: var(--text-1); font-size: 13.5px; font-weight: 600; }
+.pw-sa-details > header em { padding: 1px 6px; border-radius: 999px; color: var(--accent); background: var(--accent-soft); font-size: 9px; font-style: normal; font-weight: 600; }
+.pw-sa-details > header p { margin: 4px 0 0; color: var(--text-3); font-size: 10.5px; line-height: 1.45; }
+.pw-sa-detail-availability {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.pw-sa-detail-availability > div { flex: 1; min-width: 0; }
+.pw-sa-detail-availability strong { display: block; color: var(--text-1); font-size: 11.5px; font-weight: 600; }
+.pw-sa-detail-availability small { display: block; margin-top: 2px; color: var(--text-3); font-size: 9.5px; }
+.pw-sa-detail-field > span { display: block; margin-bottom: 6px; color: var(--text-3); font-size: 10.5px; }
+.pw-sa-detail-field input,
+.pw-sa-detail-field select,
+.pw-sa-detail-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: 0;
+  color: var(--text-1);
+  background: var(--bg-card);
+  font: inherit;
+  font-size: 11.5px;
+}
+.pw-sa-detail-field input,
+.pw-sa-detail-field select { height: 36px; padding: 0 10px; }
+.pw-sa-detail-field textarea { padding: 9px 10px; resize: vertical; line-height: 1.45; }
+.pw-sa-detail-field :is(input, select, textarea):focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.pw-sa-effort { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pw-sa-effort button {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: 10px;
+}
+.pw-sa-effort button:hover { background: var(--bg-hover); }
+.pw-sa-effort button.is-active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg-card)); }
+.pw-sa-capabilities { display: flex; flex-wrap: wrap; gap: 7px 14px; }
+.pw-sa-capabilities em { color: var(--text-2); font-size: 10px; font-style: normal; }
+.pw-sa-detail-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--bg-card);
+  font-size: 10.5px;
+}
+.pw-sa-detail-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.pw-sa-detail-advanced { display: flex; flex-direction: column; gap: 14px; }
+.pw-sa-edit-button {
+  width: 100%;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.pw-sa-edit-button:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+
+.pw-sa-automatic > div { padding: 4px 12px; }
+.pw-sa-automatic article { display: flex; align-items: center; gap: 12px; padding: 12px 8px; border-bottom: 1px solid var(--border-soft); }
+.pw-sa-automatic article:last-child { border-bottom: 0; }
+.pw-sa-automatic article > div { flex: 1; min-width: 0; }
+.pw-sa-automatic article strong { color: var(--text-1); font-size: 12.5px; font-weight: 600; }
+.pw-sa-automatic article p { margin: 3px 0 0; color: var(--text-3); font-size: 10.5px; }
+.pw-sa-automatic article > span:last-child { flex: 0 0 260px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-3); font-size: 11px; }
+.pw-sa-automatic-controls { flex: 0 0 300px; display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 6px; }
+.pw-sa-automatic-controls select, .pw-sa-automatic-controls input { box-sizing: border-box; min-width: 0; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input, var(--bg-card)); color: var(--text-2); font-size: 10.5px; }
+.pw-sa-automatic article > .pw-sa-automatic-runtime { flex: 0 0 278px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-3); font-size: 10.5px; }
+
+/* 自定义子代理编辑器复用 Kun 的居中设置弹窗：尺寸受设置卡片约束，避免覆盖左侧设置导航。 */
+.pw-sa-dialog-backdrop { position: fixed; inset: 0; z-index: 220; display: grid; place-items: center; padding: 32px; background: color-mix(in srgb, #0f172a 42%, transparent); }
+.pw-sa-dialog { width: min(680px, calc(100vw - 64px)); max-height: calc(100vh - 64px); overflow: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); box-shadow: 0 22px 70px rgba(15, 23, 42, .28); }
+.pw-sa-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 20px 14px; border-bottom: 1px solid var(--border-soft); }
+.pw-sa-dialog > header h2 { margin: 0; color: var(--text-1); font-size: 16px; }
+.pw-sa-dialog > header p { margin: 5px 0 0; color: var(--text-3); font-size: 11.5px; }
+.pw-sa-dialog > header button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--text-3); }
+.pw-sa-dialog > header button:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-sa-dialog > nav { display: flex; gap: 18px; padding: 0 20px; border-bottom: 1px solid var(--border-soft); }
+.pw-sa-dialog > nav button { padding: 11px 2px 9px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-3); font-size: 12px; }
+.pw-sa-dialog > nav button.is-active { border-bottom-color: var(--blue); color: var(--blue); font-weight: 600; }
+.pw-sa-dialog-fields { display: grid; gap: 14px; padding: 18px 20px 20px; }
+.pw-sa-dialog-fields label, .pw-sa-dialog-fields fieldset { display: grid; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.pw-sa-dialog-fields label > span, .pw-sa-dialog-fields legend { color: var(--text-2); font-size: 11px; font-weight: 600; }
+.pw-sa-dialog-fields label > span em { color: #dc2626; font-style: normal; }
+.pw-sa-dialog-fields input:not([type="color"]), .pw-sa-dialog-fields select, .pw-sa-dialog-fields textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input, var(--bg-card)); color: var(--text-1); font: inherit; font-size: 12px; padding: 9px 10px; outline: 0; resize: vertical; }
+.pw-sa-dialog-fields input:focus, .pw-sa-dialog-fields select:focus, .pw-sa-dialog-fields textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 15%, transparent); }
+.pw-sa-dialog-row { display: grid; grid-template-columns: 74px minmax(150px, 1fr) minmax(150px, 1fr); gap: 12px; }
+.pw-sa-dialog-fields input[type="color"] { width: 100%; height: 36px; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.pw-sa-dialog-fields fieldset small { color: var(--text-3); font-size: 10.5px; }
+.pw-sa-dialog-surfaces { display: flex; gap: 7px; }
+.pw-sa-dialog-surfaces button { min-width: 62px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 11px; }
+.pw-sa-dialog-surfaces button.is-active { border-color: color-mix(in srgb, var(--blue) 45%, var(--border)); background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); }
+.pw-sa-dialog-permissions { display: grid; gap: 10px; padding: 20px; }
+.pw-sa-dialog-permissions > strong { color: var(--text-2); font-size: 11px; }
+.pw-sa-dialog-permissions label { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
+.pw-sa-dialog-permissions label > span { display: grid; gap: 3px; }
+.pw-sa-dialog-permissions b { color: var(--text-1); font-size: 12px; }
+.pw-sa-dialog-permissions small { color: var(--text-3); font-size: 10.5px; }
+.pw-sa-dialog > footer { display: flex; align-items: center; justify-content: space-between; padding: 13px 20px; border-top: 1px solid var(--border-soft); }
+.pw-sa-dialog > footer > div { display: flex; gap: 8px; }
+.pw-sa-dialog > footer button { padding: 8px 15px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-2); font-size: 11.5px; }
+.pw-sa-dialog > footer button.is-primary { border-color: var(--blue); background: var(--blue); color: white; }
+.pw-sa-dialog > footer button.is-danger { border-color: color-mix(in srgb, #dc2626 35%, var(--border)); color: #dc2626; }
+.pw-sa-dialog > footer button:disabled { opacity: .42; }
+.pw-sa-category-head.is-static { cursor: default; }
+
+/* 会话右栏继续使用旧的两列编辑区；仅补上重构后 PolicySetting/EffortPicker 的容器名。 */
+.pw-sa-panel .pw-sa-limits > .pw-sa-policy-setting { padding: 12px; border: 1px solid var(--border); border-radius: 12px; }
+.pw-sa-panel .pw-sa-effort-field { grid-column: 1 / -1; }
+.pw-sa-panel .pw-sa-effort-field > span { display: block; margin-bottom: 5px; color: var(--text-3); font-size: 10.5px; }
+
+@media (max-width: 1080px) {
+  .pw-sa-catalog-layout { grid-template-columns: 1fr; }
+  .pw-sa-catalog-list { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .pw-sa-catalog-inspector { padding: 16px 20px; }
+  .pw-sa-details { position: static; }
+}
+@media (max-width: 760px) {
+  .pw-sa-tabs { grid-template-columns: repeat(3, minmax(132px, 1fr)); }
+  .pw-sa-policy-grid,
+  .pw-sa-category-grid { grid-template-columns: 1fr; }
+  .pw-sa-policy-grid > :first-child { grid-column: auto; }
+  .pw-sa-settings-card > header { align-items: flex-start; }
+  .pw-sa-automatic article > span:last-child { flex-basis: 180px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-sa-settings * { transition: none !important; }
+}
 
 /* ── 真任务系统（TasksView / SuggestionChips，替换文档聚合式 Tasks）───────────── */
 .pw-todos .pw-task-tabs {

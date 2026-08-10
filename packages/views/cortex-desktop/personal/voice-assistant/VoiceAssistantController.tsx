@@ -270,7 +270,7 @@ export function VoiceAssistantController(): null {
     // ② 续用最近会话:按 updatedAt 取最新的未归档会话,并置为 active(setActiveSession
     // 同时会把主窗口切回会话视图,用户看得到语音轮次落进了哪条会话)。
     const recent = s.sessions
-      .filter((x) => x.archivedAt == null)
+      .filter((x) => x.relation !== "side" && x.archivedAt == null)
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (recent) {
       s.setActiveSession(recent.id);

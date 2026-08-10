@@ -4,13 +4,15 @@
 
 import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CoreProvider, personalRunEventsKeys } from "@cortex-work/core";
+import { CoreProvider, personalRunEventsKeys, usePersonalStore } from "@cortex-work/core";
 import type { Contact, DesktopBridge, Message } from "@cortex-work/core";
 import * as ChatAreaModule from "./ChatArea";
 import { MessageStream } from "./ChatArea";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;
+const desktopCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 
 const teamContact: Contact = {
   id: "pi",
@@ -23,6 +25,16 @@ const teamContact: Contact = {
   time: "",
   unread: 0,
 };
+
+describe("个人会话头像样式", () => {
+  it("普通消息保留头像，仅连续分组消息沿用既有隐藏语义", () => {
+    // 个人会话可以调整版心，但不能覆盖 MessageStream 原有的头像与分组规则。
+    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.msg\s*>\s*\.m-avatar\s*\{[^}]*display:\s*none/);
+    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.msg\s*\{[^}]*gap:\s*0/);
+    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.m-turn-usage\s*\{[^}]*margin-left:\s*0/);
+    expect(desktopCss).toMatch(/\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*visibility:\s*hidden/);
+  });
+});
 
 // 团队侧调用 MessageStream:**不传** collapsibleLogs/collapsibleReasoning/stickToBottomKey 等任何
 // 过程/个人相关 flag（团队侧默认形态）。
@@ -162,6 +174,7 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
       time: "10:00",
       uid: "sa1",
       callId: "call-review-1",
+      childSessionId: "child-review-1",
       roleId: "code-reviewer",
       roleLabel: "Code Reviewer",
       roleColor: "#2563eb",
@@ -201,6 +214,8 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     );
     expect(view.getByText("Code Reviewer")).toBeInTheDocument();
     expect(view.getByText("3 步")).toBeInTheDocument();
+    fireEvent.click(view.getByText("进入子会话"));
+    expect(usePersonalStore.getState().activeSessionId).toBe("child-review-1");
     expect(view.queryByText("发现一个阻断问题")).not.toBeInTheDocument();
     fireEvent.click(view.getByText("展开结论"));
     expect(view.getByText("发现一个阻断问题")).toBeInTheDocument();

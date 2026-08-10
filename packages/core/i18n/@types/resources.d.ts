@@ -276,6 +276,7 @@ export default interface Resources {
       "currentConclusion": "当前结论",
       "expandConclusion": "展开结论",
       "failed": "失败",
+      "openSession": "进入子会话",
       "preview": "预览",
       "previewAria": "预览 {{title}} 的执行进度",
       "resultDone": "子代理执行完成",
@@ -293,6 +294,10 @@ export default interface Resources {
       "viewFullProcess": "查看完整过程",
       "viewProcess": "查看过程",
       "waiting": "正在等待子代理产生过程…"
+    },
+    "subagentThread": {
+      "returnToParent": "返回父会话",
+      "title": "正在查看子代理会话"
     },
     "todoList": {
       "doneSummary": "已完成 {{count}} 项任务",

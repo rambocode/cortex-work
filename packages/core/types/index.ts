@@ -208,6 +208,8 @@ export type Message =
       time: string;
       // 同一角色一轮可被多次委派，callId 把卡片与该次调用的预览/完整过程精确关联。
       callId?: string;
+      // 委派产生的独立 side 会话；存在时卡片可直接进入该子会话。
+      childSessionId?: string;
       roleId: string;
       roleLabel: string;
       roleColor?: string;

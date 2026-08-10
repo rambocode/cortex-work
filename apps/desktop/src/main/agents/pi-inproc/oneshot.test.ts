@@ -92,6 +92,17 @@ function makeMod(script: PromptScript) {
     SessionManager: {
       create: (...args: unknown[]) => {
         calls.sessionManager.push({ fn: "create", args });
+        const explicitId = (args[2] as { id?: unknown } | undefined)?.id;
+        // 与真实 SDK 的 assertValidSessionId 同口径，确保把 JSONL 路径误当逻辑 id 时，
+        // 测试能复现线上启动失败，而不是只检查一个无害的 mock 调用参数。
+        if (
+          typeof explicitId === "string" &&
+          !/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(explicitId)
+        ) {
+          throw new Error(
+            "Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character",
+          );
+        }
         return sessionManager;
       },
       list: async (...args: unknown[]) => {
@@ -368,6 +379,13 @@ describe("旧 CLI flag → in-process 选项", () => {
     const miss = await runWithMod({ resumeSessionId: "gone-session-id" });
     const create = miss.calls.sessionManager.find((c) => c.fn === "create");
     expect(create?.args[2]).toEqual({ id: "gone-session-id" });
+  });
+
+  it("--session <JSONL path>：按会话文件直接 open，不能把绝对路径当逻辑 id 新建", async () => {
+    const fake = await runWithMod({ resumeSessionId: "/sessions/existing.jsonl" });
+
+    expect(fake.calls.sessionManager.map((c) => c.fn)).toEqual(["open"]);
+    expect(fake.calls.sessionManager[0]?.args).toEqual(["/sessions/existing.jsonl", undefined, "/proj"]);
   });
 });
 

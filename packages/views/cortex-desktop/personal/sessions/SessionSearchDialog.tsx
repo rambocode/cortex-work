@@ -30,7 +30,8 @@ export function SessionSearchDialog() {
   // 空查询 → 最近 N 条（按 updatedAt 降序,不含已归档）；有查询 → 标题/项目名子串匹配。
   const results = useMemo(() => {
     const query = q.trim().toLowerCase();
-    const base = sessions.filter((s) => s.archivedAt == null);
+    // side 子会话只从父卡片进入；混进全局搜索会把它误当成一条普通顶层会话。
+    const base = sessions.filter((s) => s.relation !== "side" && s.archivedAt == null);
     if (!query) {
       return [...base].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT_LIMIT);
     }

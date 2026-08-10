@@ -44,6 +44,7 @@
 // 且**不含 top-level await**（rollup 对 CJS 输出直接拒绝，构建期即失败）。
 
 import { readFileSync } from "fs";
+import { resolve } from "path";
 import { PassThrough } from "stream";
 
 import type {
@@ -482,9 +483,13 @@ async function createOneShotRuntime(
 }
 
 /**
- * `--session <id>` 的 in-process 对应物。
+ * `--session <id|path>` 的 in-process 对应物。
  *
- * pi CLI 在 id 找不到时是 `process.exit(1)`（无任何 JSON 输出 → 上层只看到一次空退出，正是
+ * 路径判定必须与 pi CLI 的 `resolveSessionPath` 同口径：包含路径分隔符或以 `.jsonl` 结尾时，
+ * 直接按会话文件打开。Pi 主会话从长驻 RPC 切到带 delegate 的单发路径时，传入的正是
+ * `sessionFile` 绝对路径；若把它落入下面的逻辑 id fallback，SDK 会因 `/` 非法而拒绝启动。
+ *
+ * pi CLI 在逻辑 id 找不到时是 `process.exit(1)`（无任何 JSON 输出 → 上层只看到一次空退出，正是
  * `pi.ts` 文件头记的那种「管线只看到空退出」的失败形态）。这里刻意**更宽容**：找不到就用该 id
  * 新建一个会话，等价于 CLI 的 `--session-id` 语义。理由是 `resumeSessionId` 来自渲染端持久化的
  * 会话记录，用户换机 / 清过 `~/.pi` 之后它必然对不上，而那时用户想要的显然是「接着聊」，
@@ -497,6 +502,11 @@ async function openOneShotSessionManager(
 ): Promise<SessionManager> {
   const id = resumeSessionId?.trim();
   if (!id) return mod.SessionManager.create(cwd);
+  if (id.includes("/") || id.includes("\\") || id.endsWith(".jsonl")) {
+    // 第三个参数显式给 cwd：旧 spawn 形态里 pi 进程本就以 req.cwd 启动；in-process 若省略，
+    // 路径暂不存在时 SDK 会误用 Electron 主进程的 process.cwd() 生成新会话 header。
+    return mod.SessionManager.open(resolve(cwd, id), undefined, cwd);
+  }
   const local = await mod.SessionManager.list(cwd);
   // 匹配顺序与 pi 的 `resolveSessionPath` 一致：先精确 id，再前缀。
   const match = local.find((s) => s.id === id) ?? local.find((s) => s.id.startsWith(id));

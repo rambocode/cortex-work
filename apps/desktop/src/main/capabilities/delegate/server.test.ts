@@ -180,7 +180,9 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
   it("子结果作为 tool_result 回主会话，并在 trace 记录上下文交接", async () => {
     await startDelegateHost();
     const sid = "context-session";
-    const runSubAgent = vi.fn(async () => ({ text: "子 Agent 的分析结果", ok: true }));
+    const runSubAgent = vi.fn<DelegateSessionState["runSubAgent"]>(
+      async () => ({ text: "子 Agent 的分析结果", ok: true }),
+    );
     const pushEvent = vi.fn();
     registerDelegateSession({
       sessionId: sid,
@@ -211,14 +213,20 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         expect.objectContaining({ id: "codex" }),
         "结合必要材料完成子任务",
         expect.any(Function),
+        expect.any(String),
       );
       expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
         type: "init",
         roleId: "codex",
         stage: "subagent",
         subagentCallId: expect.any(String),
+        childSessionId: expect.any(String),
+        subagentTask: "结合必要材料完成子任务",
+        subagentAgentId: "codex",
       }));
       const subagentCallId = pushEvent.mock.calls[0]?.[0]?.subagentCallId;
+      const childSessionId = pushEvent.mock.calls[0]?.[0]?.childSessionId;
+      expect(runSubAgent.mock.calls[0]?.[3]).toBe(childSessionId);
       expect(pushEvent).toHaveBeenLastCalledWith(expect.objectContaining({
         type: "result",
         ok: true,

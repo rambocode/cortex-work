@@ -30,7 +30,7 @@ export function partitionArchivedSessions(
   sessions.forEach((s, i) => idx.set(s, i));
   const order = (a: SessionMeta, b: SessionMeta) => (idx.get(a) ?? 0) - (idx.get(b) ?? 0);
 
-  const archived = sessions.filter((s) => s.archivedAt != null);
+  const archived = sessions.filter((s) => s.relation !== "side" && s.archivedAt != null);
   const archivedTotal = archived.length;
 
   const q = query?.trim().toLowerCase() ?? "";

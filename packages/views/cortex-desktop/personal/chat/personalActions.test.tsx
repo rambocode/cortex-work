@@ -177,7 +177,7 @@ describe("send 分叉", () => {
     expect(bridge.startCli).not.toHaveBeenCalled();
   });
 
-  it("编排设置缺省时普通主会话默认获得子代理工具，由模型自行决定是否调用", async () => {
+  it("项目分析请求默认获得 Kun 对齐的 Explorer 委派指令与子代理工具", async () => {
     const bridge = makeBridge();
     const qc = new QueryClient();
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });
@@ -185,7 +185,7 @@ describe("send 分叉", () => {
     const { subagentOrchestration: _unset, ...rest } = usePersonalStore.getState().generalSettings;
     usePersonalStore.setState({ generalSettings: rest });
     await act(async () => {
-      await result.current.send(claudeSession, "/proj", "你好", []);
+      await result.current.send(claudeSession, "/proj", "分析下当前项目主要解决什么问题", []);
     });
     expect(bridge.startCli).toHaveBeenCalledTimes(1);
     const req = (bridge.startCli as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
@@ -196,8 +196,9 @@ describe("send 分叉", () => {
     });
     expect(req.delegateRoles).toHaveLength(8);
     expect(req.delegatePolicy).toEqual({ maxParallel: 256, maxChildRuns: 25 });
-    expect(req.appendSystemPrompt).toContain("你自行判断本轮是否需要协作");
-    expect(req.appendSystemPrompt).not.toContain("你必须先调用");
+    expect(req.appendSystemPrompt).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
+    expect(req.appendSystemPrompt).toContain("任何仓库或项目探索都必须先调用 `ask_explore`");
+    expect(req.appendSystemPrompt).toContain("同一轮同时发出多个 `ask_explore`");
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
   });
 

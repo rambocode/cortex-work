@@ -367,6 +367,7 @@ describe("delegate 派生 agent 基础类型", () => {
     });
     spawnMock.mockReturnValueOnce(child);
     const controller = new AbortController();
+    const onEvent = vi.fn();
     const done = __runDelegateSubAgentForTest(
       {
         runId: "parent-run",
@@ -386,13 +387,24 @@ describe("delegate 派生 agent 基础类型", () => {
         updatedAt: "",
       },
       "审查变更",
-      vi.fn(),
+      onEvent,
       controller.signal,
+      "child-readonly",
     );
 
     const args = spawnMock.mock.calls[0]?.[1] as string[];
     expect(args).toEqual(expect.arrayContaining(["-c", "sandbox_mode=read-only"]));
     expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    child.stdout.emit("data", `${JSON.stringify({ type: "thread.started", thread_id: "native-child-thread" })}\n`);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "init",
+      sessionId: "native-child-thread",
+      childAgentSessionId: "native-child-thread",
+      childSessionId: "child-readonly",
+      stage: "subagent",
+      subagentAgentId: "codex",
+      subagentReadOnly: true,
+    }));
     child.emit("close", 0);
     await expect(done).resolves.toMatchObject({ ok: true });
   });
@@ -428,6 +440,7 @@ describe("delegate 派生 agent 基础类型", () => {
         "分析任务",
         vi.fn(),
         controller.signal,
+        "child-pi-derived",
       );
 
       const { child, req } = await nextPiProc(0);
@@ -456,6 +469,7 @@ describe("delegate 派生 agent 基础类型", () => {
       "分析任务",
       vi.fn(),
       controller.signal,
+      "child-pi-effort",
     );
     const { child, req } = await nextPiProc(0);
     expect(req).toMatchObject({ thinkingLevel: "high", effort: undefined });
@@ -478,6 +492,7 @@ describe("delegate 派生 agent 基础类型", () => {
         "分析任务",
         vi.fn(),
         controller.signal,
+        `child-codex-${level}`,
       );
       const args = spawnMock.mock.calls[0]?.[1] as string[];
       if (expected) expect(args).toEqual(expect.arrayContaining(["-c", `model_reasoning_effort=${expected}`]));
@@ -514,6 +529,7 @@ describe("delegate 派生 agent 基础类型", () => {
         "分析任务",
         vi.fn(),
         controller.signal,
+        "child-codex-derived",
       );
 
       const args = spawnMock.mock.calls[0]?.[1] as string[];

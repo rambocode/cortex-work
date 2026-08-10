@@ -162,15 +162,26 @@ describe("设置入口与整页设置视图", () => {
     await waitFor(() => expect(openAgentTraceWindow).toHaveBeenCalledTimes(1));
   });
 
-  it("子代理设置页说明由模型自主决定，并提供 Kun 对齐的运行护栏", () => {
+  it("子代理设置页使用 Kun 对齐的三段导航，并提供运行护栏", () => {
     usePersonalStore.setState({ settingsOpen: true });
     renderUI(<PersonalSettingsView />);
     fireEvent.click(screen.getByRole("button", { name: "子代理" }));
 
-    expect(screen.getByText("由主模型自主委派")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "运行策略" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "子代理配置" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "自动模型角色" })).toBeTruthy();
     expect(screen.getByRole("spinbutton", { name: "最大并行子代理数" })).toBeTruthy();
     expect(screen.getByRole("spinbutton", { name: "单个会话的子任务上限" })).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "启用子 agent 编排" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "子代理配置" }));
+    expect(screen.getByPlaceholderText("搜索名称、能力或场景")).toBeTruthy();
+    expect(screen.getByText("45 个可委派角色")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "General Agent 详情" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "自动模型角色" }));
+    expect(screen.getByText("上下文压缩")).toBeTruthy();
+    expect(screen.getByText("代码审查")).toBeTruthy();
   });
 
   it("卸载后 window keydown 监听解绑(ESC 不再返回)", () => {

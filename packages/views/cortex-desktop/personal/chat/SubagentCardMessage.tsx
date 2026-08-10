@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
-import { cleanToolName, usePersonalRunEvents, type RunEvent } from "@cortex-work/core";
+import { cleanToolName, usePersonalRunEvents, usePersonalStore, type RunEvent } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { Message } from "@cortex-work/core/types";
 import { Icon } from "@cortex-work/ui/icons";
@@ -212,6 +212,7 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
   sessionId?: string;
 }) {
   const { t } = useTranslation("chat");
+  const setActiveSession = usePersonalStore((state) => state.setActiveSession);
   const [expanded, setExpanded] = useState(false);
   const [peekOpen, setPeekOpen] = useState(false);
   const previewButtonRef = useRef<HTMLButtonElement>(null);
@@ -299,6 +300,16 @@ export const SubagentCardMessage = memo(function SubagentCardMessage({
               {t("subagentCard.viewProcess")}
               <Icon.ChevronRight size={11} />
             </button>
+            {m.childSessionId && m.status !== "running" ? (
+              <button
+                type="button"
+                className="pw-subagent-card-process is-primary"
+                onClick={() => setActiveSession(m.childSessionId!)}
+              >
+                {t("subagentCard.openSession")}
+                <Icon.ChevronRight size={11} />
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

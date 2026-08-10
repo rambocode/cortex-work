@@ -1,16 +1,7 @@
-// 设置页与会话右栏复用同一个子代理编辑器，确保运行上限、角色启用状态和模型覆盖不会
-// 因两个入口各自维护表单而漂移。此壳只负责设置页的信息层级与本地化标题。
-
-import { useTranslation } from "@cortex-work/core/i18n";
+// 设置页与会话右栏共享同一份配置；设置页本身的标题已经包含在 Kun 对齐的三段式编辑器中，
+// 这里不再叠加 Cortex 通用分区标题，避免顶部出现一层参考界面没有的信息层级。
 import { SubagentsPanel } from "../subagents/SubagentsPanel";
 
 export function SubagentSettingsSection() {
-  const { t } = useTranslation("settings");
-  return (
-    <>
-      <div className="pw-dlg-title">{t("subagents.title")}</div>
-      <div className="pw-dlg-desc">{t("subagents.desc")}</div>
-      <SubagentsPanel variant="settings" />
-    </>
-  );
+  return <SubagentsPanel variant="settings" />;
 }

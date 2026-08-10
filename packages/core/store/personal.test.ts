@@ -644,6 +644,30 @@ describe("会话归档 / 取消归档 / 删除", () => {
     expect(s.activeSessionId).toBeUndefined();
   });
 
+  it("removeSession 删除父会话时级联 side 子会话并返回全部物理清理 id", () => {
+    hydrateWithSessions();
+    usePersonalStore.setState((state) => ({
+      sessions: [
+        ...state.sessions,
+        {
+          ...state.sessions[0]!,
+          id: "child-1",
+          relation: "side",
+          parentSessionId: "s1",
+          parentSubagentCallId: "call-1",
+          subagentRoleId: "review",
+        },
+      ],
+      activeSessionId: "child-1",
+    }));
+
+    const removedIds = usePersonalStore.getState().removeSession("s1");
+
+    expect(new Set(removedIds)).toEqual(new Set(["s1", "child-1"]));
+    expect(usePersonalStore.getState().sessions.map((session) => session.id)).toEqual(["s2"]);
+    expect(usePersonalStore.getState().activeSessionId).toBeUndefined();
+  });
+
   it("archivedAt 进入持久化快照", () => {
     hydrateWithSessions();
     usePersonalStore.getState().archiveSession("s1");

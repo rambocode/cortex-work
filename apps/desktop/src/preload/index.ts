@@ -43,6 +43,7 @@ import type {
   ContentSearchResult,
   DerivedAgentMeta,
   RoleConfig,
+  ReasoningEffort,
   CronValidation,
   DocSaveRequest,
   DocSaveResult,
@@ -425,6 +426,7 @@ const personal = {
     prompt: string;
     model?: string;
     providerId?: string;
+    effort?: ReasoningEffort;
   }): Promise<string> => ipcRenderer.invoke("cli:oneshot", req),
   // 阶段③·4.1 收编：寻址改为 Catalog 引用，明文 apiKey 不再过桥（凭据由主进程从金库取）。
   openaiComplete: (req: { providerId: string; modelId: string; prompt: string }): Promise<string> =>

@@ -1,10 +1,9 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
-// 主窗口宽度需容纳个人工作区最宽三栏：
-// activity 左栏 320px + 会话中栏 660px + 文件预览 480px + 右栏浮动间距 8px。
-// 额外 2px 吸收边框/取整误差，避免刚好卡在临界值时中栏仍被压缩。
+// 默认宽度继续完整容纳个人工作区三栏；最小宽度只约束用户缩放下限，
+// 窄窗下由渲染层既有的响应式布局负责收缩或隐藏辅助栏。
 export const MAIN_WINDOW_DEFAULT_WIDTH = 1470;
-export const MAIN_WINDOW_MIN_WIDTH = 1470;
+export const MAIN_WINDOW_MIN_WIDTH = 960;
 
 export function createMainWindowOptions({
   isMacOS,

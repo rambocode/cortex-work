@@ -200,6 +200,11 @@ import type { WritingLlmSettings } from "./writing-llm-types";
 
 export interface SessionMeta {
   id: string;
+  // 与 core 镜像：side 子会话默认不进会话列表，通过父会话卡片按 parentSessionId 返回。
+  relation?: "primary" | "side";
+  parentSessionId?: string;
+  parentSubagentCallId?: string;
+  subagentRoleId?: string;
   // 关联项目;缺省 = 不使用项目（会话在 Documents/cortex/<日期> 工作）。
   projectId?: string;
   // 不使用项目时的工作目录（Documents/cortex/<YYYY-MM-DD>,创建时定下不漂移）。
@@ -1038,7 +1043,7 @@ export interface AgentProjectInfo {
 //   stageLabel — 段切换时的人可读提示文案（如「理解意图中…」），供渲染端更新 typing 占位，
 //               可选增强字段；渲染端未消费时自然忽略。
 export type CliStreamEvent =
-  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
+  | { type: "init"; sessionId: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string; childSessionId?: string; childAgentSessionId?: string; subagentTask?: string; subagentAgentId?: string; subagentBaseAgent?: AgentKind; subagentModel?: string; subagentProviderId?: string; subagentReadOnly?: boolean }
   | { type: "text"; delta: string; stage?: "intent" | "subagent" | "refine"; stageLabel?: string; roleId?: string; subagentCallId?: string }
   // tool 事件:phase:"start" 带 input(完整调用参数,原始 JSON);phase:"end" 带 output(工具输出文本,
   // adapter 侧已截断)+ isError。start/end 靠 toolCallId 配对(运行过程详情视图用)。

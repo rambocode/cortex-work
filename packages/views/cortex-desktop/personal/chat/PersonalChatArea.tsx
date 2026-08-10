@@ -66,6 +66,7 @@ import { useCanvasShapeStore } from "@cortex-work/core/design/canvas/canvas-shap
 import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-selection-store";
 import { useCanvasViewportStore } from "@cortex-work/core/design/canvas/canvas-viewport-store";
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
+import { useTranslation } from "@cortex-work/core/i18n";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
@@ -173,11 +174,13 @@ export function PersonalChatArea({
   sessionId?: string;
   onToast: (text: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const projects = usePersonalStore((s) => s.projects);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const createSession = usePersonalStore((s) => s.createSession);
+  const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const runningBySession = usePersonalStore((s) => s.runningBySession);
   const updateSession = usePersonalStore((s) => s.updateSession);
   const ttsSettings = usePersonalStore((s) => s.ttsSettings);
@@ -774,6 +777,19 @@ export function PersonalChatArea({
   // 团队会话(同用 MessageStream)不受影响。
   return (
     <main className={landing ? "chat pw-landing pw-personal-chat" : "chat pw-personal-chat"}>
+      {session.relation === "side" && session.parentSessionId ? (
+        <button
+          type="button"
+          className="pw-subagent-return"
+          onClick={() => setActiveSession(session.parentSessionId!)}
+        >
+          <Icon.ChevronLeft size={14} />
+          <span>
+            <strong>{t("subagentThread.title")}</strong>
+            <small>{t("subagentThread.returnToParent")}</small>
+          </span>
+        </button>
+      ) : null}
       {/* 会话还没有任何消息时,中栏就是「新会话落地页」——渲染与 NewSessionLanding 同一份
           HomeBoard(Hero + 场景 tab/chips),两处不再各写一套内容。区别只在于:落地页底部
           还要选项目,这里项目已经由会话定死,GitBar 只读展示。 */}

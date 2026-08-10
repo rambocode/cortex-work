@@ -228,11 +228,16 @@
     "expandConclusion": "Expand conclusion",
     "preview": "Preview",
     "viewProcess": "View process",
+    "openSession": "Open child session",
     "viewFullProcess": "View full process",
     "closePreview": "Close preview",
     "previewAria": "Preview progress for {{title}}",
     "waiting": "Waiting for subagent activity…",
     "currentConclusion": "Current conclusion"
+  },
+  "subagentThread": {
+    "title": "Viewing subagent session",
+    "returnToParent": "Return to parent session"
   },
   "transcript": {
     "title": "Run transcript",

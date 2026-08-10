@@ -26,6 +26,31 @@ export type BuiltinAgentCategory =
   | 'operations'
   | 'research'
 
+export type SubagentSurface = 'shared' | 'code' | 'write' | 'design'
+
+export type CustomSubagentProfile = {
+  id: string
+  enabled: boolean
+  name: string
+  description?: string
+  color?: string
+  agent?: string
+  model?: string
+  effort?: string
+  systemPrompt?: string
+  toolPolicy: 'readOnly' | 'inherit'
+  surfaces: SubagentSurface[]
+}
+
+export type AutomaticSubagentRoleId = 'compaction' | 'codeReview' | 'title' | 'summary'
+
+export type AutomaticSubagentRoleOverride = {
+  agent?: 'claude' | 'codex' | 'pi'
+  model?: string
+  providerId?: string
+  effort?: 'low' | 'medium' | 'high'
+}
+
 /**
  * Canonical display, policy, and retrieval metadata for every built-in agent.
  * Runtime profiles and the Electron GUI both consume this table so changing a
@@ -353,6 +378,8 @@ export type SubagentProfileOverride = {
   model?: string
   effort?: string
   systemPrompt?: string
+  /** 缺省使用内置目录场景；shared 表示所有场景可用。 */
+  surfaces?: SubagentSurface[]
 }
 
 /**
@@ -366,6 +393,8 @@ export type SubagentSettings = {
   maxChildRuns: number
   extensionAgentsEnabled: boolean
   profiles: Record<string, SubagentProfileOverride>
+  customProfiles: CustomSubagentProfile[]
+  automaticRoles: Partial<Record<AutomaticSubagentRoleId, AutomaticSubagentRoleOverride>>
 }
 
 export const SUBAGENT_MAX_PARALLEL_RANGE = { min: 1, max: 256 } as const
@@ -376,7 +405,10 @@ export const DEFAULT_SUBAGENT_SETTINGS: SubagentSettings = {
   maxParallel: 256,
   maxChildRuns: 25,
   extensionAgentsEnabled: false,
-  profiles: {}
+  profiles: {},
+  customProfiles: [],
+  // 保留 Cortex 既有的轻量标题生成默认值；用户可在设置页改为其它 Agent / 模型。
+  automaticRoles: { title: { agent: 'claude', model: 'haiku' } }
 }
 
 function normalizeInteger(
@@ -386,6 +418,74 @@ function normalizeInteger(
 ): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(range.max, Math.max(range.min, Math.floor(value)))
+}
+
+const SUBAGENT_SURFACES = new Set<SubagentSurface>(['shared', 'code', 'write', 'design'])
+const AUTOMATIC_ROLE_IDS = new Set<AutomaticSubagentRoleId>(['compaction', 'codeReview', 'title', 'summary'])
+
+function cleanOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const cleaned = value.trim()
+  return cleaned || undefined
+}
+
+/** 场景列表去重并收敛；shared 是通配场景，出现后不再保留其它冗余值。 */
+export function normalizeSubagentSurfaces(value: unknown, fallback: readonly SubagentSurface[]): SubagentSurface[] {
+  const surfaces = Array.isArray(value)
+    ? [...new Set(value.filter((entry): entry is SubagentSurface => SUBAGENT_SURFACES.has(entry as SubagentSurface)))]
+    : [...fallback]
+  return surfaces.includes('shared') ? ['shared'] : surfaces
+}
+
+function normalizeCustomProfiles(value: unknown): CustomSubagentProfile[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const result: CustomSubagentProfile[] = []
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const raw = candidate as Partial<CustomSubagentProfile>
+    const id = cleanOptionalString(raw.id)?.toLowerCase()
+    const name = cleanOptionalString(raw.name)
+    // 自定义角色 id 不能覆盖内置策略；无名称的草稿也不进入运行时目录。
+    // 严格字符集还保证 ask_<id> 归一化后不会让两个角色碰撞到同一个 delegate 工具名。
+    if (!id || !/^[a-z0-9][a-z0-9_-]{0,127}$/.test(id) || !name || seen.has(id) || BUILTIN_AGENT_CATALOG_BY_ID[id]) continue
+    seen.add(id)
+    const color = cleanOptionalString(raw.color)
+    result.push({
+      id,
+      name,
+      enabled: raw.enabled !== false,
+      toolPolicy: raw.toolPolicy === 'inherit' ? 'inherit' : 'readOnly',
+      surfaces: normalizeSubagentSurfaces(raw.surfaces, ['shared']),
+      ...(cleanOptionalString(raw.description) ? { description: cleanOptionalString(raw.description) } : {}),
+      ...(color && /^#[0-9a-f]{6}$/i.test(color) ? { color } : {}),
+      ...(cleanOptionalString(raw.agent) ? { agent: cleanOptionalString(raw.agent) } : {}),
+      ...(cleanOptionalString(raw.model) ? { model: cleanOptionalString(raw.model) } : {}),
+      ...(cleanOptionalString(raw.effort) ? { effort: cleanOptionalString(raw.effort) } : {}),
+      ...(cleanOptionalString(raw.systemPrompt) ? { systemPrompt: cleanOptionalString(raw.systemPrompt) } : {})
+    })
+  }
+  return result
+}
+
+function normalizeAutomaticRoles(value: unknown): SubagentSettings['automaticRoles'] {
+  if (!value || typeof value !== 'object') return {}
+  const result: SubagentSettings['automaticRoles'] = {}
+  for (const [id, candidate] of Object.entries(value)) {
+    if (!AUTOMATIC_ROLE_IDS.has(id as AutomaticSubagentRoleId) || !candidate || typeof candidate !== 'object') continue
+    const raw = candidate as AutomaticSubagentRoleOverride
+    const agent = raw.agent === 'claude' || raw.agent === 'codex' || raw.agent === 'pi' ? raw.agent : undefined
+    const effort = raw.effort === 'low' || raw.effort === 'medium' || raw.effort === 'high'
+      ? raw.effort
+      : undefined
+    result[id as AutomaticSubagentRoleId] = {
+      ...(agent ? { agent } : {}),
+      ...(cleanOptionalString(raw.model) ? { model: cleanOptionalString(raw.model) } : {}),
+      ...(cleanOptionalString(raw.providerId) ? { providerId: cleanOptionalString(raw.providerId) } : {}),
+      ...(effort ? { effort } : {})
+    }
+  }
+  return result
 }
 
 /**
@@ -408,8 +508,21 @@ export function normalizeSubagentSettings(
       DEFAULT_SUBAGENT_SETTINGS.maxChildRuns,
       SUBAGENT_MAX_CHILD_RUNS_RANGE
     ),
-    profiles: value?.profiles && typeof value.profiles === 'object' ? value.profiles : {}
+    profiles: value?.profiles && typeof value.profiles === 'object' ? value.profiles : {},
+    customProfiles: normalizeCustomProfiles(value?.customProfiles),
+    automaticRoles: {
+      ...DEFAULT_SUBAGENT_SETTINGS.automaticRoles,
+      ...normalizeAutomaticRoles(value?.automaticRoles)
+    }
   }
+}
+
+/** 判断角色是否在当前产品场景可用；shared 是跨场景通配值。 */
+export function subagentAvailableOnSurface(
+  surfaces: readonly SubagentSurface[],
+  surface: Exclude<SubagentSurface, 'shared'>
+): boolean {
+  return surfaces.includes('shared') || surfaces.includes(surface)
 }
 
 /**

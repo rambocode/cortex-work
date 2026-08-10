@@ -337,6 +337,21 @@ export interface PersonalState {
     model?: string,
     opts?: { noProjectDir?: string },
   ) => SessionMeta;
+  // 委派子会话使用调用方给定 id，创建时不抢当前会话焦点。相同 id 重放时幂等返回已有会话，
+  // 使 renderer HMR 后补到的 child init 不会重复插入 side 会话。
+  createSubagentSession: (input: {
+    id: string;
+    parentSessionId: string;
+    callId: string;
+    roleId: string;
+    roleLabel: string;
+    agent: AgentKind;
+    derivedAgentId?: string;
+    model?: string;
+    providerId?: string;
+    readOnly?: boolean;
+    task?: string;
+  }) => SessionMeta | undefined;
   updateSession: (id: string, patch: Partial<SessionMeta>) => void;
   // 会话目标 actions：所有入口共用同一持久态，避免 composer、slash 与自动续跑各维护副本。
   setSessionGoal: (id: string, objective: string) => SessionMeta["goal"];
@@ -345,7 +360,8 @@ export interface PersonalState {
   renameSession: (id: string, title: string) => void;
   archiveSession: (id: string) => void;
   unarchiveSession: (id: string) => void;
-  removeSession: (id: string) => void;
+  // 删除父会话时级联移除其 side 子会话，并返回需要物理删除 chat 文件的全部 id。
+  removeSession: (id: string) => string[];
   addTodo: (projectId: string, title: string, detailPath: string) => TodoMeta;
   updateTodo: (id: string, patch: Partial<Pick<TodoMeta, "title" | "status" | "detailPath">>) => void;
   removeTodo: (id: string) => void;
@@ -1029,7 +1045,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   createSession: (projectId, agent, model, opts) => {
     const now = Date.now();
     // count 仍按 projectId 分桶（undefined 自成「无项目」分桶,各自从 1 开始编号）。
-    const count = get().sessions.filter((x) => x.projectId === projectId).length;
+    const count = get().sessions.filter((x) => x.projectId === projectId && x.relation !== "side").length;
     // pi:挂上默认 provider 与模型（缺省取默认 provider 首个模型）,无 provider 则留空待配置。
     const providerSettings = get().providerSettings;
     const provider =
@@ -1071,6 +1087,40 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       lastProviderId: sess.providerId,
     }));
     return sess;
+  },
+
+  createSubagentSession: (input) => {
+    const state = get();
+    const existing = state.sessions.find((session) => session.id === input.id);
+    if (existing) return existing;
+    const parent = state.sessions.find((session) => session.id === input.parentSessionId);
+    if (!parent) return undefined;
+    const taskTitle = input.task?.replace(/\s+/g, " ").trim();
+    const now = Date.now();
+    const child: SessionMeta = {
+      id: input.id,
+      relation: "side",
+      parentSessionId: parent.id,
+      parentSubagentCallId: input.callId,
+      subagentRoleId: input.roleId,
+      projectId: parent.projectId,
+      noProjectDir: parent.noProjectDir,
+      title: taskTitle ? `${input.roleLabel} · ${taskTitle}`.slice(0, 96) : input.roleLabel,
+      agent: input.agent,
+      derivedAgentId: input.derivedAgentId,
+      model: input.model,
+      providerId: input.providerId,
+      effort: parent.effort,
+      thinkingLevel: parent.thinkingLevel,
+      useOwnSkills: parent.useOwnSkills,
+      // readOnly 是子角色的强约束；inherit 才沿用父会话权限。后续直接进入子会话继续追问时
+      // 仍保持同一权限边界，不能因离开委派执行器而悄悄升级为可写。
+      execPermission: input.readOnly ? "plan" : parent.execPermission,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((current) => ({ sessions: [...current.sessions, child] }));
+    return child;
   },
 
   updateSession: (id, patch) =>
@@ -1134,19 +1184,34 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   removeSession: (id) => {
+    const sessions = get().sessions;
+    const removing = new Set<string>([id]);
+    // 当前产品禁止子代理递归，但这里按父链做闭包，保证将来放开嵌套或读入手改存档时也不留孤儿。
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const session of sessions) {
+        if (session.parentSessionId && removing.has(session.parentSessionId) && !removing.has(session.id)) {
+          removing.add(session.id);
+          expanded = true;
+        }
+      }
+    }
+    const removedIds = [...removing];
     // 会话删除 = pi 产物（artifacts 工具）唯一的清理时机（pi crashed 不清,重开可续用副本）。
-    usePiArtifactsStore.getState().clearSession(id);
+    for (const sessionId of removedIds) usePiArtifactsStore.getState().clearSession(sessionId);
     set((s) => {
-      const removingActiveSession = s.activeSessionId === id;
-      const removedSession = removingActiveSession ? s.sessions.find((x) => x.id === id) : undefined;
+      const removingActiveSession = !!s.activeSessionId && removing.has(s.activeSessionId);
+      const removedSession = removingActiveSession ? s.sessions.find((x) => x.id === s.activeSessionId) : undefined;
       return {
-        sessions: s.sessions.filter((x) => x.id !== id),
+        sessions: s.sessions.filter((x) => !removing.has(x.id)),
         activeSessionId: removingActiveSession ? undefined : s.activeSessionId,
         // 侧栏上下文优先取活动会话所属项目；删除它前先固化该项目，
         // 无项目会话的 projectId=undefined 也是有效上下文，不能回退到旧项目。
         activeProjectId: removingActiveSession && removedSession ? removedSession.projectId : s.activeProjectId,
       };
     });
+    return removedIds;
   },
 
   addTodo: (projectId, title, detailPath) => {

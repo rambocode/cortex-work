@@ -447,6 +447,7 @@ function runDelegateSubAgent(
   task: string,
   onEvent: (ev: CliStreamEvent) => void,
   signal: AbortSignal,
+  childSessionId: string,
 ): Promise<{ text: string; ok: boolean; error?: string }> {
   if (signal.aborted) return Promise.resolve({ text: "", ok: false, error: "已取消" });
 
@@ -457,7 +458,9 @@ function runDelegateSubAgent(
   const parentIsPi = baseAgentKindOf(parent.agent) === "pi";
   const req: CliStartRequest = {
     runId: spawnKey,
-    sessionId: spawnKey, // fresh → 未注册 delegate → 防递归
+    // 应用侧 child session id 也作为本次 fresh 运行的 UI session id。它不会注册 delegate state，
+    // 因此子 Agent 依旧拿不到 ask_*；原生 resume id 则由稍后的 init 单独回传给 renderer。
+    sessionId: childSessionId,
     agent: role.agent,
     cwd: parent.cwd,
     prompt: task,
@@ -565,9 +568,21 @@ function runDelegateSubAgent(
             errorText = ev.error ?? "执行失败";
           }
         } else if (ev.type === "init") {
-          // 子 agent 的 init（codex thread.started / claude session）不转发：delegate handler 已发过
-          // roleHeader 的 init（stageLabel=role.label），再转发会让渲染端插入第二个空 roleHeader
-          // （表现为大「Codex」空标题 + 小「codex」才有内容）。
+          // 不再丢弃原生 init：它是独立子会话后续可续接的唯一 resume id。用 childAgentSessionId
+          // 明确标注后，renderer 只更新 side SessionMeta，不会再插入第二张卡或污染父 resume id。
+          onEvent({
+            ...ev,
+            roleId: role.id,
+            stage: "subagent",
+            stageLabel: role.label,
+            childSessionId,
+            childAgentSessionId: ev.sessionId,
+            subagentAgentId: role.agent,
+            subagentBaseAgent: roleBaseAgent,
+            subagentModel: req.model,
+            subagentProviderId: req.provider?.id,
+            subagentReadOnly: role.toolPolicy === "readOnly",
+          });
         } else {
           // thinking/tool/turn/usage/retry：带 roleId 转发，实时展示子 agent 过程。
           onEvent({ ...ev, roleId: role.id });
@@ -914,7 +929,8 @@ export function registerCliHandlers(): void {
         childRunCount: 0,
         activeRuns: 0,
         waiters: [],
-        runSubAgent: (role, task, onEvent) => runDelegateSubAgent(req, role, task, onEvent, controller.signal),
+        runSubAgent: (role, task, onEvent, childSessionId) =>
+          runDelegateSubAgent(req, role, task, onEvent, controller.signal, childSessionId),
       };
       registerDelegateSession(state);
       // pi 主 agent 走单发,mcpInjection==="none" 不进上面 builtinServers 注入块。这里只收集 bridge，
@@ -964,6 +980,7 @@ export function registerCliHandlers(): void {
             prompt,
             onEvent,
             controller.signal,
+            randomUUID(),
           ),
       };
       registerDesignDelegateSession(state);
@@ -1365,6 +1382,7 @@ export function registerCliHandlers(): void {
         prompt: string;
         model?: string;
         providerId?: string;
+        effort?: ReasoningEffort;
       },
     ) => {
       // oneshot（标题/日报）默认 claude。pi 选中了供应商（日报选 Pi）时:providerId 直接进请求,
@@ -1386,6 +1404,7 @@ export function registerCliHandlers(): void {
         prompt: req.prompt,
         model: req.model,
         providerId: req.providerId,
+        effort: req.effort,
       };
       // pi 不构造命令行(buildArgs 是抛错 stub),走 in-process 单发。
       const built = isPiOneshot
@@ -1402,8 +1421,7 @@ export function registerCliHandlers(): void {
         summary: `${agent} oneshot start`,
         sessionId: "oneshot",
         agent,
-        // model:oneshot 实际模型(未传时用 agent 自身默认;oneshot 请求不带推理强度)。
-        data: { cmd, cwd, model: req.model ?? "(默认)", argCount: args.length, promptPreview: promptPreview(req.prompt) },
+        data: { cmd, cwd, model: req.model ?? "(默认)", effort: req.effort ?? "(默认)", argCount: args.length, promptPreview: promptPreview(req.prompt) },
       });
       return new Promise<string>((resolve, reject) => {
         // pi 无条件走 in-process 单发(轻量任务不注入 MCP/todo);claude/codex 原样 spawn。

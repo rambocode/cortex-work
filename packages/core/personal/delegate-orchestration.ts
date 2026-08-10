@@ -2,7 +2,10 @@ import type { RoleConfig } from "../desktop/types";
 import {
   enabledSubagentCatalog,
   normalizeSubagentSettings,
+  normalizeSubagentSurfaces,
+  subagentAvailableOnSurface,
   type SubagentSettings,
+  type SubagentSurface,
 } from "./subagents";
 
 export const AUTO_SUBAGENT_ROLE_ID = "subagent";
@@ -34,26 +37,47 @@ export function buildAutoSubagentRole(agent: string): RoleConfig {
 export function buildConfiguredSubagentRoles(
   agent: string,
   value: Partial<SubagentSettings> | undefined,
+  surface: Exclude<SubagentSurface, 'shared'> = 'code',
 ): RoleConfig[] {
   const settings = normalizeSubagentSettings(value);
   if (!settings.useExistingAgents) return [buildAutoSubagentRole(agent)];
-  return enabledSubagentCatalog(settings).map((entry) => {
+  const builtinRoles = enabledSubagentCatalog(settings).flatMap((entry) => {
     const override = settings.profiles[entry.id];
+    const automatic = entry.id === "code-reviewer" ? settings.automaticRoles.codeReview : undefined;
+    const fallbackSurfaces = entry.surfaces.length ? entry.surfaces : entry.recommendedSurfaces;
+    const surfaces = normalizeSubagentSurfaces(override?.surfaces, fallbackSurfaces);
+    if (!subagentAvailableOnSurface(surfaces, surface)) return [];
     const customPrompt = override?.systemPrompt?.trim();
-    return {
+    return [{
       id: entry.id,
       label: entry.name,
-      agent: override?.agent?.trim() || agent,
-      model: override?.model?.trim() || undefined,
-      effort: override?.effort?.trim() || undefined,
+      agent: override?.agent?.trim() || automatic?.agent || agent,
+      model: override?.model?.trim() || automatic?.model?.trim() || undefined,
+      effort: override?.effort?.trim() || automatic?.effort || undefined,
       toolPolicy: entry.toolPolicy,
       systemPrompt: [entry.description, customPrompt].filter(Boolean).join("\n\n"),
       color: entry.color,
       avatar: "🤖",
       createdAt: "",
       updatedAt: "",
-    };
+    }];
   });
+  const customRoles = settings.customProfiles.flatMap((profile) => {
+    if (!profile.enabled || !subagentAvailableOnSurface(profile.surfaces, surface)) return [];
+    return [{
+      id: profile.id,
+      label: profile.name,
+      agent: profile.agent?.trim() || agent,
+      model: profile.model?.trim() || undefined,
+      effort: profile.effort?.trim() || undefined,
+      toolPolicy: profile.toolPolicy,
+      systemPrompt: [profile.description, profile.systemPrompt].filter(Boolean).join("\n\n"),
+      color: profile.color ?? "#3b82d8",
+      createdAt: "",
+      updatedAt: "",
+    } satisfies RoleConfig];
+  });
+  return [...builtinRoles, ...customRoles];
 }
 
 /**
@@ -67,10 +91,19 @@ export function buildDelegateOrchestrationGuide(
   const roleList = roles.map((role) => `「${role.label}」(ask_${delegateToolId(role.id)})`).join("、");
   const requirement = options.requireDelegation
     ? "用户已显式点名协作者；你必须调用对应的 ask_ 工具完成该委派。"
-    : "你自行判断本轮是否需要协作、调用哪些协作者以及调用多少次；不需要时直接完成任务。";
+    : "实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流，就必须调用合适的 ask_ 工具；" +
+      "只有琐碎工作、紧密耦合的串行步骤，或主会话明显能更快完成的任务才直接处理。";
+  const explorerGuide = roles.some((role) => role.id === "explore")
+    ? [
+        "任何仓库或项目探索都必须先调用 `ask_explore`，包括文件定位、代码或关键词搜索、符号与调用链追踪、架构或行为分析，以及修改前的上下文收集。",
+        "Repository Explorer 只读且不会修改文件；若有多个互不依赖的探索问题，必须在同一轮同时发出多个 `ask_explore`，依赖性问题才按顺序调用。",
+        "Repository Explorer 返回后，主会话只对未覆盖的窄问题做补充检查，并继续负责整合、修改和最终验证。",
+      ]
+    : [];
   return [
     "你是当前对话的主会话 Agent，原生会话历史和用户上下文由你持有。",
     `${requirement}本轮可用协作者：${roleList}。`,
+    ...explorerGuide,
     "子 Agent 是独立会话，看不到主会话历史；调用时必须把任务和必要材料写成自包含的 task。",
     "子 Agent 的执行结果会作为工具结果返回给主会话。收到结果后，由你结合主会话上下文总结并输出最终回答；不要把子 Agent 的原始输出直接当作最终回答。",
   ].join("\n");

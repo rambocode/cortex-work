@@ -36,6 +36,8 @@ describe("子代理右栏", () => {
           maxChildRuns: 25,
           extensionAgentsEnabled: false,
           profiles: {},
+          customProfiles: [],
+          automaticRoles: { title: { agent: "claude", model: "haiku" } },
         },
       },
     });
@@ -78,5 +80,64 @@ describe("子代理右栏", () => {
     fireEvent.click(view.getByRole("button", { name: "配置 Frontend UI Engineer" }));
     fireEvent.change(screen.getByLabelText("运行 Agent"), { target: { value: "codex" } });
     expect(usePersonalStore.getState().generalSettings.subagents?.profiles["frontend-ui-engineering"]?.agent).toBe("codex");
+  });
+
+  it("设置页分类默认值批量写入该分类，启用扩展角色时同步打开扩展目录", () => {
+    const view = render(wrapper(<SubagentsPanel variant="settings" />));
+    expect(screen.getByRole("heading", { name: "子代理" })).toBeInTheDocument();
+    expect(screen.getByText(/集中管理可委派子代理的运行策略/)).toBeInTheDocument();
+    expect(screen.getByText("修改会自动生效")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "子代理配置" }));
+
+    const filters = view.container.querySelector(".pw-sa-filters");
+    const researchFilter = Array.from(filters?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent?.includes("研究"));
+    expect(researchFilter).toBeTruthy();
+    fireEvent.click(researchFilter!);
+
+    const defaults = view.container.querySelector(".pw-sa-category-defaults");
+    expect(defaults).toBeTruthy();
+    const modelInput = defaults?.querySelector("input");
+    expect(modelInput).toBeTruthy();
+    fireEvent.change(modelInput!, { target: { value: "research-model" } });
+
+    const researchEntries = usePersonalStore.getState().generalSettings.subagents?.profiles ?? {};
+    expect(researchEntries.explore?.model).toBe("research-model");
+    expect(researchEntries["documentation-and-adrs"]?.model).toBe("research-model");
+    expect(researchEntries["source-driven-development"]?.model).toBe("research-model");
+    expect(researchEntries["write-citation-researcher"]?.model).toBe("research-model");
+    expect(researchEntries["design-ux-researcher"]?.model).toBe("research-model");
+
+    fireEvent.click(screen.getByRole("button", { name: /文档与 ADR 工程师/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "启用 文档与 ADR 工程师" }));
+    expect(usePersonalStore.getState().generalSettings.subagents?.extensionAgentsEnabled).toBe(true);
+    expect(usePersonalStore.getState().generalSettings.subagents?.profiles["documentation-and-adrs"]?.enabled).toBe(true);
+  });
+
+  it("设置页可创建并持久化真实自定义子代理", () => {
+    render(wrapper(<SubagentsPanel variant="settings" />));
+    fireEvent.click(screen.getByRole("tab", { name: "子代理配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建子代理" }));
+
+    fireEvent.change(screen.getByPlaceholderText("例如：发布风险审查员"), { target: { value: "发布风险审查员" } });
+    fireEvent.change(screen.getByPlaceholderText("说明这个角色何时应该被调用"), { target: { value: "检查上线风险" } });
+    fireEvent.click(screen.getByRole("button", { name: "Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    const custom = usePersonalStore.getState().generalSettings.subagents?.customProfiles[0];
+    expect(custom).toMatchObject({ name: "发布风险审查员", description: "检查上线风险", surfaces: ["code"] });
+    expect(screen.getByRole("button", { name: /发布风险审查员/ })).toBeInTheDocument();
+  });
+
+  it("自动模型角色设置持久化标题生成 Agent 与模型", () => {
+    render(wrapper(<SubagentsPanel variant="settings" />));
+    fireEvent.click(screen.getByRole("tab", { name: "自动模型角色" }));
+    fireEvent.change(screen.getByLabelText("标题生成 Agent"), { target: { value: "codex" } });
+    fireEvent.change(screen.getByLabelText("标题生成模型"), { target: { value: "gpt-5.4-mini" } });
+
+    expect(usePersonalStore.getState().generalSettings.subagents?.automaticRoles.title).toMatchObject({
+      agent: "codex",
+      model: "gpt-5.4-mini",
+    });
   });
 });

@@ -77,7 +77,12 @@ export interface DelegateSessionState {
   activeRuns: number;
   waiters: DelegateWaiter[];
   // cli.ts 注入：spawn 子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
-  runSubAgent: (role: RoleConfig, task: string, onEvent: (ev: CliStreamEvent) => void) => Promise<SubAgentResult>;
+  runSubAgent: (
+    role: RoleConfig,
+    task: string,
+    onEvent: (ev: CliStreamEvent) => void,
+    childSessionId: string,
+  ) => Promise<SubAgentResult>;
 }
 
 type DelegateWaiter = {
@@ -210,6 +215,9 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
       // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
       // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
       const subagentCallId = randomUUID();
+      // childSessionId 是 Cortex 侧持久 side 会话 id，与原生 agent 的 resume id 分离。后者要等
+      // 子进程 init 才能得到；提前分配应用 id 才能在第一帧就创建可进入的独立会话。
+      const childSessionId = randomUUID();
       // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
       // stage=subagent 是 HMR/刷新恢复标识：renderer 内存中的 run.delegate 丢失后，仍能把后续
       // roleId 事件识别为子代理卡片，而不是误当成圆桌角色消息。
@@ -220,6 +228,11 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
         stage: "subagent",
         stageLabel: role.label,
         subagentCallId,
+        childSessionId,
+        subagentTask: taskText,
+        subagentAgentId: role.agent,
+        subagentModel: role.model,
+        subagentReadOnly: role.toolPolicy === "readOnly",
       });
       // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
       const onEvent = (ev: CliStreamEvent) => {
@@ -227,13 +240,21 @@ function registerAskTool(mcp: McpServer, role: RoleConfig, state: DelegateSessio
           ...ev,
           roleId: role.id,
           subagentCallId,
+          // 子进程 init 同样携带应用侧 child id，使 renderer HMR 后只收到后续帧时仍能恢复父子绑定。
+          ...(ev.type === "init" ? {
+            childSessionId,
+            subagentTask: taskText,
+            subagentAgentId: role.agent,
+            subagentModel: ev.subagentModel ?? role.model,
+            subagentReadOnly: role.toolPolicy === "readOnly",
+          } : {}),
         });
         state.bumpWatchdog();
       };
       try {
         let result: SubAgentResult;
         try {
-          result = await state.runSubAgent(role, taskText, onEvent);
+          result = await state.runSubAgent(role, taskText, onEvent, childSessionId);
         } catch (err) {
           // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
           // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。

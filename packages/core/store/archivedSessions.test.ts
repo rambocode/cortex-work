@@ -45,6 +45,15 @@ describe("partitionArchivedSessions", () => {
     expect(r.groups).toEqual([]);
   });
 
+  it("side 子会话即使存档异常带 archivedAt 也不进入顶层归档列表", () => {
+    const result = partitionArchivedSessions([
+      sess({ id: "parent", archivedAt: 100 }),
+      sess({ id: "child", relation: "side", parentSessionId: "parent", archivedAt: 200 }),
+    ]);
+    expect(result.archivedTotal).toBe(1);
+    expect(result.groups.flatMap((group) => group.sessions).map((session) => session.id)).toEqual(["parent"]);
+  });
+
   it("query 按标题过滤,大小写不敏感、首尾空白被 trim (R3)", () => {
     const sessions = [
       sess({ id: "1", title: "创建软件著作系统", projectId: "p1", archivedAt: 100 }),

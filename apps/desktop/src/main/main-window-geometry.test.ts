@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createMainWindowOptions } from "./main-window-geometry";
 
 describe("主窗口宽度", () => {
-  it("BrowserWindow 最终配置能容纳最宽左栏、660px 中栏和文件预览栏", () => {
+  it("保留完整三栏的默认宽度，同时允许窗口缩小至 960px", () => {
     const options = createMainWindowOptions({
       isMacOS: false,
       icon: "/tmp/cortex-icon.png",
@@ -10,6 +10,6 @@ describe("主窗口宽度", () => {
     });
 
     expect(options.width).toBe(1470);
-    expect(options.minWidth).toBe(1470);
+    expect(options.minWidth).toBe(960);
   });
 });

@@ -71,6 +71,40 @@ function renderMessageStream(messages: Message[]) {
   );
 }
 
+describe("PersonalChatArea side 子会话导航", () => {
+  afterEach(() => cleanup());
+
+  it("展示关系返回条并切回父会话", async () => {
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [
+        { id: "parent", projectId: "p1", title: "父会话", agent: "claude", createdAt: NOW, updatedAt: NOW },
+        {
+          id: "child",
+          relation: "side",
+          parentSessionId: "parent",
+          parentSubagentCallId: "call-1",
+          subagentRoleId: "review",
+          projectId: "p1",
+          title: "Reviewer · 审查改动",
+          agent: "codex",
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+      activeProjectId: "p1",
+      activeSessionId: "child",
+      timelineProjectId: undefined,
+    });
+
+    renderArea();
+    const button = await screen.findByRole("button", { name: /正在查看子代理会话.*返回父会话/ });
+    fireEvent.click(button);
+    expect(usePersonalStore.getState().activeSessionId).toBe("parent");
+  });
+});
+
 describe("PersonalChatArea 项目引导态（无 session）", () => {
   afterEach(() => cleanup());
 

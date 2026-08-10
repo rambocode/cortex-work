@@ -72,6 +72,19 @@ describe("SessionSearchDialog", () => {
     expect(container.textContent).not.toContain("重构样式");
   });
 
+  it("side 子会话不进入默认列表或搜索结果", () => {
+    const { container } = renderDialog([
+      sess("parent", "父会话", 1000),
+      sess("child", "Reviewer 子会话", 2000, { relation: "side", parentSessionId: "parent" }),
+    ]);
+    expect(container.textContent).toContain("父会话");
+    expect(container.textContent).not.toContain("Reviewer 子会话");
+    fireEvent.change(container.querySelector(".pw-search-input input") as HTMLInputElement, {
+      target: { value: "Reviewer" },
+    });
+    expect(container.querySelectorAll(".pw-search-row")).toHaveLength(0);
+  });
+
   it("点击结果切到该会话并关闭弹窗", () => {
     const { container } = renderDialog([sess("a", "会话甲", 2000), sess("b", "会话乙", 1000)]);
     const rows = container.querySelectorAll(".pw-search-row");

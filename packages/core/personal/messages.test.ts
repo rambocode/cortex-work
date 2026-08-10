@@ -25,6 +25,7 @@ import {
   appendLocalUserMessage,
   artifactResumeKey,
   beginPiRun,
+  discardSessionChat,
   reapSessionRun,
   respondPiUi,
   serializeAskQuestionAnswers,
@@ -62,6 +63,7 @@ import {
 import { __resetPiSessionsForTest, isPiSessionOpen } from "./pi-session";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { Message } from "../types";
+import { DEFAULT_SUBAGENT_SETTINGS } from "./subagents";
 
 const baseSession: SessionMeta = {
   id: "s1",
@@ -140,6 +142,34 @@ describe("会话自动标题", () => {
     expect(title.startsWith("昨晚 23:05")).toBe(true);
   });
 
+  it("autoTitle 使用自动模型角色中配置的 Agent、模型、供应商与推理强度", () => {
+    const piSession = { ...baseSession, agent: "pi" as const };
+    const current = usePersonalStore.getState().generalSettings;
+    usePersonalStore.setState({
+      sessions: [piSession],
+      generalSettings: {
+        ...current,
+        subagents: {
+          ...DEFAULT_SUBAGENT_SETTINGS,
+          ...(current.subagents ?? {}),
+          automaticRoles: {
+            title: { agent: "pi", model: "kimi-k2", providerId: "moonshot", effort: "high" },
+          },
+        },
+      },
+    });
+    const oneshotCli = vi.fn().mockResolvedValue("自动标题");
+
+    __autoTitleForTest({ oneshotCli } as unknown as DesktopBridge, piSession, "请分析这次发布风险");
+
+    expect(oneshotCli).toHaveBeenCalledWith(expect.objectContaining({
+      agent: "pi",
+      model: "kimi-k2",
+      providerId: "moonshot",
+      effort: "high",
+    }));
+  });
+
   it("presetSessionTitle 也剥前缀(派发处直接传了原始文本时的兜底)", () => {
     usePersonalStore.setState({ sessions: [baseSession] });
     presetSessionTitle(baseSession, "/skill:contract-review-report 审查这份合同,我方是乙方");
@@ -207,7 +237,7 @@ describe("personal message agent session helpers", () => {
     expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
   });
 
-  it("HMR 恢复后的 delegate 事件仍折叠为一张子代理卡片", () => {
+  it("delegate 事件同时创建可续接 side 子会话，且父卡片只保留一张", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();
     const runId = "delegate-recovered";
@@ -219,6 +249,26 @@ describe("personal message agent session helpers", () => {
       stage: "subagent",
       stageLabel: "Code Reviewer",
       subagentCallId: "call-review-1",
+      childSessionId: "child-review-1",
+      subagentTask: "审查 src/a.ts 的并发边界",
+      subagentAgentId: "codex",
+      subagentModel: "gpt-5.4",
+      subagentReadOnly: true,
+    }, "s1");
+    // 子 Agent 的原生 init 是续接凭据，只更新 side 会话，不能重复新建父卡片或覆盖父 resume id。
+    __handleCliEventForTest(qc, runId, {
+      type: "init",
+      sessionId: "native-child-thread",
+      childAgentSessionId: "native-child-thread",
+      roleId: "code-reviewer",
+      stage: "subagent",
+      stageLabel: "Code Reviewer",
+      subagentCallId: "call-review-1",
+      childSessionId: "child-review-1",
+      subagentTask: "审查 src/a.ts 的并发边界",
+      subagentAgentId: "codex",
+      subagentModel: "gpt-5.4",
+      subagentReadOnly: true,
     }, "s1");
     __handleCliEventForTest(qc, runId, {
       type: "tool",
@@ -249,12 +299,31 @@ describe("personal message agent session helpers", () => {
     expect(cards[0]).toMatchObject({
       roleId: "code-reviewer",
       callId: "call-review-1",
+      childSessionId: "child-review-1",
       roleLabel: "Code Reviewer",
       status: "completed",
       steps: 1,
       summary: "发现一个阻断问题",
     });
     expect(messages.some((message) => message.kind === "roleHeader")).toBe(false);
+
+    const child = usePersonalStore.getState().sessions.find((session) => session.id === "child-review-1");
+    expect(child).toMatchObject({
+      relation: "side",
+      parentSessionId: "s1",
+      parentSubagentCallId: "call-review-1",
+      subagentRoleId: "code-reviewer",
+      agent: "codex",
+      model: "gpt-5.4",
+      execPermission: "plan",
+      agentSessionIds: { codex: "native-child-thread" },
+    });
+    expect(qc.getQueryData<Message[]>(personalChatKeys.detail("child-review-1"))).toEqual([
+      expect.objectContaining({ kind: "text", who: "me", text: "审查 src/a.ts 的并发边界" }),
+      expect.objectContaining({ kind: "text", who: "codex", text: "发现一个阻断问题" }),
+    ]);
+    expect(qc.getQueryData<RunEvent[]>(personalRunEventsKeys.detail("child-review-1")))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ ev: expect.objectContaining({ type: "tool" }) })]));
   });
 
   it("同一角色重复委派时按 callId 隔离卡片与流式过程段", () => {
@@ -1493,6 +1562,26 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     setupPiRun(qc);
     __setBridgeForTest(null);
     expect(() => reapSessionRun(qc, "s1")).not.toThrow();
+  });
+
+  it("discardSessionChat:取消 reap 排出的节流保存，删除后不会复活 chat 文件", async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const saveChat = vi.fn(async () => undefined);
+    __setBridgeForTest({ saveChat } as unknown as DesktopBridge);
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [
+      { kind: "text", who: "me", time: "10:00", text: "待删除", uid: "m1" },
+    ]);
+    qc.setQueryData(personalBranchKeys.detail("s1"), []);
+
+    // reap 会通过 clearTransient 走正常 setMessages，因而排出一次 600ms 节流保存。
+    reapSessionRun(qc, "s1");
+    discardSessionChat(qc, "s1");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(saveChat).not.toHaveBeenCalled();
+    expect(qc.getQueryData(personalChatKeys.detail("s1"))).toBeUndefined();
+    expect(qc.getQueryData(personalBranchKeys.detail("s1"))).toBeUndefined();
   });
 });
 

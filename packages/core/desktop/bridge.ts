@@ -400,6 +400,7 @@ export interface DesktopBridge {
     prompt: string;
     model?: string;
     providerId?: string;
+    effort?: import("./types").ReasoningEffort;
   }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;

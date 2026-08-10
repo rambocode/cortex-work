@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   closePiSession,
   dayKey,
+  discardSessionChat,
   resolveDefaultAgent,
   partitionProjects,
   reapSessionRun,
@@ -73,10 +74,13 @@ function SessionRow({
       setConfirming(true);
       return;
     }
-    reapSessionRun(qc, session.id); // 先回收 renderer run(停看门狗/清 running),防孤儿 interval
-    removeSession(session.id); // 即时移除 UI
-    void bridge?.deleteChat?.(session.id); // 物理删磁盘消息文件
-    void closePiSession(bridge, session.id); // 终止该会话的 pi 长驻进程（非 pi 会话 no-op）
+    const removedIds = removeSession(session.id); // 即时移除 UI，并级联取回 side 子会话 id。
+    for (const sessionId of removedIds) {
+      reapSessionRun(qc, sessionId); // 回收 renderer run(停看门狗/清 running),防孤儿 interval
+      discardSessionChat(qc, sessionId); // 取消 reap 排出的节流保存，防 chat:delete 后旧缓存复活磁盘文件。
+      void bridge?.deleteChat?.(sessionId); // 物理删父/子会话磁盘消息文件
+      void closePiSession(bridge, sessionId); // 终止对应 pi 长驻进程（非 pi 会话 no-op）
+    }
     onToast(`已删除 ${session.title}`);
   };
 
@@ -318,7 +322,7 @@ export function PersonalSidebar({
 
   // 「无项目」会话:无 projectId 且未归档,按 updatedAt 降序。
   const noProjectSessions = sessions
-    .filter((s) => !s.projectId && s.archivedAt == null)
+    .filter((s) => s.relation !== "side" && !s.projectId && s.archivedAt == null)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   const activeSession = sessions.find((session) => session.id === activeSessionId);
@@ -332,6 +336,7 @@ export function PersonalSidebar({
   const contextSessions = sessions
     .filter((session) => {
       if (session.archivedAt != null) return false;
+      if (session.relation === "side") return false;
       if (contextProject) return session.projectId === contextProject.id;
       return contextIsNoProject && !session.projectId;
     })
@@ -372,7 +377,7 @@ export function PersonalSidebar({
 
   const openProject = (project: ProjectMeta) => {
     const latest = sessions
-      .filter((session) => session.projectId === project.id && session.archivedAt == null)
+      .filter((session) => session.relation !== "side" && session.projectId === project.id && session.archivedAt == null)
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (latest) {
       setActiveSession(latest.id);

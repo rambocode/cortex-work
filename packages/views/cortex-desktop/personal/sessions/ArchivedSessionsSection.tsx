@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   closePiSession,
+  discardSessionChat,
   partitionArchivedSessions,
   reapSessionRun,
   useCortexUIStore,
@@ -99,10 +100,13 @@ export function ArchivedSessionsSection() {
 
   // 永久删除:四步与侧边栏 SessionRow 完全一致,缺一会留孤儿(看门狗 interval / 磁盘文件 / pi 进程)。
   const onDelete = (s: SessionMeta) => {
-    reapSessionRun(qc, s.id);
-    removeSession(s.id);
-    void bridge?.deleteChat?.(s.id);
-    void closePiSession(bridge, s.id);
+    const removedIds = removeSession(s.id);
+    for (const sessionId of removedIds) {
+      reapSessionRun(qc, sessionId);
+      discardSessionChat(qc, sessionId);
+      void bridge?.deleteChat?.(sessionId);
+      void closePiSession(bridge, sessionId);
+    }
     pushToast(t("archivedSessions.deleteToast", { title: s.title }));
   };
 

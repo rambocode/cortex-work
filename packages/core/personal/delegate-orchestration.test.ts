@@ -27,14 +27,23 @@ describe("delegate orchestration", () => {
     expect(guide).toContain("由你结合主会话上下文总结并输出最终回答");
   });
 
-  it("普通会话由主模型自行决定是否调用、调用角色和数量", () => {
+  it("普通会话按任务收益决定委派，琐碎或紧密串行任务仍可直接完成", () => {
     const guide = buildDelegateOrchestrationGuide(
       [buildAutoSubagentRole("codex")],
       { requireDelegation: false },
     );
-    expect(guide).toContain("你自行判断本轮是否需要协作、调用哪些协作者以及调用多少次");
-    expect(guide).toContain("不需要时直接完成任务");
-    expect(guide).not.toContain("必须调用");
+    expect(guide).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
+    expect(guide).toContain("只有琐碎工作、紧密耦合的串行步骤");
+    expect(guide).toContain("才直接处理");
+  });
+
+  it("对齐 Kun：仓库或项目探索必须先交给 Repository Explorer，独立问题同批并行", () => {
+    const roles = buildConfiguredSubagentRoles("pi", undefined);
+    const guide = buildDelegateOrchestrationGuide(roles, { requireDelegation: false });
+
+    expect(guide).toContain("任何仓库或项目探索都必须先调用 `ask_explore`");
+    expect(guide).toContain("同一轮同时发出多个 `ask_explore`");
+    expect(guide).toContain("Repository Explorer 返回后");
   });
 
   it("归一化 Kun 运行上限，旧存档补默认值且非法输入被钳制", () => {
@@ -79,5 +88,55 @@ describe("delegate orchestration", () => {
     });
     expect(roles).toHaveLength(9);
     expect(roles.map((role) => role.id)).toContain("frontend-ui-engineering");
+  });
+
+  it("自定义子代理经过持久化校验后进入对应场景，并执行只读权限与模型配置", () => {
+    const settings = normalizeSubagentSettings({
+      customProfiles: [
+        {
+          id: "custom-release-risk",
+          enabled: true,
+          name: "发布风险审查员",
+          description: "检查上线风险",
+          agent: "codex",
+          model: "gpt-5.4",
+          effort: "high",
+          systemPrompt: "只报告可复现问题",
+          toolPolicy: "readOnly",
+          surfaces: ["code"],
+        },
+        {
+          id: "general",
+          enabled: true,
+          name: "不能覆盖内置角色",
+          toolPolicy: "inherit",
+          surfaces: ["shared"],
+        },
+      ],
+    });
+
+    expect(settings.customProfiles).toHaveLength(1);
+    expect(buildConfiguredSubagentRoles("pi", settings, "write").map((role) => role.id)).not.toContain("custom-release-risk");
+    expect(buildConfiguredSubagentRoles("pi", settings, "code").find((role) => role.id === "custom-release-risk")).toMatchObject({
+      label: "发布风险审查员",
+      agent: "codex",
+      model: "gpt-5.4",
+      effort: "high",
+      toolPolicy: "readOnly",
+      systemPrompt: "检查上线风险\n\n只报告可复现问题",
+    });
+  });
+
+  it("自动代码审查模型作为目录默认值，单角色显式覆盖仍优先", () => {
+    const automatic = buildConfiguredSubagentRoles("pi", {
+      automaticRoles: { codeReview: { agent: "codex", model: "gpt-5.4", effort: "high" } },
+    }).find((role) => role.id === "code-reviewer");
+    expect(automatic).toMatchObject({ agent: "codex", model: "gpt-5.4", effort: "high" });
+
+    const explicit = buildConfiguredSubagentRoles("pi", {
+      automaticRoles: { codeReview: { agent: "codex", model: "gpt-5.4" } },
+      profiles: { "code-reviewer": { agent: "claude", model: "sonnet" } },
+    }).find((role) => role.id === "code-reviewer");
+    expect(explicit).toMatchObject({ agent: "claude", model: "sonnet" });
   });
 });

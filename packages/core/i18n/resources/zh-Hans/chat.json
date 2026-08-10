@@ -228,11 +228,16 @@
     "expandConclusion": "展开结论",
     "preview": "预览",
     "viewProcess": "查看过程",
+    "openSession": "进入子会话",
     "viewFullProcess": "查看完整过程",
     "closePreview": "关闭预览",
     "previewAria": "预览 {{title}} 的执行进度",
     "waiting": "正在等待子代理产生过程…",
     "currentConclusion": "当前结论"
+  },
+  "subagentThread": {
+    "title": "正在查看子代理会话",
+    "returnToParent": "返回父会话"
   },
   "transcript": {
     "title": "运行过程详情",

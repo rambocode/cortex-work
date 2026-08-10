@@ -71,7 +71,7 @@ import {
   buildConfiguredSubagentRoles,
   buildDelegateOrchestrationGuide,
 } from "./delegate-orchestration";
-import { normalizeSubagentSettings } from "./subagents";
+import { normalizeSubagentSettings, type SubagentSurface } from "./subagents";
 import { buildGoalSystemPrompt } from "./goal";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
@@ -215,6 +215,14 @@ function isTransientErrorMessage(m: Message): m is Extract<Message, { kind: "tex
 }
 
 // ── run 注册表（runId → 流式渲染状态） ────────────────────────────────────
+interface SubagentCardState {
+  uid: string;
+  text: string;
+  steps: number;
+  childSessionId?: string;
+  childAgent?: AgentKind;
+}
+
 interface RunState {
   sessionId: string;
   agent: AgentKind; // 消息 who
@@ -274,7 +282,7 @@ interface RunState {
   emittedRoleHeaders?: Set<string>;
   // delegate 子代理卡当前实例（subagentCallId → 卡片）。模型可重复或并行调用同一角色，必须按
   // 单次调用隔离，否则状态、摘要与过程会串到另一张卡上。
-  subagentCards?: Map<string, { uid: string; text: string; steps: number }>;
+  subagentCards?: Map<string, SubagentCardState>;
   // 当前活跃的角色 id（最近一个 init[roleId] 设定的），用于路由后续 text/tool/thinking 事件。
   activeRoleId?: string;
   // pi 思考流（reasoning）的折叠块（独立于 text/tool 游标:思考通常先于正文,累进同一块）。
@@ -697,6 +705,23 @@ function scheduleChatSave(qc: QueryClient, sessionId: string): void {
   );
 }
 
+/**
+ * 丢弃已删除会话的持久消息缓存，并取消尚未触发的节流保存。
+ *
+ * 删除 UI 会先调用 `reapSessionRun` 收尾 typing；该收尾会按正常消息更新语义排一个 600ms
+ * 保存。若随后只删磁盘文件，延迟保存会把刚删除的 chat 原样写回，形成孤儿文件。删除出口
+ * 必须在 `deleteChat` 前调用本函数，先取消计时器并移除消息/分支缓存。
+ */
+export function discardSessionChat(qc: QueryClient, sessionId: string): void {
+  const timer = saveTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    saveTimers.delete(sessionId);
+  }
+  qc.removeQueries({ queryKey: personalChatKeys.detail(sessionId), exact: true });
+  qc.removeQueries({ queryKey: personalBranchKeys.detail(sessionId), exact: true });
+}
+
 function setMessages(qc: QueryClient, sessionId: string, updater: (prev: Message[]) => Message[]): void {
   qc.setQueryData<Message[]>(personalChatKeys.detail(sessionId), (prev) => updater(prev ?? []));
   scheduleChatSave(qc, sessionId);
@@ -1062,6 +1087,147 @@ function foldTodoIntoCache(qc: QueryClient, sessionId: string, run: RunState, ru
 }
 
 /** 新建一张子代理运行卡。卡片只保存摘要态；完整工具输入/输出仍由过程流与 trace 承担。 */
+function mutateSubagentChat(
+  qc: QueryClient,
+  childSessionId: string,
+  updater: (prev: Message[]) => Message[],
+): void {
+  const apply = () => setMessages(qc, childSessionId, updater);
+  if (qc.getQueryData<Message[]>(personalChatKeys.detail(childSessionId)) !== undefined) {
+    apply();
+    return;
+  }
+  if (!bridgeRef) {
+    // 单测/旧壳没有 loadChat 时仍维持完整内存语义；分支 key 预置为空，避免 flushChat 等待补载。
+    qc.setQueryData<Message[]>(personalChatKeys.detail(childSessionId), []);
+    qc.setQueryData<BranchGroup[]>(personalBranchKeys.detail(childSessionId), []);
+    apply();
+    return;
+  }
+  // HMR 后 side SessionMeta 仍在，但 Query cache 可能已丢。先复用标准加载门闩，再按 Promise 注册
+  // 顺序重放后续 delta，避免以空数组覆盖磁盘里已经完成的子会话历史。
+  void ensureChatLoaded(qc, bridgeRef, childSessionId).then(apply).catch(() => undefined);
+}
+
+function ensureSubagentSession(
+  qc: QueryClient,
+  parentSessionId: string,
+  roleId: string,
+  roleLabel: string,
+  callId: string,
+  ev: Extract<CliStreamEvent, { type: "init" }>,
+): SessionMeta | undefined {
+  if (!ev.childSessionId || !ev.subagentAgentId) return undefined;
+  const store = usePersonalStore.getState();
+  const existing = store.sessions.find((session) => session.id === ev.childSessionId);
+  const derived = (store.derivedAgents ?? []).find((agent) => agent.id === ev.subagentAgentId);
+  const baseAgent: AgentKind =
+    ev.subagentBaseAgent ?? (ev.subagentAgentId === "claude" || ev.subagentAgentId === "codex" || ev.subagentAgentId === "pi"
+      ? ev.subagentAgentId
+      : derived?.base ?? "claude");
+  const child = existing ?? store.createSubagentSession({
+    id: ev.childSessionId,
+    parentSessionId,
+    callId,
+    roleId,
+    roleLabel,
+    agent: baseAgent,
+    derivedAgentId: derived ? ev.subagentAgentId : undefined,
+    model: ev.subagentModel,
+    providerId: ev.subagentProviderId,
+    readOnly: ev.subagentReadOnly,
+    task: ev.subagentTask,
+  });
+  if (!child) return undefined;
+
+  const patch: Partial<SessionMeta> = {};
+  if (baseAgent !== child.agent) patch.agent = baseAgent;
+  if (derived && child.derivedAgentId !== ev.subagentAgentId) patch.derivedAgentId = ev.subagentAgentId;
+  if (ev.subagentModel && ev.subagentModel !== child.model) patch.model = ev.subagentModel;
+  if (ev.subagentProviderId && ev.subagentProviderId !== child.providerId) patch.providerId = ev.subagentProviderId;
+  if (ev.childAgentSessionId) Object.assign(patch, agentSessionPatch(child, child.agent, ev.childAgentSessionId));
+  if (Object.keys(patch).length > 0) store.updateSession(child.id, patch);
+
+  if (!existing) {
+    // 子会话从创建起就是普通可持久消息流：首条保存父 Agent 实际委派的任务，后续 assistant
+    // delta 写进自己的 chat 文件。父会话仍只保留摘要卡，二者不会互相伪装成最终回答。
+    const task = ev.subagentTask?.trim() || `委派给 ${roleLabel}`;
+    qc.setQueryData<Message[]>(personalChatKeys.detail(child.id), [{
+      kind: "text",
+      who: "me",
+      time: realHHMM(),
+      text: task,
+      uid: `subagent-task-${callId}`,
+    }]);
+    qc.setQueryData<BranchGroup[]>(personalBranchKeys.detail(child.id), []);
+    scheduleChatSave(qc, child.id);
+  }
+  return { ...child, ...patch };
+}
+
+function appendSubagentChildDelta(
+  qc: QueryClient,
+  state: SubagentCardState,
+  callId: string,
+  delta: string,
+): void {
+  if (!state.childSessionId || !state.childAgent || !delta) return;
+  const replyUid = `subagent-reply-${callId}`;
+  mutateSubagentChat(qc, state.childSessionId, (prev) => {
+    const index = prev.findIndex((message) => message.kind === "text" && message.uid === replyUid);
+    if (index < 0) {
+      return [...prev, {
+        kind: "text",
+        who: state.childAgent!,
+        time: realHHMM(),
+        text: delta,
+        uid: replyUid,
+      }];
+    }
+    const current = prev[index] as Extract<Message, { kind: "text" }>;
+    const next = prev.slice();
+    next[index] = { ...current, text: `${String(current.text)}${delta}` };
+    return next;
+  });
+}
+
+function finalizeSubagentChild(
+  qc: QueryClient,
+  state: SubagentCardState,
+  callId: string,
+  ok: boolean,
+  text?: string,
+  error?: string,
+): void {
+  if (!state.childSessionId || !state.childAgent) return;
+  const replyUid = `subagent-reply-${callId}`;
+  mutateSubagentChat(qc, state.childSessionId, (prev) => {
+    const index = prev.findIndex((message) => message.kind === "text" && message.uid === replyUid);
+    if (ok) {
+      const finalText = text?.trim();
+      if (!finalText) return prev;
+      if (index < 0) {
+        return [...prev, { kind: "text", who: state.childAgent!, time: realHHMM(), text: finalText, uid: replyUid }];
+      }
+      const current = prev[index] as Extract<Message, { kind: "text" }>;
+      if (current.text === finalText) return prev;
+      const next = prev.slice();
+      next[index] = { ...current, text: finalText };
+      return next;
+    }
+    const errorUid = `subagent-failure-${callId}`;
+    if (prev.some((message) => message.uid === errorUid)) return prev;
+    return [...prev, {
+      kind: "text",
+      who: state.childAgent!,
+      time: realHHMM(),
+      text: `⚠️ 子代理执行失败：${error || "未知错误"}`,
+      uid: errorUid,
+    }];
+  });
+  usePersonalStore.getState().updateSession(state.childSessionId, {});
+}
+
 function beginSubagentCard(
   qc: QueryClient,
   sessionId: string,
@@ -1069,7 +1235,9 @@ function beginSubagentCard(
   roleId: string,
   callId: string,
   fallbackLabel?: string,
+  childSession?: SessionMeta,
 ): void {
+  if (run.subagentCards?.has(callId)) return;
   const role = run.roleHeaders?.get(roleId);
   const cardUid = uid("sac");
   const roleLabel = role?.roleLabel ?? fallbackLabel ?? roleId;
@@ -1078,6 +1246,7 @@ function beginSubagentCard(
     who: run.agent,
     time: realHHMM(),
     callId,
+    childSessionId: childSession?.id,
     roleId,
     roleLabel,
     roleColor: role?.roleColor,
@@ -1089,7 +1258,13 @@ function beginSubagentCard(
     uid: cardUid,
   });
   if (!run.subagentCards) run.subagentCards = new Map();
-  run.subagentCards.set(callId, { uid: cardUid, text: "", steps: 0 });
+  run.subagentCards.set(callId, {
+    uid: cardUid,
+    text: "",
+    steps: 0,
+    childSessionId: childSession?.id,
+    childAgent: childSession?.agent,
+  });
   // 卡片位于持久流尾部，后续主 Agent 正文必须另起一块。
   run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
 }
@@ -1123,6 +1298,7 @@ function appendSubagentSummary(
   if (!state) return;
   // 卡片只承担可回顾结论，不复制无限增长的原始子会话；完整文本仍在 trace/过程详情。
   state.text = (state.text + delta).slice(-8_000);
+  appendSubagentChildDelta(qc, state, callId, delta);
   const oneLine = state.text.replace(/\s+/g, " ").trim();
   updateSubagentCard(qc, sessionId, run, callId, {
     summary: state.text,
@@ -1162,6 +1338,7 @@ function finishSubagentCard(
     summary: state?.text || resultText || undefined,
     error: ok ? undefined : (error ?? "未知错误"),
   });
+  if (state) finalizeSubagentChild(qc, state, callId, ok, resultText, error);
   run.subagentCards?.delete(callId);
 }
 
@@ -1360,6 +1537,11 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   run.lastEventAt = Date.now();
   // 运行事件流采集(详情弹层数据源):所有事件类型统一在此入口记录一次(text/thinking 在内部跳过)。
   recordRunEvent(qc, sessionId, runId, ev);
+  const existingChildState = ev.subagentCallId ? run.subagentCards?.get(ev.subagentCallId) : undefined;
+  if (existingChildState?.childSessionId) {
+    // 父详情按 callId 看委派过程；子会话同时拥有自己的事件命名空间，直接进入时不会回看整条父轮。
+    recordRunEvent(qc, existingChildState.childSessionId, runId, ev);
+  }
 
   if (ev.type === "init") {
     // delegate 子代理的 init 显式带 stage=subagent。正常发送路径已有 run.delegate；这里补齐
@@ -1374,7 +1556,17 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       if (run.delegate) {
         finalizeProcessAgentLog(qc, sessionId, run);
         finalizeRunReasoning(qc, run);
-        beginSubagentCard(qc, sessionId, run, ev.roleId, ev.subagentCallId ?? ev.roleId, ev.stageLabel);
+        const callId = ev.subagentCallId ?? ev.roleId;
+        const roleLabel = ev.stageLabel ?? ev.roleId;
+        const childSession = ensureSubagentSession(qc, sessionId, ev.roleId, roleLabel, callId, ev);
+        const alreadyStarted = run.subagentCards?.has(callId) === true;
+        beginSubagentCard(qc, sessionId, run, ev.roleId, callId, ev.stageLabel, childSession);
+        const childState = run.subagentCards?.get(callId);
+        if (childState && childSession) {
+          childState.childSessionId = childSession.id;
+          childState.childAgent = childSession.agent;
+        }
+        if (!alreadyStarted && childSession) recordRunEvent(qc, childSession.id, runId, ev);
         updateTypingMsg(qc, sessionId, run.typingUid, `${ev.stageLabel ?? "子 Agent"} 思考中…`);
         return;
       }
@@ -2755,17 +2947,23 @@ function applyFallbackTitle(
   return { previous: liveSession, title };
 }
 
-// 首条消息发出后:先用截断文本占位,再用 haiku 异步生成概括标题（不阻塞会话）。
+// 首条消息发出后先用截断文本占位，再按“自动模型角色 / 标题生成”异步概括（不阻塞会话）。
 function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): void {
   const applied = applyFallbackTitle(session, text);
   if (!applied) return;
   const fallback = applied.title;
-  if (applied.previous.agent !== "claude") return;
+  const configured = normalizeSubagentSettings(
+    usePersonalStore.getState().generalSettings.subagents,
+  ).automaticRoles.title;
+  const automaticAgent = configured?.agent ?? "claude";
   void bridge
     .oneshotCli({
       // 不传 cwd:在中性目录运行,不加载项目上下文,不与正式会话抢资源。
       prompt: t("chat:core.autoTitlePrompt", { text: text.slice(0, 500) }),
-      model: "haiku",
+      agent: automaticAgent,
+      model: configured?.model,
+      providerId: automaticAgent === "pi" ? configured?.providerId : undefined,
+      effort: configured?.effort,
     })
     .then((raw) => {
       const title = sanitizeTitle(raw);
@@ -2783,6 +2981,18 @@ function autoTitle(bridge: DesktopBridge, session: SessionMeta, text: string): v
 }
 
 export const __autoTitleForTest = autoTitle;
+
+/** 把会话入口压缩成子代理目录的四种稳定场景；未知 skill 安全落在代码/通用场景。 */
+export function subagentSurfaceForTurn(
+  artifact?: ConversationArtifactRef,
+  invokedSkill?: { name: string; path: string },
+): Exclude<SubagentSurface, "shared"> {
+  if (artifact) return "design";
+  const skill = invokedSkill?.name.trim().toLowerCase() ?? "";
+  if (skill === "design" || skill === "slides" || skill.startsWith("design-")) return "design";
+  if (skill === "writing" || skill === "write" || skill.startsWith("write-")) return "write";
+  return "code";
+}
 
 /// 用一句用户原话给会话占位改名(条件同 applyFallbackTitle:仍是默认标题且用户没手改过)。
 ///
@@ -3304,10 +3514,12 @@ export function usePersonalActions(): PersonalActions {
       // 子代理能力默认交给主会话：主 Agent 自行判断本轮是否调用、调用哪些角色及调用次数；
       // 显式 @mention 仍代表用户明确委派，只收窄为被点名角色。产物隔离发送暂不注入，避免把
       // 产物专用 workspace 与普通会话的委派目录混用。
-      const earlyMentions = parseMentions(text, usePersonalStore.getState().roles);
-      const hasDelegateMentions = earlyMentions.length > 0 && !!bridge.startCli;
+      const sideSession = session.relation === "side";
+      const earlyMentions = sideSession ? [] : parseMentions(text, usePersonalStore.getState().roles);
+      const hasDelegateMentions = !sideSession && earlyMentions.length > 0 && !!bridge.startCli;
       const automaticDelegationAvailable =
         !artifact &&
+        !sideSession &&
         !!bridge.startCli &&
         !hasDelegateMentions &&
         // 旧字段不再由 UI 持久化，hydrate 也会剥离；仅保留显式 false 作为测试/紧急兼容闸门。
@@ -3541,7 +3753,7 @@ export function usePersonalActions(): PersonalActions {
 
       // Pi 无委派时继续复用 RPC 长驻会话；委派时主会话改走可注入 ask_* 工具的 startCli，
       // 并用原生 resumeSessionId 续接同一 Pi session。
-      if (session.agent === "pi" && !artifact && !usesCliDelegate) {
+      if (session.agent === "pi" && !artifact && !usesCliDelegate && !sideSession) {
         await sendPiTurn(qc, bridge, session, projectPath, text, piAppendSystemPrompt, { runId, typingUid }, imagePaths);
         return true;
       }
@@ -3690,6 +3902,7 @@ export function usePersonalActions(): PersonalActions {
               ? buildConfiguredSubagentRoles(
                   spawnAgent,
                   subagentSettings,
+                  subagentSurfaceForTurn(artifact, invokedSkill),
                 )
               : undefined;
           if (delegateRoles?.length) {
