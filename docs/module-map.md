@@ -36,7 +36,7 @@
 
 | 名词（含别名） | views | core | main |
 |---|---|---|---|
-| 会话 / 跑 Agent / CLI 流式管线 / 拖放拆分窗格 | `personal/chat/PersonalChatArea.tsx`（可显式绑定 session）、`personal/layout/ConversationSplitView.tsx`（任意叶子窗格四向拖放拆分，数量不限）、`personal/layout/conversation-layout.ts`（二维拆分树）、`personal/layout/conversation-drag.ts`（拖放 MIME 与方向判定）、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts` | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
+| 会话 / 跑 Agent / CLI 流式管线 / 工具与思考过程 / 拖放拆分窗格 | `personal/chat/PersonalChatArea.tsx`（可显式绑定 session）、`personal/chat/ConversationProcessTimeline.tsx`（Kun 对齐的内联过程归组、折叠与详情入口）、`personal/chat/PersonalProcessPanel.tsx`（完整运行详情）、`personal/layout/ConversationSplitView.tsx`（任意叶子窗格四向拖放拆分，数量不限）、`personal/layout/conversation-layout.ts`（二维拆分树）、`personal/layout/conversation-drag.ts`（拖放 MIME 与方向判定）、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts`（持久正文流 + 瞬态过程流） | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化） |
 | 个人工作区元数据持久化 / 会话索引恢复 | `personal/layout/PersonalWorkspace.tsx`（唯一挂载持久化 hook 的主窗口） | `desktop/usePersonalPersistence.ts`（hydrate 完成前禁止全量保存）、`store/personal.ts` | `ipc/store.ts`（原子写入 + 破坏性清零前恢复索引）、`scripts/recover-personal-workspace.mjs`（事故恢复；详见 `docs/personal-workspace-persistence.md`） |
 | 追问 / 编辑重发 | `personal/chat/FollowupOverlay.tsx` | `personal/followup.ts` | `ipc/ask.ts`、`ipc/session-trim.ts` |
 | 圆桌（多角色 @ 调度） | `personal/chat/composer/MentionAutocomplete.tsx` | `personal/mention.ts` | `ipc/roundtable.ts` |

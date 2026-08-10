@@ -20,6 +20,7 @@ import {
   stripSkillDirective,
   usePersonalBranches,
   usePersonalChat,
+  usePersonalProcess,
   usePersonalStore,
   useRenderWindow,
   useBranchActions,
@@ -168,6 +169,24 @@ function messageScrollSignature(messages: Message[]): string {
   return `${tail.kind}:${tail.uid ?? messages.length}`;
 }
 
+// 过程流只在列表结构或运行状态改变时驱动贴底。reasoning 文本逐 token 增长时详情默认折叠，
+// 不会改变布局；若沿用 messageScrollSignature 的字符长度，会与 ResizeObserver 重复写 scrollTop，
+// 在高频输出下形成肉眼可见的轻微抖动。
+function processScrollSignature(messages: Message[]): string {
+  let stepCount = 0;
+  let active = false;
+  for (const message of messages) {
+    if (message.kind === "reasoning") {
+      stepCount += 1;
+      active ||= message.active === true;
+    } else if (message.kind === "agentLog") {
+      stepCount += message.items.length;
+      active ||= message.active === true;
+    }
+  }
+  return `${messages.length}:${stepCount}:${active ? 1 : 0}`;
+}
+
 export function PersonalChatArea({
   sessionId,
   onToast,
@@ -222,6 +241,7 @@ export function PersonalChatArea({
   const project: ProjectMeta | undefined = realProject ?? syntheticNoProject;
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
+  const processMessages = usePersonalProcess(session?.id);
   const {
     send,
     stop: stopRun,
@@ -431,8 +451,8 @@ export function PersonalChatArea({
   // 用户主动「显示隐藏历史」(showHiddenHistory,仅 /clear 过的会话)走全量 allMessages;否则用窗口尾部切片。
   const rendered = showHiddenHistory ? allMessages : win.rendered;
   const scrollStickKey = showHiddenHistory
-    ? `all:${messageScrollSignature(allMessages)}`
-    : `${win.stickKey}:${messageScrollSignature(rendered)}`;
+    ? `all:${messageScrollSignature(allMessages)}:${processScrollSignature(processMessages)}`
+    : `${win.stickKey}:${messageScrollSignature(rendered)}:${processScrollSignature(processMessages)}`;
   // 会话流里的用户消息只显示内容,不显示 `/skill:<name>` 派发前缀——前缀是派发指令不是内容
   //(与 core 侧 fallbackTitle 剥标题同一口径、同一个 stripSkillDirective)。pi 会话尤其需要:
   // 它把整条命令原样透传给 CLI,存储与发送是同一份文本,不像 claude/codex 在发送侧已改写掉。
@@ -830,6 +850,7 @@ export function PersonalChatArea({
         preserveAnchorKey={win.expandNonce}
         onActivityClick={handleActivityClick}
         sessionId={session.id}
+        processMessages={processMessages}
         leadingContent={
           showHiddenHistory ? (
             <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />

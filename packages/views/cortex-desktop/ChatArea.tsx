@@ -17,6 +17,7 @@ import { normalizeKnowledgeLinks } from "./personal/knowledge/KnowledgeDocRef";
 import { ChatImages } from "./personal/chat/ChatImages";
 import { ChatFiles } from "./personal/chat/ChatFiles";
 import { SubagentCardMessage } from "./personal/chat/SubagentCardMessage";
+import { ConversationProcessTimeline } from "./personal/chat/ConversationProcessTimeline";
 
 // 会话流的语法高亮插件。必须是模块级常量:TextMessage 被 memo 包裹,内联字面量每次渲染都是新引用,
 // 会让 <Markdown> 的 props 恒变、白费 memo 短路(长会话流式输出时代价明显)。
@@ -789,6 +790,7 @@ export function MessageStream({
   preserveAnchorKey,
   onActivityClick,
   sessionId,
+  processMessages = [],
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -815,6 +817,8 @@ export function MessageStream({
   onActivityClick?: () => void;
   // 个人工作区会话 id：子代理卡用它订阅该会话的瞬态运行事件，团队侧不传。
   sessionId?: string;
+  // 个人工作区瞬态过程流：按 Kun 语义插在最新用户消息与回答之间；团队侧缺省为空。
+  processMessages?: Message[];
 }) {
   const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -909,13 +913,35 @@ export function MessageStream({
     );
   }
 
+  // 过程流与落盘消息分属两个 query key；渲染时才把最新一轮过程插回用户消息之后。
+  // 这样既保持 reasoning/tool 永不落盘的边界，又恢复 Kun 的「问题→过程→回答」阅读顺序。
+  const streamMessages: Array<Message | { kind: "conversationProcess"; uid: string }> = [...convo.messages];
+  if (processMessages.length > 0) {
+    let lastUserIndex = -1;
+    for (let i = streamMessages.length - 1; i >= 0; i -= 1) {
+      const message = streamMessages[i];
+      if (message?.kind === "text" && message.who === "me") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    streamMessages.splice(lastUserIndex >= 0 ? lastUserIndex + 1 : streamMessages.length, 0, {
+      kind: "conversationProcess",
+      uid: "conversation-process",
+    });
+  }
+
   let lastWho: string | null = null;
   return (
     <div className="msgs" ref={scrollRef} onScroll={onScroll}>
       <div className="msgs-inner" ref={innerRef}>
         {leadingContent}
-        {convo.messages.map((m, i) => {
+        {streamMessages.map((m, i) => {
           const key = m.uid || i;
+          if (m.kind === "conversationProcess") {
+            lastWho = null;
+            return <ConversationProcessTimeline key={key} messages={processMessages} sessionId={sessionId} />;
+          }
           if (m.kind === "day") {
             lastWho = null;
             return <DaySep key={key} label={m.label} />;
@@ -957,7 +983,10 @@ export function MessageStream({
             case "approve":
               return <ApproveMessage key={key} m={m} grouped={grouped} onApprove={onApprove} />;
             case "typing":
-              return <TypingMessage key={key} m={m} onOpenProcess={onActivityClick ? () => onActivityClick() : undefined} />;
+              // 有结构化过程段时由段标题承担唯一运行反馈，避免与 typing 活动行重复闪动。
+              return processMessages.length > 0
+                ? null
+                : <TypingMessage key={key} m={m} onOpenProcess={onActivityClick ? () => onActivityClick() : undefined} />;
             case "roleHeader":
               return <RoleHeaderMessage key={key} m={m} />;
             case "subagentCard":

@@ -18,6 +18,17 @@
     "done": "Done",
     "steps": "{{count}} steps"
   },
+  "processInline": {
+    "thinkingNow": "Thinking…",
+    "thinking": "Thought process",
+    "workTitle": "Work process ({{count}} steps)",
+    "readSummaryOne": "Read 1 file",
+    "readSummaryMany": "Read {{count}} files",
+    "toolSummaryOne": "Called 1 tool",
+    "toolSummaryMany": "Called {{count}} tools",
+    "noDetails": "No additional details",
+    "openTranscript": "View full transcript"
+  },
   "todoList": {
     "title": "Tasks",
     "progress": "{{done}}/{{total}}",

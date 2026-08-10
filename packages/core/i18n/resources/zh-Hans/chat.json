@@ -18,6 +18,17 @@
     "done": "已完成",
     "steps": "{{count}} 步"
   },
+  "processInline": {
+    "thinkingNow": "思考中…",
+    "thinking": "思考过程",
+    "workTitle": "工作过程（{{count}} 步）",
+    "readSummaryOne": "读取了 1 个文件",
+    "readSummaryMany": "读取了 {{count}} 个文件",
+    "toolSummaryOne": "调用了 1 个工具",
+    "toolSummaryMany": "调用了 {{count}} 个工具",
+    "noDetails": "没有可展开的详细信息",
+    "openTranscript": "查看完整过程"
+  },
   "todoList": {
     "title": "任务清单",
     "progress": "{{done}}/{{total}}",

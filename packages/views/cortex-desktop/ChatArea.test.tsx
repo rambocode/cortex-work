@@ -248,6 +248,274 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
   });
 });
 
+describe("个人会话 Kun 过程时间线", () => {
+  afterEach(() => {
+    cleanup();
+    usePersonalStore.setState({ runningBySession: {} });
+  });
+
+  it("完成后折叠为带分类统计的工作过程，逐级展开工具列表与单项详情", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({ processPanelOpenReq: undefined });
+    qc.setQueryData(personalRunEventsKeys.detail("session-1"), [
+      {
+        runId: "run-old",
+        ts: 0,
+        ev: {
+          type: "tool",
+          name: "Read",
+          detail: "src/old-turn.ts",
+          input: { file_path: "src/old-turn.ts" },
+          phase: "start",
+          toolCallId: "old-read",
+        },
+      },
+      {
+        runId: "run-1",
+        ts: 1,
+        ev: {
+          type: "tool",
+          name: "Read",
+          detail: "src/chat.tsx",
+          input: { file_path: "src/chat.tsx" },
+          phase: "start",
+          toolCallId: "read-1",
+        },
+      },
+      {
+        runId: "run-1",
+        ts: 2,
+        ev: {
+          type: "tool",
+          name: "Read",
+          output: "export function MessageStream() {}",
+          phase: "end",
+          toolCallId: "read-1",
+        },
+      },
+      {
+        runId: "run-1",
+        ts: 3,
+        ev: {
+          type: "tool",
+          name: "Grep",
+          detail: "process",
+          input: { pattern: "process" },
+          phase: "start",
+          toolCallId: "grep-1",
+        },
+      },
+      {
+        runId: "run-1",
+        ts: 4,
+        ev: {
+          type: "tool",
+          name: "Grep",
+          output: "ChatArea.tsx:913",
+          phase: "end",
+          toolCallId: "grep-1",
+        },
+      },
+      {
+        runId: "run-1",
+        ts: 5,
+        ev: {
+          type: "tool",
+          name: "Bash",
+          detail: "transient-only-command",
+          input: { command: "pwd" },
+          phase: "start",
+          toolCallId: "transient-tool",
+        },
+      },
+    ]);
+    const processMessages: Message[] = [
+      {
+        kind: "reasoning",
+        who: "pi",
+        time: "10:01",
+        uid: "reasoning-1",
+        text: "先定位消息渲染入口",
+        active: false,
+        completed: true,
+      },
+      {
+        kind: "agentLog",
+        who: "pi",
+        time: "10:02",
+        uid: "tools-1",
+        title: "Agent 执行完成",
+        active: false,
+        completed: true,
+        items: [
+          { ic: "check", text: "Read · src/chat.tsx", toolName: "read", detail: "src/chat.tsx" },
+          { ic: "check", text: "Grep · process", toolName: "grep", detail: "process" },
+        ],
+      },
+    ];
+    const messages: Message[] = [
+      { kind: "text", who: "me", time: "10:00", uid: "user-1", text: "检查会话过程" },
+      { kind: "text", who: "pi", time: "10:03", uid: "answer-1", text: "已经定位完成" },
+    ];
+
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          processMessages={processMessages}
+          sessionId="session-1"
+        />
+      </CoreProvider>,
+    );
+
+    const process = view.getByRole("button", {
+      name: /工作过程（3 步）.*读取了 1 个文件.*调用了 1 个工具/,
+    });
+    expect(process).toHaveAttribute("aria-expanded", "false");
+    expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
+    expect(view.queryByText("Read · src/chat.tsx")).not.toBeInTheDocument();
+
+    const html = view.container.textContent ?? "";
+    expect(html.indexOf("检查会话过程")).toBeLessThan(html.indexOf("工作过程（3 步）"));
+    expect(html.indexOf("工作过程（3 步）")).toBeLessThan(html.indexOf("已经定位完成"));
+
+    fireEvent.click(process);
+    expect(process).toHaveAttribute("aria-expanded", "true");
+    expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: /思考过程/ })).toHaveAttribute("aria-expanded", "false");
+    const readRow = view.getByRole("button", { name: /Read.*src\/chat\.tsx/ });
+    expect(readRow).toHaveAttribute("aria-expanded", "false");
+    expect(view.queryByText(/old-turn/)).not.toBeInTheDocument();
+    expect(view.queryByText(/transient-only-command/)).not.toBeInTheDocument();
+    expect(view.getByText("Grep · process")).toBeInTheDocument();
+
+    fireEvent.click(view.getByRole("button", { name: /思考过程/ }));
+    expect(view.getByText("先定位消息渲染入口")).toBeInTheDocument();
+    fireEvent.click(readRow);
+    const readDetail = readRow.closest(".pw-conversation-process-item");
+    expect(readDetail).toHaveTextContent('"file_path": "src/chat.tsx"');
+    expect(readDetail).toHaveTextContent("export function MessageStream() {}");
+
+    fireEvent.click(view.getByRole("button", { name: "查看完整过程" }));
+    expect(usePersonalStore.getState().processPanelOpenReq?.sessionId).toBe("session-1");
+  });
+
+  it("运行中的过程默认展开，并取代重复的 typing 活动行", () => {
+    const qc = new QueryClient();
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{
+            headerStatus: { dot: "online", text: "" },
+            metaRow: [],
+            messages: [
+              { kind: "text", who: "me", time: "10:00", uid: "user-live", text: "继续检查" },
+              { kind: "typing", who: "pi", uid: "typing-live", text: "Cortex 正在思考…" },
+            ],
+          }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          processMessages={[
+            {
+              kind: "reasoning",
+              who: "pi",
+              time: "10:01",
+              uid: "reasoning-live",
+              text: "正在检查事件归组",
+              active: true,
+            },
+          ]}
+        />
+      </CoreProvider>,
+    );
+
+    const process = view.getByRole("button", { name: /工作过程（1 步）/ });
+    expect(process).toHaveAttribute("aria-expanded", "true");
+    expect(view.queryByText("正在检查事件归组")).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: /思考中…/ })).toHaveAttribute("aria-expanded", "false");
+    expect(view.queryByRole("status", { name: "Cortex 正在思考…" })).not.toBeInTheDocument();
+
+    view.rerender(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{
+            headerStatus: { dot: "online", text: "" },
+            metaRow: [],
+            messages: [
+              { kind: "text", who: "me", time: "10:00", uid: "user-live", text: "继续检查" },
+              { kind: "text", who: "pi", time: "10:02", uid: "answer-live", text: "检查完成" },
+            ],
+          }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          processMessages={[
+            {
+              kind: "reasoning",
+              who: "pi",
+              time: "10:01",
+              uid: "reasoning-live",
+              text: "正在检查事件归组",
+              active: false,
+              completed: true,
+            },
+          ]}
+        />
+      </CoreProvider>,
+    );
+    expect(view.getByRole("button", { name: /工作过程（1 步）/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("会话仍在运行时，步骤切相产生的短暂 inactive 不得折叠工作过程", () => {
+    const qc = new QueryClient();
+    usePersonalStore.setState({ runningBySession: { "session-stable": "run-1" } });
+    const renderStream = (active: boolean) => (
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{
+            headerStatus: { dot: "online", text: "" },
+            metaRow: [],
+            messages: [
+              { kind: "text", who: "me", time: "10:00", uid: "user-stable", text: "持续输出" },
+              { kind: "typing", who: "pi", uid: "typing-stable", text: "Cortex 正在处理…" },
+            ],
+          }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          sessionId="session-stable"
+          processMessages={[
+            {
+              kind: "reasoning",
+              who: "pi",
+              time: "10:01",
+              uid: "reasoning-stable",
+              text: "跨越 reasoning 与 tool 的切相窗口",
+              active,
+              completed: !active,
+            },
+          ]}
+        />
+      </CoreProvider>
+    );
+
+    const view = render(renderStream(true));
+    const process = view.getByRole("button", { name: /工作过程（1 步）/ });
+    expect(process).toHaveAttribute("aria-expanded", "true");
+
+    view.rerender(renderStream(false));
+    expect(process).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
 describe("MessageStream 自动贴底", () => {
   afterEach(() => cleanup());
 

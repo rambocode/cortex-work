@@ -989,27 +989,30 @@ export function PersonalSettingsView() {
           <Icon.Back size={15} />
           {t("page.back")}
         </button>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.groupKey} className="pw-dlg-nav-group">
-            <div className="pw-dlg-nav-h">{t(group.groupKey)}</div>
-            {group.items
-              .filter((id) => id !== "reply" || replyAvailable)
-              .filter((id) => id !== "memory" || memoryAvailable)
-              .filter((id) => id !== "research" || researchAvailable)
-              .filter((id) => id !== "knowledge" || knowledgeAvailable)
-              .map((id) => (
-              <button
-                key={id}
-                className={`pw-dlg-nav-item ${tab === id ? "is-active" : ""}`}
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => setTab(id)}
-              >
-                {TAB_META[id].icon}
-                {t(TAB_META[id].tabKey)}
-              </button>
-            ))}
-          </div>
-        ))}
+        {/* 返回入口固定在左栏顶部；菜单组独立滚动，矮窗口下底部的自动化/推送仍可访问。 */}
+        <div className="pw-settings-nav-scroll">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.groupKey} className="pw-dlg-nav-group">
+              <div className="pw-dlg-nav-h">{t(group.groupKey)}</div>
+              {group.items
+                .filter((id) => id !== "reply" || replyAvailable)
+                .filter((id) => id !== "memory" || memoryAvailable)
+                .filter((id) => id !== "research" || researchAvailable)
+                .filter((id) => id !== "knowledge" || knowledgeAvailable)
+                .map((id) => (
+                  <button
+                    key={id}
+                    className={`pw-dlg-nav-item ${tab === id ? "is-active" : ""}`}
+                    aria-current={tab === id ? "page" : undefined}
+                    onClick={() => setTab(id)}
+                  >
+                    {TAB_META[id].icon}
+                    {t(TAB_META[id].tabKey)}
+                  </button>
+                ))}
+            </div>
+          ))}
+        </div>
       </nav>
       <div className="pw-dlg-body">
         {/* 修改任一设置后顶部右侧浮出「已自动保存」反馈（store 切片变化驱动）。 */}

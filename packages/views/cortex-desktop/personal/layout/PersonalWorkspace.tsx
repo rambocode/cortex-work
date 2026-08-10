@@ -282,9 +282,7 @@ export function PersonalWorkspace({
             ) : (
               <ConversationSplitView onToast={onToast} />
             )}
-            {/* 右侧执行过程区（浮起 overlay，position:absolute 脱离 .pw-center-col 的 flex:1 规则，
-                锚到 .pw-center-col 的 relative）。独立门控：与上面的视图切换、rightOpen/rightView 解耦，
-                由组件自身依据「中栏显示会话区 + 当前会话有过程」判定是否渲染。 */}
+            {/* 完整运行详情弹层宿主。可见入口位于会话内联过程段；宿主与 rightOpen/rightView 解耦。 */}
             <PersonalProcessPanel />
           </div>
           {/* researchModel / researchExportTargets 透传给右栏的研究面板：模型是按设置解析出的

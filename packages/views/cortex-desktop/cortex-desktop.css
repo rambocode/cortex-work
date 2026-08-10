@@ -1306,6 +1306,162 @@ input, textarea { font: inherit; color: inherit; }
   font-style: italic;
 }
 
+/* 个人会话内联工作过程：完成态只显示「总步数 + 分类统计」；展开后是调用列表，每一项再独立
+   展开 input/output 或 reasoning。三层均使用原生 button，键盘焦点与 aria-expanded 保持一致。 */
+.pw-conversation-process {
+  margin: 1px 0 5px 42px;
+  max-width: 680px;
+  min-width: 0;
+}
+.pw-conversation-process-header {
+  width: 100%;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.pw-conversation-process-header:hover { color: var(--text-1); background: var(--bg-hover); }
+.pw-conversation-process-header:focus-visible,
+.pw-conversation-process-item-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pw-conversation-process-header > span:nth-child(2),
+.pw-conversation-process-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-conversation-process-summary {
+  color: var(--text-3);
+  font-weight: 500;
+}
+.pw-conversation-process-header-chevron,
+.pw-conversation-process-item-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--text-3);
+  opacity: 0.68;
+  flex: none;
+  transition: transform 0.14s ease, opacity 0.14s ease;
+}
+.pw-conversation-process-header-chevron[data-open="true"],
+.pw-conversation-process-item-chevron[data-open="true"] { transform: rotate(90deg); }
+.pw-conversation-process-live {
+  color: transparent;
+  background: linear-gradient(90deg, var(--text-3) 15%, var(--text-1) 50%, var(--text-3) 85%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: pw-process-shine 1.8s linear infinite;
+}
+@keyframes pw-process-shine { to { background-position: -220% 0; } }
+.pw-conversation-process-list {
+  position: relative;
+  margin: 4px 0 2px 7px;
+  padding: 7px 0 3px 22px;
+  border-top: 1px solid var(--border);
+}
+.pw-conversation-process-list::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 11px;
+  bottom: 19px;
+  width: 1px;
+  background: var(--border);
+}
+.pw-conversation-process-item { min-width: 0; }
+.pw-conversation-process-item-main {
+  width: 100%;
+  min-height: 31px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.pw-conversation-process-item-main:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-conversation-process-item-main > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-conversation-process-reasoning,
+.pw-conversation-process-item-detail {
+  margin: 2px 6px 8px 28px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card-2);
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.pw-conversation-process-reasoning { white-space: pre-wrap; }
+.pw-conversation-process-block + .pw-conversation-process-block { margin-top: 10px; }
+.pw-conversation-process-block > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pw-conversation-process-block pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  color: var(--text-2);
+  font: 11.5px/1.55 var(--font-mono, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pw-conversation-process-block.is-output {
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.pw-conversation-process-more {
+  margin: 4px 0 0 5px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.pw-conversation-process-more:hover { color: var(--accent); }
+.pw-conversation-process-stage {
+  margin: 6px 0 2px 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-conversation-process-live { animation: none; }
+}
+
 /* pi 会话运行时状态徽标（压缩/重试/待注入/思考强度）,头部状态行内联。 */
 .chat-head .ch-status .pw-pi-chip {
   font-size: 10.5px;
@@ -1319,59 +1475,6 @@ input, textarea { font: inherit; color: inherit; }
 .chat-head .ch-status .pw-pi-chip.pw-pi-warn {
   color: var(--amber);
   border-color: var(--amber);
-}
-
-/* —— 右侧执行过程区（PersonalProcessPanel, U4）—— */
-/* 执行过程入口：中栏右侧的圆形状态 icon（grid 第二列占位）。运行中转圈/完成绿勾即「执行感知」,
-   点击打开运行过程详情弹层(AgentTranscriptDialog)。旧「展开步骤卡片」形态已移除,仅保留 icon 态。 */
-.pw-process {
-  grid-column: 2;
-  grid-row: 1 / -1;
-  position: relative;
-  z-index: 40;
-  margin: 14px;
-  background: var(--bg-card-2);
-  border: 1px solid var(--border);
-  font-size: 12.5px;
-  overflow: hidden;
-  animation: pw-process-in 0.18s ease-out;
-}
-.pw-process.is-collapsed {
-  align-self: start;
-  width: 40px;
-  height: 40px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-}
-.pw-process.is-collapsed:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
-.pw-process-fab-ic { display: inline-flex; align-items: center; justify-content: center; }
-.pw-process.is-collapsed[data-active="true"] .pw-process-fab-ic { color: var(--amber); }
-.pw-process.is-collapsed[data-active="false"] .pw-process-fab-ic { color: var(--green); }
-/* icon 里的运行中转圈：.spinner 无基础尺寸（仅在特定父级下才有），须在此显式给尺寸/边框，
-   否则运行中零尺寸不可见（只在完成态 CheckCircle 才看得到 icon）。 */
-.pw-process.is-collapsed .pw-process-fab-ic .spinner {
-  width: 16px; height: 16px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes pw-process-in {
-  from { opacity: 0; transform: translateX(6px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-/* 无障碍:减少动态偏好下出入场动画与 spinner 静默（R9）。 */
-@media (prefers-reduced-motion: reduce) {
-  .pw-process { animation: none; }
-  .pw-process .spinner { animation: none; }
 }
 
 .agent-log ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
@@ -5679,19 +5782,18 @@ button.sb-row {
 }
 .pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
-/* 中栏列:顶部头(.pw-col-head)固定占满首行;会话/页面在左列,执行过程区在右列占位。 */
+/* 中栏列:顶部头(.pw-col-head)固定占首行；会话/页面占内容行。 */
 .pw-center-col {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
 }
-/* 顶栏只盖左列（会话区上方）；执行过程区贯穿整列高度，头部贴顶与顶栏齐平（设计稿）。
-   非会话视图过程区被门控不渲染，第二列 auto 自然塌成 0，顶栏铺满整行 → 布局不变。 */
+/* 顶栏与内容显式落在唯一一列，overlay 不参与常规布局。 */
 .pw-center-col > .pw-col-head { grid-column: 1; grid-row: 1; }
-.pw-center-col > :not(.pw-col-head):not(.pw-process) {
+.pw-center-col > :not(.pw-col-head) {
   grid-column: 1;
   grid-row: 2;
   min-height: 0;
@@ -8327,7 +8429,20 @@ button.sb-row {
 .pw-settings-page .pw-dlg-nav {
   width: var(--pw-settings-nav-width);
   flex: 0 0 var(--pw-settings-nav-width);
+  min-height: 0;
+  overflow: hidden;
   border-right-color: var(--border-soft);
+}
+/* 返回应用保持固定；仅菜单组承担纵向滚动。min-height:0 是 flex 收缩边界，否则内容高度会
+   把左栏撑出视口，overflow-y:auto 也无法产生有效滚动区。stable gutter 避免滚动条出现时胶囊抖动。 */
+.pw-settings-page .pw-settings-nav-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 2px 16px 0;
 }
 /* 设置菜单复刻 Kun 的胶囊交互：未选中仅在 hover 时浮出浅灰，选中项使用高对比实心底。
    固定高度和透明边框可确保 hover、点击与键盘聚焦时不产生尺寸抖动。 */

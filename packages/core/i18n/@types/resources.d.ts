@@ -263,6 +263,17 @@ export default interface Resources {
       "agent": "Agent",
       "sharedAgent": "共享 Agent"
     },
+    "processInline": {
+      "noDetails": "没有可展开的详细信息",
+      "openTranscript": "查看完整过程",
+      "readSummaryMany": "读取了 {{count}} 个文件",
+      "readSummaryOne": "读取了 1 个文件",
+      "thinking": "思考过程",
+      "thinkingNow": "思考中…",
+      "toolSummaryMany": "调用了 {{count}} 个工具",
+      "toolSummaryOne": "调用了 1 个工具",
+      "workTitle": "工作过程（{{count}} 步）"
+    },
     "reasoning": {
       "title": "思考过程"
     },
@@ -270,14 +281,14 @@ export default interface Resources {
       "empty": "这里还没有对话内容,从下方输入框开始 →"
     },
     "subagentCard": {
-      "agentOutput": "子 Agent 输出",
       "agent": "代理",
+      "agentOutput": "子 Agent 输出",
       "closePreview": "关闭预览",
       "completed": "完成",
       "currentConclusion": "当前结论",
+      "expandConclusion": "展开结论",
       "explore": "探索",
       "exploreAgent": "探索代理",
-      "expandConclusion": "展开结论",
       "failed": "失败",
       "model": "模型",
       "preview": "预览",

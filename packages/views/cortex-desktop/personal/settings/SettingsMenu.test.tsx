@@ -1,6 +1,7 @@
 // 设置入口 + 整页设置视图（PersonalSettingsView）的最小渲染测试。
 // 仅依赖 store（openSettings/closeSettings）与默认 profile/通用分区,不需真实 bridge。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import type { ReactElement } from "react";
 import { CoreProvider, DEFAULT_TWEAKS, useCortexUIStore, usePersonalStore } from "@cortex-work/core";
@@ -8,6 +9,8 @@ import { changeLanguage, i18n, i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, UpdateState } from "@cortex-work/core";
 import { SettingsMenu, PersonalSettingsView } from "./SettingsMenu";
 import { useTweaksPersistence } from "../../useTweaksPersistence";
+
+const desktopCss = readFileSync("cortex-desktop/cortex-desktop.css", "utf8");
 
 function renderUI(ui: ReactElement, bridge: DesktopBridge | null = null) {
   return render(
@@ -74,6 +77,16 @@ describe("设置入口与整页设置视图", () => {
     usePersonalStore.setState({ settingsOpen: true });
     renderUI(<PersonalSettingsView />);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "返回应用" }));
+  });
+
+  it("左侧菜单组使用独立纵向滚动区，溢出时仍可访问底部菜单", () => {
+    usePersonalStore.setState({ settingsOpen: true });
+    const { container } = renderUI(<PersonalSettingsView />);
+
+    expect(container.querySelector(".pw-settings-nav-scroll")).toBeInTheDocument();
+    expect(desktopCss).toMatch(
+      /\.pw-settings-page\s+\.pw-settings-nav-scroll\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s,
+    );
   });
 
   it("非输入态按 ESC 返回", () => {
