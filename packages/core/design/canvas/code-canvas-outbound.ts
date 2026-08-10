@@ -10,6 +10,7 @@ import {
 } from './code-canvas'
 import type { DesignSystem } from './design-system-types'
 import type { OpError } from './shape-ops'
+import type { CanvasFilePort } from './canvas-file-port'
 
 export type CodeCanvasOutboundDeps = {
   snapshotForPrompt?: typeof snapshotCodeCanvasForPrompt
@@ -27,6 +28,10 @@ export type BuildCodeCanvasOutboundTextOptions = CodeCanvasOutboundDeps & {
   selectedIds: ReadonlySet<string>
   viewBox: ViewBox
   designContext: DesignContext
+  /** Cortex 会话白板的文件端口；快照与设计系统读取必须沿用同一宿主能力。 */
+  filePort?: CanvasFilePort
+  /** 个人会话使用正文协议块；具备真实 design_* 工具的宿主保留 dedicated-tools。 */
+  transport?: 'dedicated-tools' | 'assistant-blocks'
 }
 
 async function readCodeCanvasSnapshot(
@@ -41,7 +46,8 @@ async function readCodeCanvasSnapshot(
     currentDocumentKey: options.currentDocumentKey,
     selectedIds: options.selectedIds,
     viewBox: options.viewBox,
-    defaultScreenSize: defaultFrameSizeForDesignTarget(options.designContext.designTarget)
+    defaultScreenSize: defaultFrameSizeForDesignTarget(options.designContext.designTarget),
+    ...(options.filePort ? { filePort: options.filePort } : {})
   })
 }
 
@@ -53,7 +59,8 @@ async function readCodeCanvasDesignSystem(
     options.loadDesignSystemForPrompt ?? loadCodeCanvasDesignSystemForPrompt
   return loadDesignSystemForPrompt({
     workspaceRoot: options.workspaceRoot,
-    threadId: options.threadId
+    threadId: options.threadId,
+    ...(options.filePort ? { filePort: options.filePort } : {})
   })
 }
 
@@ -73,7 +80,8 @@ export async function buildCodeCanvasOutboundText(
     ...(previousOpErrors ? { previousOpErrors } : {}),
     ...(canvasFeedbackKey ? { canvasFeedbackKey } : {}),
     ...(canvasDesignSystem ? { canvasDesignSystem } : {}),
-    ...(snapshot ? { canvasSnapshot: snapshot } : {})
+    ...(snapshot ? { canvasSnapshot: snapshot } : {}),
+    ...(options.transport ? { transport: options.transport } : {})
   })
   return `${options.baseText}\n\n${canvasPrompt}`
 }

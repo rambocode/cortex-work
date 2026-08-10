@@ -67,6 +67,8 @@ import { useCanvasSelectionStore } from "@cortex-work/core/design/canvas/canvas-
 import { useCanvasViewportStore } from "@cortex-work/core/design/canvas/canvas-viewport-store";
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 import { useTranslation } from "@cortex-work/core/i18n";
+import { createWhiteboardFilePort } from "../whiteboard/file-port";
+import { ensureWhiteboardWorkspaceRoot } from "../whiteboard/workspace";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
 const NOOP_APPROVE = (_uid: string, _decision: "approve" | "reject") => {};
@@ -199,6 +201,7 @@ export function PersonalChatArea({
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
+  const whiteboardFilePort = useMemo(() => createWhiteboardFilePort(bridge), [bridge]);
 
   const resolvedSessionId = sessionId ?? activeSessionId;
   const session: SessionMeta | undefined = sessions.find((x) => x.id === resolvedSessionId);
@@ -244,27 +247,47 @@ export function PersonalChatArea({
 
   const buildWhiteboardAppend = useCallback(
     async (text: string): Promise<string | undefined> => {
-      if (!session || !project?.path) return undefined;
+      if (!session) return undefined;
       const whiteboardOpen = rightOpen && rightView === "canvas";
       const selectedIds = useCanvasSelectionStore.getState().selectedIds;
       if (!shouldSendPromptToCodeCanvas({ text, whiteboardOpen, hasSelection: selectedIds.size > 0 })) {
         return undefined;
       }
+      const workspaceRoot = await ensureWhiteboardWorkspaceRoot({
+        session,
+        workspaceRoot: project?.path,
+        bridge,
+        updateSession,
+      });
+      if (!workspaceRoot || !whiteboardFilePort) return undefined;
       setRightView("canvas");
       setRightOpen(true);
       return buildCodeCanvasOutboundText({
         baseText: "",
         canvasBrief: text,
-        workspaceRoot: project.path,
+        workspaceRoot,
         threadId: session.id,
         currentDocument: useCanvasShapeStore.getState().document,
         currentDocumentKey: useCanvasShapeStore.getState().documentKey,
         selectedIds,
         viewBox: useCanvasViewportStore.getState().vbox,
         designContext: useDesignWorkspaceStore.getState().designContext,
+        filePort: whiteboardFilePort,
+        // 个人会话没有 design_* 工具注册；Agent 必须把操作写进正文协议块，由白板实时回放。
+        transport: "assistant-blocks",
       });
     },
-    [project?.path, rightOpen, rightView, session, setRightOpen, setRightView],
+    [
+      bridge,
+      project?.path,
+      rightOpen,
+      rightView,
+      session,
+      setRightOpen,
+      setRightView,
+      updateSession,
+      whiteboardFilePort,
+    ],
   );
 
   const startOrReplaceGoal = useCallback(

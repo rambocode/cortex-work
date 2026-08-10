@@ -4,6 +4,7 @@ import { ROOT_SHAPE_ID } from './canvas-types'
 import { normalizeRunningAppUrl } from './running-app-frame'
 import type { DesignOperation, DesignOperationJournalEntry } from '../graph/design-graph-types'
 import type { DesignCodeBinding, DesignCodeBindingTarget } from '../code-binding/code-binding-types'
+import type { CanvasFilePort } from './canvas-file-port'
 
 const DESIGN_DIR = '.cortex-design'
 
@@ -336,22 +337,24 @@ export function persistCanvasDocument(
   workspaceRoot: string,
   artifactId: string,
   doc: CanvasDocument,
-  baseDir?: string
+  baseDir?: string,
+  filePort?: CanvasFilePort
 ): void {
-  if (!workspaceRoot || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
+  if (!workspaceRoot) return
+  if (!filePort && typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
 
   const key = canvasSaveKey(workspaceRoot, artifactId, baseDir)
   const existingTimer = _saveTimers.get(key)
   if (existingTimer) clearTimeout(existingTimer)
   const timer = setTimeout(() => {
     _saveTimers.delete(key)
-    void kunGuiPort()!
-      .writeWorkspaceFile({
-        path: canvasDocPath(artifactId, baseDir),
-        workspaceRoot,
-        content: serializeCanvasDocument(doc)
-      })
-      .catch(() => undefined)
+    const path = canvasDocPath(artifactId, baseDir)
+    const content = serializeCanvasDocument(doc)
+    if (filePort) {
+      void filePort.writeText(workspaceRoot, path, content).catch(() => false)
+      return
+    }
+    void kunGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
   }, 600)
   _saveTimers.set(key, timer)
 }
@@ -359,10 +362,16 @@ export function persistCanvasDocument(
 export async function loadCanvasDocument(
   workspaceRoot: string,
   artifactId: string,
-  baseDir?: string
+  baseDir?: string,
+  filePort?: CanvasFilePort
 ): Promise<CanvasDocument | null> {
-  if (!workspaceRoot || typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
+  if (!workspaceRoot) return null
   try {
+    if (filePort) {
+      const content = await filePort.readText(workspaceRoot, canvasDocPath(artifactId, baseDir))
+      return content == null ? null : parseCanvasDocument(content)
+    }
+    if (typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
     const result = await requireKunGui().readWorkspaceFile({
       path: canvasDocPath(artifactId, baseDir),
       workspaceRoot

@@ -442,6 +442,24 @@ describe("chatMarkdownComponents", () => {
     expect(container.querySelector("button.pw-html-preview-btn")).toBeNull();
   });
 
+  it("白板内部 design_canvas 协议块不在会话中展示", () => {
+    const md = [
+      "图例与标注已补齐。",
+      "",
+      "```design_canvas",
+      '{ "action": "update_shapes", "ops": [{ "op": "update", "id": "shape-1" }] }',
+      "```",
+      "",
+      "微服务架构图已完成。",
+    ].join("\n");
+    const { container } = renderMd(md);
+
+    expect(container.textContent).toContain("图例与标注已补齐。");
+    expect(container.textContent).toContain("微服务架构图已完成。");
+    expect(container.textContent).not.toContain("update_shapes");
+    expect(container.querySelector(".pw-md-codeblock")).toBeNull();
+  });
+
   it("无项目会话(projectPath 空):预览按钮仍渲染,但内联裸路径不当项目文件链接", () => {
     const browserResolveLocalHtml = vi
       .fn<(p: string) => Promise<string | null>>()

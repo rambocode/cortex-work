@@ -28,6 +28,8 @@ export function buildCodeCanvasTurnPrompt(options: {
   previousOpErrors?: OpError[]
   canvasFeedbackKey?: string
   canvasDesignSystem?: DesignSystem
+  /** 个人会话没有注册 design_* 工具，需改用正文协议块传输。 */
+  transport?: 'dedicated-tools' | 'assistant-blocks'
 }): string {
   const base = buildCanvasTurnPrompt({
     target: 'canvas',
@@ -36,6 +38,7 @@ export function buildCodeCanvasTurnPrompt(options: {
     artifactRelativePath: '',
     workspaceRoot: options.workspaceRoot,
     canvasSurface: 'code',
+    canvasTransport: options.transport ?? 'dedicated-tools',
     ...(options.designContext ? { designContext: options.designContext } : {}),
     ...(options.canvasSnapshot ? { canvasSnapshot: options.canvasSnapshot } : {}),
     ...(options.previousOpErrors ? { previousOpErrors: options.previousOpErrors } : {}),
@@ -46,8 +49,10 @@ export function buildCodeCanvasTurnPrompt(options: {
     base,
     '',
     'Code-mode whiteboard override:',
-    '- This is the Code sidebar whiteboard, not Design mode. `design_create_screen` / `add-screen` creates plain editable frame shapes here; it does NOT trigger follow-up HTML screen generation.',
-    '- For architecture maps, flows, notes, diagrams, image slots, and UI sketches, prefer `design_update_shapes` with normal frame/rect/text/arrow/image ops.'
+    '- This is the Cortex Code sidebar whiteboard, not Design mode. `add_screen` / `add-screen` creates plain editable frame shapes here; it does NOT trigger follow-up HTML screen generation.',
+    options.transport === 'assistant-blocks'
+      ? '- Deliver architecture maps, flows, notes, diagrams, image slots, and UI sketches through fenced `design_canvas` blocks in assistant text.'
+      : '- For architecture maps, flows, notes, diagrams, image slots, and UI sketches, prefer `design_update_shapes` with normal frame/rect/text/arrow/image ops.'
   ].join('\n')
 }
 

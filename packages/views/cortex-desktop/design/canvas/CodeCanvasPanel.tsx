@@ -11,6 +11,7 @@ import {
   codeCanvasErrorKey,
   codeCanvasThreadBaseDir
 } from '@cortex-work/core/design/canvas/code-canvas'
+import type { CanvasFilePort } from '@cortex-work/core/design/canvas/canvas-file-port'
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ')
@@ -21,6 +22,7 @@ type Props = {
   activeThreadId: string | null
   onCollapse: () => void
   className?: string
+  filePort?: CanvasFilePort
 }
 
 export function codeCanvasPanelShellClass(className?: string): string {
@@ -39,9 +41,11 @@ export function codeCanvasPanelTitlebarClass(): string {
  * The canvas is per-thread (`code-<threadId>`), persisted under
  * {@link CODE_CANVAS_DIR}. The main chat agent drives it via ShapeOps (Block C).
  */
-export function CodeCanvasPanel({ workspaceRoot, activeThreadId, onCollapse, className }: Props) {
+export function CodeCanvasPanel({ workspaceRoot, activeThreadId, onCollapse, className, filePort }: Props) {
   const { t } = useTranslation('design')
-  const ready = Boolean(workspaceRoot && activeThreadId)
+  // 会话白板必须由 Cortex 宿主显式提供文件端口；缺失时不挂载画布，避免持久化层回退到
+  // 设计工作台保留的 Kun 兼容通道。
+  const ready = Boolean(workspaceRoot && activeThreadId && filePort)
   const artifactId = activeThreadId ? codeCanvasArtifactId(activeThreadId) : ''
   const designSystemBaseDir = activeThreadId ? codeCanvasThreadBaseDir(activeThreadId) : undefined
   const feedbackKey = activeThreadId ? codeCanvasErrorKey(activeThreadId) : undefined
@@ -85,6 +89,7 @@ export function CodeCanvasPanel({ workspaceRoot, activeThreadId, onCollapse, cla
               baseDir={CODE_CANVAS_DIR}
               designSystemBaseDir={designSystemBaseDir}
               surface="code"
+              filePort={filePort}
             />
             <PropertiesPanel surface="code" />
           </>

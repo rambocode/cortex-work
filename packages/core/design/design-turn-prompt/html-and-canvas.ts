@@ -290,6 +290,7 @@ function formatLintFindingsLines(key?: string): string[] {
 
 export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
   const codeCanvasMode = options.canvasSurface === 'code'
+  const assistantBlocksMode = codeCanvasMode && options.canvasTransport === 'assistant-blocks'
   const snapshot = options.canvasSnapshot
   const snapshotJson = snapshot ? snapshotToCompactJson(snapshot) : '(empty canvas)'
   const errorLines = formatPreviousOpErrorLines(options.previousOpErrors)
@@ -304,9 +305,16 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
   const selectionLines = formatSelectedShapesLines(snapshot)
   const placementFrameLabel = codeCanvasMode ? 'UI frame placeholders' : 'target screen frames'
   const lines = [
-    codeCanvasMode
-      ? 'Kun is asking you to operate the Code sidebar whiteboard with the dedicated canvas tools.'
-      : 'Kun is asking you to operate the design canvas with the dedicated design tools.',
+    ...(assistantBlocksMode
+      ? [
+          'Cortex conversation whiteboard transport:',
+          '- Operate the Cortex Code sidebar whiteboard by emitting renderer-readable operation blocks in this assistant response.'
+        ]
+      : [
+          codeCanvasMode
+            ? 'Cortex is asking you to operate the Code sidebar whiteboard with the dedicated canvas tools.'
+            : 'Kun is asking you to operate the design canvas with the dedicated design tools.'
+        ]),
     `Workspace: ${options.workspaceRoot}`,
     ...formatCanvasTargetFrameLines(options.designContext, options.canvasSurface ?? 'design'),
     '',
@@ -317,18 +325,35 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
     ...selectionLines,
     'How to respond:',
     '- Reply with a short plain-text plan (1-3 sentences) describing what you will do.',
-    codeCanvasMode
-      ? '- Then call the real canvas tools one or more times. Choose the dedicated tool that matches the lane below; use legacy `design_canvas` only for backwards-compatible simple calls.'
-      : '- Then call the real design tools one or more times. Choose the dedicated tool that matches the lane below; use legacy `design_canvas` only for backwards-compatible simple calls.',
-    '- Do not emit markdown/fenced JSON blocks and do not ask the user to manually create a canvas first.',
-    '- Before EVERY canvas tool call, inspect the current canvas snapshot below: existing shapes, images, frames, selected bounds, content bounds, occupied frames, and recommended slots are the factual layout. Preserve existing canvas objects unless the user explicitly asks to replace/delete them.',
+    ...(assistantBlocksMode
+      ? [
+          '- Then emit one or more fenced `design_canvas` blocks directly in assistant text. Do not merely describe the drawing and do not claim that the whiteboard tool is unavailable.',
+          '- For normal drawing and editing, each block must contain `{ "action": "update_shapes", "ops": [ShapeOp, ...] }`.',
+          '- For a new UI frame, a block may contain `{ "action": "add_screen", "name": "...", ... }`. Architecture and flow diagrams still use `update_shapes`.',
+          '- Dedicated `design_*` names below describe semantic operations only; they are NOT callable tools in this conversation. Encode their ShapeOps inside the fenced blocks instead.'
+        ]
+      : [
+          codeCanvasMode
+            ? '- Then call the real canvas tools one or more times. Choose the dedicated tool that matches the lane below; use legacy `design_canvas` only for backwards-compatible simple calls.'
+            : '- Then call the real design tools one or more times. Choose the dedicated tool that matches the lane below; use legacy `design_canvas` only for backwards-compatible simple calls.',
+          '- Do not emit markdown/fenced JSON blocks and do not ask the user to manually create a canvas first.'
+        ]),
+    assistantBlocksMode
+      ? '- Before EVERY operation block, inspect the current canvas snapshot below: existing shapes, images, frames, selected bounds, content bounds, occupied frames, and recommended slots are the factual layout. Preserve existing canvas objects unless the user explicitly asks to replace/delete them.'
+      : '- Before EVERY canvas tool call, inspect the current canvas snapshot below: existing shapes, images, frames, selected bounds, content bounds, occupied frames, and recommended slots are the factual layout. Preserve existing canvas objects unless the user explicitly asks to replace/delete them.',
     '- For new screens, style-kit/design-system boards, generated images, frames, groups, or annotations, choose a non-overlapping placement from `placement.recommendedSlots`, `placement.contentBounds`, `placement.selectedBounds`, or the listed shape x/y/w/h values. Do not place a new large object over an existing image or frame just because the viewport is empty-looking.',
     codeCanvasMode
       ? '- NEVER paste raw HTML into assistant text and NEVER put HTML/`write`/`content` payloads inside design tools. This Code whiteboard is editable shapes; for UI sketches, compose frames/text/rects/images instead of writing files.'
       : '- NEVER paste raw HTML into assistant text and NEVER put HTML/`write`/`content` payloads inside design tools. Screen HTML is written by the system via Write/Edit tools after a screen frame is created.',
-    '- The renderer validates each tool call, applies it atomically (one undo entry per call), and visually highlights the affected shapes for ~1s.',
-    '- RENDER LIVE: each tool call is executed as soon as its tool result returns — not at the end of your reply. So emit MANY focused calls progressively as you build (a frame, then its children, then the next section), instead of one giant batch. Keep them flowing so the user watches the design materialize piece by piece. Never bundle the whole design into a single call — stream it.',
-    '- You can drive several parts of the layout in the same turn: fire successive design tool calls back to back (each lands immediately), so independent sections of the draft fill in one after another without waiting for a round trip.',
+    assistantBlocksMode
+      ? '- The renderer validates and applies each completed fenced block atomically (one undo entry per block), then highlights affected shapes.'
+      : '- The renderer validates each tool call, applies it atomically (one undo entry per call), and visually highlights the affected shapes for ~1s.',
+    assistantBlocksMode
+      ? '- RENDER LIVE: emit several small, complete fenced blocks progressively as you build. A block is applied as soon as its closing fence streams in; never leave the JSON or fence incomplete.'
+      : '- RENDER LIVE: each tool call is executed as soon as its tool result returns — not at the end of your reply. So emit MANY focused calls progressively as you build (a frame, then its children, then the next section), instead of one giant batch. Keep them flowing so the user watches the design materialize piece by piece. Never bundle the whole design into a single call — stream it.',
+    assistantBlocksMode
+      ? '- You can update several parts of the layout in one turn by emitting successive focused blocks; every block must be valid standalone JSON.'
+      : '- You can drive several parts of the layout in the same turn: fire successive design tool calls back to back (each lands immediately), so independent sections of the draft fill in one after another without waiting for a round trip.',
     '',
     'FIRST classify the request and commit to ONE lane (do not mix lanes):',
     '- EDIT AN EXISTING IMAGE — the user wants to change/edit/restyle/redo/recolor/fix/transform a picture that is ALREADY on the canvas, and the snapshot has a SELECTED `image` shape carrying an `imageUrl`. Phrasings like "change X into Y", "把这张图改成…", "改成 X", or "改一下这张图" all land here when the selected picture is the thing being changed. → call `generate_image` with `reference_image_paths` set to that `imageUrl`, then `design_update_shapes` that same shape (full rules under "Editing or restyling an EXISTING image" below). In this lane you MUST NOT use `design_create_screen` / `add-screen` and MUST NOT write or edit any HTML file.',
@@ -482,11 +507,22 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
   }
   lines.push('', 'Example response shape:')
   lines.push('I will add a 300x200 frame with a heading inside.')
-  lines.push('Then call `design_update_shapes` with arguments:')
-  lines.push('{')
-  lines.push('  "ops": [')
-  lines.push('    { "op": "add", "shape": { "type": "frame", "name": "Card", "x": 100, "y": 100, "width": 300, "height": 200 } }')
-  lines.push('  ]')
-  lines.push('}')
+  if (assistantBlocksMode) {
+    lines.push('```design_canvas')
+    lines.push('{')
+    lines.push('  "action": "update_shapes",')
+    lines.push('  "ops": [')
+    lines.push('    { "op": "add", "shape": { "type": "frame", "name": "Card", "x": 100, "y": 100, "width": 300, "height": 200 } }')
+    lines.push('  ]')
+    lines.push('}')
+    lines.push('```')
+  } else {
+    lines.push('Then call `design_update_shapes` with arguments:')
+    lines.push('{')
+    lines.push('  "ops": [')
+    lines.push('    { "op": "add", "shape": { "type": "frame", "name": "Card", "x": 100, "y": 100, "width": 300, "height": 200 } }')
+    lines.push('  ]')
+    lines.push('}')
+  }
   return lines.join('\n')
 }

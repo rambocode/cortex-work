@@ -21,6 +21,7 @@ import { useCanvasViewportStore } from '@cortex-work/core/design/canvas/canvas-v
 import { loadDesignSystem, persistDesignSystem } from '@cortex-work/core/design/canvas/design-system-persistence'
 import { useDesignSystemStore } from '@cortex-work/core/design/canvas/design-system-store'
 import { createEmptyDesignSystem } from '@cortex-work/core/design/canvas/design-system-types'
+import type { CanvasFilePort } from '@cortex-work/core/design/canvas/canvas-file-port'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import {
   boundsForShapeIds,
@@ -41,6 +42,7 @@ type UseCanvasViewportDocumentSyncArgs = {
   htmlFrameSyncEnabled: boolean
   designArtifacts: DesignArtifact[]
   designTarget?: DesignTarget
+  filePort?: CanvasFilePort
 }
 
 function focusBoundsToFitLater(bounds: Rect | null, cancelled: () => boolean): number {
@@ -76,7 +78,8 @@ export function useCanvasViewportDocumentSync({
   documentKey,
   htmlFrameSyncEnabled,
   designArtifacts,
-  designTarget
+  designTarget,
+  filePort
 }: UseCanvasViewportDocumentSyncArgs): boolean {
   const [docLoaded, setDocLoaded] = useState(false)
 
@@ -103,7 +106,7 @@ export function useCanvasViewportDocumentSync({
     useCanvasViewportStore.getState().resetView()
     useCanvasUndoStore.getState().clear()
 
-    void loadCanvasDocument(workspaceRoot, artifactId, baseDir).then((loaded) => {
+    void loadCanvasDocument(workspaceRoot, artifactId, baseDir, filePort).then((loaded) => {
       if (cancelled) return
       const currentShapeState = useCanvasShapeStore.getState()
       const liveDocument = currentShapeState.documentKey === documentKey
@@ -120,7 +123,7 @@ export function useCanvasViewportDocumentSync({
         doc = synced.document
         addedFrameIds = synced.addedFrameIds
         if (synced.addedFrameIds.length > 0 || synced.updatedFrameIds.length > 0 || synced.removedFrameIds.length > 0) {
-          persistCanvasDocument(workspaceRoot, artifactId, doc, baseDir)
+          persistCanvasDocument(workspaceRoot, artifactId, doc, baseDir, filePort)
         }
       }
       useCanvasShapeStore.getState().loadDocument(doc, documentKey)
@@ -135,7 +138,7 @@ export function useCanvasViewportDocumentSync({
       setDocLoaded(true)
     })
 
-    void loadDesignSystem(workspaceRoot, resolvedDesignSystemBaseDir).then((system) => {
+    void loadDesignSystem(workspaceRoot, resolvedDesignSystemBaseDir, filePort).then((system) => {
       if (cancelled) return
       useDesignSystemStore.getState().loadSystem(system ?? createEmptyDesignSystem())
     })
@@ -143,7 +146,7 @@ export function useCanvasViewportDocumentSync({
     const unsubscribe = useCanvasShapeStore.subscribe((state, prev) => {
       if (cancelled) return
       if (state.document === prev.document) return
-      persistCanvasDocument(workspaceRoot, artifactId, state.document, baseDir)
+      persistCanvasDocument(workspaceRoot, artifactId, state.document, baseDir, filePort)
       if (!htmlFrameSyncEnabled) return
 
       const removedArtifactIds = removedLinkedHtmlArtifactIds(prev.document, state.document)
@@ -167,7 +170,7 @@ export function useCanvasViewportDocumentSync({
     const unsubscribeDesignSystem = useDesignSystemStore.subscribe((state, prev) => {
       if (cancelled) return
       if (state.system === prev.system) return
-      persistDesignSystem(workspaceRoot, state.system, resolvedDesignSystemBaseDir)
+      persistDesignSystem(workspaceRoot, state.system, resolvedDesignSystemBaseDir, filePort)
     })
 
     return () => {
@@ -177,7 +180,7 @@ export function useCanvasViewportDocumentSync({
       unsubscribe()
       unsubscribeDesignSystem()
     }
-  }, [workspaceRoot, artifactId, baseDir, documentKey, htmlFrameSyncEnabled, resolvedDesignSystemBaseDir, viewportStorageKey])
+  }, [workspaceRoot, artifactId, baseDir, documentKey, filePort, htmlFrameSyncEnabled, resolvedDesignSystemBaseDir, viewportStorageKey])
 
   const htmlArtifactSyncKey = useMemo(() => {
     if (!htmlFrameSyncEnabled) return ''
@@ -212,12 +215,12 @@ export function useCanvasViewportDocumentSync({
         afterSelection.setEditing(nextSelection.editingId)
       }
     }
-    persistCanvasDocument(workspaceRoot, artifactId, synced.document, baseDir)
+    persistCanvasDocument(workspaceRoot, artifactId, synced.document, baseDir, filePort)
     if (synced.addedFrameIds.length > 0) {
       const bounds = boundsForShapeIds(synced.document, synced.addedFrameIds)
       if (bounds) useCanvasViewportStore.getState().zoomToFit(bounds, 72, { maxZoom: 1, minZoom: 0.04 })
     }
-  }, [artifactId, baseDir, docLoaded, documentKey, htmlArtifactSyncKey, htmlFrameSyncEnabled, workspaceRoot])
+  }, [artifactId, baseDir, docLoaded, documentKey, filePort, htmlArtifactSyncKey, htmlFrameSyncEnabled, workspaceRoot])
 
   useEffect(() => {
     if (!docLoaded || !artifactId || !workspaceRoot) return

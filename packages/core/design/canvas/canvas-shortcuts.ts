@@ -21,9 +21,11 @@ import {
  * listener so we never paste against a stale workspace.
  */
 let pasteWorkspaceRoot: string | null = null
+let pasteImageEnabled = true
 let temporaryHandReturnTool: CanvasTool | null = null
-export function setCanvasPasteWorkspaceRoot(workspaceRoot: string | null): void {
+export function setCanvasPasteWorkspaceRoot(workspaceRoot: string | null, imagePasteEnabled = true): void {
   pasteWorkspaceRoot = workspaceRoot && workspaceRoot.trim() ? workspaceRoot.trim() : null
+  pasteImageEnabled = imagePasteEnabled
 }
 
 const KEY_TO_TOOL: Record<string, CanvasTool> = {
@@ -177,6 +179,7 @@ export function handleCanvasKeyDown(e: KeyboardEvent): boolean {
       pasteCanvasShapeClipboard()
       return true
     }
+    if (!pasteImageEnabled) return false
     const vbox = useCanvasViewportStore.getState().vbox
     void pasteClipboardImageToCanvas({
       vbox,

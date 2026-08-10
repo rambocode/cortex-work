@@ -4,6 +4,7 @@ import { snapshotCanvas, type CanvasSnapshot } from './canvas-snapshot'
 import { loadDesignSystem } from './design-system-persistence'
 import { createEmptyDesignSystem, type DesignSystem } from './design-system-types'
 import { looksLikeStandaloneImageAssetPrompt } from '../design-image-intent'
+import type { CanvasFilePort } from './canvas-file-port'
 
 /** Workspace subdir for code-mode canvases. Kept out of `.cortex-design` so design
  * mode's artifact lister (which enumerates `.cortex-design/*`) never sees them. */
@@ -204,23 +205,34 @@ export type CodeCanvasPromptSnapshotOptions = {
   defaultScreenSize: { width: number; height: number }
   maxShapes?: number
   loadDocument?: typeof loadCanvasDocument
+  /** 会话白板宿主注入的文件能力；存在时不使用设计工作台兼容端口。 */
+  filePort?: CanvasFilePort
 }
 
 export type CodeCanvasPromptDesignSystemOptions = {
   workspaceRoot: string
   threadId: string
   loadSystem?: typeof loadDesignSystem
+  /** 会话白板宿主注入的文件能力；存在时不使用设计工作台兼容端口。 */
+  filePort?: CanvasFilePort
 }
 
 export async function loadCodeCanvasDesignSystemForPrompt(
   options: CodeCanvasPromptDesignSystemOptions
 ): Promise<DesignSystem> {
   const loadSystem = options.loadSystem ?? loadDesignSystem
+  const loaded = options.filePort
+    ? await loadSystem(
+        options.workspaceRoot,
+        codeCanvasThreadBaseDir(options.threadId),
+        options.filePort
+      )
+    : await loadSystem(
+        options.workspaceRoot,
+        codeCanvasThreadBaseDir(options.threadId)
+      )
   return (
-    (await loadSystem(
-      options.workspaceRoot,
-      codeCanvasThreadBaseDir(options.threadId)
-    )) ?? createEmptyDesignSystem()
+    loaded ?? createEmptyDesignSystem()
   )
 }
 
@@ -246,11 +258,18 @@ export async function snapshotCodeCanvasForPrompt(
   }
 
   const loadDocument = options.loadDocument ?? loadCanvasDocument
-  const persisted = await loadDocument(
-    options.workspaceRoot,
-    codeCanvasArtifactId(options.threadId),
-    CODE_CANVAS_DIR
-  )
+  const persisted = options.filePort
+    ? await loadDocument(
+        options.workspaceRoot,
+        codeCanvasArtifactId(options.threadId),
+        CODE_CANVAS_DIR,
+        options.filePort
+      )
+    : await loadDocument(
+        options.workspaceRoot,
+        codeCanvasArtifactId(options.threadId),
+        CODE_CANVAS_DIR
+      )
   if (!persisted) return undefined
   const persistedSnapshot = snapshotCanvas(persisted, selectedIds, snapshotOptions(storeMatchesThread))
   return persistedSnapshot.shapeCount > 0 ? persistedSnapshot : undefined

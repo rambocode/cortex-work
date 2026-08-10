@@ -1,6 +1,10 @@
 import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
 import { useEffect, useState } from 'react'
-import { useCanvasWorkspaceRoot } from './canvas-workspace-context'
+import {
+  useCanvasWorkspaceFilePort,
+  useCanvasWorkspaceRoot
+} from './canvas-workspace-context'
+import type { CanvasFilePort } from './canvas-file-port'
 
 const DIRECT_URL_RE = /^(data:|https?:|blob:)/i
 const ABSOLUTE_LOCAL_PATH_RE = /^(\/|[A-Za-z]:[\\/]|\\\\)/
@@ -23,8 +27,10 @@ export function isAbsoluteLocalImagePath(url: string): boolean {
 
 async function readImageDataUrl(
   workspaceRoot: string,
-  path: string
+  path: string,
+  filePort?: CanvasFilePort
 ): Promise<string | null> {
+  if (filePort?.readImageDataUrl) return filePort.readImageDataUrl(workspaceRoot, path)
   if (typeof kunGuiPort()?.readWorkspaceImage !== 'function') return null
   const result = await requireKunGui().readWorkspaceImage({
     path,
@@ -36,16 +42,18 @@ async function readImageDataUrl(
 async function resolveWorkspaceImage(
   workspaceRoot: string,
   path: string,
-  key: string
+  key: string,
+  filePort?: CanvasFilePort
 ): Promise<string | null> {
   const hit = cache.get(key)
   if (hit) return hit
   const trimmedPath = path.trim()
-  if (!trimmedPath || typeof kunGuiPort()?.readWorkspaceImage !== 'function') return null
+  const canReadImage = Boolean(filePort?.readImageDataUrl) || typeof kunGuiPort()?.readWorkspaceImage === 'function'
+  if (!trimmedPath || !canReadImage) return null
   try {
     const dataUrl = isAbsoluteLocalImagePath(trimmedPath)
-      ? await readImageDataUrl('', trimmedPath)
-      : await readImageDataUrl(workspaceRoot, trimmedPath)
+      ? await readImageDataUrl('', trimmedPath, filePort)
+      : await readImageDataUrl(workspaceRoot, trimmedPath, filePort)
     if (dataUrl) {
       cache.set(key, dataUrl)
       return dataUrl
@@ -64,11 +72,12 @@ async function resolveWorkspaceImage(
  */
 export async function loadWorkspaceImageDataUrl(
   workspaceRoot: string,
-  imageUrl: string | undefined
+  imageUrl: string | undefined,
+  filePort?: CanvasFilePort
 ): Promise<string | null> {
   if (!imageUrl) return null
   if (isDirectImageUrl(imageUrl)) return imageUrl
-  return resolveWorkspaceImage(workspaceRoot, imageUrl, cacheKey(workspaceRoot, imageUrl))
+  return resolveWorkspaceImage(workspaceRoot, imageUrl, cacheKey(workspaceRoot, imageUrl), filePort)
 }
 
 /**
@@ -80,6 +89,7 @@ export async function loadWorkspaceImageDataUrl(
  */
 export function useWorkspaceImageSrc(imageUrl: string | undefined): string | null {
   const workspaceRoot = useCanvasWorkspaceRoot()
+  const filePort = useCanvasWorkspaceFilePort()
   const direct = imageUrl && isDirectImageUrl(imageUrl) ? imageUrl : null
   const [resolved, setResolved] = useState<string | null>(() =>
     imageUrl && !direct ? cache.get(cacheKey(workspaceRoot, imageUrl)) ?? null : null
@@ -100,7 +110,7 @@ export function useWorkspaceImageSrc(imageUrl: string | undefined): string | nul
     let active = true
     let timer: ReturnType<typeof setTimeout> | null = null
     const attempt = (index: number): void => {
-      void resolveWorkspaceImage(workspaceRoot, imageUrl, key).then((url) => {
+      void resolveWorkspaceImage(workspaceRoot, imageUrl, key, filePort).then((url) => {
         if (!active) return
         if (url) {
           setResolved(url)
@@ -119,7 +129,7 @@ export function useWorkspaceImageSrc(imageUrl: string | undefined): string | nul
       active = false
       if (timer) clearTimeout(timer)
     }
-  }, [workspaceRoot, imageUrl, direct])
+  }, [workspaceRoot, imageUrl, direct, filePort])
 
   return direct ?? resolved
 }

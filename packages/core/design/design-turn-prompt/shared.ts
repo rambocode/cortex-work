@@ -104,6 +104,11 @@ export type DesignTurnOptions = {
    */
   canvasSurface?: 'design' | 'code'
   /**
+   * Canvas operation delivery. Design workspaces call dedicated tools; personal
+   * conversations emit fenced protocol blocks that the renderer replays.
+   */
+  canvasTransport?: 'dedicated-tools' | 'assistant-blocks'
+  /**
    * Canvas mode only: explicit design-system context. Code mode passes the
    * current thread's persisted design system here so it never falls back to
    * another canvas' global store state.

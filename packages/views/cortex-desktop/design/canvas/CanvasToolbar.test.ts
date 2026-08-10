@@ -16,7 +16,8 @@ describe('CanvasToolbar prototype playback', () => {
     expect(html).toContain('aria-label="选择"')
     expect(html).toContain('aria-label="画板"')
     expect(html).toContain('aria-label="AI 图片"')
-    expect(html).toContain('aria-label="上传图片到白板"')
+    // 会话白板不借用 Kun 的文件选择端口；Cortex 尚未提供原生图片选择契约前隐藏入口。
+    expect(html).not.toContain('aria-label="上传图片到白板"')
     expect(html).not.toContain('aria-label="AI image slot"')
     expect(html).not.toContain('aria-label="上传图片到画布"')
     expect(html).not.toContain('aria-label="屏幕"')

@@ -49,6 +49,8 @@ describe('shouldRouteCodePromptToCanvas', () => {
     expect(shouldRouteCodePromptToCanvas('Create an ER diagram for the schema')).toBe(true)
     expect(shouldRouteCodePromptToCanvas('Sketch a class diagram for these models')).toBe(true)
     expect(shouldRouteCodePromptToCanvas('\u753b\u4e2a\u67b6\u6784\u56fe')).toBe(true)
+    // 会话中的自然表达同样必须进入白板协议；这是用户从聊天调用白板的主入口。
+    expect(shouldRouteCodePromptToCanvas('\u8bf7\u8c03\u7528\u767d\u677f\u8fdb\u884c\u753b\u56fe')).toBe(true)
     expect(shouldRouteCodePromptToCanvas('\u68b3\u7406\u4e00\u4e0b\u8c03\u7528\u94fe\u8def')).toBe(true)
     expect(shouldRouteCodePromptToCanvas('\u753b\u4e00\u4e2a\u6a21\u5757\u4f9d\u8d56\u56fe')).toBe(true)
     expect(shouldRouteCodePromptToCanvas('Refactor this module and fix the tests')).toBe(false)

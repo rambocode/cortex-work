@@ -14,6 +14,7 @@ import type { DesignHtmlElementContext } from '@cortex-work/core/design/design-c
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import type { DesignRuntimeQualityPayload } from '@cortex-work/core/design/design-html-quality'
 import { CanvasWorkspaceContext } from '@cortex-work/core/design/canvas/canvas-workspace-context'
+import type { CanvasFilePort } from '@cortex-work/core/design/canvas/canvas-file-port'
 import {
   handleCanvasKeyDown,
   handleCanvasKeyUp,
@@ -86,6 +87,8 @@ type Props = {
   onUseElementAsContext?: (context: DesignHtmlElementContext | null, promptSeed?: string) => void
   onRuntimeQualityFindings?: (payload: DesignRuntimeQualityPayload) => void
   onRequestQualityRepair?: (payload: DesignRuntimeQualityPayload) => void
+  /** Cortex 宿主显式注入的画布文件能力；会话白板不得依赖 Kun 全局端口。 */
+  filePort?: CanvasFilePort
 }
 
 export function CanvasViewport({
@@ -102,7 +105,8 @@ export function CanvasViewport({
   syncHtmlScreens = false,
   onUseElementAsContext,
   onRuntimeQualityFindings,
-  onRequestQualityRepair
+  onRequestQualityRepair,
+  filePort
 }: Props) {
   const { t } = useTranslation('design')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -187,7 +191,7 @@ export function CanvasViewport({
   const uiScale = useCanvasUiScale()
   const tool = useMemo(() => createCanvasTool(activeTool, surface), [activeTool, surface])
   const middlePanTool = useMemo(() => createHandTool(), [])
-  const workspaceValue = useMemo(() => ({ workspaceRoot }), [workspaceRoot])
+  const workspaceValue = useMemo(() => ({ workspaceRoot, filePort }), [filePort, workspaceRoot])
   const viewportStorageKey = useMemo(
     () => canvasViewportStorageKey(workspaceRoot, artifactId, baseDir),
     [artifactId, baseDir, workspaceRoot]
@@ -205,7 +209,8 @@ export function CanvasViewport({
     documentKey,
     htmlFrameSyncEnabled,
     designArtifacts,
-    designTarget
+    designTarget,
+    filePort
   })
   const selectedHtmlArtifactId = useMemo(() => {
     for (const id of selectedIds) {
@@ -392,7 +397,8 @@ export function CanvasViewport({
   }, [])
 
   useEffect(() => {
-    setCanvasPasteWorkspaceRoot(workspaceRoot || null)
+    // Cortex 会话白板暂不借 Kun 端口读取系统剪贴板；形状复制粘贴仍照常可用。
+    setCanvasPasteWorkspaceRoot(workspaceRoot || null, surface !== 'code')
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!shouldHandleCanvasKeyboardEvent(surface, e.target, rootRef.current)) return
       handleCanvasKeyDown(e)
@@ -404,7 +410,7 @@ export function CanvasViewport({
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     return () => {
-      setCanvasPasteWorkspaceRoot(null)
+      setCanvasPasteWorkspaceRoot(null, false)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }

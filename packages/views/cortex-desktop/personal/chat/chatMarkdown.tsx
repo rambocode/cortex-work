@@ -484,6 +484,10 @@ export function chatMarkdownComponents({ onOpenFile, projectPath, bridge }: Chat
     pre({ node, children, ...rest }) {
       const code = isValidElement(children) ? (children as ReactElement<{ className?: string }>) : null;
       const lang = /language-([\w+-]+)/.exec(code?.props.className ?? "")?.[1];
+      // design_canvas/shapeops 是个人会话 Agent 与右侧白板之间的内部传输协议，不是回答正文。
+      // 原始消息必须保留，PersonalWhiteboardPanel 才能实时回放及恢复历史画布；这里只在最终
+      // Markdown 展示边界隐藏完整协议块，避免用户看到 JSON，同时不影响普通代码块。
+      if (lang === "design_canvas" || lang === "shapeops") return null;
       const raw = nodeText(node).replace(/\n$/, "");
       const htmlPath = findLocalHtmlPathsInText(raw)[0];
       return (

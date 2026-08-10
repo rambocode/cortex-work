@@ -196,16 +196,18 @@ function CanvasToolbarInner({
           )
         })}
 
-        <button
-          type="button"
-          className={`${iconBtnBase} ${btnInactive}`}
-          onClick={importImage}
-          disabled={imageImportBusy}
-          title={t(surface === 'code' ? 'codeCanvasToolUploadImage' : 'canvasToolUploadImage')}
-          aria-label={t(surface === 'code' ? 'codeCanvasToolUploadImage' : 'canvasToolUploadImage')}
-        >
-          <ImagePlus className="h-4 w-4" strokeWidth={1.9} />
-        </button>
+        {designSurface ? (
+          <button
+            type="button"
+            className={`${iconBtnBase} ${btnInactive}`}
+            onClick={importImage}
+            disabled={imageImportBusy}
+            title={t('canvasToolUploadImage')}
+            aria-label={t('canvasToolUploadImage')}
+          >
+            <ImagePlus className="h-4 w-4" strokeWidth={1.9} />
+          </button>
+        ) : null}
 
         {designSurface ? (
           <>

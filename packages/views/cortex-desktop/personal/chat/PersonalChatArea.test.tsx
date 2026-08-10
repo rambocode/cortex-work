@@ -1575,6 +1575,57 @@ describe("PersonalChatArea /skill 发送派发（U6）", () => {
   });
 });
 
+describe("PersonalChatArea 会话白板调用", () => {
+  afterEach(() => cleanup());
+
+  it("画图请求把正文协议注入 Agent，并自动打开白板", async () => {
+    const startCli = vi.fn(async () => undefined);
+    const b = {
+      loadChat: async () => [],
+      saveChat: vi.fn(async () => undefined),
+      readFile: vi.fn(async () => ({ content: "", truncated: false })),
+      writeFile: vi.fn(async () => undefined),
+      startCli,
+      killCli: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge;
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [{
+        id: "s1",
+        projectId: "p1",
+        title: "S1",
+        agent: "claude",
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      agentsAvailable: { claude: true, codex: true, pi: true },
+      runningBySession: {},
+      rightView: "files",
+    });
+    useCortexUIStore.setState({ rightOpen: false });
+
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b}>
+        <PersonalChatArea onToast={() => {}} />
+      </CoreProvider>,
+    );
+    const input = view.container.querySelector("textarea")!;
+    fireEvent.change(input, { target: { value: "请调用白板进行画图" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+
+    await waitFor(() => expect(startCli).toHaveBeenCalledTimes(1));
+    expect(startCli).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "请调用白板进行画图",
+      appendSystemPrompt: expect.stringContaining("Cortex conversation whiteboard transport:"),
+    }));
+    expect(usePersonalStore.getState().rightView).toBe("canvas");
+    expect(useCortexUIStore.getState().rightOpen).toBe(true);
+  });
+});
+
 // 新建会话(尚无消息)与新会话落地页应当是同一个页面:同样的 Hero + 场景 tab/chips,
 // 唯一区别是落地页还要选项目、这里项目已经定了。避免两套落地内容各自漂移。
 describe("PersonalChatArea 空会话落地内容", () => {

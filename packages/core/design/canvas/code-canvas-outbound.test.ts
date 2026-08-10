@@ -25,6 +25,10 @@ const snapshot: CanvasSnapshot = {
 
 describe('code canvas outbound prompt', () => {
   it('adds snapshot, design system, and scoped op feedback for a thread canvas', async () => {
+    const filePort = {
+      readText: vi.fn(async () => null),
+      writeText: vi.fn(async () => true)
+    }
     const snapshotForPrompt = vi.fn(async (
       _options: Parameters<typeof snapshotCodeCanvasForPrompt>[0]
     ) => snapshot)
@@ -45,19 +49,28 @@ describe('code canvas outbound prompt', () => {
       designContext: { designTarget: 'app' },
       snapshotForPrompt,
       loadDesignSystemForPrompt,
-      takeLastErrors
+      takeLastErrors,
+      filePort,
+      transport: 'assistant-blocks'
     })
 
     expect(outbound.startsWith('Draw the architecture\n\n')).toBe(true)
     expect(outbound).toContain('SHAPE_NOT_FOUND')
+    // 个人会话没有注册 design_* 专用工具，必须要求 Agent 在正文输出界面可回放的协议块。
+    expect(outbound).toContain('Cortex conversation whiteboard transport:')
+    expect(outbound).toContain('fenced `design_canvas` blocks')
+    expect(outbound).toContain('"action": "update_shapes"')
+    expect(outbound).not.toContain('Do not emit markdown/fenced JSON blocks')
     expect(snapshotForPrompt).toHaveBeenCalledWith(expect.objectContaining({
       workspaceRoot: '/workspace',
       threadId: 'thread_1',
-      selectedIds: new Set(['shape_1'])
+      selectedIds: new Set(['shape_1']),
+      filePort
     }))
     expect(loadDesignSystemForPrompt).toHaveBeenCalledWith({
       workspaceRoot: '/workspace',
-      threadId: 'thread_1'
+      threadId: 'thread_1',
+      filePort
     })
     expect(takeLastErrors).toHaveBeenCalledWith('code-canvas:thread_1')
   })

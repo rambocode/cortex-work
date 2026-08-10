@@ -6,6 +6,7 @@
  */
 import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
 import type { ComponentDef, DesignSystem, DesignToken, DesignTokenKind } from './design-system-types'
+import type { CanvasFilePort } from './canvas-file-port'
 
 const DESIGN_DIR = '.cortex-design'
 
@@ -92,32 +93,39 @@ function designSystemSaveKey(workspaceRoot: string, baseDir: string | undefined)
 export function persistDesignSystem(
   workspaceRoot: string,
   system: DesignSystem,
-  baseDir?: string
+  baseDir?: string,
+  filePort?: CanvasFilePort
 ): void {
-  if (!workspaceRoot || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
+  if (!workspaceRoot) return
+  if (!filePort && typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
   const key = designSystemSaveKey(workspaceRoot, baseDir)
   const existingTimer = _saveTimers.get(key)
   if (existingTimer) clearTimeout(existingTimer)
   const timer = setTimeout(() => {
     _saveTimers.delete(key)
-    // 上方已守卫 kunGuiPort()?.writeWorkspaceFile 存在,定时器触发时端口仍在
-    void kunGuiPort()!
-      .writeWorkspaceFile({
-        path: designSystemPath(baseDir),
-        workspaceRoot,
-        content: serializeDesignSystem(system)
-      })
-      .catch(() => undefined)
+    const path = designSystemPath(baseDir)
+    const content = serializeDesignSystem(system)
+    if (filePort) {
+      void filePort.writeText(workspaceRoot, path, content).catch(() => false)
+      return
+    }
+    void kunGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
   }, 600)
   _saveTimers.set(key, timer)
 }
 
 export async function loadDesignSystem(
   workspaceRoot: string,
-  baseDir?: string
+  baseDir?: string,
+  filePort?: CanvasFilePort
 ): Promise<DesignSystem | null> {
-  if (!workspaceRoot || typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
+  if (!workspaceRoot) return null
   try {
+    if (filePort) {
+      const content = await filePort.readText(workspaceRoot, designSystemPath(baseDir))
+      return content == null ? null : parseDesignSystem(content)
+    }
+    if (typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
     const result = await requireKunGui().readWorkspaceFile({
       path: designSystemPath(baseDir),
       workspaceRoot
