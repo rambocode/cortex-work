@@ -38,7 +38,6 @@ describe("PersonalCenterHeader 会话头（PersonalSessionHeader）", () => {
       automationOpen: false,
       settingsOpen: false,
       noteEditorId: undefined,
-      timelineProjectId: undefined,
       terminalOpen: false,
       rightView: "files",
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: 0 }],

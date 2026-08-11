@@ -29,7 +29,6 @@ describe("HomeView", () => {
   beforeEach(() => {
     usePersonalStore.setState({
       homeOpen: true,
-      timelineProjectId: undefined,
       activeSessionId: undefined,
       activeProjectId: undefined,
       taskDetailRequest: undefined,

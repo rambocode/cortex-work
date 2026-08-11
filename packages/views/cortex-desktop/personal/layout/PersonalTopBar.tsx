@@ -1,7 +1,7 @@
 // 个人工作区「中栏」顶部头：取代旧的全宽 TitleBar 在个人区的职责。
 // 三栏各自顶天后,中栏顶部承担窗口拖拽区 + 标题 + 更新按钮。
 // 会话(chat)视图下顶栏改为承载会话标题块 + Agent 选择器（标题从旧 chat-head 上移,见设计稿）；
-// 其它视图(落地/自动化/timeline/设置)维持「个人工作区」标题。
+// 其它视图(落地/自动化/设置)维持「个人工作区」标题。
 // 拖拽区由 CSS .pw-col-head 的 -webkit-app-region: drag 提供,交互子元素 no-drag。
 
 import { useState } from "react";

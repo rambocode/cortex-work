@@ -35,7 +35,6 @@ import { useDesktopBridge } from "../provider";
 import { usePersonalStore, type VisionBlockHint } from "../store/personal";
 import { piArtifactKind, usePiArtifactsStore } from "../store/piArtifacts";
 import { petActivity, type RunBits } from "../pet";
-import { extractChangedFile, promptTitle, clipSummary, recordTimelineEvent } from "./timeline";
 import { applyDeepenFinalize } from "./notes";
 import { t } from "../i18n";
 import { languageInstruction } from "../i18n/native";
@@ -43,6 +42,16 @@ import { useCortexUIStore } from "../store/ui";
 import { buildMemoryAppend } from "../memory/inject";
 // 会话内前置检索（可选开关）：发送前联网抓一次资料，失败静默降级，见其文件头。
 import { retrieveChatEvidence } from "../research/chat-retrieval";
+
+// 写类工具的 detail 携带目标路径。只在相对项目根可确定时裁剪前缀；截断内容不可信，不能误记为文件名。
+const WRITE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit|apply_patch|str_replace_editor)$/i;
+
+function extractChangedFile(toolName: string, detail: string | undefined, cwd: string): string | undefined {
+  if (!detail || !WRITE_TOOLS.test(toolName) || detail.endsWith("…")) return undefined;
+  const root = cwd.replace(/[/\\]+$/, "");
+  if (detail.startsWith(`${root}/`) || detail.startsWith(`${root}\\`)) return detail.slice(root.length + 1);
+  return detail;
+}
 import {
   abortPi,
   calibratePiSessionFile,
@@ -1976,28 +1985,6 @@ function finalizeRun(
   if (!voiceHandled && tts.autoSpeak && run.gotResult && run.buffer.trim()) {
     speakText(bridgeRef, tts, run.buffer, { allowFallback: true }).catch(() => {
       // TTS 端点不可用等,静默跳过
-    });
-  }
-
-  // 时间线：记录这一轮 run 事件（恢复型 run 无 prompt,用回复首行兜底）。
-  // 不使用项目的会话（无 projectId）不归入任何项目时间线,跳过。
-  const session = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
-  if (session && session.projectId) {
-    const title = run.promptText ? promptTitle(run.promptText) : promptTitle(run.buffer || t("chat:core.recoveredTurn"));
-    recordTimelineEvent(qc, bridgeRef, session.projectId, {
-      id: `run-${runId}`,
-      projectId: session.projectId,
-      sessionId,
-      ts: Date.now(),
-      kind: "run",
-      title,
-      summary: clipSummary(run.buffer),
-      files: run.changedFiles?.size ? [...run.changedFiles] : undefined,
-      meta: {
-        agent: run.agent,
-        ok: run.gotResult && run.resultOk !== false && !error && (code === null || code === 0),
-        durationMs: run.startedAt ? Date.now() - run.startedAt : undefined,
-      },
     });
   }
 

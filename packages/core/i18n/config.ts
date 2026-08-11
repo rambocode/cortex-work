@@ -14,10 +14,10 @@ import spotlightZh from "./resources/zh-Hans/spotlight.json";
 import chatZh from "./resources/zh-Hans/chat.json";
 import notesZh from "./resources/zh-Hans/notes.json";
 import filesZh from "./resources/zh-Hans/files.json";
-import timelineZh from "./resources/zh-Hans/timeline.json";
 import petZh from "./resources/zh-Hans/pet.json";
 import browserZh from "./resources/zh-Hans/browser.json";
 import designZh from "./resources/zh-Hans/design.json";
+import homeZh from "./resources/zh-Hans/home.json";
 
 import commonEn from "./resources/en/common.json";
 import settingsEn from "./resources/en/settings.json";
@@ -25,10 +25,10 @@ import spotlightEn from "./resources/en/spotlight.json";
 import chatEn from "./resources/en/chat.json";
 import notesEn from "./resources/en/notes.json";
 import filesEn from "./resources/en/files.json";
-import timelineEn from "./resources/en/timeline.json";
 import petEn from "./resources/en/pet.json";
 import browserEn from "./resources/en/browser.json";
 import designEn from "./resources/en/design.json";
+import homeEn from "./resources/en/home.json";
 
 export const NAMESPACES = [
   "common",
@@ -37,10 +37,10 @@ export const NAMESPACES = [
   "chat",
   "notes",
   "files",
-  "timeline",
   "pet",
   "browser",
   "design",
+  "home",
 ] as const;
 
 export const initialResources: Resource = {
@@ -51,10 +51,10 @@ export const initialResources: Resource = {
     chat: chatZh,
     notes: notesZh,
     files: filesZh,
-    timeline: timelineZh,
     pet: petZh,
     browser: browserZh,
     design: designZh,
+    home: homeZh,
   },
   en: {
     common: commonEn,
@@ -63,10 +63,10 @@ export const initialResources: Resource = {
     chat: chatEn,
     notes: notesEn,
     files: filesEn,
-    timeline: timelineEn,
     pet: petEn,
     browser: browserEn,
     design: designEn,
+    home: homeEn,
   },
 };
 

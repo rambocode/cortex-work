@@ -411,9 +411,6 @@ const personal = {
   imageReadAny: (path: string): Promise<ImageReadResult> => ipcRenderer.invoke("image:readAny", path),
   // 聊天文档附件落盘(优先 srcPath 路径直拷,避免 50MB ArrayBuffer 过 IPC)。
   docSave: (req: DocSaveRequest): Promise<DocSaveResult> => ipcRenderer.invoke("doc:save", req),
-  loadTimeline: (projectId: string): Promise<unknown> => ipcRenderer.invoke("timeline:load", projectId),
-  saveTimeline: (projectId: string, data: unknown): Promise<void> =>
-    ipcRenderer.invoke("timeline:save", projectId, data),
   gitLog: (
     root: string,
     opts?: { sinceTs?: number; max?: number },

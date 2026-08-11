@@ -95,7 +95,6 @@ describe("PersonalChatArea side 子会话导航", () => {
       ],
       activeProjectId: "p1",
       activeSessionId: "child",
-      timelineProjectId: undefined,
     });
 
     renderArea();
@@ -116,7 +115,6 @@ describe("PersonalChatArea 项目引导态（无 session）", () => {
       sessions: [],
       activeProjectId: "p1",
       activeSessionId: undefined,
-      timelineProjectId: undefined,
     });
   });
 
@@ -175,7 +173,6 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "Session 1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       filePreviewRequest: undefined,
     });
     useCortexUIStore.setState({ rightOpen: false });
@@ -675,7 +672,6 @@ describe("PersonalChatArea pi 渲染：reasoning 块 + 运行时状态（U5）",
       sessions: [{ id: "s1", projectId: "p1", title: "Session 1", agent: "pi", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: {},
       piRuntimeBySession: {},
     });
@@ -720,7 +716,6 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: {},
     });
   });
@@ -835,7 +830,6 @@ describe("PersonalChatArea 运行态占位位置", () => {
       sessions: [{ id: sessionId, projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: sessionId,
-      timelineProjectId: undefined,
       runningBySession: opts.running ? { [sessionId]: "run-1" } : {},
       piRuntimeBySession: {},
     });
@@ -923,7 +917,6 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       activeSessionId: "s1",
       agentsAvailable: { claude: true, codex: true, pi: true },
       runningBySession: {},
-      timelineProjectId: undefined,
     });
     // loadChat 返回同一份旧档（ensureChatLoaded 内部已过 sanitize,但缓存里已是含 agentLog 的脏态:
     // 模拟「加载后流式期写入又未及重载」的边界,固化 editResend 写回前 sanitize 的护栏）。
@@ -991,7 +984,6 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       activeSessionId: "s1",
       agentsAvailable: { claude: true, codex: true, pi: true },
       runningBySession: {},
-      timelineProjectId: undefined,
     });
     const b = {
       loadChat: async () => stale,
@@ -1057,7 +1049,6 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       agentsAvailable: { claude: true, codex: true, pi: true },
       runningBySession: {},
       piRuntimeBySession: {},
-      timelineProjectId: undefined,
       rightView: "files",
       providerSettings: {
         providers: [
@@ -1148,7 +1139,6 @@ describe("PersonalChatArea 追问入口（U5）", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: {},
       providerSettings: { providers: [] },
     });
@@ -1369,7 +1359,6 @@ describe("PersonalChatArea 追问收尾语义(FIX-1 / FIX-6)", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: {},
       providerSettings: { providers: [] },
     });
@@ -1638,7 +1627,6 @@ describe("PersonalChatArea 空会话落地内容", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: {},
       composerSkill: undefined,
     });
@@ -1832,7 +1820,6 @@ describe("PersonalChatArea 操作条只挂每轮末条 agent 文本", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: undefined,
       runningBySession: running ? { s1: "run-1" } : {},
       providerSettings: { providers: [] },
     });

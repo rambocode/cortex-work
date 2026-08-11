@@ -189,13 +189,13 @@ describe("主进程窄写通道", () => {
   });
 });
 
-// ── 阶段③·4.1：写作 / 日报设置里残留的明文凭据 ──────────────────────────────────
+// ── 写作设置明文凭据与已下线时间线配置清理 ──────────────────────────────────
 //
 // 为什么主进程还要抹一遍（渲染端 hydrate 已经丢弃这些键）：hydrate 的丢弃结果要等
 // **渲染端下一次全量保存**才落盘。用户升级后不碰任何设置的话，明文 apiKey 会一直留在
 // personal-workspace.json 里。首启抹除不依赖用户做任何事。
 describe("purgeLegacyPlaintextCredentials", () => {
-  /** 旧档：writingLlmSettings 与 timelineSettings 各自带一份明文密钥。 */
+  /** 旧档：writingLlmSettings 带明文密钥，并保留已下线的 timelineSettings。 */
   const LEGACY_PLAINTEXT = {
     version: 1,
     projects: [],
@@ -230,14 +230,12 @@ describe("purgeLegacyPlaintextCredentials", () => {
     expect(writing.maxTokens).toBe(128);
   });
 
-  it("日报的旧 kind:\"openai\" 整条丢弃 → 未配置的 gateway 态（不迁移、不猜模型）", async () => {
+  it("已下线的 timelineSettings 整体删除", async () => {
     await writeStore(LEGACY_PLAINTEXT);
     const { purgeLegacyPlaintextCredentials } = await loadModule();
     await purgeLegacyPlaintextCredentials();
 
-    const timeline = (await readStore()).timelineSettings as { summaryModel: Record<string, unknown> };
-    expect(timeline.summaryModel).toEqual({ kind: "gateway" });
-    expect("ref" in timeline.summaryModel).toBe(false); // 未配置态，绝不回退任何模型
+    expect(await readStore()).not.toHaveProperty("timelineSettings");
   });
 
   it("落盘后整份存档里搜不到任何明文密钥", async () => {
@@ -256,13 +254,12 @@ describe("purgeLegacyPlaintextCredentials", () => {
       projects: [],
       sessions: [],
       writingLlmSettings: { providerId: "anthropic", modelId: "m", completionEnabled: true, debounceMs: 650, maxTokens: 96 },
-      timelineSettings: { summaryModel: { kind: "gateway", ref: { providerId: "anthropic", modelId: "m" } } },
     };
     await writeStore(clean);
     const { purgeLegacyPlaintextCredentials } = await loadModule();
 
     expect(await purgeLegacyPlaintextCredentials()).toBe(false);
-    expect(await readStore()).toEqual(clean); // 逐字未变，包括已配置的 ref 没被抹掉
+    expect(await readStore()).toEqual(clean);
   });
 
   it("两块设置都不存在（全新安装）也不报错、不写盘", async () => {

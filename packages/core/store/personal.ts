@@ -32,7 +32,6 @@ import type {
   SessionMeta,
   ThreadGoalStatus,
   SpotlightIntent,
-  TimelineSettings,
   TodoMeta,
   TtsSettings,
   VoiceSettings,
@@ -53,7 +52,6 @@ import {
   DEFAULT_BROWSER_CONTROL,
   DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_PUSH_SETTINGS,
-  DEFAULT_TIMELINE_SETTINGS,
   DEFAULT_TTS_SETTINGS,
   defaultMediaGenSettings,
   normalizeMediaGenSettings,
@@ -225,15 +223,13 @@ export interface PersonalState {
   filePreviewOpen: boolean;
   // 项目工作台右列详情宽度（px,拖拽调整,持久化）;undefined 走 CSS 默认 380。
   projectsDetailWidth?: number;
-  // 主区时间线视图：非空时主区显示该项目的时间线（替代会话区）。
-  timelineProjectId?: string;
   // 主区首页视图（热力图/项目检索/全局日总结）。启动默认落地首页;不持久化。
-  // 渲染优先级：workflowOpen > automationOpen > homeOpen > timelineProjectId > 会话区。
+  // 渲染优先级：workflowOpen > automationOpen > homeOpen > 会话区。
   homeOpen: boolean;
   // 主区自动化视图（定时任务列表/详情）。不持久化,优先级高。
   automationOpen: boolean;
   // 主区 loop 工作流视图（节点式工作流列表/编辑器）。不持久化,优先级最高。
-  // 与 automationOpen/homeOpen/timelineProjectId/noteEditorId 互斥。
+  // 与 automationOpen/homeOpen/noteEditorId 互斥。
   workflowOpen: boolean;
   // 主区设计工作台视图（AI 设计画布,desktop-only）。不持久化;与其它主区视图互斥。
   designOpen: boolean;
@@ -247,10 +243,8 @@ export interface PersonalState {
   // 故 closeSettings 后回到打开设置前的视图）。
   settingsOpen: boolean;
   // 主区闪记写作面：非空时主区显示该闪记的宽编辑器（占据 .pw-center-col,替代会话区）。
-  // 瞬态,不持久化;与 homeOpen/automationOpen/timelineProjectId 互斥。
+  // 瞬态,不持久化;与 homeOpen/automationOpen 互斥。
   noteEditorId?: string;
-  // 时间线日报设置（生成模型,持久化）。
-  timelineSettings: TimelineSettings;
   // 全局推送渠道设置（独立持久化,所有推送场景共用）。
   pushSettings: PushSettings;
   // TTS 设置（自动朗读 + 引擎,持久化）。
@@ -432,8 +426,6 @@ export interface PersonalState {
   // FilesView 进入/退出文件预览时同步(镜像其本地 preview 状态,供面板头判断可否放大)。
   setFilePreviewOpen: (open: boolean) => void;
   setProjectsDetailWidth: (width: number | undefined) => void;
-  openTimeline: (projectId: string) => void;
-  closeTimeline: () => void;
   openHome: () => void;
   openAutomation: () => void;
   // 打开/关闭 loop 工作流主区视图（优先级最高,互斥清其它视图标志）。
@@ -454,7 +446,6 @@ export interface PersonalState {
   // 点击某条闪记进入中心区宽写作面;互斥清理其他中心视图。closeNoteEditor 返回列表态。
   openNoteEditor: (noteId: string) => void;
   closeNoteEditor: () => void;
-  setTimelineSettings: (patch: Partial<TimelineSettings>) => void;
   setPushSettings: (patch: Partial<PushSettings>) => void;
   setTtsSettings: (patch: Partial<TtsSettings>) => void;
   // 媒体生成设置 patch（浅合并整体 MediaGenSettings;单模态字段由调用方 spread 现值）。
@@ -720,7 +711,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   writingOpen: false,
   settingsOpen: false,
   settingsTab: undefined,
-  timelineSettings: DEFAULT_TIMELINE_SETTINGS,
   pushSettings: DEFAULT_PUSH_SETTINGS,
   ttsSettings: DEFAULT_TTS_SETTINGS,
   mediaGenSettings: defaultMediaGenSettings(),
@@ -741,11 +731,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       promptRoot: s.promptRoot,
       sessions: s.sessions.map(migrateSession),
       todos: s.todos ?? [],
-      timelineSettings: s.timelineSettings ?? DEFAULT_TIMELINE_SETTINGS,
-      // 兼容迁移:旧版本推送渠道存在 timelineSettings.push 下。
+      // 兼容迁移：旧版本推送渠道存在已移除的 timelineSettings.push 下。
       pushSettings:
         s.pushSettings ??
-        (s.timelineSettings as undefined | { push?: PushSettings })?.push ??
+        ((s as PersistedState & { timelineSettings?: { push?: PushSettings } }).timelineSettings?.push) ??
         DEFAULT_PUSH_SETTINGS,
       ttsSettings: s.ttsSettings ?? DEFAULT_TTS_SETTINGS,
       // 媒体生成：旧档经 normalizeMediaGenSettings 归一化——缺字段 deep-merge 工厂默认、
@@ -804,7 +793,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeProjectId: s.activeProjectId === id ? undefined : s.activeProjectId,
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
-      timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
       lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
 
@@ -823,7 +811,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeProjectId: s.activeProjectId === id ? undefined : s.activeProjectId,
       activeSessionId:
         s.sessions.find((x) => x.id === s.activeSessionId)?.projectId === id ? undefined : s.activeSessionId,
-      timelineProjectId: s.timelineProjectId === id ? undefined : s.timelineProjectId,
       // 归档项目不应再作默认归属拉起。
       lastActiveProjectId: s.lastActiveProjectId === id ? undefined : s.lastActiveProjectId,
     })),
@@ -1254,7 +1241,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
         activeProjectId: sess?.projectId ?? s.activeProjectId,
         // 无项目会话不覆盖（保留上一个有效项目作浮层默认归属）。
         lastActiveProjectId: sess?.projectId ?? s.lastActiveProjectId,
-        timelineProjectId: undefined,
         homeOpen: false,
         automationOpen: false,
         workflowOpen: false,
@@ -1270,7 +1256,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       activeProjectId: projectId,
       lastActiveProjectId: projectId,
       activeSessionId: undefined,
-      timelineProjectId: undefined,
       homeOpen: false,
       automationOpen: false,
       workflowOpen: false,
@@ -1413,49 +1398,42 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   setFilePreviewOpen: (open) => set({ filePreviewOpen: open }),
   setProjectsDetailWidth: (width) => set({ projectsDetailWidth: width }),
 
-  openTimeline: (projectId) =>
-    set({ timelineProjectId: projectId, activeProjectId: projectId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, noteEditorId: undefined, settingsOpen: false }),
-  closeTimeline: () => set({ timelineProjectId: undefined }),
-
   // 回首页时右栏同步切回 todos（全部项目列表）——项目内的文件/Skills 面板
   // 是项目上下文,不应停留在首页。
-  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, timelineProjectId: undefined, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
+  openHome: () => set({ homeOpen: true, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, noteEditorId: undefined, settingsOpen: false, rightView: "todos" }),
 
   // 进入自动化主区视图（互斥清其它视图字段）。
   openAutomation: () =>
-    set({ automationOpen: true, workflowOpen: false, designOpen: false, writingOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ automationOpen: true, workflowOpen: false, designOpen: false, writingOpen: false, homeOpen: false, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
 
   // 进入 loop 工作流主区视图（优先级最高,互斥清其它视图字段）。
   openWorkflow: () =>
-    set({ workflowOpen: true, automationOpen: false, designOpen: false, writingOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ workflowOpen: true, automationOpen: false, designOpen: false, writingOpen: false, homeOpen: false, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   closeWorkflow: () => set({ workflowOpen: false }),
 
   // 进入设计工作台主区视图（互斥清其它视图字段;docId 缺省沿用上次打开的设计稿）。
   openDesign: (docId) =>
-    set((s) => ({ designOpen: true, activeDesignDocId: docId ?? s.activeDesignDocId, writingOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false })),
+    set((s) => ({ designOpen: true, activeDesignDocId: docId ?? s.activeDesignDocId, writingOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false })),
   closeDesign: () => set({ designOpen: false, homeOpen: true }),
 
   // 进入写作工作台整窗覆盖层（互斥清其它视图字段,同 openDesign 写法）。
   openWriting: () =>
-    set({ writingOpen: true, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, timelineProjectId: undefined, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
+    set({ writingOpen: true, designOpen: false, workflowOpen: false, automationOpen: false, homeOpen: false, activeSessionId: undefined, noteEditorId: undefined, settingsOpen: false }),
   // 关闭写作工作台回落首页（瞬态 writingOpen 复位;同 closeDesign）。
   closeWriting: () => set({ writingOpen: false, homeOpen: true }),
 
   // 点击闪记进入中心区写作面：互斥清其它中心视图;noteEditorId 瞬态,不进 toPersistedState。
   openNoteEditor: (noteId) =>
-    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, timelineProjectId: undefined, settingsOpen: false }),
+    set({ noteEditorId: noteId, homeOpen: false, automationOpen: false, workflowOpen: false, designOpen: false, writingOpen: false, settingsOpen: false }),
   closeNoteEditor: () => set({ noteEditorId: undefined }),
 
-  // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen/timelineProjectId 等底层标志,
+  // 设置整页：openSettings 仅置 settingsOpen（不清 homeOpen 等底层标志，
   // 故 closeSettings 后自然回到打开设置前的视图）;互斥由各 open 入口清 settingsOpen 保证。
   // 注意:openSettings 刻意不清底层视图标志（homeOpen/designOpen 等,见 KTD2a 覆盖层叠加语义）,
   // 唯独清 writingOpen——瞬态整窗态,不参与「关设置回原视图」的保活,
   // 进设置即退出（否则 z-40 覆盖层会盖住设置页拦截点击,见 PersonalWorkspace 的挂载条件）。
   openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab, writingOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
-
-  setTimelineSettings: (patch) =>
-    set((s) => ({ timelineSettings: { ...s.timelineSettings, ...patch } })),
 
   setPushSettings: (patch) =>
     set((s) => ({ pushSettings: { ...s.pushSettings, ...patch } })),
@@ -1514,7 +1492,6 @@ export function toPersistedState(s: PersonalState): PersistedState {
     promptRoot: s.promptRoot,
     sessions: s.sessions,
     todos: s.todos,
-    timelineSettings: s.timelineSettings,
     pushSettings: s.pushSettings,
     ttsSettings: s.ttsSettings,
     mediaGenSettings: s.mediaGenSettings,

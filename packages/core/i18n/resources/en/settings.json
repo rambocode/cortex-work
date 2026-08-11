@@ -15,7 +15,6 @@
     "plugins": "Plugins",
     "browser": "Browser",
     "pet": "Pet",
-    "timeline": "Timeline",
     "push": "Push",
     "speech": "Voice",
     "mediaGen": "Media Generation",
@@ -287,25 +286,6 @@
     "errorDownload": "Update download failed",
     "errorCheck": "Check failed",
     "idle": "No new version found"
-  },
-  "timeline": {
-    "title": "Timeline",
-    "desc": "Configure the model that generates the AI daily report. Push channels are managed centrally in Push settings.",
-    "modelCard": "Daily report model",
-    "generateMode": "Generation method",
-    "generateModeDesc": "Integrated Agent uses the installed CLI; custom model uses an OpenAI-compatible endpoint.",
-    "integratedAgent": "Integrated Agent",
-    "customModel": "Custom model",
-    "agent": "Agent",
-    "provider": "Provider",
-    "providerDesc": "The report runs on this provider (same source as a new Cortex session).",
-    "model": "Model",
-    "piNoProvider": "No enabled providers yet. Add and enable one in Models settings first so Cortex can generate reports.",
-    "baseUrl": "Base URL",
-    "baseUrlDesc": "OpenAI-compatible API (Ollama / LM Studio / vLLM all work).",
-    "modelName": "Model name",
-    "apiKey": "API Key",
-    "apiKeyOptional": "Optional."
   },
   "providers": {
     "title": "Providers",
@@ -661,7 +641,7 @@
   },
   "push": {
     "title": "Push channels",
-    "desc": "Global push configuration; once enabled it can be used by any feature that supports push (such as the timeline daily report).",
+    "desc": "Global push configuration; once enabled it can be used by any feature that supports push.",
     "formatCard": "Push format skill",
     "formatHint": "Pin the push format with a .md template from the Prompt library; the first rendered line becomes the push title. Placeholders: {{placeholders}}; placeholder lines with empty data are hidden automatically.",
     "formatTemplate": "Format template",

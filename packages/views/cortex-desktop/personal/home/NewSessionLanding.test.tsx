@@ -25,8 +25,6 @@ const NOW = 1700000000000;
 // HomeBoard 数据路径 + 新会话「不使用项目」落盘所需的桥方法。
 function fakeBridge(extra: Partial<DesktopBridge> = {}): DesktopBridge {
   return {
-    loadTimeline: async () => ({ version: 1, backfilledAt: 1, events: [] }),
-    saveTimeline: async () => {},
     loadChat: async () => [],
     listTaskFiles: async () => ({ files: [], archived: [] }),
     // 默认即「不使用项目」,发送走 ensureNoProjectDir 落到当天无项目目录。

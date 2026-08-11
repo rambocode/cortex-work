@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { enabledPushTargets } from "./push";
-// 经原路径(timeline.ts re-export)也应可导入,锁住下沉后不断链。
-import { enabledPushTargets as fromTimeline } from "./timeline";
 import type { PushSettings } from "../desktop/types";
 
 describe("enabledPushTargets", () => {
@@ -33,7 +31,4 @@ describe("enabledPushTargets", () => {
     expect(out.map((o) => o.target.kind)).toEqual(["wecom", "dingtalk", "email"]);
   });
 
-  it("经 timeline.ts re-export 同样可用", () => {
-    expect(fromTimeline).toBe(enabledPushTargets);
-  });
 });

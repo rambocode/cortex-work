@@ -227,22 +227,6 @@ export interface HiddenHistoryMeta {
   hiddenAt: number;
 }
 
-// ── 时间线日报设置（模型选择 + 推送渠道） ────────────────────────────────
-
-// 日报生成模型：现有集成 Agent,或自定义 OpenAI 兼容端点（Ollama/LM Studio 等）。
-export type SummaryModelConfig =
-  // providerId 仅对 agent === "pi" 有意义:指向 Catalog 中的 Provider。其余 agent 忽略该字段。
-  | { kind: "agent"; agent: AgentKind; model?: string; providerId?: string }
-  // 阶段③·4.1 收编:日报/Tasks 归档的文本补全改走 Model Gateway,寻址统一成 Catalog 引用。
-  //
-  // ⚠️ 取代了旧的 `{ kind: "openai"; baseUrl; apiKey; model }` —— 那是全仓**第三处明文密钥
-  // 落盘点**（与 writingLlmSettings、mediaGenSettings 并列）。刻意改 kind 名而非复用 "openai"：
-  // 旧档的 `kind:"openai"` 因此不会被误当成新形状解析,hydrate 会把它整条丢弃（连同明文 apiKey),
-  // 落到 `ref` 缺省的未配置态。
-  //
-  // `ref` 缺省 = 未配置 → 按计划 §5 进**阻断态**并引导去设置,**不自动回退任何模型**。
-  | { kind: "gateway"; ref?: DefaultModelRef };
-
 export interface WecomPushConfig {
   enabled: boolean;
   webhookUrl: string;
@@ -277,15 +261,7 @@ export interface EmailPushConfig {
   to: string; // 多个收件人用逗号分隔
 }
 
-export interface TimelineSettings {
-  summaryModel: SummaryModelConfig;
-}
-
-export const DEFAULT_TIMELINE_SETTINGS: TimelineSettings = {
-  summaryModel: { kind: "agent", agent: "claude", model: "haiku" },
-};
-
-// 全局推送渠道设置（独立于时间线,所有需要推送的场景共用）。
+// 全局推送渠道设置，所有需要推送的场景共用。
 export interface PushSettings {
   wecom?: WecomPushConfig;
   dingtalk?: DingtalkPushConfig;
@@ -1246,7 +1222,6 @@ export interface PersistedState {
   promptRoot?: string;
   sessions: SessionMeta[];
   todos?: TodoMeta[];
-  timelineSettings?: TimelineSettings;
   pushSettings?: PushSettings;
   ttsSettings?: TtsSettings;
   /** @deprecated 阶段②起不再写入；主进程首启会**删除**该字段（含全部明文 apiKey），见 §5。 */
@@ -1431,41 +1406,6 @@ export interface GitBranchesResult {
 export interface GitOpResult {
   ok: boolean;
   message?: string;
-}
-
-// ── 项目时间线 ────────────────────────────────────────────────────────────
-
-// 时间线事件。存储的只有 run / summary.day 两类；session.created 由
-// SessionMeta（createdAt）在读取时合成,git commit 由 gitLog 按需合入,note 由
-// notes.json 在读取时合成（KTD6,不落盘）,均不写入 timeline/<projectId>.json。
-export type TimelineEventKind = "run" | "summary.day" | "session.created" | "git.commit" | "note";
-
-export interface TimelineEvent {
-  id: string;
-  projectId: string;
-  sessionId?: string;
-  ts: number; // epoch ms
-  kind: TimelineEventKind;
-  title: string; // run = prompt 首行；summary.day = "AI 日报"
-  summary?: string; // run = 结果摘要；summary.day = 日报全文
-  files?: string[]; // run 中写类工具触碰的文件（相对项目根）
-  meta?: {
-    agent?: AgentKind;
-    durationMs?: number;
-    ok?: boolean;
-    day?: string; // summary.day 归属的天（YYYY-MM-DD）
-    hash?: string; // git.commit
-    backfilled?: boolean; // 历史回填事件（时间归到 session 最后活跃日）
-    noteId?: string; // note 合成事件回链的闪记 id（卡片点击跳详情用）
-    noteStatus?: NoteStatus; // note 合成事件的闪记状态（草稿/深化中/已深化）
-  };
-}
-
-// timeline/<projectId>.json 的文件结构（对主进程不透明）。
-export interface TimelineFileData {
-  version: 1;
-  backfilledAt?: number; // 缺失表示尚未做历史回填
-  events: TimelineEvent[];
 }
 
 export interface GitCommit {

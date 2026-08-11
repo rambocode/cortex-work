@@ -94,16 +94,12 @@ export function buildAgentSwitchPatch(
   };
 }
 
-// 中栏是否正显示会话区（非 automation/home/timeline/noteEditor/settings）。顶栏会话头与执行过程区
-// 共用此门控,保证「何时算 chat 视图」单一口径（渲染优先级 automation > noteEditor > home >
-// timeline > 会话区，与 PersonalWorkspace 的视图切换对齐）。
+// 中栏是否正显示会话区（非 automation/home/noteEditor/settings）。顶栏会话头与执行过程区
+// 共用此门控,保证「何时算 chat 视图」单一口径，并与 PersonalWorkspace 的视图切换对齐。
 export function useChatViewActive(): boolean {
   const homeOpen = usePersonalStore((s) => s.homeOpen);
   const automationOpen = usePersonalStore((s) => s.automationOpen);
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
-  const timelineProject = usePersonalStore((s) =>
-    s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
-  );
-  return !homeOpen && !automationOpen && !settingsOpen && !noteEditorId && !timelineProject;
+  return !homeOpen && !automationOpen && !settingsOpen && !noteEditorId;
 }

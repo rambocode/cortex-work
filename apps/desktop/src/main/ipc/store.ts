@@ -175,33 +175,26 @@ export async function purgeLegacyProviderSettings(): Promise<boolean> {
   return true;
 }
 
-/// 阶段③·4.1：抹掉 `writingLlmSettings` 与 `timelineSettings.summaryModel` 里残留的**明文凭据**。
+/// 清理 `writingLlmSettings` 里的遗留明文凭据，并移除已下线的 `timelineSettings`。
 ///
-/// 为什么主进程还要再抹一遍（渲染端的 hydrate 已经丢弃这些键了）：hydrate 只在**渲染端下一次
-/// 全量保存**时才把丢弃结果写回磁盘。用户如果升级后再没碰过任何设置，那份明文 apiKey 就一直
-/// 躺在 personal-workspace.json 里。首启抹除不依赖用户做任何事，是确定性的。
+/// 为什么主进程还要再做一次：渲染端只会在下一次全量保存时覆盖旧存档。用户升级后不再修改设置时，
+/// 明文 apiKey 与已删除功能的配置都会继续留在 personal-workspace.json。首启清理不依赖用户操作。
 ///
-/// 只删凭据字段、不删整块：`writingLlmSettings` 的 debounceMs / maxTokens / completionEnabled
-/// 是无害的行为调优，用户调过的值没有理由跟着一起丢。而寻址字段（baseUrl/apiKey/model）
-/// **不迁移**——旧 baseUrl 是用户自建端点，映射不到 Catalog 引用，只能请用户重选一次模型。
+/// `writingLlmSettings` 只删凭据字段，保留 debounceMs / maxTokens / completionEnabled 等无害调优；
+/// `timelineSettings` 则整体删除，因为对应功能、模型配置与 IPC 都已下线。
 ///
 /// 幂等：没有任何残留键时完全不写盘，避免每次启动都产生一次无谓提交。
 /// 同样走既有 commit/writeQueue 路径，不另起写通道（否则与 renderer 的 store:save 互相 clobber）。
 export async function purgeLegacyPlaintextCredentials(): Promise<boolean> {
   const base = await getPersistedState();
-  // timelineSettings 只镜像在 core 侧（主进程不消费它），故这里按结构读而不是给
-  // PersistedState 加字段 —— 为了抹一次旧凭据去扩主进程契约不划算，也会与 core 镜像多一处要同步。
-  const withTimeline = base as PersistedState & {
-    timelineSettings?: { summaryModel?: Record<string, unknown> };
-  };
+  // timelineSettings 已不在 PersistedState 契约中；这里只为迁移旧存档而窄化读取。
+  const legacy = base as PersistedState & { timelineSettings?: unknown };
   const writing = base.writingLlmSettings as (Record<string, unknown> & { providerId?: string }) | undefined;
-  const summary = withTimeline.timelineSettings?.summaryModel;
 
   const LEGACY_KEYS = ["baseUrl", "apiKey", "model"] as const;
   const writingDirty = writing !== undefined && LEGACY_KEYS.some((k) => k in writing);
-  // 旧的 `kind:"openai"` 分支自带 baseUrl/apiKey，是第三处明文落盘点；整条丢弃后落到未配置态。
-  const summaryDirty = summary?.kind === "openai";
-  if (!writingDirty && !summaryDirty) return false;
+  const timelineDirty = legacy.timelineSettings !== undefined;
+  if (!writingDirty && !timelineDirty) return false;
 
   const next: PersistedState = { ...base };
   if (writingDirty) {
@@ -209,14 +202,9 @@ export async function purgeLegacyPlaintextCredentials(): Promise<boolean> {
     for (const key of LEGACY_KEYS) delete cleaned[key];
     next.writingLlmSettings = cleaned as unknown as PersistedState["writingLlmSettings"];
   }
-  if (summaryDirty) {
-    (next as typeof withTimeline).timelineSettings = {
-      ...withTimeline.timelineSettings,
-      summaryModel: { kind: "gateway" },
-    };
-  }
+  if (timelineDirty) delete (next as typeof legacy).timelineSettings;
   await commit(base, next);
-  log.info("已清除写作 / 日报设置里残留的明文凭据，相关模型需重新选择");
+  log.info("已清除写作设置里的遗留明文凭据与已下线的时间线配置");
   return true;
 }
 

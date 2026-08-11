@@ -3,6 +3,12 @@
 // 内部通知(Electron 原生系统通知)不是 webhook 目标,不在此列,由完成后推送逻辑单独处理。
 import type { PushSettings, PushTarget } from "../desktop/types";
 
+// 新建推送格式 Skill 的中性示例。时间线日报已下线，因此不再预置日报专用占位符。
+export const DEFAULT_PUSH_TEMPLATE = `# 推送通知
+
+{{summary}}
+`;
+
 export function enabledPushTargets(push: PushSettings): { label: string; target: PushTarget }[] {
   const out: { label: string; target: PushTarget }[] = [];
   const { wecom, dingtalk, feishu, email } = push;

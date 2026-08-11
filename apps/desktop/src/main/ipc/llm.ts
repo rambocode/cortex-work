@@ -23,7 +23,7 @@ import { synthesizeEdgeTts } from "../capabilities/edge-tts/client";
 import { listEdgeTtsVoices } from "../capabilities/edge-tts/voices";
 
 /**
- * `llm:openaiComplete` 的入参（Timeline / 日报的一次性补全）。
+ * `llm:openaiComplete` 的入参（一次性文本补全）。
  * ⚠️ 与 `packages/core/desktop/types.ts` 的 `OpenAiCompleteRequest` 逐字镜像。
  *
  * 阶段③·4.1 收编：寻址从 `{baseUrl, apiKey, model}` 改成 Catalog 引用 `{providerId, modelId}`，

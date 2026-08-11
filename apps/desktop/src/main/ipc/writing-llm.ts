@@ -1,5 +1,5 @@
 // 写作 LLM(inline-completion + Cmd-K 就地改写,U3）IPC 域。
-// 两条链路共用一个独立 OpenAI 兼容端点(WritingLlmSettings,独立于 timeline 与对话 agent 凭据):
+// 两条链路共用一个独立 OpenAI 兼容端点(WritingLlmSettings,独立于对话 agent 凭据):
 //   - writing:complete —— ghost text 打字续写:前后缀窗口 → 模型返回可插入文本;
 //   - writing:edit     —— Cmd-K 就地改写:前后缀 + 选区原文 + 用户指令 + <<<EDIT>>> 协议 → 替换文本;
 //   - writing:llmStatus —— 探测配置态(configured/completionEnabled),渲染端据此决定挂载/隐藏入口。

@@ -1,0 +1,115 @@
+{
+  "scene": {
+    "title": "Scenario",
+    "office": "Daily work",
+    "creative": "Design & ideas",
+    "chipsLabel": "Quick actions",
+    "slides": "Slides",
+    "design": "Design",
+    "research": "Deep research",
+    "writing": "Writing",
+    "automation": "Automation",
+    "incident": "Incident apology",
+    "contract": "Contract review",
+    "knowledge": "Knowledge Base",
+    "knowledgeHint": "Preset knowledge-base skill; ask about internal docs and get sourced answers",
+    "workflow": "Loop workflow",
+    "slidesHint": "Preloads the Slides skill — just add a topic",
+    "designHint": "Preloads the Design skill — just add a brief",
+    "researchHint": "Preloads the Deep research skill — just add a research goal",
+    "incidentHint": "Preloads the Incident apology skill — describe what went wrong",
+    "contractHint": "Preloads the Contract review skill — drop the contract in and name your side",
+    "examples": {
+      "slides": {
+        "pixel": {
+          "label": "Pixel-art intro deck",
+          "prompt": "Build a 6-slide product intro deck in a pixel-game style with bold, playful colors"
+        },
+        "launch": {
+          "label": "Product launch",
+          "prompt": "Build a 10-slide launch keynote — a strong opening and a clear call to action at the end"
+        },
+        "defense": {
+          "label": "Thesis defense",
+          "prompt": "Build a thesis defense deck covering background, method, results and conclusion"
+        },
+        "report": {
+          "label": "Quarterly review",
+          "prompt": "Turn this quarter's progress into an 8-slide review deck focused on data and takeaways"
+        }
+      },
+      "design": {
+        "landing": {
+          "label": "Product landing page",
+          "prompt": "Design a SaaS landing page, dark theme, with a sharp value proposition above the fold"
+        },
+        "mobile": {
+          "label": "Mobile home screen",
+          "prompt": "Design the home screen of a budgeting app — card layout, light and airy"
+        },
+        "poster": {
+          "label": "Event poster",
+          "prompt": "Design a poster for an offline tech meetup with clear hierarchy and a striking key visual"
+        },
+        "dashboard": {
+          "label": "Analytics dashboard",
+          "prompt": "Design an operations dashboard with key metric cards and trend charts"
+        }
+      },
+      "research": {
+        "market": {
+          "label": "Market landscape",
+          "prompt": "Research the 2026 market landscape for AI coding assistants — key players, positioning and business models"
+        },
+        "tech": {
+          "label": "Technology comparison",
+          "prompt": "Compare Postgres, MySQL and SQLite as the backend database for a small-to-mid SaaS product, and recommend one with reasons"
+        },
+        "policy": {
+          "label": "Policy and compliance",
+          "prompt": "Map out the filing and compliance requirements for shipping a generative AI product, and how long each step takes"
+        },
+        "compare": {
+          "label": "Competitor breakdown",
+          "prompt": "Compare Notion, Obsidian and Craft on positioning, core capabilities and pricing, and say which fits which use case"
+        }
+      },
+      "incident-apology-report": {
+        "outage": {
+          "label": "Service outage",
+          "prompt": "The platform was unreachable and alerts failed to send from 23:05 last night to 01:10 today; device-side collection kept working and all data has been backfilled. Write a notice for all customers."
+        },
+        "dataloss": {
+          "label": "Unrecoverable data gap",
+          "prompt": "Data from some sensors between 14:00 and 18:00 on July 20 was lost and cannot be backfilled. Write a customer-facing statement usable as a deviation attachment in their audit."
+        },
+        "falsealarm": {
+          "label": "False alarms",
+          "prompt": "The system sent a dozen duplicate false alarms this morning while the actual readings were normal. Write a short notice for the affected customers."
+        },
+        "missedalarm": {
+          "label": "Missed alarms",
+          "prompt": "Alarm notifications failed to go out between 14:00 and 17:00 yesterday; we are still checking whether any threshold was breached. Write a notice and ask customers to review that window."
+        }
+      },
+      "contract-review-report": {
+        "partyb": {
+          "label": "Review as Party B",
+          "prompt": "Review this contract from Party B's side, focusing on payment schedule, acceptance criteria and liability. Give risk ratings and a negotiation priority list."
+        },
+        "partya": {
+          "label": "Review as Party A",
+          "prompt": "Review this contract from Party A's side, focusing on delivery scope, IP ownership and data security clauses."
+        },
+        "pitfall": {
+          "label": "Find unfavourable terms",
+          "prompt": "What are the traps in this contract? List every clause that works against us, rate the severity, and suggest rewrites."
+        },
+        "missing": {
+          "label": "Detect missing clauses",
+          "prompt": "Which standard clauses is this contract missing (confidentiality, dispute resolution, force majeure, termination)? Draft the missing ones."
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,6 @@
 // 个人工作区首页看板：落地页 Hero + 场景 tab / 快捷能力 chips。
 // 原先的「用量日历 + 全局一日总结」已下线（信息价值低、抢输入框位置），改为一排直达入口，
-// 见 ./SceneChips。core 侧的 useGlobalSummaries / useAllProjectsTimeline 仍是公开导出，
-// 时间线视图继续在用，本次只解除首页对它们的引用。
+// 见 ./SceneChips。
 // HomeBoard 供 NewSessionLanding 复用,HomeView 为兼容现有 import 的薄包装。
 
 import { LandingHero } from "./LandingHero";

@@ -13,7 +13,7 @@
 | main | `apps/desktop/src/main/` |
 | renderer | `apps/desktop/src/renderer/` |
 
-`views/personal/` 已按功能域分子目录：`layout/`（三栏外壳）、`chat/`（会话主区，输入区在 `chat/composer/`）、`home/`（落地页）、`sessions/`（会话检索/归档）、`tasks/`、`projects/`、`files/`（含 `files/sheet/` 表格查看器）、`markdown/`（跨域 Markdown 渲染栈）、`notes/`、`editor/`（跨域 CodeMirror 编辑器，notes/tasks/writing 共用）、`timeline/`、`automation/`、`workflow/`（含 `workflow/node-config/` 节点表单）、`browser/`、`terminal/`、`plugins/`、`skills/`、`knowledge/`、`settings/`、`shared/`（跨域通用 hook/小组件）。
+`views/personal/` 已按功能域分子目录：`layout/`（三栏外壳）、`chat/`（会话主区，输入区在 `chat/composer/`）、`home/`（落地页）、`sessions/`（会话检索/归档）、`tasks/`、`projects/`、`files/`（含 `files/sheet/` 表格查看器）、`markdown/`（跨域 Markdown 渲染栈）、`notes/`、`editor/`（跨域 CodeMirror 编辑器，notes/tasks/writing 共用）、`automation/`、`workflow/`（含 `workflow/node-config/` 节点表单）、`browser/`、`terminal/`、`plugins/`、`skills/`、`knowledge/`、`settings/`、`shared/`（跨域通用 hook/小组件）。
 
 ## 入口三件套
 
@@ -70,7 +70,6 @@
 | 任务 | `personal/tasks/`（`TasksView.tsx`、`TaskDetail.tsx`、`Task*Field.tsx`） | `personal/tasks.ts`、`taskTree.ts` 等 | `ipc/tasks*.ts`、`tasks-reminder-scheduler.ts` |
 | 项目管理 / 项目阶段（独立窗口） | `personal/projects/`（`ProjectsWorkbench.tsx`、`ProjectStagesBar.tsx`、`StageTimeline*.tsx`） | `personal/projectStages.ts`、`stageTemplates.ts` | `projects-window.ts` |
 | 闪记（Flash Notes） | `personal/notes/`（`NotesView.tsx`、`FlashNoteEditor.tsx`；共用编辑器在 `personal/editor/`） | `personal/notes.ts` | `ipc/notes*.ts`、`notes-overlay.ts`（浮层窗口） |
-| 时间线 / 日报 | `personal/timeline/TimelineView.tsx` | `personal/timeline.ts` | `ipc/timeline.ts` |
 | 自动化（定时任务） | `personal/automation/`（`AutomationView.tsx`、`Automation*.tsx`；`AutomationList.tsx` 有「AI 创建」角标，读 `AutomationMeta.createdBy`） | `personal/automation.ts` | `automation/`（scheduler/runner/store；**领域逻辑单一真源在 `service.ts`**，IPC 与 MCP 工具共用——create 的「校验→落盘→`scheduleOne`→广播」四联动缺一步就是「任务建好了却永不触发」且完全静默） |
 | **AI 帮我建定时任务 / 会话里管理自动化**（`list_automations` 等 7 个 MCP 工具，写工具强制审批） | `personal/plugins/AutomationToolsSection.tsx`（总开关，挂管理页 → MCP 标签） | `personal/permissionMode.ts` 的 `ALWAYS_APPROVE_TOOLS`、`desktop/types.ts` 的 `AUTOMATION_*` 常量与 `AutomationToolsSettings` | `capabilities/automation/`（`server.ts` 工具集 + G1 守卫、`schedule-input.ts` 定时参数纯函数） |
 | **系统日历 / 查日程 / 建日程**（macOS EventKit，`list_calendar_events` + `create_calendar_event`） | 授权入口在 `personal/settings/ReplySettingsSection.tsx` 的权限行（无独立开关，授权即门控） | `desktop/types.ts` 的 `CALENDAR_*` 常量 | `capabilities/calendar/`（`server.ts` 四道门控、`time.ts` 时间解析、`helper.ts` 授权探测缓存）、`reply/helper-client.ts` 的 `calendarEvents`/`calendarCreate`、`native/Cortex_Helper/…/CalendarEvents.swift` |
@@ -141,7 +140,7 @@
 | `design/` | 设计工作台：`canvas/`（画布）、`slides/`（演示文稿）、`directions/`（方向探索）、`design-system/`（设计系统/Tokens）、`code-binding/`（代码同步）、`prototype-flow/` + `prototype-player/`（原型）、`html-quality/`（质量检查）、`design-contract/` + `interop/`（交付/Penpot）、`agent-manager/` + `agent-actions/` + `agent-notes/`（设计智能体）、`run/`（回合派发）、`compat/`（Kun 移植兼容层）、`generator-lane/`（生成流水线） |
 | `writing/` | 写作台：spaces / threads / file-tree / inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
 | `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头） |
-| `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、时间线、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
+| `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
 | `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client |
 | `store/` | 全部 Zustand 客户端态：`ui.ts`（Tweaks）、`personal.ts`（视图开关总店）、`pet.ts`、`piArtifacts.ts`（pi 会话产物）、`memory.ts`、`reply.ts`、`archivedSessions.ts` |
 | `desktop/` | 桥接层：`bridge.ts`（`DesktopBridge` 契约）+ 各 `*-types.ts` 类型镜像 + 持久化 wiring hooks |

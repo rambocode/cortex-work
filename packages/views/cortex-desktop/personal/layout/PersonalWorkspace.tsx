@@ -25,7 +25,6 @@ import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
 import { PersonalRightRail } from "./PersonalRightRail";
 import { TerminalPanel } from "../terminal/TerminalPanel";
-import { TimelineView } from "../timeline/TimelineView";
 import { NewSessionLanding } from "../home/NewSessionLanding";
 import { AutomationView } from "../automation/AutomationView";
 import { WorkflowView } from "../workflow/WorkflowView";
@@ -167,9 +166,6 @@ export function PersonalWorkspace({
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
   const closeNoteEditor = usePersonalStore((s) => s.closeNoteEditor);
-  const timelineProject = usePersonalStore((s) =>
-    s.timelineProjectId ? s.projects.find((p) => p.id === s.timelineProjectId) : undefined,
-  );
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
   const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
@@ -191,7 +187,7 @@ export function PersonalWorkspace({
   useAutomationEvents();
   // 角色库用于 @mention 解析/自动补全，必须在聊天入口加载，而不是等设置页挂载。
   usePersonalRolesLibrary();
-  // 订阅 notes:changed（闪记浮层/后台落盘 → invalidate 刷新收件箱与时间线）。漏挂会导致
+  // 订阅 notes:changed（闪记浮层/后台落盘 → invalidate 刷新收件箱）。漏挂会导致
   // 浮层新增的闪记在主窗口「有时候没显示」，须重获焦点才刷新。bridge 缺方法时内部空转。
   useNotesChangeSubscription();
   // 监听「项目管理」独立窗口经 main 转发来的委派意图：主窗口本地 createSession+send 并导航到会话
@@ -277,8 +273,6 @@ export function PersonalWorkspace({
               <FlashNoteEditor noteId={noteEditorId} onClose={closeNoteEditor} onToast={onToast} />
             ) : homeOpen ? (
               <NewSessionLanding onToast={onToast} />
-            ) : timelineProject ? (
-              <TimelineView project={timelineProject} onToast={onToast} />
             ) : (
               <ConversationSplitView onToast={onToast} />
             )}

@@ -1,5 +1,5 @@
 // 侧边栏项目「⋯」菜单：fixed 定位 + 视口内收敛,点击外部/Escape/窗口失焦关闭。
-// 一级菜单含 Open in →（二级面板：编辑器列表 + 在访达中显示）、时间线、置顶、归档、删除;
+// 一级菜单含 Open in →（二级面板：编辑器列表 + 在访达中显示）、置顶、归档、删除;
 // 删除走菜单内二次确认（首点变「确认删除？」),不弹系统对话框。archived 时菜单收窄。
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -23,7 +23,6 @@ export function ProjectMenu({
   onToast: (text: string) => void;
 }) {
   const bridge = useDesktopBridge();
-  const openTimeline = usePersonalStore((s) => s.openTimeline);
   const updateProject = usePersonalStore((s) => s.updateProject);
   const archiveProject = usePersonalStore((s) => s.archiveProject);
   const removeProject = usePersonalStore((s) => s.removeProject);
@@ -154,10 +153,6 @@ export function ProjectMenu({
           </div>
         ) : null}
       </div>
-      <button className="pw-tb-menu-item" role="menuitem" onClick={act(() => openTimeline(project.id))}>
-        <Icon.Clock size={13} />
-        <span>时间线</span>
-      </button>
       {!archived ? (
         <button className="pw-tb-menu-item" role="menuitem" onClick={togglePin}>
           <Icon.Pin size={13} />

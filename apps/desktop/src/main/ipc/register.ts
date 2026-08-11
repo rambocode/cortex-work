@@ -14,7 +14,6 @@ import { registerPiSessionHandlers } from "./pi-session";
 import { registerChatHandlers } from "./chat";
 import { registerImageHandlers } from "./image";
 import { registerDocHandlers } from "./doc";
-import { registerTimelineHandlers } from "./timeline";
 import { registerPushHandlers } from "./push";
 import { registerLlmHandlers } from "./llm";
 import { registerProviderCatalogHandlers } from "./provider-catalog";
@@ -83,7 +82,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerChatHandlers();
   registerImageHandlers();
   registerDocHandlers();
-  registerTimelineHandlers();
   registerPushHandlers();
   registerLlmHandlers();
   // Provider 三件套（Catalog 只读目录 / 凭据与 OAuth / 文本补全 Gateway）。顺序有意义：

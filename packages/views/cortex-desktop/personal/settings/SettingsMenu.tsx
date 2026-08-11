@@ -14,7 +14,6 @@ import {
   AGENT_MODELS,
   AVATAR_BG_COLORS,
   AVATAR_EMOJIS,
-  DEFAULT_MODEL,
   DEFAULT_PUSH_TEMPLATE,
   profileInitial,
   resolveAvatar,
@@ -34,7 +33,6 @@ import type {
   FeishuPushConfig,
   InternalNotifyConfig,
   PromptNode,
-  SummaryModelConfig,
   UpdateState,
   WecomPushConfig,
 } from "@cortex-work/core";
@@ -52,14 +50,16 @@ import { ResearchSettingsSection } from "./ResearchSettingsSection";
 import { KnowledgeSettingsSection } from "./KnowledgeSettingsSection";
 import { PiProvidersSection } from "./provider/PiProvidersSection";
 import { DefaultModelSelects } from "./provider/DefaultModelSelects";
-import { ModelRefField } from "./provider/ModelRefField";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
 import { BrowserSection, isSettingsTypingTarget, MediaGenSection, ReplySection } from "./SettingsViewSupport";
 import { SubagentSettingsSection } from "./SubagentSettingsSection";
-// 译函数最小签名（与 TimelineView 一致,避免引入 react-i18next 的 TFunction 泛型）。
+// 译函数最小签名，避免引入 react-i18next 的 TFunction 泛型。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
+
+// 集成 Agent 列表（与会话创建可选的 agent 一致，来自 AGENT_MODELS 注册表）。
+const INTEGRATED_AGENTS = Object.keys(AGENT_MODELS) as AgentKind[];
 type SettingsTab =
   | "profile"
   | "general"
@@ -72,7 +72,6 @@ type SettingsTab =
   | "browser"
   | "mediaGen"
   | "pet"
-  | "timeline"
   | "push"
   | "speech"
   | "reply"
@@ -102,7 +101,6 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   // 快捷回复助手（U9，macOS-only；非 mac / Web 端由 replyAvailable 过滤隐藏）
   reply: { tabKey: "tabs.reply", icon: <Icon.Send size={14} /> },
   pet: { tabKey: "tabs.pet", icon: <Icon.Sparkle size={14} /> },
-  timeline: { tabKey: "tabs.timeline", icon: <Icon.Clock size={14} /> },
   push: { tabKey: "tabs.push", icon: <Icon.Send size={14} /> },
   roles: { tabKey: "tabs.roles", icon: <Icon.Users size={14} /> },
   // 设计工作台（AI 设计画布,desktop-only）
@@ -125,7 +123,7 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
     items: ["plugins", "knowledge", "browser", "mediaGen", "design", "writing", "research"],
   },
   { groupKey: "tabGroups.personalization", items: ["pet", "speech", "reply"] },
-  { groupKey: "tabGroups.automation", items: ["timeline", "push"] },
+  { groupKey: "tabGroups.automation", items: ["push"] },
 ];
 // 个人资料:昵称 + 头像(背景色 + 图标两模式:用户名首字符 / Emoji,参考 Notion 头像编辑器)。
 // 写入 personal store 的 profile 切片(随工作区落盘);会话中 who="me" 的气泡经
@@ -529,100 +527,6 @@ function GeneralSection() {
     </>
   );
 }
-
-// ── 时间线日报设置 ─────────────────────────────────────────────────────────
-
-
-// 集成 Agent 列表（与会话创建可选的 agent 一致,来自 AGENT_MODELS 注册表;
-// 新增 agent 接入后此处自动出现）。
-const INTEGRATED_AGENTS = Object.keys(AGENT_MODELS) as AgentKind[];
-
-
-function TimelineSection() {
-  const { t } = useTranslation("settings");
-  const settings = usePersonalStore((s) => s.timelineSettings);
-  const setSettings = usePersonalStore((s) => s.setTimelineSettings);
-  const model = settings.summaryModel;
-  const setModel = (m: SummaryModelConfig) => setSettings({ summaryModel: m });
-
-  return (
-    <>
-      <div className="pw-dlg-title">{t("timeline.title")}</div>
-      <div className="pw-dlg-desc">{t("timeline.desc")}</div>
-
-      <SettingCard title={t("timeline.modelCard")}>
-        <SRow label={t("timeline.generateMode")} desc={t("timeline.generateModeDesc")}>
-          <SegmentedRadio
-            value={model.kind === "agent" ? t("timeline.integratedAgent") : t("timeline.customModel")}
-            options={[t("timeline.integratedAgent"), t("timeline.customModel")]}
-            onChange={(v) =>
-              setModel(
-                v === t("timeline.integratedAgent")
-                  ? { kind: "agent", agent: "claude", model: "haiku" }
-                  // 自定义模型档改走 Model Gateway：ref 缺省 = 未配置，由下方 ModelRefField
-                  // 渲染阻断态要求用户显式选一个，不预填任何模型（计划 §5）。
-                  : { kind: "gateway" },
-              )
-            }
-          />
-        </SRow>
-        {model.kind === "agent" ? (
-          <>
-            <SRow label={t("timeline.agent")}>
-              <BareSelect
-                value={model.agent}
-                options={INTEGRATED_AGENTS.map((a) => ({ label: AGENT_LABEL[a], value: a }))}
-                onChange={(v) => {
-                  const next = v as AgentKind;
-                  if (next === "pi") {
-                    // 切到 pi 不预填模型：由下方 ModelRefField 显式选。旧版在这里读
-                    // providerSettings 猜「默认供应商的第一个模型」，正是 §5 禁止的静默回退。
-                    setModel({ kind: "agent", agent: "pi" });
-                  } else {
-                    setModel({ kind: "agent", agent: next, model: DEFAULT_MODEL[next] });
-                  }
-                }}
-              />
-            </SRow>
-            {model.agent === "pi" ? (
-              // pi 日报模型与全局模型选择器同一份 Catalog 候选（认证可用 ∧ 未隐藏）；
-              // 悬空引用进阻断态并要求重选，不自动回退。
-              <ModelRefField
-                label={t("timeline.model")}
-                value={
-                  model.providerId && model.model
-                    ? { providerId: model.providerId, modelId: model.model }
-                    : undefined
-                }
-                onChange={(ref) =>
-                  setModel({ kind: "agent", agent: "pi", providerId: ref.providerId, model: ref.modelId })
-                }
-              />
-            ) : (
-              <SRow label={t("timeline.model")}>
-                <BareSelect
-                  value={model.model ?? DEFAULT_MODEL[model.agent]}
-                  options={AGENT_MODELS[model.agent]}
-                  onChange={(v) => setModel({ kind: "agent", agent: model.agent, model: v })}
-                />
-              </SRow>
-            )}
-          </>
-        ) : (
-          // Gateway 档：寻址统一成 Catalog 引用，渲染端不再持有 baseUrl/apiKey
-          //（旧的 kind:"openai" 是全仓第三处明文密钥落盘点，已随类型删除）。
-          <ModelRefField
-            label={t("timeline.model")}
-            hint={t("timeline.gatewayHint")}
-            value={settings.summaryModel.kind === "gateway" ? settings.summaryModel.ref : undefined}
-            onChange={(ref) => setModel({ kind: "gateway", ref })}
-          />
-        )}
-      </SettingCard>
-    </>
-  );
-}
-
 
 // ── Agent 设置（引用供应商）─────────────────────────────────────────────────
 
@@ -1034,8 +938,6 @@ export function PersonalSettingsView() {
             <ModelsSection />
           ) : tab === "pet" ? (
             <PetSettingsSection />
-          ) : tab === "timeline" ? (
-            <TimelineSection />
           ) : tab === "push" ? (
             <PushSection />
           ) : tab === "plugins" ? (

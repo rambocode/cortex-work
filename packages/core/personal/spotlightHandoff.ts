@@ -10,7 +10,7 @@ import { useDesktopBridge } from "../provider";
 import { usePersonalStore } from "../store/personal";
 import { useCortexUIStore } from "../store/ui";
 import { usePersonalActions, buildProjectSystemPrompt } from "./messages";
-import { dayKey } from "./timeline";
+import { dayKey } from "./date";
 import type { SpotlightIntent } from "../desktop/types";
 
 // 跨重挂去重:同一 intent 经 live 事件 + 冷启动 consume 可能两路抵达。

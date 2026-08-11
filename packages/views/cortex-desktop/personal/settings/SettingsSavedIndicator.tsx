@@ -14,7 +14,6 @@ const PERSONAL_KEYS = [
   "profile",
   "generalSettings",
   "providerSettings",
-  "timelineSettings",
   "pushSettings",
   "ttsSettings",
   "mediaGenSettings",

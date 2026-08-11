@@ -1,6 +1,6 @@
 // Pi Model Gateway（阶段③·4.1）：**全仓文本补全的唯一出口**。
 //
-// 收编前，Reply / Research / Timeline / Writing / 做梦蒸馏各自从旧 `providerSettings` 里取
+// 收编前，Reply / Research / Writing / 做梦蒸馏各自从旧 `providerSettings` 里取
 // baseUrl+apiKey，自己拼 OpenAI 兼容的 chat completions 端点。那套做法有三个不可修补的问题：
 //   1. 只会说 OpenAI 兼容一种协议 —— Anthropic / Bedrock / Vertex / Responses 全都调不动；
 //   2. 明文 apiKey 必须流经业务模块；

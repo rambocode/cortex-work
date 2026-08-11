@@ -26,10 +26,10 @@ type SceneKey = "office" | "creative";
 type ChipIcon = keyof typeof Icon;
 
 // i18n key 在这里是按场景/chip/示例拼出来的，生成的 key 联合类型表达不了动态拼接；
-// 逐处 `as "home.scene.office"` 只是噪音，统一收在一个窄化过的取值函数里。
+// 逐处 `as "scene.office"` 只是噪音，统一收在一个窄化过的取值函数里。
 type TFixed = (key: string) => string;
 
-// 每个系统 skill 的示例提示词 id（文案在 timeline.json 的 home.scene.examples.<skill>.<id>）。
+// 每个系统 skill 的示例提示词 id（文案在 home.json 的 scene.examples.<skill>.<id>）。
 // 只有系统 skill 配示例——用户手动敲 `/skill:xxx` 选中别的 skill 时示例区自动不出现。
 const SKILL_EXAMPLES: Record<string, string[]> = {
   "/skill:slides": ["pixel", "launch", "defense", "report"],
@@ -105,7 +105,7 @@ const SCENES: { key: SceneKey; chips: SceneChip[] }[] = [
 ];
 
 export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => ReactNode }) {
-  const { t } = useTranslation("timeline");
+  const { t } = useTranslation("home");
   const tx = t as TFixed;
   const bridge = useDesktopBridge();
   // 场景选择是纯展示态，不持久化：换个场景只是换一排入口，不值得占持久化配置。
@@ -170,7 +170,7 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
   // 已选 skill 的示例提示词：点一下把整段需求追加进输入框（输入框已有内容时另起一行，不覆盖用户已写的字）。
   // 不带 skill 字段——pill 已经在了，重复下发只会白刷一次 setSelectedSkill。
   const examples = composerSkill ? (SKILL_EXAMPLES[composerSkill.cmd] ?? []) : [];
-  const exampleBase = composerSkill ? `home.scene.examples.${skillNameOf(composerSkill.cmd)}` : "";
+  const exampleBase = composerSkill ? `scene.examples.${skillNameOf(composerSkill.cmd)}` : "";
   // 选中某个有示例的 skill 后，整行换成它的示例：选了什么已经写在输入框的 pill 上，
   // 这里再摆一遍是重复信息。清掉输入框里的 pill、或切换场景 tab 即恢复完整 chips。
   const focused = examples.length > 0 && composerSkill?.cmd !== suppressedSkill;
@@ -178,7 +178,7 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
   // 场景 tab 元素:默认渲染在本 section 顶部;落地页经 renderHero 把它注入
   // LandingHero 的文案下方(logo 右侧),此处只留 chips 行,内容随之整体上移。
   const tabsEl = (
-    <div className="pw-scene-tabs" role="tablist" aria-label={t("home.scene.title")}>
+    <div className="pw-scene-tabs" role="tablist" aria-label={t("scene.title")}>
       {SCENES.map(({ key }) => (
         <button
           key={key}
@@ -190,7 +190,7 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
             setSuppressedSkill(composerSkill?.cmd);
           }}
         >
-          {tx(`home.scene.${key}`)}
+          {tx(`scene.${key}`)}
         </button>
       ))}
     </div>
@@ -199,10 +199,10 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
   return (
     <>
       {renderHero?.(tabsEl)}
-      <section className="pw-scene" aria-label={t("home.scene.title")}>
+      <section className="pw-scene" aria-label={t("scene.title")}>
         {!renderHero && tabsEl}
         {/* 未选 skill 时是能力入口行;选中带示例的 skill 后,整行换成该 skill 的示例提示词。 */}
-      <div className="pw-scene-chips" aria-label={t("home.scene.chipsLabel")}>
+      <div className="pw-scene-chips" aria-label={t("scene.chipsLabel")}>
         {focused
           ? examples.map((id) => {
               const prompt = tx(`${exampleBase}.${id}.prompt`);
@@ -216,12 +216,12 @@ export function SceneChips({ renderHero }: { renderHero?: (tabs: ReactNode) => R
             })
           : chips.map((chip) => {
               const Glyph = Icon[chip.icon];
-              const label = tx(`home.scene.${chip.key}`);
+              const label = tx(`scene.${chip.key}`);
               return (
                 <button
                   key={`${chip.kind}:${chip.key}`}
                   className="pw-scene-chip"
-                  title={chip.kind === "skill" && chip.hintKey ? tx(`home.scene.${chip.hintKey}`) : label}
+                  title={chip.kind === "skill" && chip.hintKey ? tx(`scene.${chip.hintKey}`) : label}
                   onClick={() => (chip.kind === "skill" ? pickSkill(chip.cmd) : viewOpen[chip.action]())}
                 >
                   <Glyph size={14} />

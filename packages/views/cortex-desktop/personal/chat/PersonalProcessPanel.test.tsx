@@ -22,7 +22,6 @@ function renderPanel(runEvents: RunEvent[] = []) {
     automationOpen: false,
     settingsOpen: false,
     noteEditorId: undefined,
-    timelineProjectId: undefined,
     processPanelOpenReq: undefined,
     projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: 0 }],
     sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: 0, updatedAt: 0 }],
@@ -44,7 +43,6 @@ describe("PersonalProcessPanel", () => {
       automationOpen: false,
       settingsOpen: false,
       noteEditorId: undefined,
-      timelineProjectId: undefined,
       processPanelOpenReq: undefined,
     });
   });

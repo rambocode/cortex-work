@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useDesktopBridge } from "../provider";
 import { initialModelDraft, usePersonalStore } from "../store/personal";
 import { usePersonalActions } from "./messages";
-import { dayKey } from "./timeline";
+import { dayKey } from "./date";
 import { tasksKeys, useUpdateTask } from "./tasks";
 import type { TaskDelegateIntent, TaskMeta } from "../desktop/types";
 

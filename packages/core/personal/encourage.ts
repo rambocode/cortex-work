@@ -5,7 +5,7 @@
 // 由 LandingHero 回退静态文案池(encouragements.ts)。
 //
 // prompt 仅含「时段 + 泛主题激励」基调,不读取任何个人数据(零隐私顾虑)。
-// 复用 completeWithSummaryModel(timeline.ts)的 oneshotCli 补全范式。
+// 使用 DesktopBridge 的 oneshotCli 补全能力。
 
 import { useQuery } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
@@ -13,20 +13,24 @@ import type { DailyEncouragement } from "../desktop/types";
 import { DEFAULT_MODEL } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
 import { resolveDefaultAgent, usePersonalStore } from "../store/personal";
-import { dayKey } from "./timeline";
+import { dayKey } from "./date";
 
 export const encourageKeys = {
   daily: (day: string) => ["personal", "encouragement", day] as const,
 };
 
-// 按「默认 agent」补全一段文本。仿 completeWithSummaryModel,但 agent 取 resolveDefaultAgent,
-// model 取该 agent 默认（pi 走全局默认模型引用）。
+// 按「默认 agent」补全一段文本，模型取该 agent 默认（pi 走全局默认模型引用）。
 //
 // pi 分支原本从已废弃的 providerSettings 里挑「第一个启用的供应商」兜底,§5 清理后恒为空 →
 // 每次都静默退化成「裸 pi」。这里改读 defaultModelRef;未配置时直接抛错,由调用方回落到
 // 无 LLM 的静态问候语（这是个纯装饰功能,失败不该拿一个用户没选过的模型顶上）。
 export async function completeWithDefaultAgent(bridge: DesktopBridge, prompt: string): Promise<string> {
   const state = usePersonalStore.getState();
+  // 任务归档/结构化会复用本函数，但它们没有自己的模型设置。未显式选默认 Agent 时沿用
+  // 历史默认的 Claude Haiku，避免内置 pi 因缺少 Provider 引用而让既有任务功能失效。
+  if (!state.generalSettings.defaultAgent) {
+    return bridge.oneshotCli({ prompt, agent: "claude", model: DEFAULT_MODEL.claude });
+  }
   const agent = resolveDefaultAgent(state);
   if (agent === "pi") {
     const ref = state.defaultModelRef;

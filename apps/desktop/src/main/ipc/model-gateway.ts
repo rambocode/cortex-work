@@ -10,7 +10,7 @@
 // 改这个形状必须两侧同步，否则渲染端会拿到「requestId 是整个对象、event 是 undefined」
 // 且**不报错**——这类错配只会表现为「流式什么都收不到」，极难定位。
 //
-// 约束：业务模块（Reply / Research / Timeline / Writing / workflow / Automation）不得再自行
+// 约束：业务模块（Reply / Research / Writing / workflow / Automation）不得再自行
 // 拼接 Provider URL；TTS/ASR 的 `/v1/audio/*` 不在收编范围（静态检查见
 // `providers/no-direct-endpoint.test.ts`，那里显式豁免音频路径并写明理由）。
 

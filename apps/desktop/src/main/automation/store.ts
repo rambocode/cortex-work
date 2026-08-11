@@ -1,4 +1,4 @@
-// 自动化配置 + 执行历史持久化（仿 ipc/timeline.ts:SAFE_ID + tmp+rename 原子写
+// 自动化配置 + 执行历史持久化（SAFE_ID + tmp+rename 原子写
 // + 串行写队列）。配置单文件 automations.json（内存缓存）;每个自动化的运行历史
 // 一文件 automation-runs/<id>.json（保留最近 N 条）。主进程是唯一写者。
 

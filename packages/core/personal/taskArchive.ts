@@ -1,11 +1,11 @@
 // Tasks 面板「压缩清理」:把项目 tasks/ 目录按周期（周/月/年）分组,用
-// 后台配置的总结模型（TimelineSettings.summaryModel,与日报共用）整理成
+// 默认 Agent 整理成
 // tasks/archive/<周期>.md,成功后删除原文件。
 // 安全约束:未完成（open）任务文件跳过;总结失败/为空则中止,不删任何文件。
 
 import type { DesktopBridge } from "../desktop/bridge";
 import type { TaskFileInfo, TaskFilesResult, TodoMeta } from "../desktop/types";
-import { completeWithSummaryModel } from "./timeline";
+import { completeWithDefaultAgent } from "./encourage";
 
 export type ArchiveGranularity = "week" | "month" | "year";
 
@@ -122,11 +122,11 @@ export async function archiveTaskFiles(opts: {
   projectName: string;
   group: TaskFileGroup;
   todos: TodoMeta[];
-  // 测试注入口;缺省用后台配置的总结模型
+  // 测试注入口；缺省使用应用默认 Agent。
   complete?: (bridge: DesktopBridge, prompt: string) => Promise<string>;
 }): Promise<ArchiveTaskFilesResult> {
   const { bridge, projectPath, projectName, group, todos } = opts;
-  const complete = opts.complete ?? completeWithSummaryModel;
+  const complete = opts.complete ?? completeWithDefaultAgent;
 
   const openPaths = new Set(todos.filter((t) => t.status === "open").map((t) => t.detailPath));
   const eligible = group.files.filter((f) => !openPaths.has(f.path));

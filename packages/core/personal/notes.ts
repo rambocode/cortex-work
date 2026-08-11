@@ -17,7 +17,7 @@ import type { NoteInput, NoteMeta, NoteStatus, SkillMeta } from "../desktop/type
 import { useDesktopBridge } from "../provider";
 import { initialModelDraft, usePersonalStore } from "../store/personal";
 import { buildProjectSystemPrompt, usePersonalActions } from "./messages";
-import { dayKey } from "./timeline";
+import { dayKey } from "./date";
 
 // 无项目（未归类）的稳定占位段——绝不用 wsId。
 const NO_PROJECT = "no-project";
@@ -27,7 +27,7 @@ export const DEEPEN_MAX_NOTES = 20;
 // 单条正文级截断上限（非 clipSummary 的 200——那只适合摘要,会砍残正文）。
 export const DEEPEN_NOTE_BODY_MAX = 4000;
 
-// query key（与 timelineKeys 形态对齐,均以 projectId 命名空间）。
+// query key 均以 projectId 命名空间，避免跨项目缓存串场。
 export const notesKeys = {
   all: ["personal", "notes"] as const,
   byProject: (projectId: string) => ["personal", "notes", projectId] as const,

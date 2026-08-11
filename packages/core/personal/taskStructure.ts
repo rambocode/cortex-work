@@ -1,12 +1,11 @@
-// 后台结构化建议引擎（「不重」引擎，见计划 U6）：把捕获的自然语言标题交给后台 summary 模型
-// 解析出 due/defer/tags/project 的**非破坏性建议**。复用 completeWithSummaryModel（与日报/归档同一
-// 后台模型），可注入 complete 便于单测（照 taskArchive.ts 范式）。触发时机在主窗口（KTD3）——本文件
+// 后台结构化建议引擎（「不重」引擎，见计划 U6）：把捕获的自然语言标题交给默认 Agent
+// 解析出 due/defer/tags/project 的**非破坏性建议**。可注入 complete 便于单测（照 taskArchive.ts 范式）。触发时机在主窗口（KTD3）——本文件
 // 只提供引擎，触发/single-flight/落地由 TasksView 侧编排（U9）。
 // 建议永远是「建议」：解析出错/离线一律返回空建议、绝不抛错阻断捕获（AE2）；模型输出不可信，
 // parseStructureResult 对任何垃圾输入都稳健返回，只接受合法字段。
 
 import type { DesktopBridge } from "../desktop/bridge";
-import { completeWithSummaryModel } from "./timeline";
+import { completeWithDefaultAgent } from "./encourage";
 import { normalizeTag } from "./tasks";
 
 // 结构化建议（瞬态、渲染端、不持久化；KTD3）。全部可选——抽不出就省略。
@@ -80,14 +79,14 @@ export function parseStructureResult(raw: string): StructureSuggestion {
   return out;
 }
 
-// 结构化一条任务标题。complete 可注入（缺省用后台 summary 模型）。
+// 结构化一条任务标题。complete 可注入（缺省使用应用默认 Agent）。
 // 离线/模型不可用/出错 → 返回空建议、不抛（AE2：捕获流不被结构化阻断）。
 export async function structureTask(
   bridge: DesktopBridge,
   title: string,
   deps: { today: string; complete?: (bridge: DesktopBridge, prompt: string) => Promise<string> },
 ): Promise<StructureSuggestion> {
-  const complete = deps.complete ?? completeWithSummaryModel;
+  const complete = deps.complete ?? completeWithDefaultAgent;
   try {
     const raw = await complete(bridge, buildStructurePrompt(title, deps.today));
     return parseStructureResult(raw);

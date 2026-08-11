@@ -4,7 +4,7 @@
 // 「主窗口关到托盘也能记」的关键（KTD1）。
 // 存储核心（writeQueue + cached + 原子写 + 过滤/合并）抽在 notes-store.ts（不依赖
 // electron,可单测）;本文件只负责注入 paths.notesStorePath + 注册 ipcMain.handle
-// + broadcast。免 assertAllowed / 免 SAFE_ID / 免 ensureMigrated（仿 timeline）。
+// + broadcast。免 assertAllowed / 免 SAFE_ID / 免 ensureMigrated。
 
 import { BrowserWindow, ipcMain } from "electron";
 import { notesStorePath } from "../paths";

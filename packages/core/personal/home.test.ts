@@ -1,70 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AgentProjectInfo, ProjectMeta, SessionMeta, TimelineEvent } from "../desktop/types";
-import { groupEventsByDay } from "./timeline";
-import { buildHeatmapWeeks, homeHeatLevel, latestActiveProjectId, mergeProjectRows, type WorkspaceProjectRow } from "./home";
-
-function ev(partial: Partial<TimelineEvent> & { ts: number }): TimelineEvent {
-  return { id: `e-${partial.ts}`, projectId: "p1", kind: "run", title: "t", ...partial };
-}
-
-// 2026-06-10 是周三。
-const TODAY = new Date(2026, 5, 10, 9, 0, 0).getTime();
-
-describe("buildHeatmapWeeks", () => {
-  it("返回恰好 N 周 × 7 天,周一起始,今天在最后一周", () => {
-    const weeks = buildHeatmapWeeks(26, [], TODAY);
-    expect(weeks).toHaveLength(26);
-    for (const w of weeks) expect(w.cells).toHaveLength(7);
-    // 今天所在周：周一 2026-06-08 … 周日 2026-06-14。
-    const last = weeks.at(-1)!;
-    expect(last.cells[0]?.day).toBe("2026-06-08");
-    expect(last.cells[6]?.day).toBe("2026-06-14");
-    expect(last.cells.map((c) => c.day)).toContain("2026-06-10");
-    // 第一周往前推 25 周：2025-12-15（周一）。
-    expect(weeks[0]?.cells[0]?.day).toBe("2025-12-15");
-  });
-
-  it("今天之后的格子标记 inFuture,今天及以前不标", () => {
-    const weeks = buildHeatmapWeeks(2, [], TODAY);
-    const cells = weeks.flatMap((w) => w.cells);
-    const today = cells.find((c) => c.day === "2026-06-10");
-    const tomorrow = cells.find((c) => c.day === "2026-06-11");
-    const yesterday = cells.find((c) => c.day === "2026-06-09");
-    expect(today?.inFuture).toBe(false);
-    expect(yesterday?.inFuture).toBe(false);
-    expect(tomorrow?.inFuture).toBe(true);
-  });
-
-  it("按 dayKey 命中当天统计", () => {
-    const groups = groupEventsByDay([
-      ev({ ts: TODAY, files: ["a.ts"] }),
-      ev({ ts: TODAY + 60_000 }),
-      ev({ ts: TODAY - 86400_000, kind: "session.created" }),
-    ]);
-    const weeks = buildHeatmapWeeks(2, groups, TODAY);
-    const cells = weeks.flatMap((w) => w.cells);
-    expect(cells.find((c) => c.day === "2026-06-10")?.stats?.runs).toBe(2);
-    expect(cells.find((c) => c.day === "2026-06-09")?.stats?.sessions).toBe(1);
-    expect(cells.find((c) => c.day === "2026-06-08")?.stats).toBeUndefined();
-  });
-
-  it("今天是周一时为最后一周首格,周日时为末格", () => {
-    const monday = new Date(2026, 5, 8, 12, 0).getTime(); // 2026-06-08 周一
-    const sunday = new Date(2026, 5, 14, 12, 0).getTime(); // 2026-06-14 周日
-    expect(buildHeatmapWeeks(1, [], monday)[0]?.cells[0]?.day).toBe("2026-06-08");
-    expect(buildHeatmapWeeks(1, [], sunday)[0]?.cells[6]?.day).toBe("2026-06-14");
-    expect(buildHeatmapWeeks(1, [], sunday)[0]?.cells[6]?.inFuture).toBe(false);
-  });
-
-  it("包含某月 1 号的周标注月份", () => {
-    // 2026-06-01 是周一,其所在周应标注 6 月。
-    const weeks = buildHeatmapWeeks(4, [], TODAY);
-    const labeled = weeks.filter((w) => w.monthLabel);
-    expect(labeled.map((w) => w.monthLabel)).toContain("6月");
-    const juneWeek = weeks.find((w) => w.cells.some((c) => c.day === "2026-06-01"));
-    expect(juneWeek?.monthLabel).toBe("6月");
-  });
-});
+import type { AgentProjectInfo, ProjectMeta, SessionMeta } from "../desktop/types";
+import { latestActiveProjectId, mergeProjectRows, type WorkspaceProjectRow } from "./home";
 
 describe("mergeProjectRows", () => {
   const proj = (id: string, path: string): ProjectMeta => ({ id, name: path.split("/").pop()!, path, addedAt: 1000 });
@@ -130,21 +66,5 @@ describe("latestActiveProjectId", () => {
   it("最近会话为无项目会话时返回 undefined", () => {
     const sessions = [sess("a", "p1", 100), sess("b", undefined, 300), sess("c", "p3", 200)];
     expect(latestActiveProjectId(sessions)).toBeUndefined();
-  });
-});
-
-describe("homeHeatLevel", () => {
-  const stats = (runs: number, sessions: number) => ({ runs, sessions, files: 0, commits: 0, notes: 0 });
-
-  it("score = runs + sessions,与时间线日历同档位", () => {
-    expect(homeHeatLevel(undefined)).toBe(0);
-    expect(homeHeatLevel(stats(0, 0))).toBe(0);
-    expect(homeHeatLevel(stats(1, 0))).toBe(1);
-    expect(homeHeatLevel(stats(1, 1))).toBe(1);
-    expect(homeHeatLevel(stats(2, 1))).toBe(2);
-    expect(homeHeatLevel(stats(5, 0))).toBe(2);
-    expect(homeHeatLevel(stats(5, 1))).toBe(3);
-    expect(homeHeatLevel(stats(10, 0))).toBe(3);
-    expect(homeHeatLevel(stats(10, 1))).toBe(4);
   });
 });

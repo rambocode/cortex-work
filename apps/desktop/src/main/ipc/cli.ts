@@ -341,7 +341,7 @@ export function resolveSpawnCwd(cwd: string | undefined): string {
   if (trimmed) return trimmed;
   const pad = (n: number) => String(n).padStart(2, "0");
   const d = new Date();
-  // 与渲染端 core/personal/timeline.ts 的 dayKey 同口径(本地时区 YYYY-MM-DD)。
+  // 与渲染端 core/personal/date.ts 的 dayKey 同口径（本地时区 YYYY-MM-DD）。
   const dir = noProjectSessionDir(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
   mkdirSync(dir, { recursive: true });
   return dir;

@@ -15,7 +15,6 @@
     "plugins": "插件",
     "browser": "浏览器",
     "pet": "宠物",
-    "timeline": "时间线",
     "push": "推送",
     "speech": "语音",
     "mediaGen": "媒体生成",
@@ -287,25 +286,6 @@
     "errorDownload": "更新下载失败",
     "errorCheck": "检查失败",
     "idle": "未发现新版本"
-  },
-  "timeline": {
-    "title": "时间线",
-    "desc": "配置 AI 日报的生成模型。推送渠道在「推送」设置中统一管理。",
-    "modelCard": "日报生成模型",
-    "generateMode": "生成方式",
-    "generateModeDesc": "集成 Agent 用已装 CLI;自定义模型用 OpenAI 兼容端点。",
-    "integratedAgent": "集成 Agent",
-    "customModel": "自定义模型",
-    "agent": "Agent",
-    "provider": "供应商",
-    "providerDesc": "日报由该供应商运行（与新建 Cortex 会话同源）。",
-    "model": "模型",
-    "piNoProvider": "还没有启用的供应商。先在「模型」设置中添加并启用,Cortex 才能用于生成日报。",
-    "baseUrl": "Base URL",
-    "baseUrlDesc": "OpenAI 兼容接口（Ollama / LM Studio / vLLM 均可）。",
-    "modelName": "模型名",
-    "apiKey": "API Key",
-    "apiKeyOptional": "可选。"
   },
   "providers": {
     "title": "供应商",
@@ -661,7 +641,7 @@
   },
   "push": {
     "title": "推送渠道",
-    "desc": "全局推送配置,启用后可在任何支持推送的功能中使用（如时间线日报）。",
+    "desc": "全局推送配置，启用后可在任何支持推送的功能中使用。",
     "formatCard": "推送格式 Skill",
     "formatHint": "用 Prompt 库中的 .md 模板固化推送格式,渲染后第一行作为推送标题。可用占位符:{{placeholders}};数据为空的占位符行会自动隐藏。",
     "formatTemplate": "格式模板",

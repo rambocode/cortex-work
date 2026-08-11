@@ -2,8 +2,7 @@
 //   单 Promise 链 writeQueue（串行,并发不交错）
 //   + 内存镜像 cached（失败不缓存,首次成功 save 才建镜像）
 //   + 原子写（mkdir + 写 .tmp + rename,JSON.stringify(data, null, 2)）。
-// notes.json 是单文件全量（元数据 + 正文内联）,故用单 writeQueue 而非
-// timeline 的 Map<id,Promise>。add/update/delete 是「读-改-写」,整段挂到同一
+// notes.json 是单文件全量（元数据 + 正文内联），故使用单 writeQueue。add/update/delete 是「读-改-写」，整段挂到同一
 // writeQueue 上串行,既避免磁盘写交错、又避免两次并发 add 读到同一旧值丢更新。
 // 免 assertAllowed / 免 SAFE_ID / 免 ensureMigrated（路径固定 notes.json,renderer
 // 只能传 content/projectId,无可变 id 段拼进文件名,且为全新文件无旧位置迁移历史）。
@@ -66,7 +65,7 @@ export class NotesStore {
   // 串行执行一次「读-改-写」：在 writeQueue 上排队,确保后一个 mutation 看到前一个
   // 已落进内存镜像的最新数组（避免并发 add 都读空文件丢更新）。
   // fn 返回 [新文件数据, 给调用方的结果]。写盘失败只 log.error（与
-  // store/timeline/chat 一致,v1 不向 renderer 上报）。
+  // store/chat 一致，v1 不向 renderer 上报）。
   private mutate<T>(fn: (data: NotesFileData) => [NotesFileData, T]): Promise<T> {
     const run = this.writeQueue.then(async () => {
       const data = await this.getNotes();

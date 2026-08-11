@@ -1496,6 +1496,121 @@ export default interface Resources {
       "truncatedReadonly": "已截断 · 只读"
     }
   },
+  "home": {
+    "scene": {
+      "automation": "自动化",
+      "chipsLabel": "快捷能力",
+      "contract": "合同审查",
+      "contractHint": "预置合同审查 skill,把合同拖进输入框、说清视角即可开审",
+      "creative": "设计创意",
+      "design": "设计稿",
+      "designHint": "预置设计稿 skill,补一句需求即可生成",
+      "examples": {
+        "contract-review-report": {
+          "missing": {
+            "label": "缺失条款检测",
+            "prompt": "检查这份合同缺了哪些应有条款(保密、争议解决、不可抗力、终止退出),并补出建议条文"
+          },
+          "partya": {
+            "label": "甲方视角审查",
+            "prompt": "审查这份合同,我方是甲方,重点看交付范围、知识产权归属和数据安全条款"
+          },
+          "partyb": {
+            "label": "乙方视角审查",
+            "prompt": "审查这份合同,我方是乙方,重点看回款节奏、验收标准和违约责任,给出风险分级与谈判优先级"
+          },
+          "pitfall": {
+            "label": "找出不利条款",
+            "prompt": "这份合同有什么坑?逐条列出对我方不利的条款,标注严重程度并给出改写建议"
+          }
+        },
+        "design": {
+          "dashboard": {
+            "label": "数据看板",
+            "prompt": "设计一个运营数据看板,包含关键指标卡片与趋势图"
+          },
+          "landing": {
+            "label": "产品落地页",
+            "prompt": "设计一个 SaaS 产品的落地页,深色主题,首屏要有清晰的价值主张"
+          },
+          "mobile": {
+            "label": "移动端首页",
+            "prompt": "设计一款记账 App 的首页,卡片式布局,浅色清爽风格"
+          },
+          "poster": {
+            "label": "活动海报",
+            "prompt": "设计一张线下技术沙龙的活动海报,信息层级清楚,主视觉抢眼"
+          }
+        },
+        "incident-apology-report": {
+          "dataloss": {
+            "label": "数据永久缺失",
+            "prompt": "7 月 20 日 14:00-18:00 部分测点数据丢失且无法补录,写一份给客户的说明,要能作为对方审计时的偏差说明附件"
+          },
+          "falsealarm": {
+            "label": "报警误报",
+            "prompt": "今天上午系统重复误发了十几条报警,实际指标一切正常,写一份简短的情况说明发给受影响客户"
+          },
+          "missedalarm": {
+            "label": "报警漏发",
+            "prompt": "昨天下午 14:00 到 17:00 报警通知没能发出,该时段是否超限仍在逐一核查,写一份说明并提醒客户自查该时段数据"
+          },
+          "outage": {
+            "label": "平台服务中断",
+            "prompt": "昨晚 23:05 到今天 01:10 平台无法访问、报警通知也没发出,设备端数据采集正常且已全部回传补齐,写一份给全体客户的情况说明"
+          }
+        },
+        "research": {
+          "compare": {
+            "label": "竞品逐项对比",
+            "prompt": "对比 Notion、Obsidian 与 Craft 的定位、核心能力与定价,给出适用场景建议"
+          },
+          "market": {
+            "label": "行业市场调研",
+            "prompt": "调研 2026 年国内 AI 编程助手的市场格局、主要玩家与商业模式"
+          },
+          "policy": {
+            "label": "政策合规要求",
+            "prompt": "梳理国内生成式 AI 应用上线需要满足的备案与合规要求,以及各环节的时间成本"
+          },
+          "tech": {
+            "label": "技术选型对比",
+            "prompt": "对比 Postgres、MySQL 与 SQLite 在中小型 SaaS 后端上的选型取舍,给出结论与理由"
+          }
+        },
+        "slides": {
+          "defense": {
+            "label": "论文答辩 PPT",
+            "prompt": "按研究背景、方法、结果、结论四段,做一份论文答辩 PPT"
+          },
+          "launch": {
+            "label": "新品发布会",
+            "prompt": "做一份新品发布会演讲 PPT,10 页,开场要有冲击力,结尾放行动号召"
+          },
+          "pixel": {
+            "label": "像素风介绍 PPT",
+            "prompt": "做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富"
+          },
+          "report": {
+            "label": "季度汇报",
+            "prompt": "把本季度的工作进展做成 8 页汇报 PPT,重点讲数据和结论"
+          }
+        }
+      },
+      "incident": "故障致歉",
+      "incidentHint": "预置故障致歉 skill,说清故障经过即可生成 Word 报告",
+      "knowledge": "知识库",
+      "knowledgeHint": "预置知识库 skill,问一句公司内部的事即可带出处作答",
+      "office": "日常办公",
+      "research": "深度研究",
+      "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",
+      "slides": "演示文稿",
+      "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
+      "title": "场景",
+      "workflow": "Loop 工作流",
+      "writing": "写作"
+    }
+  },
   "notes": {
     "deepen": {
       "truncated": "有 {{count}} 条正文超过 {{max}} 字,已截断后作为种子。"
@@ -2386,7 +2501,7 @@ export default interface Resources {
       "account": "账号",
       "channelCard": "渠道",
       "createExample": "在 Prompt 库创建示例",
-      "desc": "全局推送配置,启用后可在任何支持推送的功能中使用（如时间线日报）。",
+      "desc": "全局推送配置，启用后可在任何支持推送的功能中使用。",
       "dingtalk": "钉钉机器人",
       "dingtalkSecret": "加签密钥",
       "dingtalkSecretDesc": "可选,安全设置为「加签」时填写。",
@@ -2712,27 +2827,7 @@ export default interface Resources {
       "roles": "角色",
       "speech": "语音",
       "subagents": "子代理",
-      "timeline": "时间线",
       "writing": "写作"
-    },
-    "timeline": {
-      "agent": "Agent",
-      "apiKey": "API Key",
-      "apiKeyOptional": "可选。",
-      "baseUrl": "Base URL",
-      "baseUrlDesc": "OpenAI 兼容接口（Ollama / LM Studio / vLLM 均可）。",
-      "customModel": "自定义模型",
-      "desc": "配置 AI 日报的生成模型。推送渠道在「推送」设置中统一管理。",
-      "generateMode": "生成方式",
-      "generateModeDesc": "集成 Agent 用已装 CLI;自定义模型用 OpenAI 兼容端点。",
-      "integratedAgent": "集成 Agent",
-      "model": "模型",
-      "modelCard": "日报生成模型",
-      "modelName": "模型名",
-      "piNoProvider": "还没有启用的供应商。先在「模型」设置中添加并启用,Cortex 才能用于生成日报。",
-      "provider": "供应商",
-      "providerDesc": "日报由该供应商运行（与新建 Cortex 会话同源）。",
-      "title": "时间线"
     },
     "updateStatus": {
       "available": "发现新版本 {{version}}",
@@ -2861,216 +2956,5 @@ export default interface Resources {
     "project": "项目",
     "projectLabel": "项目",
     "send": "发送"
-  },
-  "timeline": {
-    "agentDefault": "Claude",
-    "calendar": {
-      "cellCommits": "{{count}} 提交",
-      "cellRuns": "{{count}} 轮",
-      "legendCommits": "提交",
-      "legendFiles": "文件变更",
-      "legendHint": "点击日期跳转到时间线对应的天",
-      "legendLess": "少",
-      "legendMore": "多",
-      "legendSessions": "新会话",
-      "monthLabel": "{{year}} 年 {{month}} 月",
-      "monthSummary": "活跃 {{days}} 天 · {{runs}} 轮交互",
-      "monthSummaryCommits": " · {{count}} 次提交",
-      "monthSummaryFiles": " · {{count}} 个文件",
-      "nextMonth": "下个月",
-      "noActivity": "本月暂无活动",
-      "prevMonth": "上个月",
-      "today": "今天"
-    },
-    "card": {
-      "fail": "失败",
-      "filesChanged": "{{count}} 个文件变更",
-      "history": "历史",
-      "newSession": "新建会话",
-      "openSession": "打开对应会话"
-    },
-    "dailyReport": "AI 日报",
-    "dayLabel": "{{month}} 月 {{day}} 日 · 周{{weekday}}",
-    "defaultPushTemplate": "【{{project}}】{{date}} 工作日报\n\n{{stats}}\n\n{{summary}}\n\n今日事项:\n{{runs}}\n",
-    "globalReport": "全局日报",
-    "header": {
-      "back": "返回会话",
-      "calendar": "日历",
-      "onlyNotes": "只看闪记",
-      "showAll": "显示全部时间线事件",
-      "subtitle": "项目时间线",
-      "timeline": "时间线"
-    },
-    "home": {
-      "copy": "复制",
-      "copyTitle": "复制日报文本",
-      "dailyReportTitle": "{{day}} 工作日报",
-      "genTitle": "用 AI 汇总当天所有项目的工作（模型可在设置中配置）",
-      "genTitleEmpty": "当天没有任何项目活动",
-      "generate": "生成总结",
-      "generateHint": "点「生成总结」,AI 将汇总当天所有项目的工作",
-      "generating": "生成中…",
-      "loading": "加载中…",
-      "noActivity": "这一天没有项目活动",
-      "projectChipTitle": "{{count}} 轮交互",
-      "projects": "{{count}} 个项目",
-      "regenerate": "重新生成",
-      "reportCopied": "已复制全局日报",
-      "reportGenerateFailed": "日报生成失败,请检查 设置 → 时间线 的模型配置",
-      "reportGenerated": "{{day}} 全局日报已生成",
-      "scene": {
-        "automation": "自动化",
-        "chipsLabel": "快捷能力",
-        "contract": "合同审查",
-        "contractHint": "预置合同审查 skill,把合同拖进输入框、说清视角即可开审",
-        "creative": "设计创意",
-        "design": "设计稿",
-        "designHint": "预置设计稿 skill,补一句需求即可生成",
-        "examples": {
-          "contract-review-report": {
-            "missing": {
-              "label": "缺失条款检测",
-              "prompt": "检查这份合同缺了哪些应有条款(保密、争议解决、不可抗力、终止退出),并补出建议条文"
-            },
-            "partya": {
-              "label": "甲方视角审查",
-              "prompt": "审查这份合同,我方是甲方,重点看交付范围、知识产权归属和数据安全条款"
-            },
-            "partyb": {
-              "label": "乙方视角审查",
-              "prompt": "审查这份合同,我方是乙方,重点看回款节奏、验收标准和违约责任,给出风险分级与谈判优先级"
-            },
-            "pitfall": {
-              "label": "找出不利条款",
-              "prompt": "这份合同有什么坑?逐条列出对我方不利的条款,标注严重程度并给出改写建议"
-            }
-          },
-          "design": {
-            "dashboard": {
-              "label": "数据看板",
-              "prompt": "设计一个运营数据看板,包含关键指标卡片与趋势图"
-            },
-            "landing": {
-              "label": "产品落地页",
-              "prompt": "设计一个 SaaS 产品的落地页,深色主题,首屏要有清晰的价值主张"
-            },
-            "mobile": {
-              "label": "移动端首页",
-              "prompt": "设计一款记账 App 的首页,卡片式布局,浅色清爽风格"
-            },
-            "poster": {
-              "label": "活动海报",
-              "prompt": "设计一张线下技术沙龙的活动海报,信息层级清楚,主视觉抢眼"
-            }
-          },
-          "incident-apology-report": {
-            "dataloss": {
-              "label": "数据永久缺失",
-              "prompt": "7 月 20 日 14:00-18:00 部分测点数据丢失且无法补录,写一份给客户的说明,要能作为对方审计时的偏差说明附件"
-            },
-            "falsealarm": {
-              "label": "报警误报",
-              "prompt": "今天上午系统重复误发了十几条报警,实际指标一切正常,写一份简短的情况说明发给受影响客户"
-            },
-            "missedalarm": {
-              "label": "报警漏发",
-              "prompt": "昨天下午 14:00 到 17:00 报警通知没能发出,该时段是否超限仍在逐一核查,写一份说明并提醒客户自查该时段数据"
-            },
-            "outage": {
-              "label": "平台服务中断",
-              "prompt": "昨晚 23:05 到今天 01:10 平台无法访问、报警通知也没发出,设备端数据采集正常且已全部回传补齐,写一份给全体客户的情况说明"
-            }
-          },
-          "research": {
-            "compare": {
-              "label": "竞品逐项对比",
-              "prompt": "对比 Notion、Obsidian 与 Craft 的定位、核心能力与定价,给出适用场景建议"
-            },
-            "market": {
-              "label": "行业市场调研",
-              "prompt": "调研 2026 年国内 AI 编程助手的市场格局、主要玩家与商业模式"
-            },
-            "policy": {
-              "label": "政策合规要求",
-              "prompt": "梳理国内生成式 AI 应用上线需要满足的备案与合规要求,以及各环节的时间成本"
-            },
-            "tech": {
-              "label": "技术选型对比",
-              "prompt": "对比 Postgres、MySQL 与 SQLite 在中小型 SaaS 后端上的选型取舍,给出结论与理由"
-            }
-          },
-          "slides": {
-            "defense": {
-              "label": "论文答辩 PPT",
-              "prompt": "按研究背景、方法、结果、结论四段,做一份论文答辩 PPT"
-            },
-            "launch": {
-              "label": "新品发布会",
-              "prompt": "做一份新品发布会演讲 PPT,10 页,开场要有冲击力,结尾放行动号召"
-            },
-            "pixel": {
-              "label": "像素风介绍 PPT",
-              "prompt": "做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富"
-            },
-            "report": {
-              "label": "季度汇报",
-              "prompt": "把本季度的工作进展做成 8 页汇报 PPT,重点讲数据和结论"
-            }
-          }
-        },
-        "incident": "故障致歉",
-        "incidentHint": "预置故障致歉 skill,说清故障经过即可生成 Word 报告",
-        "knowledge": "知识库",
-        "knowledgeHint": "预置知识库 skill,问一句公司内部的事即可带出处作答",
-        "office": "日常办公",
-        "research": "深度研究",
-        "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",
-        "slides": "演示文稿",
-        "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
-        "title": "场景",
-        "workflow": "Loop 工作流",
-        "writing": "写作"
-      },
-      "sectionTitle": "一日总结 · 所有项目"
-    },
-    "list": {
-      "copy": "复制",
-      "copyFailed": "复制失败",
-      "copyTitle": "复制日报文本",
-      "empty": "还没有时间线记录",
-      "emptyHint": "在该项目下与 Agent 交互后,这里会按天记录做了什么",
-      "genTitle": "用 AI 生成这一天的工作日报（模型可在设置中配置）",
-      "generate": "生成日报",
-      "generating": "生成中…",
-      "push": "推送",
-      "pushTitleDisabled": "推送渠道未配置,在 设置 → 时间线 中启用",
-      "pushTitleEnabled": "推送到 {{count}} 个已启用渠道（企业微信 / 钉钉 / 邮件）",
-      "pushing": "推送中…",
-      "regenerate": "重新生成",
-      "reportCopied": "日报已复制到剪贴板",
-      "reportGenerateFailed": "日报生成失败,请检查 设置 → 时间线 的模型配置",
-      "reportGenerated": "{{day}} 日报已生成",
-      "sessionDeleted": "该会话已被删除"
-    },
-    "loadingTimeline": "正在加载时间线（首次会回填历史会话）…",
-    "noChannelEnabled": "未启用任何推送渠道,请先在 设置 → 推送 中配置",
-    "noteCardTitle": "打开闪记详情",
-    "noteStatus": {
-      "deepened": "已深化",
-      "deepening": "深化中"
-    },
-    "pushFailed": "{{label}} 推送失败:{{error}}",
-    "pushSuccess": "{{label}} 推送成功",
-    "stats": {
-      "commits": "{{count}} 次提交",
-      "files": "{{count}} 个文件变更",
-      "noActivity": "无活动",
-      "notes": "{{count}} 条闪记",
-      "runs": "{{count}} 轮交互",
-      "sessions": "{{count}} 个新会话"
-    },
-    "summaryModelNotConfigured": "尚未配置日报生成模型。请到「设置 → 时间线」选择一个模型——为避免悄悄换模型产生意外费用，这里不会自动回退。",
-    "today": "今天",
-    "unknownError": "未知错误"
   }
 }

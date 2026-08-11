@@ -76,10 +76,6 @@ export function taskDocsDir(taskId: string): string {
   return join(taskDocsRoot(), taskId);
 }
 
-export function timelinesDir(): string {
-  return join(cortexHome(), "timelines");
-}
-
 // 主进程文件日志目录：~/.cortex-desktop/logs/
 export function logsDir(): string {
   return join(cortexHome(), "logs");

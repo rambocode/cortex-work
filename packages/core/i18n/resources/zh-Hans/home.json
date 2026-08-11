@@ -1,0 +1,115 @@
+{
+  "scene": {
+    "title": "场景",
+    "office": "日常办公",
+    "creative": "设计创意",
+    "chipsLabel": "快捷能力",
+    "slides": "演示文稿",
+    "design": "设计稿",
+    "research": "深度研究",
+    "writing": "写作",
+    "automation": "自动化",
+    "incident": "故障致歉",
+    "contract": "合同审查",
+    "knowledge": "知识库",
+    "knowledgeHint": "预置知识库 skill,问一句公司内部的事即可带出处作答",
+    "workflow": "Loop 工作流",
+    "slidesHint": "预置演示文稿 skill,补一句主题即可生成",
+    "designHint": "预置设计稿 skill,补一句需求即可生成",
+    "researchHint": "预置深度研究 skill,补一句研究目标即可开跑",
+    "incidentHint": "预置故障致歉 skill,说清故障经过即可生成 Word 报告",
+    "contractHint": "预置合同审查 skill,把合同拖进输入框、说清视角即可开审",
+    "examples": {
+      "slides": {
+        "pixel": {
+          "label": "像素风介绍 PPT",
+          "prompt": "做一份 6 页的产品介绍 PPT,像素游戏风格排版,配色炫酷丰富"
+        },
+        "launch": {
+          "label": "新品发布会",
+          "prompt": "做一份新品发布会演讲 PPT,10 页,开场要有冲击力,结尾放行动号召"
+        },
+        "defense": {
+          "label": "论文答辩 PPT",
+          "prompt": "按研究背景、方法、结果、结论四段,做一份论文答辩 PPT"
+        },
+        "report": {
+          "label": "季度汇报",
+          "prompt": "把本季度的工作进展做成 8 页汇报 PPT,重点讲数据和结论"
+        }
+      },
+      "design": {
+        "landing": {
+          "label": "产品落地页",
+          "prompt": "设计一个 SaaS 产品的落地页,深色主题,首屏要有清晰的价值主张"
+        },
+        "mobile": {
+          "label": "移动端首页",
+          "prompt": "设计一款记账 App 的首页,卡片式布局,浅色清爽风格"
+        },
+        "poster": {
+          "label": "活动海报",
+          "prompt": "设计一张线下技术沙龙的活动海报,信息层级清楚,主视觉抢眼"
+        },
+        "dashboard": {
+          "label": "数据看板",
+          "prompt": "设计一个运营数据看板,包含关键指标卡片与趋势图"
+        }
+      },
+      "research": {
+        "market": {
+          "label": "行业市场调研",
+          "prompt": "调研 2026 年国内 AI 编程助手的市场格局、主要玩家与商业模式"
+        },
+        "tech": {
+          "label": "技术选型对比",
+          "prompt": "对比 Postgres、MySQL 与 SQLite 在中小型 SaaS 后端上的选型取舍,给出结论与理由"
+        },
+        "policy": {
+          "label": "政策合规要求",
+          "prompt": "梳理国内生成式 AI 应用上线需要满足的备案与合规要求,以及各环节的时间成本"
+        },
+        "compare": {
+          "label": "竞品逐项对比",
+          "prompt": "对比 Notion、Obsidian 与 Craft 的定位、核心能力与定价,给出适用场景建议"
+        }
+      },
+      "incident-apology-report": {
+        "outage": {
+          "label": "平台服务中断",
+          "prompt": "昨晚 23:05 到今天 01:10 平台无法访问、报警通知也没发出,设备端数据采集正常且已全部回传补齐,写一份给全体客户的情况说明"
+        },
+        "dataloss": {
+          "label": "数据永久缺失",
+          "prompt": "7 月 20 日 14:00-18:00 部分测点数据丢失且无法补录,写一份给客户的说明,要能作为对方审计时的偏差说明附件"
+        },
+        "falsealarm": {
+          "label": "报警误报",
+          "prompt": "今天上午系统重复误发了十几条报警,实际指标一切正常,写一份简短的情况说明发给受影响客户"
+        },
+        "missedalarm": {
+          "label": "报警漏发",
+          "prompt": "昨天下午 14:00 到 17:00 报警通知没能发出,该时段是否超限仍在逐一核查,写一份说明并提醒客户自查该时段数据"
+        }
+      },
+      "contract-review-report": {
+        "partyb": {
+          "label": "乙方视角审查",
+          "prompt": "审查这份合同,我方是乙方,重点看回款节奏、验收标准和违约责任,给出风险分级与谈判优先级"
+        },
+        "partya": {
+          "label": "甲方视角审查",
+          "prompt": "审查这份合同,我方是甲方,重点看交付范围、知识产权归属和数据安全条款"
+        },
+        "pitfall": {
+          "label": "找出不利条款",
+          "prompt": "这份合同有什么坑?逐条列出对我方不利的条款,标注严重程度并给出改写建议"
+        },
+        "missing": {
+          "label": "缺失条款检测",
+          "prompt": "检查这份合同缺了哪些应有条款(保密、争议解决、不可抗力、终止退出),并补出建议条文"
+        }
+      }
+    }
+  }
+}

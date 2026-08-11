@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PersistedState, ProjectMeta, PushSettings, SessionMeta } from "../desktop/types";
+import type { PersistedState, ProjectMeta, SessionMeta } from "../desktop/types";
 import { DEFAULT_GENERAL_SETTINGS, DEFAULT_PI_SKILLS, defaultMediaGenSettings, defaultAsrSettings, defaultVoiceSettings, MAX_TIMEOUT_MS_BY_MODALITY } from "../desktop/types";
 import { usePersonalStore, toPersistedState, partitionProjects, defaultAgent } from "./personal";
 
@@ -265,13 +265,13 @@ describe("hydrate 推送设置迁移", () => {
       timelineSettings: {
         summaryModel: { kind: "agent", agent: "claude", model: "haiku" },
         push: { wecom: { enabled: true, webhookUrl: "https://qyapi.weixin.qq.com/x" } },
-      } as PersistedState["timelineSettings"] & { push: PushSettings },
-    };
+      },
+    } as unknown as PersistedState;
     usePersonalStore.getState().hydrate(legacy);
     expect(usePersonalStore.getState().pushSettings.wecom?.webhookUrl).toBe("https://qyapi.weixin.qq.com/x");
   });
 
-  it("新数据 pushSettings 优先,持久化快照含两份设置", () => {
+  it("新数据 pushSettings 优先且进入持久化快照", () => {
     usePersonalStore.getState().hydrate({
       ...base,
       pushSettings: { dingtalk: { enabled: true, webhookUrl: "https://oapi.dingtalk.com/x" } },
@@ -280,7 +280,6 @@ describe("hydrate 推送设置迁移", () => {
     expect(s.pushSettings.dingtalk?.enabled).toBe(true);
     const persisted = toPersistedState(s);
     expect(persisted.pushSettings).toBe(s.pushSettings);
-    expect(persisted.timelineSettings).toBe(s.timelineSettings);
   });
 });
 
@@ -486,20 +485,18 @@ describe("openHome 右栏联动", () => {
 });
 
 describe("activateProject 项目引导态", () => {
-  it("激活项目并清除会话/时间线/首页状态", () => {
+  it("激活项目并清除会话和首页状态", () => {
     usePersonalStore.setState({
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: 1 }],
       sessions: [],
       activeProjectId: undefined,
       activeSessionId: "stale-session",
-      timelineProjectId: "p1",
       homeOpen: true,
     });
     usePersonalStore.getState().activateProject("p1");
     const s = usePersonalStore.getState();
     expect(s.activeProjectId).toBe("p1");
     expect(s.activeSessionId).toBeUndefined();
-    expect(s.timelineProjectId).toBeUndefined();
     expect(s.homeOpen).toBe(false);
   });
 });
@@ -537,7 +534,7 @@ describe("updateProject 置顶/归档元数据", () => {
 });
 
 describe("archiveProject", () => {
-  it("设 archivedAt、清 pinnedAt,并让出激活/时间线焦点", () => {
+  it("设 archivedAt、清 pinnedAt,并让出激活焦点", () => {
     usePersonalStore.getState().hydrate({
       ...base,
       projects: [proj({ id: "p1", pinnedAt: 5 }), proj({ id: "p2" })],
@@ -555,7 +552,6 @@ describe("archiveProject", () => {
     usePersonalStore.setState({
       activeProjectId: "p1",
       activeSessionId: "s1",
-      timelineProjectId: "p1",
     });
 
     usePersonalStore.getState().archiveProject("p1");
@@ -567,7 +563,6 @@ describe("archiveProject", () => {
     // 激活态全部让出
     expect(s.activeProjectId).toBeUndefined();
     expect(s.activeSessionId).toBeUndefined();
-    expect(s.timelineProjectId).toBeUndefined();
     // 不影响其他项目
     expect(s.projects.find((p) => p.id === "p2")?.archivedAt).toBeUndefined();
   });
@@ -577,13 +572,12 @@ describe("archiveProject", () => {
       ...base,
       projects: [proj({ id: "p1" }), proj({ id: "p2" })],
     });
-    usePersonalStore.setState({ activeProjectId: "p2", timelineProjectId: "p2" });
+    usePersonalStore.setState({ activeProjectId: "p2" });
 
     usePersonalStore.getState().archiveProject("p1");
 
     const s = usePersonalStore.getState();
     expect(s.activeProjectId).toBe("p2");
-    expect(s.timelineProjectId).toBe("p2");
   });
 });
 
@@ -1152,13 +1146,12 @@ describe("noteDetailRequest 闪记详情请求(消费即清)", () => {
 describe("闪记中心区写作面视图态(noteEditorId)", () => {
   it("openNoteEditor 置 noteEditorId 并互斥清其它中心视图", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.setState({ homeOpen: true, automationOpen: true, timelineProjectId: "p1" });
+    usePersonalStore.setState({ homeOpen: true, automationOpen: true });
     usePersonalStore.getState().openNoteEditor("n1");
     const s = usePersonalStore.getState();
     expect(s.noteEditorId).toBe("n1");
     expect(s.homeOpen).toBe(false);
     expect(s.automationOpen).toBe(false);
-    expect(s.timelineProjectId).toBeUndefined();
   });
 
   it("closeNoteEditor 清空 noteEditorId", () => {
@@ -1168,7 +1161,7 @@ describe("闪记中心区写作面视图态(noteEditorId)", () => {
     expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
   });
 
-  it("切到会话/时间线/首页/自动化时清空 noteEditorId(让位)", () => {
+  it("切到会话/首页/自动化时清空 noteEditorId(让位)", () => {
     const seed = () => {
       usePersonalStore.getState().hydrate({
         ...base,
@@ -1179,10 +1172,6 @@ describe("闪记中心区写作面视图态(noteEditorId)", () => {
     };
     seed();
     usePersonalStore.getState().setActiveSession("c1");
-    expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
-
-    seed();
-    usePersonalStore.getState().openTimeline("p1");
     expect(usePersonalStore.getState().noteEditorId).toBeUndefined();
 
     seed();
@@ -1204,12 +1193,11 @@ describe("闪记中心区写作面视图态(noteEditorId)", () => {
 describe("设置整页视图态(settingsOpen)", () => {
   it("openSettings 置 settingsOpen 且不清底层视图标志(覆盖层叠加,closeSettings 后回原视图)", () => {
     usePersonalStore.getState().hydrate(base);
-    usePersonalStore.setState({ homeOpen: false, automationOpen: false, timelineProjectId: "p1", noteEditorId: "n1" });
+    usePersonalStore.setState({ homeOpen: false, automationOpen: false, noteEditorId: "n1" });
     usePersonalStore.getState().openSettings();
     const s = usePersonalStore.getState();
     expect(s.settingsOpen).toBe(true);
     // KTD2a：openSettings 不清底层标志,故关闭设置后回到原视图。
-    expect(s.timelineProjectId).toBe("p1");
     expect(s.noteEditorId).toBe("n1");
   });
 
@@ -1220,7 +1208,7 @@ describe("设置整页视图态(settingsOpen)", () => {
     expect(usePersonalStore.getState().settingsOpen).toBe(false);
   });
 
-  it("切到会话/项目/时间线/首页/自动化/闪记或新建会话时清空 settingsOpen(让位)", () => {
+  it("切到会话/项目/首页/自动化/闪记或新建会话时清空 settingsOpen(让位)", () => {
     const seed = () => {
       usePersonalStore.getState().hydrate({
         ...base,
@@ -1235,10 +1223,6 @@ describe("设置整页视图态(settingsOpen)", () => {
 
     seed();
     usePersonalStore.getState().activateProject("p1");
-    expect(usePersonalStore.getState().settingsOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openTimeline("p1");
     expect(usePersonalStore.getState().settingsOpen).toBe(false);
 
     seed();
@@ -1723,7 +1707,6 @@ describe("写作工作台整窗视图态(writingOpen)", () => {
       workflowOpen: true,
       settingsOpen: true,
       noteEditorId: "n1",
-      timelineProjectId: "p1",
     });
     usePersonalStore.getState().openWriting();
     const s = usePersonalStore.getState();
@@ -1734,7 +1717,6 @@ describe("写作工作台整窗视图态(writingOpen)", () => {
     expect(s.workflowOpen).toBe(false);
     expect(s.settingsOpen).toBe(false);
     expect(s.noteEditorId).toBeUndefined();
-    expect(s.timelineProjectId).toBeUndefined();
   });
 
   it("closeWriting 复位 writingOpen 并回落首页", () => {
@@ -1780,10 +1762,6 @@ describe("写作工作台整窗视图态(writingOpen)", () => {
 
     seed();
     usePersonalStore.getState().openNoteEditor("n1");
-    expect(usePersonalStore.getState().writingOpen).toBe(false);
-
-    seed();
-    usePersonalStore.getState().openTimeline("p1");
     expect(usePersonalStore.getState().writingOpen).toBe(false);
 
     seed();

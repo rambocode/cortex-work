@@ -33,7 +33,6 @@ export function saveUrgency(s: PersonalState, prev: PersonalState): SaveUrgency 
   if (
     s.sessions !== prev.sessions ||
     s.todos !== prev.todos ||
-    s.timelineSettings !== prev.timelineSettings ||
     s.pushSettings !== prev.pushSettings ||
     s.ttsSettings !== prev.ttsSettings ||
     s.mediaGenSettings !== prev.mediaGenSettings ||
