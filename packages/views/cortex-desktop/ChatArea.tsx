@@ -225,7 +225,9 @@ const TextMessage = memo(function TextMessage({
     <div className={`msg ${grouped ? "is-grouped" : ""} ${m.who === "me" ? "is-me" : ""}`}>
       <MessageAvatar who={m.who} />
       <div className="m-body">
-        <MessageHeader who={m.who} time={m.time} hideTime={hideTime} />
+        {/* 规格 §2 时间戳规则:用户消息的时间挂在气泡右下(renderTail),Agent 消息的时间并入
+            头像行,不再单独漂浮。hideTime 因此只作用于用户侧。 */}
+        <MessageHeader who={m.who} time={m.time} hideTime={hideTime && m.who === "me"} />
         {m.who === "me" ? <UserMessageContent>{messageContent}</UserMessageContent> : messageContent}
         {renderTail?.(m)}
       </div>
@@ -466,65 +468,52 @@ const TodoListMessage = memo(function TodoListMessage({
   }, [allDone]);
   const open = userOpen ?? !allDone;
 
+  // 规格 §6:头部一行(图标 + 标题 + 计数 + 进度条 + 展开/收起)自身已足够传达状态,折叠态只留它。
+  const progress = m.todos.length > 0 ? Math.round((doneCount / m.todos.length) * 100) : 0;
+
   return (
     <div className={`msg ${grouped ? "is-grouped" : ""}`}>
       <MessageAvatar who={m.who} />
       <div className="m-body">
         <MessageHeader who={m.who} time={m.time} />
-        <div className="agent-log">
-          <div className="al-h" onClick={() => setUserOpen(!open)} style={{ cursor: "pointer", userSelect: "none" }}>
-            {allDone ? (
-              <span className="check">
-                <Icon.CheckCircle size={14} />
-              </span>
-            ) : m.active ? (
-              <span className="spinner" />
-            ) : (
-              <Icon.Task size={14} />
-            )}
-            <span style={{ color: "var(--text-1)", fontWeight: 500 }}>
-              {allDone && !open ? t("todoList.doneSummary", { count: m.todos.length }) : t("todoList.title")}
+        <div className="pw-tasklist" data-active={m.active === true} data-done={allDone}>
+          <button
+            type="button"
+            className="pw-tasklist-head"
+            aria-expanded={open}
+            onClick={() => setUserOpen(!open)}
+          >
+            <span className="pw-tasklist-icon" aria-hidden="true">
+              {allDone ? <Icon.CheckCircle size={13} /> : m.active ? <span className="spinner" /> : <Icon.Task size={13} />}
             </span>
-            {!(allDone && !open) ? (
-              <span style={{ marginLeft: 6, color: "var(--text-3)" }}>
-                · {t("todoList.progress", { done: doneCount, total: m.todos.length })}
-              </span>
-            ) : null}
-            <span className="al-chev" data-open={open}>
-              <Icon.Chevron size={11} />
+            <span className="pw-tasklist-title">{t("todoList.title")}</span>
+            <span className="pw-tasklist-count">
+              {t("todoList.progress", { done: doneCount, total: m.todos.length })}
             </span>
-          </div>
+            <span className="pw-tasklist-bar" aria-hidden="true">
+              <i style={{ width: `${progress}%` }} />
+            </span>
+            <span className="pw-tasklist-toggle">
+              {t(open ? "todoList.collapse" : "todoList.expand")}
+              <span className="al-chev" data-open={open}>
+                <Icon.Chevron size={11} />
+              </span>
+            </span>
+          </button>
           {!open ? null : (
-            <ul>
+            <ul className="pw-tasklist-items">
               {m.todos.map((it, i) => (
-                <li key={i} className={it.status === "in_progress" ? "is-active" : ""}>
-                  <span className="ic">
+                <li key={i} data-status={it.status}>
+                  <span className="pw-tasklist-mark" aria-hidden="true">
                     {it.status === "completed" ? (
-                      <Icon.Check size={13} />
+                      <Icon.Check size={12} />
                     ) : it.status === "in_progress" && m.active ? (
-                      <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
-                    ) : it.status === "in_progress" ? (
-                      <span
-                        style={{
-                          width: 5,
-                          height: 5,
-                          background: "currentColor",
-                          borderRadius: "50%",
-                          display: "inline-block",
-                        }}
-                      />
+                      <span className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />
                     ) : (
-                      <span
-                        style={{ width: 7, height: 7, border: "1.5px dashed currentColor", borderRadius: "50%" }}
-                      />
+                      <i />
                     )}
                   </span>
-                  <span style={it.status === "completed" ? { color: "var(--text-3)" } : undefined}>{it.text}</span>
-                  {it.status === "in_progress" ? (
-                    <span style={{ marginLeft: 6, color: "var(--text-3)", fontSize: 11 }}>
-                      {t("todoList.inProgress")}
-                    </span>
-                  ) : null}
+                  <span className="pw-tasklist-text">{it.text}</span>
                 </li>
               ))}
             </ul>
@@ -945,20 +934,35 @@ export function MessageStream({
         {streamMessages.map((m, i) => {
           const key = m.uid || i;
           if (m.kind === "conversationProcess") {
-            lastWho = null;
-            return <ConversationProcessTimeline key={key} messages={processMessages} sessionId={sessionId} />;
+            // 过程流套进与普通消息同构的两列骨架，左缘由同一套 flex 布局产生，不靠 margin 魔数对齐
+            //（个人区头像已隐藏，那一列宽度归零，但骨架保留，团队会话仍按头像列排版）。
+            // 本回合的视觉起点由时间线自己的「已处理 Ns ›」承担，这里不再放消息头。
+            // day 分隔符没有 who；过程流里不会出现它，但类型上要收敛掉。
+            const processWho =
+              processMessages.find((item): item is Extract<Message, { who: string }> => "who" in item)?.who ??
+              contact.id;
+            const processGrouped = lastWho === processWho;
+            lastWho = processWho;
+            return (
+              <div className={`msg ${processGrouped ? "is-grouped" : ""}`} key={key}>
+                <MessageAvatar who={processWho} />
+                <div className="m-body">
+                  <ConversationProcessTimeline messages={processMessages} sessionId={sessionId} />
+                </div>
+              </div>
+            );
           }
           if (m.kind === "day") {
             lastWho = null;
             return <DaySep key={key} label={m.label} />;
           }
+          // 规格 §2「统一左缘线」：个人会话里同一 Agent 的连续内容（正文、日志、任务清单）共用
+          // 一个头像行，正文与卡片一律对齐 x=36px。团队会话保持原有的「日志/清单各带头像」分组。
           const grouped =
             lastWho === m.who &&
             m.kind !== "approve" &&
             m.kind !== "diff" &&
-            m.kind !== "agentLog" &&
-            m.kind !== "reasoning" &&
-            m.kind !== "todoList";
+            (personalMode || (m.kind !== "agentLog" && m.kind !== "reasoning" && m.kind !== "todoList"));
           lastWho = m.who;
           switch (m.kind) {
             case "text":
@@ -996,7 +1000,15 @@ export function MessageStream({
             case "roleHeader":
               return <RoleHeaderMessage key={key} m={m} />;
             case "subagentCard":
-              return <SubagentCardMessage key={key} m={m} sessionId={sessionId} />;
+              // 同上：子代理卡也套进两列骨架，与正文/过程流共用同一条左缘（规格 §2/§5）。
+              return (
+                <div className={`msg ${grouped ? "is-grouped" : ""}`} key={key}>
+                  <MessageAvatar who={m.who} />
+                  <div className="m-body">
+                    <SubagentCardMessage m={m} sessionId={sessionId} />
+                  </div>
+                </div>
+              );
             case "stageTitle":
               return null;
             default:

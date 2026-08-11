@@ -330,6 +330,46 @@ describe("personal message agent session helpers", () => {
       .toEqual(expect.arrayContaining([expect.objectContaining({ ev: expect.objectContaining({ type: "tool" }) })]));
   });
 
+  it("子代理的工具调用只进它自己的卡片，不进主会话过程流（主会话摘要不替别人记工）", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const runId = "delegate-tools";
+    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+
+    // 主 agent 自己调一次工具 → 该进主会话过程流。
+    emit({ type: "tool", name: "Grep", detail: "主会话自己搜的", phase: "start" });
+    emit({
+      type: "init",
+      sessionId: "s1",
+      roleId: "explore",
+      stage: "subagent",
+      stageLabel: "探索",
+      subagentCallId: "call-x",
+      childSessionId: "child-x",
+    });
+    // 子代理调三次工具 → 只更新卡片步数/活动，主会话过程流不得多出条目。
+    emit({ type: "tool", name: "Read", detail: "a.ts", phase: "start", roleId: "explore", subagentCallId: "call-x" });
+    emit({ type: "tool", name: "Read", detail: "b.ts", phase: "start", roleId: "explore", subagentCallId: "call-x" });
+    emit({ type: "tool", name: "Bash", detail: "ls", phase: "start", roleId: "explore", subagentCallId: "call-x" });
+
+    const processLogs = (qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? []).filter(
+      (message): message is Extract<Message, { kind: "agentLog" }> => message.kind === "agentLog",
+    );
+    const toolTexts = processLogs.flatMap((log) => log.items.map((item) => String(item.text)));
+    expect(toolTexts.some((text) => text.includes("主会话自己搜的"))).toBe(true);
+    expect(toolTexts.some((text) => text.includes("a.ts"))).toBe(false);
+    expect(toolTexts.some((text) => text.includes("b.ts"))).toBe(false);
+    expect(toolTexts.some((text) => text.includes("ls"))).toBe(false);
+
+    // 但子代理卡自己要如实记账：三次调用 = 三步，活动行显示最后一次。
+    const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
+    const card = messages.find(
+      (message): message is Extract<Message, { kind: "subagentCard" }> => message.kind === "subagentCard",
+    );
+    expect(card).toMatchObject({ callId: "call-x", steps: 3 });
+    expect(card?.activity).toContain("ls");
+  });
+
   it("同一角色重复委派时按 callId 隔离卡片与流式过程段", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();

@@ -27,15 +27,15 @@ const teamContact: Contact = {
 };
 
 describe("个人会话头像样式", () => {
-  it("普通消息保留头像，仅连续分组消息沿用既有隐藏语义", () => {
-    // 个人会话可以调整版心，但不能覆盖 MessageStream 原有的头像与分组规则。
-    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.msg\s*>\s*\.m-avatar\s*\{[^}]*display:\s*none/);
-    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.msg\s*\{[^}]*gap:\s*0/);
-    expect(desktopCss).not.toMatch(/\.pw-personal-chat\s+\.m-turn-usage\s*\{[^}]*margin-left:\s*0/);
+  it("个人会话不显示头像与消息头，头像列归零；团队会话仍按原有头像/分组语义排版", () => {
+    // 会话里只有「我 + 当前 agent」，气泡左右对齐已经说清身份，头像是纯噪声（产品决策）。
+    // 头像列宽度必须一并归零（gap + turn-usage 缩进），否则内容会挂着一段空缩进。
+    expect(desktopCss).toMatch(/\.pw-personal-chat\s+\.msg\s+\.m-avatar\s*\{[^}]*display:\s*none/);
+    expect(desktopCss).toMatch(/\.pw-personal-chat\s+\.msg\s*\{[^}]*gap:\s*0/);
+    expect(desktopCss).toMatch(/\.pw-personal-chat\s+\.m-head\s*\{[^}]*display:\s*none/);
+    expect(desktopCss).toMatch(/\.pw-personal-chat\s+\.m-turn-usage\s*\{[^}]*margin-left:\s*0/);
+    // 团队会话不受影响：连续消息仍靠 visibility 占位保持头像列对齐。
     expect(desktopCss).toMatch(/\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*visibility:\s*hidden/);
-    expect(desktopCss).toMatch(
-      /\.pw-personal-chat\s+\.msg\.is-grouped\s+\.m-avatar\s*\{[^}]*display:\s*none/,
-    );
   });
 });
 
@@ -167,10 +167,10 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     expect(getByText("重写组件")).toBeInTheDocument();
     expect(getByText("跑测试")).toBeInTheDocument();
     // in_progress 项在 active run 中显示 spinner(列表内至少一个)。
-    expect(container.querySelectorAll(".agent-log ul .spinner").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".pw-tasklist-items .spinner").length).toBeGreaterThan(0);
   });
 
-  it("todoList 全部完成 → 自动折成一行摘要,点击可展开回顾", () => {
+  it("todoList 全部完成 → 自动折成一行头部(计数 + 进度条),点击可展开回顾", () => {
     const messages: Message[] = [
       {
         kind: "todoList",
@@ -186,11 +186,13 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
       },
     ];
     const { container, getByText, queryByText } = renderTeamStream(messages);
-    // 折叠态:一行摘要,列表不渲染。
-    expect(getByText("已完成 2 项任务")).toBeInTheDocument();
+    // 折叠态:只留头部一行(标题 + 计数 + 进度条),列表不渲染(3a 规格 §6)。
+    expect(getByText("任务清单")).toBeInTheDocument();
+    expect(getByText("2/2")).toBeInTheDocument();
+    expect(container.querySelector(".pw-tasklist-bar i")).toHaveStyle({ width: "100%" });
     expect(queryByText("分析代码")).not.toBeInTheDocument();
-    // 点击标题展开 → 列表可见。
-    fireEvent.click(container.querySelector(".agent-log .al-h")!);
+    // 点击头部展开 → 列表可见。
+    fireEvent.click(container.querySelector(".pw-tasklist-head")!);
     expect(getByText("分析代码")).toBeInTheDocument();
     expect(getByText("跑测试")).toBeInTheDocument();
   });
@@ -416,16 +418,18 @@ describe("个人会话 Kun 过程时间线", () => {
       </CoreProvider>,
     );
 
+    // 回合开关：`已处理 <耗时> · N 步 · 读取 X 个文件 · 调用 Y 个工具`。单阶段时统计并入这一行
+    // ——阶段摘要条走 bare 形态不渲染，统计不能跟着少的那一层一起消失。
     const process = view.getByRole("button", {
-      name: /工作过程（3 步）.*读取了 1 个文件.*调用了 1 个工具/,
+      name: /已处理.*3 步.*读取了 1 个文件.*调用了 1 个工具/,
     });
     expect(process).toHaveAttribute("aria-expanded", "false");
     expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
     expect(view.queryByText("Read · src/chat.tsx")).not.toBeInTheDocument();
 
     const html = view.container.textContent ?? "";
-    expect(html.indexOf("检查会话过程")).toBeLessThan(html.indexOf("工作过程（3 步）"));
-    expect(html.indexOf("工作过程（3 步）")).toBeLessThan(html.indexOf("已经定位完成"));
+    expect(html.indexOf("检查会话过程")).toBeLessThan(html.indexOf("读取了 1 个文件"));
+    expect(html.indexOf("读取了 1 个文件")).toBeLessThan(html.indexOf("已经定位完成"));
 
     fireEvent.click(process);
     expect(process).toHaveAttribute("aria-expanded", "true");
@@ -479,7 +483,7 @@ describe("个人会话 Kun 过程时间线", () => {
       </CoreProvider>,
     );
 
-    const process = view.getByRole("button", { name: /工作过程（1 步）/ });
+    const process = view.getByRole("button", { name: /处理中.*1 步/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
     expect(view.queryByText("正在检查事件归组")).not.toBeInTheDocument();
     expect(view.getByRole("button", { name: /思考中…/ })).toHaveAttribute("aria-expanded", "false");
@@ -514,7 +518,7 @@ describe("个人会话 Kun 过程时间线", () => {
         />
       </CoreProvider>,
     );
-    expect(view.getByRole("button", { name: /工作过程（1 步）/ })).toHaveAttribute("aria-expanded", "false");
+    expect(view.getByRole("button", { name: /已处理.*1 步/ })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("会话仍在运行时，步骤切相产生的短暂 inactive 不得折叠工作过程", () => {
@@ -552,7 +556,7 @@ describe("个人会话 Kun 过程时间线", () => {
     );
 
     const view = render(renderStream(true));
-    const process = view.getByRole("button", { name: /工作过程（1 步）/ });
+    const process = view.getByRole("button", { name: /处理中.*1 步/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
 
     view.rerender(renderStream(false));

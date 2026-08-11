@@ -264,6 +264,8 @@ export default interface Resources {
       "sharedAgent": "共享 Agent"
     },
     "processInline": {
+      "exitFailed": "执行失败",
+      "exitOk": "exit 0",
       "noDetails": "没有可展开的详细信息",
       "openTranscript": "查看完整过程",
       "readSummaryMany": "读取了 {{count}} 个文件",
@@ -272,6 +274,11 @@ export default interface Resources {
       "thinkingNow": "思考中…",
       "toolSummaryMany": "调用了 {{count}} 个工具",
       "toolSummaryOne": "调用了 1 个工具",
+      "turnDone": "已处理 {{duration}}",
+      "turnDoneNoTime": "已处理",
+      "turnRunning": "处理中 {{duration}}",
+      "turnRunningNoTime": "处理中",
+      "viewFullOutput": "查看完整输出（还有 {{count}} 行）",
       "workTitle": "工作过程（{{count}} 步）"
     },
     "reasoning": {
@@ -316,7 +323,9 @@ export default interface Resources {
       "title": "正在查看代理过程"
     },
     "todoList": {
+      "collapse": "收起",
       "doneSummary": "已完成 {{count}} 项任务",
+      "expand": "展开",
       "inProgress": "进行中",
       "progress": "{{done}}/{{total}}",
       "title": "任务清单"

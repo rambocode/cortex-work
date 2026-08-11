@@ -31,13 +31,22 @@
     "toolSummaryOne": "Called 1 tool",
     "toolSummaryMany": "Called {{count}} tools",
     "noDetails": "No additional details",
-    "openTranscript": "View full transcript"
+    "openTranscript": "View full transcript",
+    "turnRunning": "Working {{duration}}",
+    "turnRunningNoTime": "Working",
+    "turnDone": "Processed in {{duration}}",
+    "turnDoneNoTime": "Processed",
+    "exitOk": "exit 0",
+    "exitFailed": "Failed",
+    "viewFullOutput": "View full output ({{count}} more lines)"
   },
   "todoList": {
     "title": "Tasks",
     "progress": "{{done}}/{{total}}",
     "doneSummary": "Completed {{count}} tasks",
-    "inProgress": "in progress"
+    "inProgress": "in progress",
+    "expand": "Expand",
+    "collapse": "Collapse"
   },
   "turnUsage": {
     "label": "Token usage for this turn",

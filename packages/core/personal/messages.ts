@@ -1701,18 +1701,26 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 面板出现两次(start+end 各折一条)。同时跳过 typing/变更文件/拦截检测等 start 专属副作用。
     // 也修复既有潜伏 bug:orchestrate 的 pi 路径(mapPiToCliEvent)一直在产 end 事件并被翻倍折叠。
     if (ev.phase === "end") return; // 宠物的工具电平位已在 if 链之前清掉,这里可以安心早退
-    updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
-    // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
-    finalizeRunReasoning(qc, run);
-    // 时间线：写类工具的 file_path 记为变更文件。
+    // 子代理的工具调用归属它自己的卡片（上面的 stepSubagentCard 已记下 activity 与步数），
+    // **不进主会话的 typing 行与过程流**：否则主会话摘要里的「N 步 / 读取 X 个文件 / 调用 Y 个
+    // 工具」会把另一个 agent 干的活算成自己的，而用户点进去看到的过程又不属于这条会话。
+    // 子代理的完整过程有专门入口（卡片的「预览」与「查看过程」进入其独立 side 会话）。
+    const fromSubagent = !!(run.delegate && ev.roleId);
+    if (!fromSubagent) {
+      updateTypingMsg(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail));
+      // 阶段切换收尾:收到工具前先收尾打开的思考块,使新工具卡按时序追加到思考之后(保留交错时间线)。
+      finalizeRunReasoning(qc, run);
+    }
+    // 时间线：写类工具的 file_path 记为变更文件。子代理改的也是真改了，照记不误。
     const changed = extractChangedFile(ev.name, ev.detail, run.cwd ?? "");
     if (changed) (run.changedFiles ??= new Set()).add(changed);
     // 运行模式拦截检测:plan/accept-edits 下出现被禁工具(写/执行)→ 记首个,轮结束弹切档提示。
+    // 子代理受同一档位约束，它撞线同样要提示，因此这条检测不按来源区分。
     if (!run.blockedTool) {
       const cat = restrictedToolForMode(ev.name, run.permissionMode, run.agent);
       if (cat) run.blockedTool = { name: ev.name, category: cat };
     }
-    foldToolIntoProcess(qc, sessionId, run, ev);
+    if (!fromSubagent) foldToolIntoProcess(qc, sessionId, run, ev);
     return;
   }
 
