@@ -25,6 +25,19 @@ const GROUNDING_ENV = "PI_COMPUSE_GROUNDING_MODEL";
 
 const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
 
+/**
+ * 【临时】剔掉 `native-hooks.ts` 里无条件注入的调试扩展 `cortex-payload-debug`
+ *（DeepSeek「关闭思考仍思考」的 before_provider_request 抓包，见该文件注释）。
+ * 它必须无条件注入才能覆盖关审批的会话，于是恒占 `extensionFactories[0]`——本层断言的是
+ * **业务扩展**的注册与顺序，不该被它带偏。`native-hooks.test.ts` 用的是同一条判据；
+ * 那个调试扩展定案删除时，这个 helper 连同两处 filter 一起删。
+ */
+function businessExtensions(deps: { extensionFactories?: unknown[] }): Array<{ name: string }> {
+  return ((deps.extensionFactories ?? []) as Array<{ name: string }>).filter(
+    (extension) => extension.name !== "cortex-payload-debug",
+  );
+}
+
 function ctx(overrides: Partial<Parameters<typeof buildWorkerDeps>[1]> = {}) {
   return {
     hasUiOutlet: () => true,
@@ -59,15 +72,15 @@ describe("buildWorkerDeps · 原生能力", () => {
 
   it("审批 hook 走 extensionFactories（extension 级 tool_call，不是 customTools wrapper）", async () => {
     const deps = await buildWorkerDeps({ ...BASE, enableToolApproval: true }, ctx());
-    expect(deps.extensionFactories).toHaveLength(1);
-    expect((deps.extensionFactories?.[0] as { name: string }).name).toBe("cortex-approval");
+    expect(businessExtensions(deps)).toHaveLength(1);
+    expect(businessExtensions(deps)[0]?.name).toBe("cortex-approval");
     // wrapper 形态会把 hook 混进 customTools —— 那样拦不到磁盘 extension 注册的 gui_*。
     expect(deps.customTools?.some((t) => t.name === "cortex-approval")).toBe(false);
   });
 
   it("关闭审批时不注册 hook", async () => {
     const deps = await buildWorkerDeps({ ...BASE, enableToolApproval: false }, ctx());
-    expect(deps.extensionFactories).toHaveLength(0);
+    expect(businessExtensions(deps)).toHaveLength(0);
   });
 
   it("样例工具/命令按开关注册", async () => {
@@ -76,7 +89,7 @@ describe("buildWorkerDeps · 原生能力", () => {
       ctx(),
     );
     expect(deps.customTools?.map((t) => t.name)).toContain("echo_upper");
-    expect((deps.extensionFactories?.[0] as { name: string }).name).toBe("cortex-sample-commands");
+    expect(businessExtensions(deps)[0]?.name).toBe("cortex-sample-commands");
   });
 
   it("artifacts / javascript_repl 按 flag 注册;缺省一个都不进（oneshot/编排子会话路径）", async () => {
@@ -173,7 +186,7 @@ describe("buildWorkerDeps · 安全红线", () => {
     const deps = await buildWorkerDeps({ ...BASE, enableToolApproval: true, approvalTools: tools }, ctx());
     // 审批集不在返回值上，只能从 hook 行为反推：构造一个 tool_call 事件看它会不会去问 UI。
     const asked: string[] = [];
-    const factory = deps.extensionFactories?.[0] as {
+    const factory = businessExtensions(deps)[0] as unknown as {
       factory: (pi: { on: (ev: string, h: unknown) => void }) => void;
     };
     let handler!: (event: { toolName: string; input: unknown }, c: unknown) => Promise<unknown>;
@@ -197,7 +210,7 @@ describe("buildWorkerDeps · 安全红线", () => {
         onApprovalDecision: (r) => decisions.push({ toolName: r.toolName, decision: r.decision }),
       }),
     );
-    const factory = deps.extensionFactories?.[0] as {
+    const factory = businessExtensions(deps)[0] as unknown as {
       factory: (pi: { on: (ev: string, h: unknown) => void }) => void;
     };
     let handler!: (event: { toolName: string; input: unknown }, c: unknown) => Promise<unknown>;
