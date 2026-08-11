@@ -183,6 +183,14 @@ export function setReplyRelearnHandler(fn: () => Promise<ReplyRelearnResult>): v
   relearnHandler = fn;
 }
 
+// renderer 的 store 是 reply 设置真源；main 侧缓存快照的同时把触发键变化交给 index.ts
+// 接线到原生 helper。回调在 macOS initReply 完成前为空，快照仍会保留供初始化时补同步。
+let settingsSyncHandler: ((snapshot: ReplySyncSnapshot) => void) | null = null;
+
+export function setReplySettingsSyncHandler(fn: (snapshot: ReplySyncSnapshot) => void): void {
+  settingsSyncHandler = fn;
+}
+
 // U5 stub：设置快照最近值只驻内存（进程退出即弃）。U7 draft-generator 会从此处读默认 agent。
 let lastSyncedSnapshot: ReplySyncSnapshot | null = null;
 
@@ -247,6 +255,7 @@ export function registerReplyHandlers(): void {
   // 设置快照推送：U5 仅缓存最近值供 U7 读取；不做副作用。
   ipcMain.handle("reply:syncSettings", (_e, snapshot: ReplySyncSnapshot): void => {
     lastSyncedSnapshot = snapshot;
+    settingsSyncHandler?.(snapshot);
   });
 
   // 数据摘要：设置页「数据」分区展示落盘数据规模。

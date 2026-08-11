@@ -39,8 +39,9 @@ export interface ChannelConnectionState {
 
 // ── 持久化三分片 ────────────────────────────────────────────────────────────────
 
-export type ReplyDraftTriggerKey = "cmd" | "option" | "fn";
-export type ReplyVoiceTriggerKey = "fn" | "rightOption" | "cmd";
+/// none 会经主进程下发为 null，要求原生 helper 立即停止监听对应手势。
+export type ReplyDraftTriggerKey = "none" | "cmd" | "option" | "fn";
+export type ReplyVoiceTriggerKey = "none" | "fn" | "rightOption" | "cmd";
 
 export interface ReplySettings {
   draftTrigger: ReplyDraftTriggerKey;

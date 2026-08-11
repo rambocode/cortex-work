@@ -39,10 +39,9 @@ type TFunc = (key: string, opts?: Record<string, unknown>) => string;
 // 渠道连接分区暂隐藏（缓迁 KTD9）；恢复时改 true 并同步单测 NAV 期望。
 export const SHOW_REPLY_CHANNELS = false;
 
-// 起草触发键选项（源项目 draftTrigger 默认 ⌘）。
-const DRAFT_TRIGGER_KEYS: ReplyDraftTriggerKey[] = ["cmd", "option", "fn"];
-// 语音触发键选项（源项目 voiceTrigger 默认 Fn）。
-const VOICE_TRIGGER_KEYS: ReplyVoiceTriggerKey[] = ["fn", "rightOption", "cmd"];
+// 「未设置」必须作为真实配置下发给原生 helper，而不只是 UI 占位；否则后台会继续监听旧键。
+const DRAFT_TRIGGER_KEYS: ReplyDraftTriggerKey[] = ["none", "cmd", "option", "fn"];
+const VOICE_TRIGGER_KEYS: ReplyVoiceTriggerKey[] = ["none", "fn", "rightOption", "cmd"];
 
 // 分段导航的分区定义：id 同时用作 DOM 锚点（pw-reply-sec-<id>）与 spy 标识，顺序即页面顺序。
 type ReplySectionId = "model" | "triggers" | "permissions" | "memory" | "channels" | "data" | "logs";
@@ -66,6 +65,7 @@ const SPY_OFFSET = 130;
 // 触发键 i18n key（cmd/option/fn/rightOption 共用一套「keyXxx」文案）。
 function triggerKeyLabel(t: TFunc, key: string): string {
   switch (key) {
+    case "none": return t("reply.keyUnset");
     case "cmd": return t("reply.keyCmd");
     case "option": return t("reply.keyOption");
     case "fn": return t("reply.keyFn");
@@ -772,12 +772,14 @@ function ReplyModelSelector() {
 
   return (
     <SettingCard title={t("reply.modelCard")}>
-      <div className="pw-srow-desc">{t("reply.modelDesc")}</div>
-      <ModelRefField
-        label={t("reply.modelModelLabel")}
-        value={providerId && model ? { providerId, modelId: model } : undefined}
-        onChange={(ref) => setSettings({ providerId: ref.providerId, model: ref.modelId })}
-      />
+      <SRow label={t("reply.modelModelLabel")} desc={t("reply.modelDesc")} end>
+        <div className="pw-reply-model-control">
+          <ModelRefField
+            value={providerId && model ? { providerId, modelId: model } : undefined}
+            onChange={(ref) => setSettings({ providerId: ref.providerId, model: ref.modelId })}
+          />
+        </div>
+      </SRow>
     </SettingCard>
   );
 }

@@ -282,6 +282,24 @@ describe("ReplyHelperClient events", () => {
     expect(joined).toContain('"on":true');
   });
 
+  it("ready 后重放显式禁用的快捷回复触发键", () => {
+    const procs: FakeProc[] = [];
+    const client = new ReplyHelperClient({
+      binaryPath: "/x",
+      spawnFn: () => {
+        const p = new FakeProc();
+        procs.push(p);
+        return p;
+      },
+    });
+    client.sendConfig({ draft: null, voice: null });
+    client.startEvents();
+    procs[0]!.emitStdout('{"event":"ready"}\n');
+
+    expect(procs[0]!.written.join("")).toContain('"draft":null');
+    expect(procs[0]!.written.join("")).toContain('"voice":null');
+  });
+
   it("stopEvents 后不再自动重启", () => {
     const procs: FakeProc[] = [];
     const client = new ReplyHelperClient({

@@ -173,7 +173,7 @@ describe("replyToPersisted / replySaveUrgency", () => {
   it("replyToPersisted 序列化含持久化分片且字段完整往返（memory 不入投影，KTD6 修订）", () => {
     const store = useReplyStore.getState();
     store.hydrateReply({});
-    store.setSettings({ draftTrigger: "fn", userProfile: "PM" });
+    store.setSettings({ draftTrigger: "none", voiceTrigger: "none", userProfile: "PM" });
     store.setMemoryFile("core", { auto: "- 简洁" });
     store.setChannelCredential("lark", { ciphertext: "x" });
 
@@ -192,7 +192,8 @@ describe("replyToPersisted / replySaveUrgency", () => {
     });
     useReplyStore.getState().hydrateReply(persisted);
     const roundTripped = useReplyStore.getState();
-    expect(roundTripped.settings.draftTrigger).toBe("fn");
+    expect(roundTripped.settings.draftTrigger).toBe("none");
+    expect(roundTripped.settings.voiceTrigger).toBe("none");
     expect(roundTripped.settings.userProfile).toBe("PM");
     expect(roundTripped.settings.providerId).toBe("deepseek");
     expect(roundTripped.settings.model).toBe("deepseek-chat");

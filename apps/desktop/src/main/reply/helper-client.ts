@@ -39,8 +39,10 @@ export interface DictationConfig {
 
 /** events 长驻模式的可持久化配置；进程重启后必须整体重放，避免听写退回默认状态。 */
 export interface HelperEventsConfig {
-  draft?: ModifierName;
-  voice?: ModifierName;
+  /** null 是显式禁用；不能省略，否则 helper 会继续沿用上一次配置。 */
+  draft?: ModifierName | null;
+  /** null 是显式禁用；配置变更时 helper 会先结束仍活跃的语音手势。 */
+  voice?: ModifierName | null;
   dictation?: DictationConfig;
 }
 

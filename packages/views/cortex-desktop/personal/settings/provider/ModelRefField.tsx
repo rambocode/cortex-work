@@ -35,7 +35,8 @@ export function ModelRefField({
   requireImage,
   hint,
 }: {
-  label: string;
+  /** 由外层 SRow 提供标签时可省略，避免同一字段出现两层标签。 */
+  label?: string;
   value: ModelRef | undefined;
   onChange: (ref: ModelRef) => void;
   requireImage?: boolean;
@@ -51,7 +52,7 @@ export function ModelRefField({
 
   return (
     <div className="pw-set-field">
-      <span className="pw-set-lbl">{label}</span>
+      {label ? <span className="pw-set-lbl">{label}</span> : null}
       <button
         type="button"
         className={`pw-model-ref ${status === "ok" ? "" : "is-blocked"}`}

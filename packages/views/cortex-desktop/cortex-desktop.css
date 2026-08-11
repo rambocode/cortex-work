@@ -12902,15 +12902,16 @@ button.sb-row {
    sticky 头（标题 + 分段导航滚动 spy）；权限行用状态点 + 进度条；渠道为内嵌子卡片
    （连接态胶囊）；调试记录为「徽标 + 等宽时间 + 状态点 + 详情」紧凑行。 */
 
-/* 根容器上提 28px 抵消 .pw-settings-content 的顶部留白,让 sticky 头初始就贴住容器顶边。 */
-.pw-reply-root { display: flex; flex-direction: column; margin-top: -28px; }
+/* 根容器上提 28px 抵消 .pw-settings-content 的顶部留白；水平 gutter 让标题、导航和卡片
+   不贴着内容列边缘。sticky 头通过负 margin 扩回整列宽度，但正文仍与卡片左边缘对齐。 */
+.pw-reply-root { display: flex; flex-direction: column; margin-top: -28px; padding-inline: 24px; }
 .pw-reply-head {
   position: sticky; top: 0; z-index: 20;
-  padding: 18px 0 10px;
-  /* 不透明背景:滚过的卡片内容不得从头部透出（半透明 + backdrop-filter 在实机上
-     会让下层文字直接可见,见反馈截图）。 */
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--border);
+  margin-inline: -24px;
+  padding: 18px 24px 10px;
+  /* 与设置页工作台使用同一底色：标题和说明不再形成独立白色面板；同时保持不透明，
+     避免 sticky 吸附后下层卡片文字穿透。层级只交给下方分段导航表达。 */
+  background: var(--bg-sidebar);
 }
 /* 分段导航（滚动 spy 高亮当前分区;窄窗横向滚动不换行）。 */
 .pw-reply-nav { display: inline-flex; align-self: flex-start; gap: 2px; padding: 3px; border-radius: 10px; background: var(--bg-sunken, var(--bg-hover)); margin-top: 12px; max-width: 100%; overflow-x: auto; }
@@ -12919,6 +12920,8 @@ button.sb-row {
 .pw-reply-nav-item.is-active { background: var(--bg-app); color: var(--text-1); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 /* 锚点跳转时给 sticky 头让位（与组件内 SPY_OFFSET 配套）。 */
 .pw-reply-sec { scroll-margin-top: 118px; }
+/* 模型字段与同卡片下拉保持相同的 340px 控件列，并在较窄窗口内安全收缩。 */
+.pw-reply-model-control { width: 340px; max-width: 100%; }
 
 /* 权限中心：卡片头（标题/说明在左,授权进度与标题同行右对齐）+ 状态点行。
    .pw-reply-perm-top 同时给调试记录卡片头（说明 + 右侧刷新按钮）复用。 */

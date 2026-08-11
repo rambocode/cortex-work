@@ -172,7 +172,7 @@ describe("ReplySettingsSection 权限中心", () => {
     // granted / denied / notDetermined / unknown 各态文案
     await waitFor(() => expect(screen.getAllByText("已授权").length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText("未授权")).toBeInTheDocument();
-    expect(screen.getByText("未设置")).toBeInTheDocument();
+    expect(screen.getByText("未设置", { selector: ".pw-reply-perm-status" })).toBeInTheDocument();
     expect(screen.getByText("未知")).toBeInTheDocument();
     // denied（screen）/ notDetermined（calendar）/ unknown（mic）各出现一个「去授权」按钮——
     // unknown 只在查询失败时出现，不该把用户卡在「检查」死循环里，统一直达系统设置。
@@ -199,6 +199,20 @@ describe("ReplySettingsSection 权限中心", () => {
 });
 
 describe("ReplySettingsSection 触发键与学习开关", () => {
+  it("起草与语音触发键都可选择未设置并写入 store", () => {
+    renderUI(<ReplySettingsSection />, makeBridge());
+    const selects = screen.getAllByRole("combobox");
+
+    for (const select of selects.slice(0, 2)) {
+      expect(Array.from((select as HTMLSelectElement).options).map((option) => option.textContent)).toContain("未设置");
+    }
+
+    fireEvent.change(selects[0]!, { target: { value: "none" } });
+    fireEvent.change(selects[1]!, { target: { value: "none" } });
+    expect(useReplyStore.getState().settings.draftTrigger).toBe("none");
+    expect(useReplyStore.getState().settings.voiceTrigger).toBe("none");
+  });
+
   it("修改起草触发键写入 store", async () => {
     renderUI(<ReplySettingsSection />, makeBridge());
     // 生成模型已改为按钮式 ModelRefField（不再是 select），故起草触发键是第一个 combobox。
@@ -217,6 +231,14 @@ describe("ReplySettingsSection 触发键与学习开关", () => {
 });
 
 describe("ReplySettingsSection 生成模型选择器（Catalog 驱动）", () => {
+  it("模型说明与选择器使用统一的设置行布局", () => {
+    renderUI(<ReplySettingsSection />, makeBridge());
+    const modelButton = screen.getByText("未配置模型").closest("button");
+    const modelRow = modelButton?.closest(".pw-srow");
+    expect(modelRow).not.toBeNull();
+    expect(modelRow?.querySelector(".pw-srow-c-end .pw-reply-model-control")).not.toBeNull();
+  });
+
   it("未配置模型 → 阻断态：显示「未配置模型」而不是悄悄回退到某个默认模型", () => {
     renderUI(<ReplySettingsSection />, makeBridge());
     expect(screen.getByText("未配置模型")).toBeInTheDocument();

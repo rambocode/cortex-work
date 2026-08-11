@@ -84,6 +84,7 @@ import { destroyDictationWindow, pushDictationBarState } from "./voice/dictation
 import { mapAcceleratorToMacKeyCode } from "./voice/accelerator-keycode";
 // 快捷回复助手（reply，U7）：仅 macOS 接线（AX / CGEventTap / Vision / EventKit 均为 macOS 专属）。
 import { ReplyHelperClient } from "./reply/helper-client";
+import { buildReplyTriggerConfig } from "./reply/trigger-config";
 import { resolveReplyHelperBinary } from "./reply/helper-locate";
 import { queryReplyPermissions } from "./reply/permissions";
 import {
@@ -97,6 +98,7 @@ import {
   getLastReplySnapshot,
   setReplyHelperPermissionsSource,
   setReplyRelearnHandler,
+  setReplySettingsSyncHandler,
   replyHistoryStore,
   replyConversationStore,
   replyMemoryStore,
@@ -184,13 +186,15 @@ function registerNotesHotkey(accelerator: string): HotkeyRegistration {
 // 仅 macOS：非 mac 平台完全不 spawn helper、不注册任何 reply 入口（守卫在 initReply 调用处）。
 let replyHelper: ReplyHelperClient | null = null;
 let replyFallbackRegistered = false;
+// 显式选择「未设置」时连降级 accelerator 也必须关闭，不能把禁用手势偷换成另一组快捷键。
+let replyDraftTriggerEnabled = true;
 let dictationController: DictationController | null = null;
 // 语音聊天键现在指向语音助手(pet-overlay 窗口的语音球):唤起前的前台 pid 冻结、
 // 快速连按守卫都内聚在 ipc/voice-assistant.ts 的 activate 流程里。
 
 // 注册 reply 兜底 accelerator（KTD7）：辅助功能未授权 / helper 降级时以此组合键手动触发起草。幂等。
 function registerReplyFallbackHotkey(): void {
-  if (replyFallbackRegistered) return;
+  if (!replyDraftTriggerEnabled || replyFallbackRegistered) return;
   const ok = globalShortcut.register(REPLY_HOTKEY_ACCELERATOR, triggerReplyDraft);
   if (ok) replyFallbackRegistered = true;
   else log.warn(`[reply] 兜底热键 ${REPLY_HOTKEY_ACCELERATOR} 被占用,无法降级到快捷键入口`);
@@ -301,6 +305,28 @@ async function initReply(): Promise<void> {
   });
   // 权限中心 IPC（reply:getPermissions）的 helper 兜底源：与 syncReplyInputMode 用同一 one-shot 命令。
   const helperForPerms = replyHelper;
+  let lastTriggerConfigKey = "";
+  const applyReplyTriggerSettings = (settings: Parameters<typeof buildReplyTriggerConfig>[0]): boolean => {
+    const config = buildReplyTriggerConfig(settings);
+    const configKey = JSON.stringify(config);
+    if (configKey === lastTriggerConfigKey) return false;
+    lastTriggerConfigKey = configKey;
+    replyDraftTriggerEnabled = config.draft !== null;
+    helperForPerms.sendConfig(config);
+    if (!replyDraftTriggerEnabled) unregisterReplyFallbackHotkey();
+    return true;
+  };
+
+  // IPC 注册早于 macOS helper 初始化；若 renderer 已推过快照，优先使用快照，否则读取落盘值。
+  // sendConfig 在 events 尚未启动时也会记住配置，ready 后完整重放，避免启动瞬间闪用默认键。
+  const initialReplySettings = getLastReplySnapshot()?.settings ?? (await getPersistedState()).replySettings;
+  applyReplyTriggerSettings(initialReplySettings);
+  setReplySettingsSyncHandler((snapshot) => {
+    if (applyReplyTriggerSettings(snapshot.settings)) {
+      // 设置由 none 改回具体键时，重新判断辅助功能权限，必要时恢复降级 accelerator。
+      void syncReplyInputMode();
+    }
+  });
   // 听写与快捷回复共用唯一 events helper。controller 固定录音开始时的前台 pid，
   // 结果回来再复查后才通过 helper.paste 写入，防止用户切窗时口述内容泄露到错误应用。
   dictationController = new DictationController({

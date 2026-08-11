@@ -13,13 +13,8 @@ import Foundation
 // 监听依赖常规 App 的 runloop,不可靠;且吞键必须用 active tap(被动监听无法拦截)。
 // tap 会被系统在超时 / 安全输入(密码框)后禁用,回调里检测到即重新启用(移植 CandidateKeyInterceptor 契约)。
 
-/// 修饰键名 → CGEventFlags 单键位映射(与主进程下发的 config 字符串对齐)
-private func flag(for name: String) -> CGEventFlags {
-    modifierFlag(for: name) ?? .maskCommand
-}
-
-/// 仅接受主进程协议中约定的修饰键名。dictation 配置不能像 reply 旧配置那样静默回退到
-/// Command，否则一条损坏设置可能意外吞掉用户的 Command 组合键。
+/// 仅接受主进程协议中约定的修饰键名。无效配置不能静默回退到 Command，否则一条损坏
+/// 设置可能意外触发快捷回复或吞掉用户的 Command 组合键。
 private func modifierFlag(for name: String) -> CGEventFlags? {
     switch name {
     case "command": return .maskCommand
@@ -49,9 +44,10 @@ final class EventsMode {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    // 手势配置(可经 stdin config 命令覆盖);默认起草=⌘、语音=Fn
-    private var draftFlag: CGEventFlags = .maskCommand
-    private var voiceFlag: CGEventFlags = .maskSecondaryFn
+    // 手势配置(可经 stdin config 命令覆盖);默认起草=⌘、语音=Fn。nil 表示用户显式禁用，
+    // 与主进程 config 中的 JSON null 对齐，不能退回默认键。
+    private var draftFlag: CGEventFlags? = .maskCommand
+    private var voiceFlag: CGEventFlags? = .maskSecondaryFn
 
     // 吞键开关:仅气泡激活期间由主进程下发 {"cmd":"intercept","on":true} 打开
     private var interceptOn = false
@@ -137,8 +133,8 @@ final class EventsMode {
     /// 修饰键状态变化时的手势判定(移植 HotkeyMonitor.handleFlags):
     /// 起草键 0.35s 内两次按下 → draft-gesture;语音键按下/抬起 → voice-start/voice-end。
     private func handleFlags(_ flags: CGEventFlags) {
-        let draftDown = flags.contains(draftFlag)
-        let voiceDown = flags.contains(voiceFlag)
+        let draftDown = draftFlag.map { flags.contains($0) } ?? false
+        let voiceDown = voiceFlag.map { flags.contains($0) } ?? false
 
         if draftDown && !wasDraftDown && !voiceActive {
             let now = Date()
@@ -247,8 +243,10 @@ final class EventsMode {
         case "intercept":
             interceptOn = (obj["on"] as? Bool) ?? false
         case "config":
-            if let draft = obj["draft"] as? String { draftFlag = flag(for: draft) }
-            if let voice = obj["voice"] as? String { voiceFlag = flag(for: voice) }
+            // 字段缺失表示沿用旧值，JSON null 才是显式禁用。分别重置边沿状态，避免改键时
+            // 把旧键的一次按下与新键拼成双击，或让已开始的语音录音失去结束事件。
+            if obj.keys.contains("draft") { configureDraft(obj["draft"]) }
+            if obj.keys.contains("voice") { configureVoice(obj["voice"]) }
             if let dictation = obj["dictation"] as? [String: Any] {
                 configureDictation(dictation)
             }
@@ -257,6 +255,22 @@ final class EventsMode {
         default:
             break
         }
+    }
+
+    private func configureDraft(_ raw: Any?) {
+        draftFlag = (raw as? String).flatMap(modifierFlag(for:))
+        lastDraftTap = nil
+        wasDraftDown = false
+    }
+
+    private func configureVoice(_ raw: Any?) {
+        // 改键或禁用发生在按住期间时，先结束旧语音会话，确保主进程不会卡在录音态。
+        if voiceActive {
+            emitJSON(["event": "voice-end"])
+        }
+        voiceFlag = (raw as? String).flatMap(modifierFlag(for:))
+        wasVoiceDown = false
+        voiceActive = false
     }
 
     /// 应用按住听写配置。配置变更期间若正在录音，先发结束事件，避免旧键松开后无法配对而

@@ -11,10 +11,10 @@ import type { ChannelId, ChannelConnectionState, ChannelVerifyErrorKind } from "
 
 // ── 设置分片（replySettings）───────────────────────────────────────────────────
 
-/// 起草触发修饰键（双击唤起起草）。默认 cmd（源项目 draftTrigger 默认 ⌘）。
-export type ReplyDraftTriggerKey = "cmd" | "option" | "fn";
-/// 语音触发修饰键（按住说话）。默认 fn（源项目 voiceTrigger 默认 Fn）。
-export type ReplyVoiceTriggerKey = "fn" | "rightOption" | "cmd";
+/// 起草触发修饰键（双击唤起起草）。默认 cmd；none 表示不监听起草手势。
+export type ReplyDraftTriggerKey = "none" | "cmd" | "option" | "fn";
+/// 语音触发修饰键（按住说话）。默认 fn；none 表示不监听语音手势。
+export type ReplyVoiceTriggerKey = "none" | "fn" | "rightOption" | "cmd";
 
 /// 快捷回复的用户可配置项（持久化随 personal-workspace.json 落盘）。
 export interface ReplySettings {
@@ -150,4 +150,3 @@ export interface ReplyRelearnResult {
   learned?: number;
   error?: string;
 }
-
