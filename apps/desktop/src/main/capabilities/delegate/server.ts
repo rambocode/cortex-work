@@ -6,7 +6,7 @@
 //   · per-turn 动态工具集：ToolRegistrar 每个 HTTP 请求从 sessionStateMap.get(ctx.sessionId) 取
 //     本轮 roles，动态 registerTool 每个 ask_<id>。主 agent 每轮 fresh spawn、同 sessionId 更新
 //     state → 工具集随本轮 @mention 变化（用户决策：仅限被 @ 的协作者 / 每协作者一个工具）。
-//   · handler 在主进程内执行：经 state.runSubAgent（由 cli.ts 注入）spawn 子 agent，await 同步
+//   · handler 在主进程内执行：经 state.runSubAgent（由 cli.ts / pi-delegate.ts 注入）启动子 agent，await 同步
 //     完成，子 agent 输出作为 tool_result 返回主 agent；过程经 state.pushEvent 实时推渲染端（roleId）。
 //
 // 防递归（核心安全不变量）：
@@ -15,8 +15,9 @@
 //   这同时天然满足「只有主 agent 能委派 / 仅限被 @ 的协作者」。
 //
 // 依赖方向（避免与 cli.ts 循环）：本模块**不** import cli.ts 的运行时原语；所有 spawn 能力经
-//   DelegateSessionState 的回调（runSubAgent/pushEvent/bumpWatchdog/abort）由 cli.ts 在 cli:start
-//   构造并 registerDelegateSession 注入。cli.ts 单向 import 本模块的 register/build/host 函数。
+//   DelegateSessionState 的回调（runSubAgent/pushEvent/bumpWatchdog/abort）由 cli.ts（CLI 单发）或
+//   pi-delegate.ts（Pi gateway 长驻会话）在各自入口构造并 registerDelegateSession 注入；本模块不反向
+//   import 任一 IPC 入口，依赖仍保持单向。
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -53,10 +54,10 @@ export interface SubAgentResult {
   error?: string;
 }
 
-// ── per-session 运行时状态（由 cli.ts cli:start 构造并注册） ──────────────────────
+// ── per-session 运行时状态（由 cli.ts / pi-delegate.ts 构造并注册） ─────────────────
 //
 // 与 media-gen 的 sessionStateMap 同构，但 state 含运行时回调（pushEvent/runSubAgent 等），
-// 这些只有 cli:start 拿得到 event.sender / AbortController，故 register 由 cli.ts 单独调用，
+// 这些只有调用入口拿得到 sender / AbortController，故 register 由 cli.ts 或 pi-delegate.ts 调用，
 // 不放进纯函数 buildDelegateMcpServerConfig。
 export interface DelegateSessionState {
   sessionId: string;
@@ -78,18 +79,20 @@ export interface DelegateSessionState {
   childRunCount: number;
   activeRuns: number;
   waiters: DelegateWaiter[];
-  // cli.ts 注入：spawn 子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
+  // 调用入口注入：启动子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
   runSubAgent: (
     role: RoleConfig,
     task: string,
     onEvent: (ev: CliStreamEvent) => void,
     childSessionId: string,
+    signal?: AbortSignal,
   ) => Promise<SubAgentResult>;
 }
 
 type DelegateWaiter = {
   resolve: (acquired: boolean) => void;
   onAbort: () => void;
+  signal: AbortSignal;
 };
 
 const sessionStateMap = new Map<string, DelegateSessionState>();
@@ -101,7 +104,10 @@ export function registerDelegateSession(state: DelegateSessionState): void {
   sessionStateMap.set(state.sessionId, state);
 }
 
-export function unregisterDelegateSession(sessionId: string): void {
+export function unregisterDelegateSession(sessionId: string, expectedState?: DelegateSessionState): void {
+  // 同 sessionId 的新一轮可能已覆盖旧 state；旧运行迟到收尾时只能删除自己，不能把新一轮
+  // 的 ask_* 工具一起摘掉。未传 expectedState 保留管理/测试侧“按 id 强制注销”的既有语义。
+  if (expectedState && sessionStateMap.get(sessionId) !== expectedState) return;
   sessionStateMap.delete(sessionId);
 }
 
@@ -135,8 +141,8 @@ function normalizeLimit(value: number, fallback: number, max: number): number {
  * 获取本轮委派的并行槽。已满时按到达顺序等待；主会话取消会移除等待者并返回 false，
  * 避免一个永远不会启动的子任务把 MCP tool call 悬挂到进程退出。
  */
-async function acquireDelegateSlot(state: DelegateSessionState): Promise<boolean> {
-  if (state.signal.aborted) return false;
+async function acquireDelegateSlot(state: DelegateSessionState, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false;
   if (state.activeRuns < state.maxParallel) {
     state.activeRuns += 1;
     return true;
@@ -149,9 +155,10 @@ async function acquireDelegateSlot(state: DelegateSessionState): Promise<boolean
         if (index >= 0) state.waiters.splice(index, 1);
         resolve(false);
       },
+      signal,
     };
     state.waiters.push(waiter);
-    state.signal.addEventListener("abort", waiter.onAbort, { once: true });
+    signal.addEventListener("abort", waiter.onAbort, { once: true });
   });
 }
 
@@ -160,8 +167,8 @@ function releaseDelegateSlot(state: DelegateSessionState): void {
   state.activeRuns = Math.max(0, state.activeRuns - 1);
   while (state.waiters.length > 0) {
     const waiter = state.waiters.shift()!;
-    state.signal.removeEventListener("abort", waiter.onAbort);
-    if (state.signal.aborted) {
+    waiter.signal.removeEventListener("abort", waiter.onAbort);
+    if (waiter.signal.aborted) {
       waiter.resolve(false);
       continue;
     }
@@ -177,8 +184,14 @@ async function executeDelegateTool(
   state: DelegateSessionState,
   task: string,
   subagentTitle?: string,
+  requestSignal?: AbortSignal,
 ): Promise<ToolResult> {
-  if (state.signal.aborted) return errorResult("已取消");
+  // SDK 的 request signal 在 HTTP 调用方断开/超时时触发；必须与父回合 signal 合并。
+  // 只监听父 signal 会让已取消的排队请求稍后仍获得槽位并启动无主 child。
+  const signal = requestSignal && requestSignal !== state.signal
+    ? AbortSignal.any([state.signal, requestSignal])
+    : state.signal;
+  if (signal.aborted) return errorResult("已取消");
   // task/query 必须自包含；空输入直接返回明确错误，避免独立子进程因拿不到主会话上下文而无效退出。
   const taskText = typeof task === "string" ? task.trim() : "";
   if (!taskText) {
@@ -196,7 +209,7 @@ async function executeDelegateTool(
     );
   }
   state.childRunCount += 1;
-  const acquired = await acquireDelegateSlot(state);
+  const acquired = await acquireDelegateSlot(state, signal);
   if (!acquired) return errorResult("已取消");
   // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
   // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
@@ -242,7 +255,7 @@ async function executeDelegateTool(
   try {
     let result: SubAgentResult;
     try {
-      result = await state.runSubAgent(role, taskText, onEvent, childSessionId);
+      result = await state.runSubAgent(role, taskText, onEvent, childSessionId, signal);
     } catch (err) {
       // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
       // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
@@ -304,8 +317,8 @@ function registerDelegateTool(mcp: McpServer, role: RoleConfig, state: DelegateS
           query: z.string().min(1).describe("范围明确且自包含的只读探索任务；子 Agent 看不到主会话上下文。"),
         },
       },
-      async ({ title, query }: { title: string; query: string }): Promise<ToolResult> =>
-        executeDelegateTool(role, state, query, title),
+      async ({ title, query }: { title: string; query: string }, extra): Promise<ToolResult> =>
+        executeDelegateTool(role, state, query, title, extra.signal),
     );
     return;
   }
@@ -327,7 +340,8 @@ function registerDelegateTool(mcp: McpServer, role: RoleConfig, state: DelegateS
         ),
       },
     },
-    async ({ task }: { task: string }): Promise<ToolResult> => executeDelegateTool(role, state, task),
+    async ({ task }: { task: string }, extra): Promise<ToolResult> =>
+      executeDelegateTool(role, state, task, undefined, extra.signal),
   );
 }
 
@@ -371,7 +385,7 @@ export function getDelegateHostHandle(): McpHostHandle | null {
 // ── 注入配置构建（纯函数；register 由 cli.ts 单独调用） ────────────────────────
 //
 // 与 media-gen 不同：本函数**不** registerDelegateSession（delegate state 含运行时回调，
-// 只有 cli:start 能构造）。这里只产出 http 注入配置（url + Bearer + X-Cortex-Session）。
+// 只能由 cli:start / pi:open 构造）。这里只产出 http 注入配置（url + Bearer + X-Cortex-Session）。
 // host 未起 / 不可用 → 返回 null，注入侧据此不注入（避免给 agent 一个连不上的 url）。
 export function buildDelegateMcpServerConfig(sessionId: string | undefined): McpServerConfig | null {
   if (!sessionId) return null;

@@ -440,7 +440,12 @@ describe("三段顺序执行与 prompt 串接", () => {
       channel: "pi:uiRequest",
       payload: { uiSessionId: baseReq.sessionId, request: req },
     });
-    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(baseReq.sessionId, "confirm-1", fakePiSessions[1]);
+    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(
+      baseReq.sessionId,
+      "confirm-1",
+      fakePiSessions[1],
+      sender,
+    );
     expect(clearTransientPiUiRequestsForSessionMock).toHaveBeenCalledWith(fakePiSessions[1]);
   });
 
@@ -1496,7 +1501,12 @@ describe("并发隔离（一个会话的异常不能拖垮其它会话）", () =
       channel: "pi:uiRequest",
       payload: { uiSessionId: baseReq.sessionId, request: uiReq },
     });
-    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(baseReq.sessionId, "confirm-1", s1);
+    expect(registerTransientPiUiRequestMock).toHaveBeenCalledWith(
+      baseReq.sessionId,
+      "confirm-1",
+      s1,
+      sender,
+    );
     expect(clearTransientPiUiRequestsForSessionMock).toHaveBeenCalledWith(s1);
   });
 });

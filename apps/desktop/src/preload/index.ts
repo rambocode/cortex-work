@@ -660,6 +660,12 @@ const personal = {
     ipcRenderer.on("pi:uiRequest", listener);
     return () => ipcRenderer.removeListener("pi:uiRequest", listener);
   },
+  onPiUiCancel: (cb: (uiSessionId: string, requestId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; requestId: string }) =>
+      cb(payload.uiSessionId, payload.requestId);
+    ipcRenderer.on("pi:uiCancel", listener);
+    return () => ipcRenderer.removeListener("pi:uiCancel", listener);
+  },
   piUiResponse: (uiSessionId: string, id: string, payload: PiUiResponsePayload): Promise<void> =>
     ipcRenderer.invoke("pi:uiResponse", uiSessionId, id, payload),
   // 内嵌终端（xterm ↔ node-pty）

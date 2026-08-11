@@ -132,6 +132,35 @@ interface HostSessionEntry {
 }
 
 /**
+ * open 的一个独立代际。`session` 在 rebind/session_start 完成前就可用，
+ * 专门承接启动阶段的 UI 回写；已发出 id 用于 close/shutdown 时主动回 cancelled。
+ */
+interface OpeningEntry {
+  cancelled: boolean;
+  session?: PiSessionEngine;
+  pendingUiRequestIds: Set<string>;
+}
+
+/**
+ * 取消一个尚在 rebind/session_start 的 open。不立即 stop：`bindExtensions()` 会串行
+ * 执行多个 handler，先 stop 会让后续新弹出的对话失去 respondUi 能力。这里先结算
+ * 已挂起项，后续项由 emitUiRequest() 看到 cancelled 后即时结算；open 返回后再统一 stop。
+ */
+function cancelOpeningUi(opening: OpeningEntry): void {
+  opening.cancelled = true;
+  const session = opening.session;
+  if (!session) return;
+  for (const requestId of opening.pendingUiRequestIds) {
+    try {
+      session.respondUi(requestId, { cancelled: true });
+    } catch {
+      // 单个扩展对话的回写失败不影响其余 pending 收口。
+    }
+  }
+  opening.pendingUiRequestIds.clear();
+}
+
+/**
  * 一个 pi-host：**常驻进程，多会话复用**。
  *
  * 状态机：boot（预热已在跑）→ 任意次 `open`/`call`/`closeSession` 交错 → `shutdown` → 退出。
@@ -140,8 +169,8 @@ interface HostSessionEntry {
 export class PiHost {
   /** 会话注册表：sessionId → 会话。所有会话级消息按它路由。 */
   private readonly sessions = new Map<string, HostSessionEntry>();
-  /** 正在 open 的 sessionId：挡同一会话的并发重复 open，也让 open 期间的事件不被当成无主丢掉。 */
-  private readonly opening = new Set<string>();
+  /** 正在 open 的代际：除了挡重复 open，还让 close/timeout 能取消尚未入表的会话。 */
+  private readonly opening = new Map<string, OpeningEntry>();
   private shuttingDown = false;
 
   /**
@@ -230,7 +259,8 @@ export class PiHost {
       this.reply(id, false, undefined, `会话已存在，不支持重复 open: ${sessionId}`);
       return;
     }
-    this.opening.add(sessionId);
+    const opening: OpeningEntry = { cancelled: false, pendingUiRequestIds: new Set() };
+    this.opening.set(sessionId, opening);
     // 组装成功但建会话失败时要手动释放：`PiInProcSession.stop()` 是唯一会调 `onDispose` 的地方，
     // 而那时会话根本没建起来。不释放的话 MCP 的 stdio 子进程会一直挂在常驻 worker 里——
     // 多会话形态下进程不再随会话退出，这条泄漏比单会话时代更致命。
@@ -244,6 +274,9 @@ export class PiHost {
         resolveModel: createWorkerModelResolver(credentials),
       };
       deps = this.trackDispose(await (this.options.buildDeps ?? buildWorkerDeps)(request, ctx), dispose);
+      if (opening.cancelled || this.shuttingDown || this.opening.get(sessionId) !== opening) {
+        throw new Error(`pi 会话开启已取消: ${sessionId}`);
+      }
 
       const openSession = this.options.openSession ?? openPiInProcSession;
       const session = await openSession({
@@ -255,18 +288,51 @@ export class PiHost {
         ...(hasUiOutlet ? { onUiRequest: (req: PiUiRequest) => this.emitUiRequest(sessionId, req) } : {}),
         ...(request.askQuestionSentinel ? { askQuestionSentinel: request.askQuestionSentinel } : {}),
         ...(request.jsReplSentinel ? { jsReplSentinel: request.jsReplSentinel } : {}),
+        // openPiInProcSession 在 await rebind/session_start 前回调。否则启动扩展弹出
+        // confirm 后，worker 只有 opening 却没有 sessions entry，用户应答会被丢弃。
+        onSessionCreated: (created) => {
+          if (this.opening.get(sessionId) !== opening) {
+            created.stop();
+            return;
+          }
+          opening.session = created;
+        },
         deps,
       });
+      if (opening.cancelled || this.shuttingDown || this.opening.get(sessionId) !== opening) {
+        // closeSession 在 openSession await 期间到达时，引擎已经接管 deps；必须走 stop
+        // 的唯一释放路径，不能再手动 onDispose 一次。
+        try {
+          void Promise.resolve(session.abort()).catch(() => undefined);
+          session.stop();
+        } finally {
+          deps = null;
+        }
+        throw new Error(`pi 会话开启已取消: ${sessionId}`);
+      }
       this.sessions.set(sessionId, { session, dispose });
+      // 会话已接管 deps；后续只能由 session.stop() 释放，catch 不得重入。
+      deps = null;
       this.reply(id, true);
     } catch (err) {
       // 建会话失败必须响亮：主进程据此把 `pi:open` 转成 rejection，用户看到的是
       // 「供应商未配置 / 模型不存在」这类可操作的文案，而不是一个卡住的会话。
       log.error("建立 pi 会话失败", { sessionId, error: errText(err) });
-      void deps?.onDispose?.();
+      if (opening.session) {
+        // onSessionCreated 后的 rebind/session_start 仍可失败。此时引擎已接管 deps，
+        // 只能经 stop() 这个唯一出口解对话、退订并触发 onDispose，不能再手工释放一次。
+        try {
+          opening.session.stop();
+        } catch (stopError) {
+          log.warn("回收建立失败的 pi 会话异常", { sessionId, error: errText(stopError) });
+        }
+        deps = null;
+      } else {
+        void deps?.onDispose?.();
+      }
       this.reply(id, false, undefined, errText(err));
     } finally {
-      this.opening.delete(sessionId);
+      if (this.opening.get(sessionId) === opening) this.opening.delete(sessionId);
     }
   }
 
@@ -328,7 +394,8 @@ export class PiHost {
    * 路由进已关闭的会话。open 期间（注册表尚未登记）的事件靠 `opening` 集合放行。
    */
   private emitEvent(sessionId: string, event: PiSessionEvent, runId?: string): void {
-    if (!this.sessions.has(sessionId) && !this.opening.has(sessionId)) return;
+    const opening = this.opening.get(sessionId);
+    if (!this.sessions.has(sessionId) && (!opening || opening.cancelled)) return;
     this.send(
       runId !== undefined ? { kind: "event", sessionId, event, runId } : { kind: "event", sessionId, event },
     );
@@ -342,6 +409,17 @@ export class PiHost {
    * `sessionId` 必带：主进程按它路由到对应会话的 UI 出口（多会话审批互不串台的前一半）。
    */
   private emitUiRequest(sessionId: string, request: PiUiRequest): void {
+    const opening = this.opening.get(sessionId);
+    if (!this.sessions.has(sessionId)) {
+      if (!opening) return;
+      if (opening.cancelled) {
+        // close/shutdown 可在 session_start 的多个 handler 之间到达。已挂起的 id 由
+        // cancelOpeningUi() 解锁；此后新来的对话也要立即取消，否则 open 仍会卡住。
+        opening.session?.respondUi(request.id, { cancelled: true });
+        return;
+      }
+      opening.pendingUiRequestIds.add(request.id);
+    }
     this.send({ kind: "uiRequest", sessionId, requestId: request.id, request });
   }
 
@@ -353,11 +431,17 @@ export class PiHost {
    */
   private onUiResponse(sessionId: string, requestId: string, payload: PiUiResponsePayload): void {
     const entry = this.sessions.get(sessionId);
-    if (!entry) {
+    if (entry) {
+      entry.session.respondUi(requestId, payload);
+      return;
+    }
+    const opening = this.opening.get(sessionId);
+    if (!opening || opening.cancelled || !opening.session) {
       log.warn("收到 UI 应答但会话不存在，已丢弃", { sessionId, requestId });
       return;
     }
-    entry.session.respondUi(requestId, payload);
+    opening.pendingUiRequestIds.delete(requestId);
+    opening.session.respondUi(requestId, payload);
   }
 
   // ── 反向请求：凭据（KTD1）───────────────────────────────────────────────────────────
@@ -431,6 +515,8 @@ export class PiHost {
    * 会话继续烧模型调用与工具执行（单会话时代靠进程退出兜底，现在没有这层了）。
    */
   private onCloseSession(id: string, sessionId: string): void {
+    const opening = this.opening.get(sessionId);
+    if (opening) cancelOpeningUi(opening);
     const entry = this.sessions.get(sessionId);
     if (!entry) {
       this.reply(id, true);
@@ -463,6 +549,9 @@ export class PiHost {
       return;
     }
     this.shuttingDown = true;
+    // 在途 open 没进 sessions，但它们的 await 可能在 shutdown 后才返回；先标记才能
+    // 阻止迟到引擎反向登记，测试环境不真退进程时尤其重要。
+    for (const opening of this.opening.values()) cancelOpeningUi(opening);
     const disposals: Array<Promise<void>> = [];
     for (const [sessionId, entry] of this.sessions) {
       try {

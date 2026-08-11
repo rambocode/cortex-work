@@ -12,6 +12,7 @@ import {
   __handleCliEventForTest,
   __handleCliExitForTest,
   __handlePiEventForTest,
+  __markRunStoppingForTest,
   __resetPersonalMessageRunsForTest,
   __resolveSessionModelRefForTest,
   __setBridgeForTest,
@@ -19,6 +20,8 @@ import {
   __clearProcessForTest,
   __scheduleStrayProcessTimerForTest,
   __processCleanupTimerCountForTest,
+  __scheduleStopFallbackForTest,
+  __sendPiTurnForTest,
   __autoTitleForTest,
   presetSessionTitle,
   adjustHiddenHistoryForSanitize,
@@ -60,7 +63,7 @@ import {
   typingText,
   windowTailMessages,
 } from "./messages";
-import { __resetPiSessionsForTest, isPiSessionOpen } from "./pi-session";
+import { __resetPiSessionsForTest, ensurePiSession, isPiSessionOpen } from "./pi-session";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { Message } from "../types";
 import { DEFAULT_SUBAGENT_SETTINGS } from "./subagents";
@@ -1177,6 +1180,30 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     return runId;
   }
 
+  function deferredClosePiBridge(): {
+    bridge: DesktopBridge;
+    piOpen: ReturnType<typeof vi.fn>;
+    piClose: ReturnType<typeof vi.fn>;
+    releaseClose: () => void;
+  } {
+    let releaseClose: () => void = () => undefined;
+    const closePending = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const piOpen = vi.fn(async (req: { uiSessionId: string }) => ({
+      uiSessionId: req.uiSessionId,
+      sessionId: `native-${piOpen.mock.calls.length}`,
+      sessionFile: `/sessions/${req.uiSessionId}.jsonl`,
+    }));
+    const piClose = vi.fn(() => closePending);
+    return {
+      bridge: { piOpen, piClose, saveChat: vi.fn(async () => undefined) } as unknown as DesktopBridge,
+      piOpen,
+      piClose,
+      releaseClose,
+    };
+  }
+
   function cacheOf(qc: QueryClient, sessionId = "s1"): Message[] {
     return qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
   }
@@ -1331,18 +1358,27 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(log?.kind === "agentLog" && log.items[0]).toMatchObject({ ic: "check", text: "⚠️ Bash · rm -rf" });
   });
 
-  it("result(willRetry:false) 收尾本轮:清 running + 落定", async () => {
+  it("result 先落定当前输出但保持运行，自动 follow-up 继续折叠，直到 settled 才收尾", async () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
-    setupPiRun(qc);
-    __handlePiEventForTest(qc, "s1", { type: "text", delta: "完成" });
+    const runId = setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "第一段" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
+
+    // agent_end/result 后 Pi extension 仍可排队自动 follow-up；它仍属于同一 renderer run。
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "续跑" });
+    const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
+    expect(texts).toEqual([expect.objectContaining({ text: "第一段续跑" })]);
+    expect(usePersonalStore.getState().runningBySession.s1).toBe(runId);
+
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     vi.useRealTimers();
   });
 
   // settled（pi 0.82.1 agent_settled）三种到达顺序都必须幂等——重复收尾会多出空卡片 / usage 双计。
-  it("settled 在 result 之后到达 → no-op（run 已删,不重复收尾）", async () => {
+  it("settled 在 result 之后到达 → authoritative 收尾且不改已折叠正文", async () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
     setupPiRun(qc);
@@ -1351,7 +1387,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const afterResult = cacheOf(qc);
     __handlePiEventForTest(qc, "s1", { type: "settled" });
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
-    // 消息流不因迟到的 settled 增删任何条目。
+    // result 已经落定正文；settled 只释放运行生命周期，不重复增删正文。
     expect(cacheOf(qc)).toEqual(afterResult);
     vi.useRealTimers();
   });
@@ -1450,8 +1486,9 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
       (x) => x.kind === "text" && typeof x.text === "string" && x.text.includes("索引完成"),
     );
     expect(m).toMatchObject({ who: "pi" });
-    // 随后补发的 result 收尾不应再加「纯工具轮」占位（sawText 已置真）。
+    // synthetic slash finalize 会同步补发 result + settled；notify 已置 sawText，不能再加占位。
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     expect(cacheOf(qc).some((x) => x.kind === "text" && typeof x.text === "string" && x.text.includes("索引完成"))).toBe(true);
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined(); // 已收尾
   });
@@ -1526,23 +1563,67 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     vi.useRealTimers();
   });
 
-  it("error 后无 result:宽限到期自行收尾清 running（防 pi 不发 agent_end 卡死）", async () => {
+  it("error 后无 settled:宽限到期先关闭 Pi 世代，close 完成后才释放 running", async () => {
     vi.useFakeTimers();
+    __resetPiSessionsForTest();
     const qc = new QueryClient();
+    const { bridge, piClose, releaseClose } = deferredClosePiBridge();
+    __setBridgeForTest(bridge);
+    await ensurePiSession(bridge, { uiSessionId: "s1", cwd: "/proj" });
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "error", error: "401 unauthorized" });
     expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1"); // 暂不收尾,等宽限
     await vi.advanceTimersByTimeAsync(4_000);
+
+    // closePiSession 同步取消旧 handle 并发出主进程关闭；在关闭真正完成前不能放开下一轮。
+    expect(piClose).toHaveBeenCalledWith("s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+    releaseClose();
+    await vi.advanceTimersByTimeAsync(0);
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    __resetPiSessionsForTest();
     vi.useRealTimers();
   });
 
-  it("error 紧跟 result:下个事件取消宽限,不重复收尾", async () => {
+  it("stop 兜底关闭在途时 settled 抢先收尾：后继 ensure 等旧 close，迟到回调不清新轮", async () => {
+    vi.useFakeTimers();
+    __resetPiSessionsForTest();
+    const qc = new QueryClient();
+    const { bridge, piOpen, piClose, releaseClose } = deferredClosePiBridge();
+    __setBridgeForTest(bridge);
+    await ensurePiSession(bridge, { uiSessionId: "s1", cwd: "/proj" });
+    setupPiRun(qc);
+    __scheduleStopFallbackForTest(qc, bridge, "s1", "prun-1");
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(piClose).toHaveBeenCalledWith("s1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+
+    // authoritative settled 可先结束 A；即使 UI 随即进入 B，旧 close completion 也只能认 A 对象。
+    __handlePiEventForTest(qc, "s1", { type: "settled" }, "prun-1");
+    beginPiRun(qc, { runId: "prun-2", sessionId: "s1", typingUid: "typ-s1-b", cwd: "/proj" });
+    const reopening = ensurePiSession(bridge, { uiSessionId: "s1", cwd: "/proj" });
+    await Promise.resolve();
+    expect(piOpen).toHaveBeenCalledTimes(1); // 旧 close 未完成，B 不能抢先 piOpen。
+
+    releaseClose();
+    await reopening;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(piOpen).toHaveBeenCalledTimes(2);
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-2");
+    __handlePiEventForTest(qc, "s1", { type: "settled" }, "prun-1");
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-2");
+    __resetPiSessionsForTest();
+    vi.useRealTimers();
+  });
+
+  it("error 紧跟 result:取消错误宽限，仍等 settled authoritative 收尾", async () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "error", error: "boom" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(usePersonalStore.getState().runningBySession.s1).toBe("prun-1");
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     const before = (qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? []).length;
     await vi.advanceTimersByTimeAsync(6_000); // 宽限已被取消,不应再动消息
@@ -1559,6 +1640,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true }); // 复位游标
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "重试答案" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     // 首答与重试答案各自成块（游标已在 willRetry 复位,不并入同一块）。
     expect(texts.some((m) => m.kind === "text" && m.text === "重试答案")).toBe(true);
@@ -1886,6 +1968,7 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "正在分析" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
 
     const texts = chatOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     expect(texts).toHaveLength(1);
@@ -2129,14 +2212,15 @@ describe("U2 过程流生命周期与清理出口", () => {
     vi.useRealTimers();
   });
 
-  it("pi result(成功) 收尾本轮:过程流 reasoning+agentLog 全部完成且保留", () => {
+  it("pi settled authoritative 收尾:过程流 reasoning+agentLog 全部完成且保留", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "想想" });
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
-    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false }); // 同步收尾 finalizeRun 成功路径。
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" }); // authoritative finalizeRun 成功路径。
     expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
     // 过程流保留可读且全部完成态。
     const log = procOf(qc).find((m) => m.kind === "agentLog");
@@ -2158,6 +2242,7 @@ describe("U2 过程流生命周期与清理出口", () => {
     ]);
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "done" });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     const log = procOf(qc).find((m) => m.uid === "stale-log");
     expect(log).toMatchObject({ active: false, completed: true });
     expect((log as Extract<Message, { kind: "agentLog" }>).items.every((it) => it.ic === "check")).toBe(true);
@@ -2685,13 +2770,15 @@ describe("pi typing 活动行(activity)", () => {
     expect(typingOf(qc)?.activity).toMatchObject({ phase: "thinking", snippet: "新轮思考" });
   });
 
-  it("result 收尾 → typing(连同 activity)整条移除,无过期活动行残留", () => {
+  it("result 落定占位、settled 收尾 → typing(连同 activity)整条移除", () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1" });
     __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    expect(typingOf(qc)).toMatchObject({ text: PURE_TOOL_TURN_PLACEHOLDER, activity: undefined });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
     expect(typingOf(qc)).toBeUndefined();
     vi.useRealTimers();
   });
@@ -2712,6 +2799,131 @@ describe("thinkingSnippet 尾部片段派生", () => {
   });
 });
 
+describe("Pi Stop 与启动 await 交错", () => {
+  const piSession: SessionMeta = {
+    ...baseSession,
+    agent: "pi",
+    agentSessionIds: {},
+    providerId: undefined,
+    model: undefined,
+  };
+
+  function setupSession(): void {
+    __resetPiSessionsForTest();
+    usePersonalStore.setState({
+      sessions: [piSession],
+      runningBySession: {},
+      piRuntimeBySession: {},
+      defaultModelRef: undefined,
+    });
+  }
+
+  it("慢 skill gate 期间 Stop：build 返回后不再迟到 piOpen/piPrompt", async () => {
+    setupSession();
+    let releaseSkills: (skills: []) => void = () => undefined;
+    const skillsPending = new Promise<[]>((resolve) => {
+      releaseSkills = resolve;
+    });
+    const piOpen = vi.fn(async () => ({ uiSessionId: "s1", sessionId: "native-1" }));
+    const piPrompt = vi.fn(async () => undefined);
+    const bridge = {
+      piSkillsList: vi.fn(() => skillsPending),
+      piOpen,
+      piPrompt,
+      piClose: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge;
+
+    const sending = __sendPiTurnForTest(
+      new QueryClient(),
+      bridge,
+      piSession,
+      "/proj",
+      "hello",
+      undefined,
+      { runId: "prun-build", typingUid: "typ-build" },
+    );
+    await vi.waitFor(() => expect(bridge.piSkillsList).toHaveBeenCalledTimes(1));
+    __markRunStoppingForTest("s1", "prun-build");
+    releaseSkills([]);
+    await sending;
+
+    expect(piOpen).not.toHaveBeenCalled();
+    expect(piPrompt).not.toHaveBeenCalled();
+    __resetPiSessionsForTest();
+  });
+
+  it("慢 piOpen 期间 Stop：ensure 应答后立即 close，绝不继续 prompt", async () => {
+    setupSession();
+    let releaseOpen: (opened: { uiSessionId: string; sessionId: string }) => void = () => undefined;
+    const openPending = new Promise<{ uiSessionId: string; sessionId: string }>((resolve) => {
+      releaseOpen = resolve;
+    });
+    const piPrompt = vi.fn(async () => undefined);
+    const piClose = vi.fn(async () => undefined);
+    const bridge = {
+      piSkillsList: vi.fn(async () => []),
+      piOpen: vi.fn(() => openPending),
+      piPrompt,
+      piClose,
+    } as unknown as DesktopBridge;
+
+    const sending = __sendPiTurnForTest(
+      new QueryClient(),
+      bridge,
+      piSession,
+      "/proj",
+      "hello",
+      undefined,
+      { runId: "prun-open", typingUid: "typ-open" },
+    );
+    await vi.waitFor(() => expect(bridge.piOpen).toHaveBeenCalledTimes(1));
+    __markRunStoppingForTest("s1", "prun-open");
+    releaseOpen({ uiSessionId: "s1", sessionId: "native-1" });
+    await sending;
+
+    expect(piClose).toHaveBeenCalledWith("s1");
+    expect(piPrompt).not.toHaveBeenCalled();
+    __resetPiSessionsForTest();
+  });
+
+  it("ensure 后同步 Stop：sessionFile 持久化回调触发停止时，prompt 前守卫关闭 handle", async () => {
+    setupSession();
+    const piPrompt = vi.fn(async () => undefined);
+    const piClose = vi.fn(async () => undefined);
+    const bridge = {
+      piSkillsList: vi.fn(async () => []),
+      piOpen: vi.fn(async () => ({
+        uiSessionId: "s1",
+        sessionId: "native-1",
+        sessionFile: "/sessions/new.jsonl",
+      })),
+      piPrompt,
+      piClose,
+    } as unknown as DesktopBridge;
+    const unsubscribe = usePersonalStore.subscribe((state, previous) => {
+      const file = state.sessions[0]?.piSessionFile;
+      if (file && file !== previous.sessions[0]?.piSessionFile) {
+        __markRunStoppingForTest("s1", "prun-prompt");
+      }
+    });
+
+    await __sendPiTurnForTest(
+      new QueryClient(),
+      bridge,
+      piSession,
+      "/proj",
+      "hello",
+      undefined,
+      { runId: "prun-prompt", typingUid: "typ-prompt" },
+    );
+    unsubscribe();
+
+    expect(piClose).toHaveBeenCalledWith("s1");
+    expect(piPrompt).not.toHaveBeenCalled();
+    __resetPiSessionsForTest();
+  });
+});
+
 // ── 会话预热(prewarmPiSession):输入首字符时提前拉起 pi 进程,消除首轮冷启 ~800ms ──────
 describe("prewarmPiSession 会话预热", () => {
   const piSession: SessionMeta = { ...baseSession, agent: "pi", agentSessionIds: {} };
@@ -2725,6 +2937,11 @@ describe("prewarmPiSession 会话预热", () => {
       })),
       piPrompt: vi.fn(async () => undefined),
       onPiEvent: vi.fn(() => () => undefined),
+      onPiUiRequest: vi.fn(() => () => undefined),
+      onPiUiCancel: vi.fn(() => () => undefined),
+      piUiResponse: vi.fn(async () => undefined),
+      piAbort: vi.fn(async () => undefined),
+      piClose: vi.fn(async () => undefined),
       ...over,
     } as unknown as DesktopBridge;
   }
@@ -2900,6 +3117,7 @@ describe("运行事件流(personalRunEventsKeys)采集与 tool phase:end 守卫"
       willRetry: false,
       usage: { inputTokens: 8, outputTokens: 2 },
     });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
 
     const messages = qc.getQueryData<Message[]>(personalChatKeys.detail("s1")) ?? [];
     expect(messages.filter((m) => m.kind === "turnUsage")).toEqual([

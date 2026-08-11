@@ -115,6 +115,11 @@ export interface PiGatewayOpenOptions {
   onEvent: (ev: PiSessionEvent, runId?: string) => void;
   /** 需用户回写的 UI 请求出口（`pi-session.ts` 转成 `pi:uiRequest`）。缺省 = 本会话无 UI 出口。 */
   onUiRequest?: (req: PiUiRequest) => void;
+  /**
+   * handle 已在 runtime 登记、但 worker open 尚未应答时的出口。
+   * 只用于 startup extension 对话与 open 取消；调用方不得在此把会话当成 ready。
+   */
+  onSessionCreated?: (session: PiGatewaySession) => void;
   deps?: PiGatewayDeps;
 }
 
@@ -955,7 +960,7 @@ export function __resetPiGatewayRuntimeForTests(): void {
  * supervisor（exit 监听）统一收口并扇出 crashed。
  */
 export async function openPiGatewaySession(options: PiGatewayOpenOptions): Promise<PiGatewaySession> {
-  const { request, onEvent, onUiRequest, deps = {} } = options;
+  const { request, onEvent, onUiRequest, onSessionCreated, deps = {} } = options;
 
   const runtime = await ensureRuntime(deps);
   const session = new PiGatewaySession(runtime, runtime.allocateSessionId(), {
@@ -969,6 +974,9 @@ export async function openPiGatewaySession(options: PiGatewayOpenOptions): Promi
   runtime.register(session);
 
   try {
+    // `session_start` extension 可在 worker 的 open/rebind 内 await UI；必须先把已登记 handle
+    // 交给主进程，才能在 open Promise 结算前 respondUi/stop，避免循环等待。
+    onSessionCreated?.(session);
     // hasUiOutlet 决定 worker 侧审批 hook 在「无 UI 可问」时的语义（见 origin 计划的 native-hooks）。
     await session.open(request, onUiRequest !== undefined);
   } catch (err) {

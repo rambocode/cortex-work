@@ -913,6 +913,7 @@ export function registerCliHandlers(): void {
     // spawn 子 agent(runDelegateSubAgent)、过程实时推渲染端(roleId)、结果作 tool_result 返回。
     // AbortController 收口取消：主 agent 退出 / cli:kill → abort → 在途子 agent 被杀（见 onExit/onError）。
     let delegateAbort: AbortController | undefined;
+    let delegateState: DelegateSessionState | undefined;
     let piDelegateBridge: BridgeServer | null = null;
     if (req.delegateRoles?.length) {
       const controller = new AbortController();
@@ -930,9 +931,10 @@ export function registerCliHandlers(): void {
         childRunCount: 0,
         activeRuns: 0,
         waiters: [],
-        runSubAgent: (role, task, onEvent, childSessionId) =>
-          runDelegateSubAgent(req, role, task, onEvent, controller.signal, childSessionId),
+        runSubAgent: (role, task, onEvent, childSessionId, signal) =>
+          runDelegateSubAgent(req, role, task, onEvent, signal ?? controller.signal, childSessionId),
       };
+      delegateState = state;
       registerDelegateSession(state);
       // pi 主 agent 走单发,mcpInjection==="none" 不进上面 builtinServers 注入块。这里只收集 bridge，
       // 稍后与 design/slides/research 合成一个扩展，避免 Pi 0.82+ 拒绝跨扩展的同名 ping 工具。
@@ -967,7 +969,7 @@ export function registerCliHandlers(): void {
         bumpWatchdog: () => bumpRunWatchdog(req.runId),
         callCount: { n: 0 },
         // 合成一个无 persona 的 role(agent=父 agent),复用 runDelegateSubAgent 的子 agent spawn 全套逻辑。
-        runSubAgent: (label, prompt, onEvent) =>
+        runSubAgent: (label, prompt, onEvent, signal) =>
           runDelegateSubAgent(
             req,
             {
@@ -980,7 +982,7 @@ export function registerCliHandlers(): void {
             },
             prompt,
             onEvent,
-            controller.signal,
+            signal ?? controller.signal,
             randomUUID(),
           ),
       };
@@ -1266,7 +1268,7 @@ export function registerCliHandlers(): void {
         // 委派清理:取消所有在途子 agent + 注销 delegate session + 移除看门狗复位器。
         if (delegateAbort) {
           delegateAbort.abort();
-          unregisterDelegateSession(req.sessionId);
+          unregisterDelegateSession(req.sessionId, delegateState);
         }
         if (designDelegateAbort) {
           designDelegateAbort.abort();
@@ -1341,7 +1343,7 @@ export function registerCliHandlers(): void {
         // 委派清理:取消所有在途子 agent + 注销 delegate session + 移除看门狗复位器。
         if (delegateAbort) {
           delegateAbort.abort();
-          unregisterDelegateSession(req.sessionId);
+          unregisterDelegateSession(req.sessionId, delegateState);
         }
         if (designDelegateAbort) {
           designDelegateAbort.abort();

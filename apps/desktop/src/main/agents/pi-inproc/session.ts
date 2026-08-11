@@ -60,7 +60,8 @@ import type { PiOpenRequest, PiSessionEvent, PiUiRequest, PiUiResponsePayload } 
 const log = createLogger("pi-inproc");
 
 // 扩展命令(/cmd)收尾宽限。与 pi-rpc.ts 的同名常量同值同义：pi 对扩展命令即时执行后返回、
-// **不跑 agent**（永不发 agent_end），不补发 result 的话 renderer 会永久卡「思考中」。
+// **不跑 agent**（永不发 agent_end/agent_settled），必须同步补发 result + settled，否则 renderer
+// 无法在保留自动 follow-up 语义的同时结束这类普通命令。
 const EXT_COMMAND_FINALIZE_GRACE_MS = 1_500;
 
 // ── 对外契约 ──────────────────────────────────────────────────────────────────────────
@@ -155,6 +156,13 @@ export interface PiInProcOpenOptions {
   onEvent: (ev: PiSessionEvent, runId?: string) => void;
   /** 需用户回写的 UI 请求出口（`pi-session.ts` 转成 `pi:uiRequest`）。 */
   onUiRequest?: (req: PiUiRequest) => void;
+  /**
+   * 会话对象已构造、但 `rebind()` / `session_start` 尚未完成。
+   *
+   * gateway worker 必须在这个时点先登记临时回写句柄：市场扩展可在
+   * `session_start` 里 `await ctx.ui.confirm()`，若等 open 返回后才登记，UI 应答就无处路由。
+   */
+  onSessionCreated?: (session: PiSessionEngine) => void;
   /** askquestion 借道的会话级 sentinel（与旧路径同义，见 ui-context.ts）。 */
   askQuestionSentinel?: string;
   /** javascript_repl 借道的会话级 sentinel（askQuestionSentinel 同轨，见 ui-context.ts）。 */
@@ -586,7 +594,7 @@ export class PiInProcSession implements PiSessionEngine {
   }
 
   /**
-   * 扩展命令 ack 落定时（此刻 pi 的 handler 已跑完）判定是否补发 result：
+   * 扩展命令 ack 落定时（此刻 pi 的 handler 已跑完）判定是否补发 result + settled：
    *   - 已见 notify（命令有输出）且未见 agent 活动 → 确证扩展命令，立即补发；
    *   - 否则给一段宽限等 agent 活动（防 `/skill:` `/template` 展开后的 ack→agent_start 竞态），
    *     仍无则补发（覆盖无 notify 输出的扩展命令）。
@@ -596,8 +604,12 @@ export class PiInProcSession implements PiSessionEngine {
     const finalize = (): void => {
       this.slashFinalizeTimer = undefined;
       if (this.slashSawAgentEvent || this.stopped) return;
-      log.debug("扩展命令补发 result 收尾", { sawNotify: this.slashSawNotify });
+      log.debug("扩展命令补发 result + settled 收尾", { sawNotify: this.slashSawNotify });
+      // 这类 extension command 根本不会启动 SDK agent loop，因此 SDK 不会产生 agent_settled。
+      // renderer 以 settled 作为唯一可释放 runId/审批代际的权威终态；只补 result 会让普通
+      // slash command 永久保持 running。两帧必须同步同序发出，不能用 renderer 定时窗猜测。
       this.onEvent({ type: "result", willRetry: false }, rid);
+      this.onEvent({ type: "settled" }, rid);
     };
     if (this.slashSawNotify) finalize();
     else this.slashFinalizeTimer = setTimeout(finalize, EXT_COMMAND_FINALIZE_GRACE_MS);
@@ -725,6 +737,9 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
 
   const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, deps.onDispose);
   notifySlot.emit = session.notifySink();
+  // 必须早于 rebind：session_start handler 本身可能等待 UI 应答，调用方需先
+  // 拿到 respondUi 句柄才能解锁它。此回调不表示 open 已完成，权威就绪点仍是下方 await。
+  options.onSessionCreated?.(session);
   await session.rebind();
 
   recordAgentTrace({

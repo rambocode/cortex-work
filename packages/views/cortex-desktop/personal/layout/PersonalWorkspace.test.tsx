@@ -3,9 +3,15 @@
 // 显式打开不被复关、离开落地页不强制开关右栏。
 
 import type { ReactNode } from "react";
-import { render, renderHook, cleanup } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, useCortexUIStore, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
+import {
+  CoreProvider,
+  useCortexUIStore,
+  usePersonalStore,
+  type DesktopBridge,
+  type PiUiRequest,
+} from "@cortex-work/core";
 import type { RoleConfig } from "@cortex-work/core/desktop/types";
 import { PersonalWorkspace, useCloseRightPanelOnHome, usePersonalRolesLibrary } from "./PersonalWorkspace";
 
@@ -119,7 +125,7 @@ describe("useCloseRightPanelOnHome 进入落地页收起右栏", () => {
 // 本块是防回归：确保覆盖层不会被谁「顺手加回来」——工作区任何状态下都不得出现 .pw-res-root。
 describe("PersonalWorkspace 深度研究覆盖层已移除", () => {
   // 个人工作区整体渲染依赖若干无条件调用的桥方法与 matchMedia（响应式左栏），逐一给最小替身。
-  const stubBridge = (): DesktopBridge =>
+  const stubBridge = (over: Partial<DesktopBridge> = {}): DesktopBridge =>
     ({
       listEditors: async () => [],
       pickDirectory: async () => null,
@@ -129,6 +135,7 @@ describe("PersonalWorkspace 深度研究覆盖层已移除", () => {
       onCliExit: () => () => {},
       onCliKeepalive: () => () => {},
       research: { list: async () => [], onEvent: () => () => {} },
+      ...over,
     }) as unknown as DesktopBridge;
 
   beforeEach(() => {
@@ -147,6 +154,7 @@ describe("PersonalWorkspace 深度研究覆盖层已移除", () => {
       sessions: [],
       homeOpen: false,
       settingsOpen: false,
+      piUiPending: [],
     });
   });
   afterEach(() => cleanup());
@@ -162,5 +170,71 @@ describe("PersonalWorkspace 深度研究覆盖层已移除", () => {
   it("任何状态下都不再渲染研究整窗覆盖层(.pw-res-root)", () => {
     const { container } = renderWorkspace(stubBridge());
     expect(container.querySelector(".pw-res-root")).toBeNull();
+  });
+
+  it("Pi 子会话审批请求会在主工作区显示确认框，并把拒绝响应原路回写", () => {
+    const listeners = new Set<(uiSessionId: string, request: PiUiRequest) => void>();
+    const piUiResponse = vi.fn(async () => undefined);
+    const bridge = stubBridge({
+      onPiUiRequest: vi.fn((listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+      piUiResponse,
+    });
+    renderWorkspace(bridge);
+
+    const request: PiUiRequest = {
+      type: "extension_ui_request",
+      id: "delegate:approve-bash",
+      method: "confirm",
+      title: "允许执行工具 bash?",
+      message: '{"command":"rm -rf /tmp/x"}',
+    };
+    // PersonalWorkspace 同时有审批与 jsrepl 两个订阅者；真实 preload 会向全部 listener 广播。
+    act(() => {
+      for (const listener of listeners) listener("parent-session", request);
+    });
+
+    expect(screen.getByRole("dialog", { name: "工具执行确认" })).toBeInTheDocument();
+    expect(screen.getByText("允许执行工具 bash?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
+    expect(piUiResponse).toHaveBeenCalledWith("parent-session", "delegate:approve-bash", { confirmed: false });
+    expect(screen.queryByRole("dialog", { name: "工具执行确认" })).toBeNull();
+  });
+
+  it("Pi child 结束时主进程撤销待审批请求，主界面不留无效弹窗", () => {
+    const requestListeners = new Set<(uiSessionId: string, request: PiUiRequest) => void>();
+    const cancelListeners = new Set<(uiSessionId: string, requestId: string) => void>();
+    const piUiResponse = vi.fn(async () => undefined);
+    const bridge = stubBridge({
+      onPiUiRequest: vi.fn((listener) => {
+        requestListeners.add(listener);
+        return () => requestListeners.delete(listener);
+      }),
+      onPiUiCancel: vi.fn((listener) => {
+        cancelListeners.add(listener);
+        return () => cancelListeners.delete(listener);
+      }),
+      piUiResponse,
+    });
+    renderWorkspace(bridge);
+    const request: PiUiRequest = {
+      type: "extension_ui_request",
+      id: "delegate:expired-approval",
+      method: "confirm",
+      title: "允许执行工具 write?",
+      message: "{}",
+    };
+    act(() => {
+      for (const listener of requestListeners) listener("parent-session", request);
+    });
+    expect(screen.getByRole("dialog", { name: "工具执行确认" })).toBeInTheDocument();
+
+    act(() => {
+      for (const listener of cancelListeners) listener("parent-session", request.id);
+    });
+    expect(screen.queryByRole("dialog", { name: "工具执行确认" })).toBeNull();
+    expect(piUiResponse).not.toHaveBeenCalled();
   });
 });

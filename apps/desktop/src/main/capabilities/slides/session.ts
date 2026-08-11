@@ -31,7 +31,14 @@ export function registerSlidesSession(state: SlidesSessionState): void {
   sessions.set(state.sessionId, state);
 }
 
-export function unregisterSlidesSession(sessionId: string): void {
+export function unregisterSlidesSession(
+  sessionId: string,
+  expectedState?: SlidesSessionState,
+): void {
+  // Pi 长驻会话按 prompt 建新代；旧回合的 settled/crash 可能迟到。只有当前 map 仍指向
+  // 调用方持有的 state 时才允许按代注销，避免旧回合撤掉新回合的 deck 写权限。
+  // 未传 expectedState 保留 app 退出与 CLI 单发路径的强制清理语义。
+  if (expectedState && sessions.get(sessionId) !== expectedState) return;
   sessions.delete(sessionId);
 }
 

@@ -56,6 +56,7 @@ async function postMcp(
   token: string,
   body: string,
   extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
@@ -66,6 +67,7 @@ async function postMcp(
       ...extraHeaders,
     },
     body,
+    signal,
   });
   const text = await res.text();
   const jsonLine = text.split("\n").find((line) => line.startsWith("{") || line.startsWith("data: {"));
@@ -93,6 +95,29 @@ afterEach(() => {
 });
 
 describe("design-delegate host HTTP", () => {
+  it("旧代迟到注销不会删除同 session 的新代 state", async () => {
+    await startDesignDelegateHost();
+    const oldState = makeState("same-generation");
+    const newState = makeState("same-generation", {
+      runSubAgent: vi.fn(async () => ({ ok: true, text: "new-generation" })),
+    });
+    registerDesignDelegateSession(oldState);
+    registerDesignDelegateSession(newState);
+
+    unregisterDesignDelegateSession("same-generation", oldState);
+
+    const cfg = buildDesignDelegateMcpServerConfig("same-generation");
+    const conn = getPortAndToken(cfg!);
+    await postMcp(conn.port, conn.token, INIT_BODY, { "X-Cortex-Session": "same-generation" });
+    const call = await postMcp(
+      conn.port,
+      conn.token,
+      makeCallBody("delegate_task", { label: "page:new", prompt: "仍应由新代处理" }),
+      { "X-Cortex-Session": "same-generation" },
+    );
+    expect(JSON.stringify(call)).toContain("new-generation");
+  });
+
   it("仅注册 session 拿到 delegate_task;无任何 slides 角色工具", async () => {
     await startDesignDelegateHost();
 
@@ -221,5 +246,40 @@ describe("design-delegate host HTTP", () => {
     expect(runSubAgent).not.toHaveBeenCalled();
 
     unregisterDesignDelegateSession("plain-too-large");
+  });
+
+  it("单次 HTTP 调用取消会传入 design child，不留后台任务", async () => {
+    await startDesignDelegateHost();
+    let childSignal: AbortSignal | undefined;
+    const childStopped = vi.fn();
+    const runSubAgent = vi.fn<DesignDelegateSessionState["runSubAgent"]>(
+      async (_label, _prompt, _onEvent, signal) => {
+        childSignal = signal;
+        return await new Promise((resolve) => {
+          signal?.addEventListener("abort", () => {
+            childStopped();
+            resolve({ ok: false, text: "", error: "已取消" });
+          }, { once: true });
+        });
+      },
+    );
+    registerDesignDelegateSession(makeState("design-request-abort", { runSubAgent }));
+    const cfg = buildDesignDelegateMcpServerConfig("design-request-abort");
+    const conn = getPortAndToken(cfg!);
+    const controller = new AbortController();
+    const call = postMcp(
+      conn.port,
+      conn.token,
+      makeCallBody("delegate_task", { label: "page:abort", prompt: "取消我" }),
+      { "X-Cortex-Session": "design-request-abort" },
+      controller.signal,
+    );
+    const rejected = expect(call).rejects.toThrow();
+    await vi.waitFor(() => expect(runSubAgent).toHaveBeenCalledTimes(1));
+
+    controller.abort();
+    await rejected;
+    await vi.waitFor(() => expect(childStopped).toHaveBeenCalledTimes(1));
+    expect(childSignal?.aborted).toBe(true);
   });
 });

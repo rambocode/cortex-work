@@ -14,10 +14,19 @@ interface PiSessionHandle {
   piSessionId?: string; // pi 侧 sessionId（get_state 探测得到,诊断/恢复用）
   sessionFile?: string; // pi 侧磁盘 JSONL 路径（阶段4 恢复用;调用方据此持久到 SessionMeta）
   opening?: Promise<PiOpenResult>; // 开启中的在途 Promise,去重并发 ensure（防重复 spawn）
+  closing?: Promise<void>; // 关闭中的在途 Promise，供后继世代串行等待（防迟到 piClose 误杀新进程）
   ready: boolean;
+  // close/supersede 可以发生在 opening 任一 await 窗口。标记后该世代必须完成旧进程清理，
+  // 但绝不能再调用 piOpen；若 open 已发出，则应在响应抵达后立即关闭迟到会话。
+  cancelled: boolean;
   // 开会话时所用「extension 加载相关」开关的指纹。深度定制开关(审批/样例)只在冷启经 -e 加载,
   // 温会话改开关不生效——指纹漂移即关旧重开,使新 extension 真正加载（否则用户开了审批却裸奔）。
   fingerprint: string;
+  // model/thinking 是可运行时切换的热配置，不能放进上面的冷启指纹。但 opening 尚未 ready 时
+  // 运行时命令无处下发：若预热 A 期间 UI 已切到 B，ensure(B) 必须识别漂移并重开，不能复用 A。
+  // ready 后 setModel/setThinking 成功会同步这里，使正常热切换仍走温会话快路径。
+  model?: string;
+  thinkingLevel?: string;
   // 阶段4 资源管理:最后活跃时间 + 空闲回收计时器（活动期不断重置→不触发,空闲后倒计时→关进程）。
   lastActiveAt: number;
   idleTimer?: ReturnType<typeof setTimeout>;
@@ -54,7 +63,9 @@ export function setPiLifecycleHooks(hooks: {
 // 故只关进程,无需 reapSessionRun;sessionFile 已在 SessionMeta,下次 send 恢复）。
 export function touchPiSession(bridge: DesktopBridge | null, sessionId: string): void {
   const handle = piSessions.get(sessionId);
-  if (!handle) return;
+  // close 已开始的旧世代不能被迟到事件重新续命。否则它会在 Map 被新世代覆盖后留下一个
+  // 按 sessionId 寻址的孤儿 timer，届时 closePiSession 会误关当前新进程。
+  if (!handle || handle.cancelled || handle.closing) return;
   handle.lastActiveAt = nowFn();
   if (handle.idleTimer) clearTimeout(handle.idleTimer);
   handle.idleTimer = setTimeout(() => {
@@ -79,7 +90,7 @@ function evictLruIfFull(bridge: DesktopBridge): void {
   void closePiSession(bridge, victim.sessionId);
 }
 
-// 影响 extension 加载的指纹（审批工具集 / 样例工具 / 样例命令 / 供应商配置）。同设置→同指纹
+// 影响 extension 加载的指纹（审批工具集 / 样例工具 / 委派目录 / 供应商配置）。同设置→同指纹
 //(字段定序稳定) → 改配置后温会话重开,新 extension 经 -e 真正加载（否则改了配置却不生效）。
 // 注意:运行时态(thinkingLevel/model 实时切换)绝不进此指纹。
 //
@@ -89,6 +100,17 @@ function evictLruIfFull(bridge: DesktopBridge): void {
 // 旧实现把 apiKey 与 per-model 能力标记直接塞进指纹,后者正是本次能力事故的输入端。
 function extensionFingerprint(req: PiOpenRequest): string {
   return JSON.stringify({
+    // 同一 UI 会话会在普通聊天与 design/slides 产物工作区之间切换。cwd/产物身份不进指纹会
+    // 复用错误工作目录和能力集，既会写错位置，也可能把 slides 写工具带回普通聊天。
+    cwd: req.cwd,
+    artifactContext: req.artifactContext
+      ? {
+          kind: req.artifactContext.kind,
+          documentId: req.artifactContext.documentId,
+          workspaceRoot: req.artifactContext.workspaceRoot,
+          entryPath: req.artifactContext.entryPath,
+        }
+      : null,
     toolApproval: !!req.enableToolApproval,
     approvalTools: req.approvalTools ?? null,
     // 运行模式 plan 档:只读工具白名单经 --tools 冷启注入,无运行时改工具集命令,改值必须重开会话
@@ -108,6 +130,28 @@ function extensionFingerprint(req: PiOpenRequest): string {
     // 不进指纹会让中途切开关复用温会话的旧工具集——开了却没有 web_search、或关了仍留着一套
     // 能出站的工具（后者是安全问题）。与 skillPaths 同类。
     webSearch: !!req.webSearch,
+    // delegate MCP 也只在 open 时抓取 tools/list。角色的执行字段或本轮资源上限变化后必须
+    // 重开，否则主模型看到的工具目录、child persona/模型或并发护栏仍会沿用旧值。展示专用的
+    // color/avatar 不参与执行，避免纯 UI 调整白白冷启；按 id 排序使目录顺序无关。
+    delegateRoles: req.delegateRoles
+      ? [...req.delegateRoles]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map(({ id, label, agent, model, effort, systemPrompt, toolPolicy }) => ({
+            id,
+            label,
+            agent,
+            model: model ?? null,
+            effort: effort ?? null,
+            systemPrompt: systemPrompt ?? null,
+            toolPolicy: toolPolicy ?? null,
+          }))
+      : null,
+    delegatePolicy: req.delegatePolicy
+      ? {
+          maxParallel: req.delegatePolicy.maxParallel,
+          maxChildRuns: req.delegatePolicy.maxChildRuns,
+        }
+      : null,
     // 换供应商 → 指纹漂移 → 下一轮重开。
     providerId: req.providerId ?? null,
     // 同一供应商下的 endpoint 覆盖 / 认证来源变化。缺省（Web 端、旧壳、认证状态读失败）时
@@ -116,14 +160,34 @@ function extensionFingerprint(req: PiOpenRequest): string {
   });
 }
 
+/** 判断请求的热配置是否就是当前进程已接收的配置。undefined 也有语义（使用启动默认值）。 */
+function runtimeConfigMatches(handle: PiSessionHandle, req: PiOpenRequest): boolean {
+  return handle.model === req.model && handle.thinkingLevel === req.thinkingLevel;
+}
+
 /** 该会话的 pi 进程是否已就绪（U3 据此决定 setModel 是否实时下发）。 */
 export function isPiSessionOpen(sessionId: string): boolean {
   return piSessions.get(sessionId)?.ready ?? false;
 }
 
-/** 当前环境是否提供 pi RPC 能力（web/旧壳无 → 退回单发或隐藏运行时控制）。 */
+/**
+ * 当前环境是否提供完整 Pi RPC 能力。
+ *
+ * UI 双向通道也属于必需能力：即使当前是 auto，Computer Use、自动化与日历写工具仍可能被
+ * 强制审批。只检查 open/prompt/event 会让旧 preload 成功启动，却把 confirm 永久挂在无人订阅的
+ * `pi:uiRequest` 上。`onPiUiCancel` 同样必需：child 可在对话框待答时超时/取消，
+ * 旧 preload 若不能撤销该 id 会留下无效弹窗。`piAbort`/`piClose` 也不是可选清理：缺少
+ * 任一项时停止父轮或关闭会话都无法级联终止 child 与写工具。缺任一项都在写入用户消息前响亮失败。
+ */
 export function piRpcAvailable(bridge: DesktopBridge | null | undefined): boolean {
-  return !!bridge?.piOpen && !!bridge?.piPrompt && !!bridge?.onPiEvent;
+  return !!bridge?.piOpen &&
+    !!bridge?.piPrompt &&
+    !!bridge?.onPiEvent &&
+    !!bridge?.onPiUiRequest &&
+    !!bridge?.onPiUiCancel &&
+    !!bridge?.piUiResponse &&
+    !!bridge?.piAbort &&
+    !!bridge?.piClose;
 }
 
 /** pi RPC 缺失能力列表,用于旧 preload / web 环境给出可诊断提示。 */
@@ -133,6 +197,11 @@ export function piRpcMissingCapabilities(bridge: DesktopBridge | null | undefine
   if (!bridge.piOpen) missing.push("piOpen");
   if (!bridge.piPrompt) missing.push("piPrompt");
   if (!bridge.onPiEvent) missing.push("onPiEvent");
+  if (!bridge.onPiUiRequest) missing.push("onPiUiRequest");
+  if (!bridge.onPiUiCancel) missing.push("onPiUiCancel");
+  if (!bridge.piUiResponse) missing.push("piUiResponse");
+  if (!bridge.piAbort) missing.push("piAbort");
+  if (!bridge.piClose) missing.push("piClose");
   return missing;
 }
 
@@ -144,8 +213,39 @@ export function piRpcUnavailableMessage(bridge: DesktopBridge | null | undefined
 }
 
 /**
- * 惰性开启 pi 会话:已就绪直接返回缓存的 sessionId;开启中复用同一 Promise（去重并发 send,
- * 防重复 spawn）；开启失败摘除登记,下次 send 可重试。
+ * 关闭指定世代的句柄。只有它仍是当前登记时才摘除 Map，避免旧世代的异步收口误删后来者；
+ * 指纹漂移重开时，新世代会先占位，再用本函数等待旧进程真正关闭后启动新进程。
+ */
+function closePiSessionHandle(bridge: DesktopBridge | null, handle: PiSessionHandle): Promise<void> {
+  if (handle.closing) return handle.closing;
+  handle.cancelled = true;
+  if (handle.idleTimer) {
+    clearTimeout(handle.idleTimer);
+    handle.idleTimer = undefined;
+  }
+  const closing = (async () => {
+    if (handle.opening && !handle.ready) {
+      // opening 自己负责：若 piOpen 尚未发出就停止；若已发出则等响应后关闭。这里必须等它收口，
+      // 让随后同 uiSessionId 的新世代串行在旧代之后启动，避免迟到 piClose 误杀新进程。
+      await handle.opening.catch(() => undefined);
+    } else if (handle.ready && bridge?.piClose) {
+      await bridge.piClose(handle.sessionId).catch(() => undefined);
+    }
+    // close 在途期间理论上 touch 已因 cancelled 被拦；结束时再清一次，防调用栈内已排队的旧活动
+    // 或未来新增入口绕过 touch 守卫后留下跨世代 timer。
+    if (handle.idleTimer) {
+      clearTimeout(handle.idleTimer);
+      handle.idleTimer = undefined;
+    }
+    if (piSessions.get(handle.sessionId) === handle) piSessions.delete(handle.sessionId);
+  })();
+  handle.closing = closing;
+  return closing;
+}
+
+/**
+ * 惰性开启 pi 会话:已就绪直接返回缓存的 sessionId;同指纹开启中复用同一 Promise（去重并发
+ * send,防重复 spawn）；开启期间指纹漂移则串行关闭旧世代并按新配置重开。
  */
 export async function ensurePiSession(
   bridge: DesktopBridge,
@@ -156,27 +256,58 @@ export async function ensurePiSession(
 ): Promise<PiOpenResult> {
   const fp = extensionFingerprint(req);
   const existing = piSessions.get(req.uiSessionId);
-  if (existing?.ready && existing.piSessionId) {
-    // 深度定制开关(审批/样例)未变 → 复用温会话（不恢复,内存态在）。
-    if (existing.fingerprint === fp)
+  const sameColdConfig = existing?.fingerprint === fp;
+  const sameRuntimeConfig = existing ? runtimeConfigMatches(existing, req) : false;
+  if (existing && !existing.cancelled && sameColdConfig && sameRuntimeConfig) {
+    // 冷配置和已生效的热配置都未变 → 复用温会话或同一在途 opening。
+    if (existing.ready && existing.piSessionId)
       return { uiSessionId: req.uiSessionId, sessionId: existing.piSessionId, sessionFile: existing.sessionFile };
-    // 开关变了(如中途打开「工具执行审批」)→ 关旧重开,让新 extension 经 -e 真正加载（否则裸奔）。
-    await closePiSession(bridge, req.uiSessionId);
-  } else if (existing?.opening) {
-    return existing.opening; // 开启中复用(指纹漂移的并发极少,忽略)
+    if (existing.opening) return existing.opening;
   }
   if (!bridge.piOpen) throw new Error("当前环境不支持 pi RPC 会话");
-  evictLruIfFull(bridge); // 阶段4 上限:spawn 新会话前若达上限,逐出最久未用。
 
   const handle: PiSessionHandle = {
     sessionId: req.uiSessionId,
     ready: false,
+    cancelled: false,
     fingerprint: fp,
+    model: req.model,
+    thinkingLevel: req.thinkingLevel,
     lastActiveAt: nowFn(),
   };
-  const opening = bridge
-    .piOpen(req)
+  // 先登记再执行 opening：async IIFE 会同步运行到首个 await；若登记放在末尾，首开会把自己
+  // 误判成“已被替换”并直接取消。
+  piSessions.set(req.uiSessionId, handle);
+  const opening = (async () => {
+    if (existing) {
+      // 新世代先写入 Map；随后等待旧 opening 收口并关闭旧进程，确保新配置不会复用旧 extension，
+      // 也不会在旧 piClose 尚未完成时抢先 piOpen 同一个 uiSessionId。热配置漂移也走这里：
+      // opening 期间无法 set_model/set_thinking，必须让 B 按自己的启动参数冷启。
+      // 若旧句柄已被显式 close，即使 B/C 配置相同也必须等其 closing；否则 C 会在迟到
+      // piClose 之前提前 open，随后被旧关闭请求误杀。正常指纹漂移则允许 A 按原语义完成，
+      // B 再关闭它；不能把预热调用方无端改成 reject。
+      if (existing.cancelled) {
+        await closePiSessionHandle(bridge, existing);
+      } else {
+        if (existing.opening) await existing.opening.catch(() => undefined);
+        if (existing.ready) await closePiSessionHandle(bridge, existing);
+      }
+    }
+    // A→B→C 或显式 close 都可能在上面的 await 期间替换/取消本世代。B 仍应帮忙收口 A，
+    // 但不能随后再打开一个已经无人登记的进程；C 会等待 B.opening 后自行启动。
+    if (handle.cancelled || piSessions.get(req.uiSessionId) !== handle) {
+      throw new Error("pi 会话开启已取消");
+    }
+    evictLruIfFull(bridge); // 阶段4 上限:spawn 新会话前若达上限,逐出最久未用。
+    return bridge.piOpen!(req);
+  })()
     .then(async (res) => {
+      if (handle.cancelled) {
+        // close 发生在 piOpen IPC 已发出之后。此时主进程可能已经建立会话；必须等到应答后
+        // 立即按同一 uiSessionId 关闭，再让等待本 opening 的下一世代继续。
+        await bridge.piClose?.(req.uiSessionId).catch(() => undefined);
+        throw new Error("pi 会话开启已取消");
+      }
       // 空/假 sessionId 视作未就绪失败:否则 ready 判定（看 piSessionId）会反复穿透重复 spawn。
       if (!res.sessionId) throw new Error("pi 会话未返回 sessionId");
       // 恢复:重开后切到旧 sessionFile（best-effort,坏文件→pi 静默起空会话仍可用;cwd 缺→reject 忽略）。
@@ -204,6 +335,13 @@ export async function ensurePiSession(
           // 仅 switchSession 本身硬错（cwd 缺失等）才保持新会话（已可用,UI 历史不受影响）。
         }
       }
+      if (handle.cancelled) {
+        // close 也可能发生在 piOpen 已应答、但 switchSession/getState 恢复尚在 await 的窗口。
+        // close helper 此时正在等同一 opening，不会再走 ready 分支；因此必须在恢复后二次
+        // 检查并主动关掉已建进程，否则 Promise 返回后 Map 被删但主进程会留孤儿。
+        await bridge.piClose?.(req.uiSessionId).catch(() => undefined);
+        throw new Error("pi 会话开启已取消");
+      }
       handle.ready = true;
       handle.piSessionId = restored.sessionId;
       handle.sessionFile = restored.sessionFile; // 阶段4 恢复用,调用方持久到 SessionMeta
@@ -211,11 +349,12 @@ export async function ensurePiSession(
       return restored;
     })
     .catch((e) => {
-      piSessions.delete(req.uiSessionId);
+      // opening 期间可能已有不同指纹的新世代占位；旧 Promise 的延迟 reject 只能摘除自己，
+      // 否则会把已经成功打开的新会话从登记表误删，下一轮又重复 spawn。
+      if (piSessions.get(req.uiSessionId) === handle) piSessions.delete(req.uiSessionId);
       throw e instanceof Error ? e : new Error(String(e));
     });
   handle.opening = opening;
-  piSessions.set(req.uiSessionId, handle);
   return opening;
 }
 
@@ -275,13 +414,25 @@ export function setModelPi(
   modelId: string,
 ): Promise<unknown> {
   requireReady(sessionId);
-  return requireCap(bridge.piSetModel, "pi setModel")(sessionId, provider, modelId);
+  const handle = piSessions.get(sessionId)!;
+  const request = requireCap(bridge.piSetModel, "pi setModel")(sessionId, provider, modelId);
+  return request.then((result) => {
+    // 只更新发起命令时的同一世代。命令在途期间若已因冷配置漂移重开，旧响应不能污染新句柄。
+    if (piSessions.get(sessionId) === handle) handle.model = modelId;
+    return result;
+  });
 }
 
 /** 运行时切思考强度（会话已开启时实时生效;set_thinking_level 是运行时命令,不进指纹、不重开）。 */
 export function setThinkingLevelPi(bridge: DesktopBridge, sessionId: string, level: string): Promise<unknown> {
   requireReady(sessionId);
-  return requireCap(bridge.piSetThinking, "pi setThinking")(sessionId, level);
+  const handle = piSessions.get(sessionId)!;
+  const request = requireCap(bridge.piSetThinking, "pi setThinking")(sessionId, level);
+  return request.then((result) => {
+    // 与 setModelPi 相同，成功后才声明热配置已生效，并用世代守卫隔离迟到响应。
+    if (piSessions.get(sessionId) === handle) handle.thinkingLevel = level;
+    return result;
+  });
 }
 
 /** 手动触发上下文压缩（一次 LLM 调用;compaction start/end 事件会回流,点亮 messages.ts 已有的
@@ -342,17 +493,14 @@ export async function calibratePiSessionFile(bridge: DesktopBridge, sessionId: s
 export async function closePiSession(bridge: DesktopBridge | null, sessionId: string): Promise<void> {
   const handle = piSessions.get(sessionId);
   if (!handle) return;
-  if (handle.idleTimer) clearTimeout(handle.idleTimer);
-  piSessions.delete(sessionId);
-  if (bridge?.piClose) await bridge.piClose(sessionId).catch(() => undefined);
+  await closePiSessionHandle(bridge, handle);
 }
 
 /** 关闭全部 pi 会话（视图卸载兜底;app 退出另有主进程 killAllPiSessions）。 */
 export async function closeAllPiSessions(bridge: DesktopBridge | null): Promise<void> {
-  const ids = [...piSessions.keys()];
-  for (const h of piSessions.values()) if (h.idleTimer) clearTimeout(h.idleTimer);
-  piSessions.clear();
-  if (bridge?.piClose) await Promise.all(ids.map((id) => bridge.piClose!(id).catch(() => undefined)));
+  // 不能先 clear Map 再只发 piClose：opening 可能尚未进入主进程，当前 close 先返回后它
+  // 会迟到 open 成孤儿。统一走世代 close helper，先标记 cancelled，再等每个 opening 自行收口。
+  await Promise.all([...piSessions.values()].map((handle) => closePiSessionHandle(bridge, handle)));
 }
 
 /** 崩溃事件 → 摘除登记（不发 piClose:进程已死;下次 send 触发重开）。由 handlePiEvent 调。 */

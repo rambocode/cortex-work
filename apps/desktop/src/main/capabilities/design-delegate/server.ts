@@ -47,7 +47,12 @@ export interface DesignDelegateSessionState {
   callCount: { n: number };
   // cli.ts 注入：以「父 agent 同款底层 agent」spawn 子 agent 执行 prompt。label 作为子 agent 的
   // roleId/stageLabel 透传（page:<artifactId>），供渲染端/画布把子 agent 进度回映到对应页。
-  runSubAgent: (label: string, prompt: string, onEvent: (ev: CliStreamEvent) => void) => Promise<DesignSubAgentResult>;
+  runSubAgent: (
+    label: string,
+    prompt: string,
+    onEvent: (ev: CliStreamEvent) => void,
+    signal?: AbortSignal,
+  ) => Promise<DesignSubAgentResult>;
 }
 
 const sessionStateMap = new Map<string, DesignDelegateSessionState>();
@@ -56,7 +61,14 @@ export function registerDesignDelegateSession(state: DesignDelegateSessionState)
   sessionStateMap.set(state.sessionId, state);
 }
 
-export function unregisterDesignDelegateSession(sessionId: string): void {
+export function unregisterDesignDelegateSession(
+  sessionId: string,
+  expectedState?: DesignDelegateSessionState,
+): void {
+  // 同一个父会话可以在上一轮异步收尾前启动新一轮。旧代释放时必须带上自己登记的 state，
+  // 否则一个迟到的 child/abort 会把新一轮刚注册的 delegate_task 能力一并摘掉。
+  // expectedState 缺省时保留 app 退出与旧调用方“按 session 强制清理”的既有语义。
+  if (expectedState && sessionStateMap.get(sessionId) !== expectedState) return;
   sessionStateMap.delete(sessionId);
 }
 
@@ -150,8 +162,11 @@ function registerDelegateTaskTool(mcp: McpServer, state: DesignDelegateSessionSt
         workspace: z.string().optional().describe("工作目录(可选;缺省用父会话 cwd)。"),
       },
     },
-    async ({ label, prompt }: { label: string; prompt: string; workspace?: string }): Promise<ToolResult> => {
-      if (state.signal.aborted) return errorResult("已取消");
+    async ({ label, prompt }: { label: string; prompt: string; workspace?: string }, extra): Promise<ToolResult> => {
+      const signal = extra.signal === state.signal
+        ? state.signal
+        : AbortSignal.any([state.signal, extra.signal]);
+      if (signal.aborted) return errorResult("已取消");
       let taskText = "";
       let jobLabel = "page";
       try {
@@ -182,7 +197,7 @@ function registerDelegateTaskTool(mcp: McpServer, state: DesignDelegateSessionSt
       };
       let result: DesignSubAgentResult;
       try {
-        result = await state.runSubAgent(jobLabel, taskText, onEvent);
+        result = await state.runSubAgent(jobLabel, taskText, onEvent, signal);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         emitRoleResult(state, jobLabel, false, message);

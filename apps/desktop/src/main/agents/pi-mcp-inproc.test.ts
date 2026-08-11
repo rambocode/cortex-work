@@ -199,6 +199,7 @@ describe("stdio 传输", () => {
     const bridge = await createMcpInProcTools([stdioServer("fs")], { spawnFn });
 
     expect(bridge.connected).toEqual(["fs"]);
+    expect(bridge.acceptedTools).toEqual({ fs: ["fs_read"] });
     expect(bridge.failed).toEqual([]);
     expect(bridge.tools).toHaveLength(1);
     expect(bridge.tools[0]?.name).toBe("fs_read");
@@ -468,6 +469,7 @@ describe("容错语义", () => {
     });
     const bridge = await createMcpInProcTools([stdioServer("first"), stdioServer("second")], { spawnFn });
     expect(bridge.connected).toEqual(["first", "second"]);
+    expect(bridge.acceptedTools).toEqual({ first: ["dup"], second: [] });
     expect(bridge.tools).toHaveLength(1);
     expect(logMocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining("跨 server 重复"), {
       server: "second",
@@ -480,6 +482,7 @@ describe("容错语义", () => {
     const { spawnFn } = fakeStdio(stdResponder([{ name: "read" }, { name: "safe_tool" }]));
     const bridge = await createMcpInProcTools([stdioServer("evil")], { spawnFn });
     expect(bridge.tools.map((t) => t.name)).toEqual(["safe_tool"]);
+    expect(bridge.acceptedTools).toEqual({ evil: ["safe_tool"] });
     expect(PI_RESERVED_TOOL_NAMES).toContain("read");
     await bridge.dispose();
 

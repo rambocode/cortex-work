@@ -86,6 +86,8 @@ interface Harness {
   sessions: FakeSession[];
   /** 首个会话的便捷别名（单会话用例沿用）。 */
   readonly session: FakeSession;
+  /** host 收到协议消息后交给能力组装器的 request。 */
+  buildRequests: PiOpenRequest[];
   opened: PiInProcOpenOptions[];
   exits: number[];
   send: (msg: HostMessage) => void;
@@ -96,6 +98,7 @@ const BASE_REQUEST: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
 function makeHarness(options: { openFails?: string } = {}): Harness {
   const sent: WorkerMessage[] = [];
   const sessions: FakeSession[] = [];
+  const buildRequests: PiOpenRequest[] = [];
   const opened: PiInProcOpenOptions[] = [];
   const exits: number[] = [];
 
@@ -103,7 +106,10 @@ function makeHarness(options: { openFails?: string } = {}): Harness {
     write: (line) => sent.push(JSON.parse(line) as WorkerMessage),
     exit: (code) => exits.push(code),
     shutdownGraceMs: 0,
-    buildDeps: async () => ({}),
+    buildDeps: async (request) => {
+      buildRequests.push(request);
+      return {};
+    },
     openSession: async (opts) => {
       opened.push(opts);
       if (options.openFails) throw new Error(options.openFails);
@@ -120,6 +126,7 @@ function makeHarness(options: { openFails?: string } = {}): Harness {
     get session() {
       return sessions[0]!;
     },
+    buildRequests,
     opened,
     exits,
     send: (msg) => host.handleLine(JSON.stringify(msg)),
@@ -141,6 +148,26 @@ describe("PiHost · open", () => {
     expect(h.sent[0]).toMatchObject({ id: "o1", kind: "reply", ok: true });
     // 协议做过一次 JSON 往返，故比值不比引用。
     expect(h.opened[0]?.request).toEqual(BASE_REQUEST);
+  });
+
+  it("ask 审批字段经协议解析后原样交给能力组装与会话", async () => {
+    const h = makeHarness();
+    const request: PiOpenRequest = {
+      ...BASE_REQUEST,
+      enableToolApproval: true,
+      approvalTools: ["bash", "write", "edit"],
+    };
+    h.send({ id: "o-approval", kind: "open", sessionId: "sess-approval", request, hasUiOutlet: true });
+    await vi.waitFor(() => expect(h.sent).toHaveLength(1));
+
+    expect(h.buildRequests[0]).toMatchObject({
+      enableToolApproval: true,
+      approvalTools: ["bash", "write", "edit"],
+    });
+    expect(h.opened[0]?.request).toMatchObject({
+      enableToolApproval: true,
+      approvalTools: ["bash", "write", "edit"],
+    });
   });
 
   it("hasUiOutlet=true 时接线 onUiRequest；false 时不接（无 UI 出口的语义在引擎层生效）", async () => {
@@ -326,6 +353,142 @@ describe("PiHost · 事件与 UI 反向请求", () => {
     expect(h.session.responded).toEqual([{ id: "u-42", payload: { confirmed: true } }]);
   });
 
+  it("opening 的 session_start 对话可在 open 完成前回写并解锁会话", async () => {
+    const sent: WorkerMessage[] = [];
+    const session = createFakeSession();
+    let releaseDialog: (() => void) | undefined;
+    const dialogAnswered = new Promise<void>((resolve) => {
+      releaseDialog = resolve;
+    });
+    session.respondUi = (id, payload) => {
+      session.responded.push({ id, payload });
+      releaseDialog?.();
+    };
+    const request: PiUiRequest = {
+      type: "extension_ui_request",
+      id: "startup-confirm",
+      method: "confirm",
+      title: "启动前确认",
+      message: "是否继续？",
+    };
+    const host = new PiHost({
+      write: (line) => sent.push(JSON.parse(line) as WorkerMessage),
+      exit: () => {},
+      buildDeps: async () => ({}),
+      openSession: async (options) => {
+        // 真实 openPiInProcSession 必须在 rebind/session_start 之前暴露句柄；
+        // 否则下方 UI 已显示，host 却无会话可接收应答，双方永久互等。
+        options.onSessionCreated?.(session);
+        options.onUiRequest?.(request);
+        await dialogAnswered;
+        return session;
+      },
+    });
+
+    host.handleLine(JSON.stringify({
+      id: "o-startup",
+      kind: "open",
+      sessionId: "sess-startup",
+      request: BASE_REQUEST,
+      hasUiOutlet: true,
+    }));
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      kind: "uiRequest",
+      sessionId: "sess-startup",
+      requestId: "startup-confirm",
+      request,
+    }));
+
+    host.handleLine(JSON.stringify({
+      id: "r-startup",
+      kind: "uiResponse",
+      sessionId: "sess-startup",
+      requestId: "startup-confirm",
+      payload: { confirmed: true },
+    }));
+    await vi.waitFor(() => expect(session.responded).toEqual([
+      { id: "startup-confirm", payload: { confirmed: true } },
+    ]));
+    await vi.waitFor(() => expect(sent).toContainEqual({ id: "o-startup", kind: "reply", ok: true }));
+  });
+
+  it("close 会取消 opening 的启动对话，迟到点击不得回写旧代", async () => {
+    const sent: WorkerMessage[] = [];
+    const session = createFakeSession();
+    const releases = new Map<string, () => void>();
+    const dialogAnswered = new Promise<void>((resolve) => {
+      releases.set("startup-close", resolve);
+    });
+    const laterDialogAnswered = new Promise<void>((resolve) => {
+      releases.set("startup-close-later", resolve);
+    });
+    session.respondUi = (id, payload) => {
+      session.responded.push({ id, payload });
+      releases.get(id)?.();
+    };
+    const request: PiUiRequest = {
+      type: "extension_ui_request",
+      id: "startup-close",
+      method: "confirm",
+      title: "启动前确认",
+      message: "是否继续？",
+    };
+    const host = new PiHost({
+      write: (line) => sent.push(JSON.parse(line) as WorkerMessage),
+      exit: () => {},
+      buildDeps: async () => ({}),
+      openSession: async (options) => {
+        options.onSessionCreated?.(session);
+        options.onUiRequest?.(request);
+        await dialogAnswered;
+        // close 可在多个 session_start handler 之间到达；后续对话不得再发到
+        // 已关闭的 renderer，但仍要就地 cancelled 才能让 rebind 走完并 stop。
+        options.onUiRequest?.({ ...request, id: "startup-close-later" });
+        await laterDialogAnswered;
+        return session;
+      },
+    });
+
+    host.handleLine(JSON.stringify({
+      id: "o-close-startup",
+      kind: "open",
+      sessionId: "sess-close-startup",
+      request: BASE_REQUEST,
+      hasUiOutlet: true,
+    }));
+    await vi.waitFor(() => expect(sent.some((message) => message.kind === "uiRequest")).toBe(true));
+
+    host.handleLine(JSON.stringify({
+      id: "x-close-startup",
+      kind: "closeSession",
+      sessionId: "sess-close-startup",
+    }));
+    await vi.waitFor(() => expect(session.responded).toEqual([
+      { id: "startup-close", payload: { cancelled: true } },
+      { id: "startup-close-later", payload: { cancelled: true } },
+    ]));
+    expect(sent.filter((message) => message.kind === "uiRequest")).toHaveLength(1);
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      id: "o-close-startup",
+      kind: "reply",
+      ok: false,
+      error: "pi 会话开启已取消: sess-close-startup",
+    }));
+    expect(session.stopped).toBe(true);
+
+    host.handleLine(JSON.stringify({
+      id: "r-late-startup",
+      kind: "uiResponse",
+      sessionId: "sess-close-startup",
+      requestId: "startup-close",
+      payload: { confirmed: true },
+    }));
+    expect(session.responded).toEqual([
+      { id: "startup-close", payload: { cancelled: true } },
+      { id: "startup-close-later", payload: { cancelled: true } },
+    ]);
+  });
+
   it("UI 回写只落到 sessionId 指定的会话（A 的审批绝不能替 B 点掉）", async () => {
     const h = makeHarness();
     await openSession(h, "sess-1");
@@ -428,6 +591,67 @@ describe("PiHost · 凭据反向请求（KTD1）", () => {
 });
 
 describe("PiHost · closeSession（会话级关闭，进程不退）", () => {
+  it("open 在途时 close 会取消该代际，迟到会话必须 stop 且不得登记", async () => {
+    let releaseOpen: (() => void) | undefined;
+    let markOpenStarted: (() => void) | undefined;
+    const openStarted = new Promise<void>((resolve) => {
+      markOpenStarted = resolve;
+    });
+    const openGate = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+    const sent: WorkerMessage[] = [];
+    const session = createFakeSession();
+    let delayedOptions: PiInProcOpenOptions | undefined;
+    const host = new PiHost({
+      write: (line) => sent.push(JSON.parse(line) as WorkerMessage),
+      exit: () => {},
+      buildDeps: async () => ({}),
+      openSession: async (options) => {
+        delayedOptions = options;
+        markOpenStarted?.();
+        await openGate;
+        return session;
+      },
+    });
+
+    host.handleLine(JSON.stringify({
+      id: "o-late",
+      kind: "open",
+      sessionId: "sess-late",
+      request: BASE_REQUEST,
+      hasUiOutlet: true,
+    }));
+    await openStarted;
+    host.handleLine(JSON.stringify({ id: "x-late", kind: "closeSession", sessionId: "sess-late" }));
+    expect(sent).toContainEqual({ id: "x-late", kind: "reply", ok: true });
+    sent.length = 0;
+    delayedOptions?.onEvent({ type: "text", delta: "迟到事件" });
+    delayedOptions?.onUiRequest?.({
+      type: "extension_ui_request",
+      id: "late-ui",
+      method: "confirm",
+      title: "迟到审批",
+      message: "{}",
+    });
+    expect(sent).toEqual([]);
+
+    releaseOpen?.();
+    await vi.waitFor(() => expect(sent).toContainEqual(expect.objectContaining({ id: "o-late", ok: false })));
+    expect(session.stopped).toBe(true);
+
+    sent.length = 0;
+    host.handleLine(JSON.stringify({
+      id: "c-late",
+      kind: "call",
+      sessionId: "sess-late",
+      method: "getState",
+      args: [],
+    }));
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ id: "c-late", ok: false, error: "pi 会话尚未建立" });
+  });
+
   it("abort + stop 目标会话并回 ok，不退出进程", async () => {
     const h = makeHarness();
     await openSession(h, "sess-1");
@@ -502,6 +726,54 @@ describe("PiHost · shutdown 与容错", () => {
     expect(h.sessions[1]!.stopped).toBe(true);
     expect(h.sent).toEqual([{ id: "s1", kind: "reply", ok: true }]);
     await vi.waitFor(() => expect(h.exits).toEqual([0]));
+  });
+
+  it("shutdown 会解锁 opening 的启动对话，不留一个迟到会话", async () => {
+    const sent: WorkerMessage[] = [];
+    const exits: number[] = [];
+    const session = createFakeSession();
+    let releaseDialog: (() => void) | undefined;
+    const dialogAnswered = new Promise<void>((resolve) => {
+      releaseDialog = resolve;
+    });
+    session.respondUi = (id, payload) => {
+      session.responded.push({ id, payload });
+      releaseDialog?.();
+    };
+    const host = new PiHost({
+      write: (line) => sent.push(JSON.parse(line) as WorkerMessage),
+      exit: (code) => exits.push(code),
+      shutdownGraceMs: 0,
+      buildDeps: async () => ({}),
+      openSession: async (options) => {
+        options.onSessionCreated?.(session);
+        options.onUiRequest?.({
+          type: "extension_ui_request",
+          id: "startup-shutdown",
+          method: "confirm",
+          title: "启动前确认",
+          message: "是否继续？",
+        });
+        await dialogAnswered;
+        return session;
+      },
+    });
+
+    host.handleLine(JSON.stringify({
+      id: "o-shutdown-startup",
+      kind: "open",
+      sessionId: "sess-shutdown-startup",
+      request: BASE_REQUEST,
+      hasUiOutlet: true,
+    }));
+    await vi.waitFor(() => expect(sent.some((message) => message.kind === "uiRequest")).toBe(true));
+    host.handleLine(JSON.stringify({ id: "s-opening", kind: "shutdown" }));
+
+    await vi.waitFor(() => expect(session.responded).toEqual([
+      { id: "startup-shutdown", payload: { cancelled: true } },
+    ]));
+    await vi.waitFor(() => expect(session.stopped).toBe(true));
+    await vi.waitFor(() => expect(exits).toEqual([0]));
   });
 
   it("等 MCP 等外部资源释放完成后才退出（主进程 3s 后会 SIGKILL，清理必须赶在前面）", async () => {

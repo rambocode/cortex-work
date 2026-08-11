@@ -197,6 +197,24 @@ describe("NewSessionLanding 新会话落地页输入框", () => {
     );
   });
 
+  it("默认 Cortex 草稿选择“请求批准”后，首发会话与 send 入参都保留 ask", async () => {
+    usePersonalStore.setState({
+      agentsAvailable: {},
+      defaultModelRef: { providerId: "openai", modelId: "gpt-x" },
+    });
+    renderLanding(fakeBridge(piCatalogBridge()));
+
+    fireEvent.click(screen.getByRole("button", { name: "执行权限" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /请求批准/ }));
+    fireEvent.change(screen.getByPlaceholderText(/开启新会话/), { target: { value: "检查后再执行" } });
+    fireEvent.click(screen.getByTitle("发送 (Enter)"));
+
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(1));
+    const created = usePersonalStore.getState().sessions.find((s) => s.id !== "s1")!;
+    expect(created).toMatchObject({ agent: "pi", execPermission: "ask" });
+    expect(sendSpy.mock.calls[0]?.[0]).toMatchObject({ id: created.id, agent: "pi", execPermission: "ask" });
+  });
+
   it("显式选中项目 + 发送:在项目目录下新建会话并 send(带空附件)", async () => {
     const { container } = renderLanding(fakeBridge());
     // 默认「不使用项目」,先经选择器点选 alpha 项目。

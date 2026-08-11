@@ -550,6 +550,8 @@ export interface DesktopBridge {
   onPiEvent?(cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): () => void;
   // extension UI 请求（pi → host,阶段3 工具确认弹窗等）。订阅 + 回写应答。全可选（web/旧壳缺失）。
   onPiUiRequest?(cb: (uiSessionId: string, request: PiUiRequest) => void): () => void;
+  // 短生命周期 child/编排段已结束，主进程主动撤销尚在 renderer 队列的 UI 请求。
+  onPiUiCancel?(cb: (uiSessionId: string, requestId: string) => void): () => void;
   piUiResponse?(uiSessionId: string, id: string, payload: PiUiResponsePayload): Promise<void>;
   // 内嵌终端（xterm.js ↔ node-pty）
   ptySpawn(req: PtySpawnRequest): Promise<PtySpawnResult>;

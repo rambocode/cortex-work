@@ -52,6 +52,7 @@ beforeEach(() => {
   mcpMocks.createMcpInProcTools.mockResolvedValue({
     tools: [],
     connected: [],
+    acceptedTools: {},
     failed: [],
     dispose: async () => {},
   });
@@ -155,11 +156,16 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
     mcpMocks.createMcpInProcTools.mockResolvedValue({
       tools: [{ name: "mcp_tool" }],
       connected: ["srv"],
+      acceptedTools: { srv: ["mcp_tool"] },
       failed: [],
       dispose,
     });
     const deps = await buildWorkerDeps(
-      { ...BASE, bridgeServers: [{ id: "srv" } as never] },
+      {
+        ...BASE,
+        bridgeServers: [{ id: "srv" } as never],
+        requiredBridgeServerIds: ["srv"],
+      },
       ctx(),
     );
     expect(deps.customTools?.map((t) => t.name)).toEqual(["todo_write", "mcp_tool"]);
@@ -167,11 +173,131 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
+  it("required bridge 稳定前置，不能被 optional MCP 抢占同名委派工具", async () => {
+    const optional = { id: "user-mcp" } as never;
+    const requiredDelegate = { id: "cortex-delegate" } as never;
+    const requiredSlides = { id: "cortex-slides" } as never;
+    const optionalTail = { id: "optional-tail" } as never;
+    mcpMocks.createMcpInProcTools.mockImplementation(async (servers) => {
+      // 模拟真实桥的 first-wins：user-mcp 与 delegate 都声明 explore_agent，输入中先到者胜出。
+      const conflictWinner = servers.find((server) =>
+        server.id === "user-mcp" || server.id === "cortex-delegate"
+      )!;
+      return {
+        tools: [{ name: "explore_agent", description: `from:${conflictWinner.id}` }],
+        connected: servers.map((server) => server.id),
+        acceptedTools: Object.fromEntries(servers.map((server) => [
+          server.id,
+          server.id === "cortex-delegate"
+            ? ["ping", "explore_agent"]
+            : server.id === "cortex-slides"
+              ? ["slides_apply_patch"]
+              : ["optional_tool"],
+        ])),
+        failed: [],
+        dispose: async () => {},
+      };
+    });
+
+    const deps = await buildWorkerDeps({
+      ...BASE,
+      bridgeServers: [optional, requiredDelegate, requiredSlides, optionalTail],
+      requiredBridgeServerIds: ["cortex-delegate", "cortex-slides"],
+    }, ctx());
+
+    expect(mcpMocks.createMcpInProcTools.mock.calls[0]?.[0]).toEqual([
+      requiredDelegate,
+      requiredSlides,
+      optional,
+      optionalTail,
+    ]);
+    expect(deps.customTools?.find((tool) => tool.name === "explore_agent")?.description).toBe(
+      "from:cortex-delegate",
+    );
+  });
+
   it("MCP 桥整体失败 → 降级为无 MCP 工具，会话照常建（绝不阻断）", async () => {
     mcpMocks.createMcpInProcTools.mockRejectedValue(new Error("连不上"));
     const deps = await buildWorkerDeps({ ...BASE, bridgeServers: [{ id: "srv" } as never] }, ctx());
     expect(deps.customTools?.map((t) => t.name)).toEqual(["todo_write"]);
     await expect(deps.onDispose?.()).resolves.toBeUndefined();
+  });
+
+  it("optional server 单独失败 → 只跳过该 server，会话照常建", async () => {
+    const dispose = vi.fn(async () => {});
+    mcpMocks.createMcpInProcTools.mockResolvedValue({
+      tools: [],
+      connected: [],
+      acceptedTools: {},
+      failed: [{ id: "optional", error: "401 Unauthorized" }],
+      dispose,
+    });
+
+    const deps = await buildWorkerDeps(
+      { ...BASE, bridgeServers: [{ id: "optional" } as never] },
+      ctx(),
+    );
+
+    expect(deps.customTools?.map((tool) => tool.name)).toEqual(["todo_write"]);
+    await deps.onDispose?.();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("required id 缺少 server 配置 → open 前响亮失败且不尝试建桥", async () => {
+    await expect(buildWorkerDeps(
+      { ...BASE, requiredBridgeServerIds: ["cortex-delegate"] },
+      ctx(),
+    )).rejects.toThrow("Pi required MCP 配置缺失: cortex-delegate");
+    expect(mcpMocks.createMcpInProcTools).not.toHaveBeenCalled();
+  });
+
+  it("required server 握手或 tools/list 失败 → 回收已建 bridge 并拒绝 open", async () => {
+    const dispose = vi.fn(async () => {});
+    mcpMocks.createMcpInProcTools.mockResolvedValue({
+      tools: [{ name: "optional_tool" }],
+      connected: ["optional"],
+      acceptedTools: { optional: ["optional_tool"] },
+      failed: [{ id: "cortex-slides", error: "tools/list failed" }],
+      dispose,
+    });
+
+    await expect(buildWorkerDeps({
+      ...BASE,
+      bridgeServers: [
+        { id: "optional" } as never,
+        { id: "cortex-slides" } as never,
+      ],
+      requiredBridgeServerIds: ["cortex-slides"],
+    }, ctx())).rejects.toThrow("Pi required MCP 接入失败或缺少业务工具: cortex-slides");
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("required server 只返回 ping 不算能力就绪，回收桥并拒绝 open", async () => {
+    const dispose = vi.fn(async () => {});
+    mcpMocks.createMcpInProcTools.mockResolvedValue({
+      tools: [{ name: "ping" }],
+      connected: ["cortex-delegate"],
+      acceptedTools: { "cortex-delegate": ["ping"] },
+      failed: [],
+      dispose,
+    });
+
+    await expect(buildWorkerDeps({
+      ...BASE,
+      bridgeServers: [{ id: "cortex-delegate" } as never],
+      requiredBridgeServerIds: ["cortex-delegate"],
+    }, ctx())).rejects.toThrow("缺少业务工具: cortex-delegate");
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("桥构造整体 reject 且含 required server → 不降级为空工具", async () => {
+    mcpMocks.createMcpInProcTools.mockRejectedValue(new Error("bridge exploded"));
+
+    await expect(buildWorkerDeps({
+      ...BASE,
+      bridgeServers: [{ id: "cortex-design-delegate" } as never],
+      requiredBridgeServerIds: ["cortex-design-delegate"],
+    }, ctx())).rejects.toThrow("Pi required MCP 桥建立失败: cortex-design-delegate");
   });
 
   it("没有 server 时压根不建桥", async () => {

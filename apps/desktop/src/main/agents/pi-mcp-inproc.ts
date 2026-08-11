@@ -531,6 +531,8 @@ export interface McpInProcBridge {
   tools: ToolDefinition[];
   /** 成功接入的 server id（按输入顺序）。 */
   connected: string[];
+  /** 每个 server 最终通过名称/冲突校验的工具；required 能力不能只凭 connected 判定。 */
+  acceptedTools: Record<string, string[]>;
   /** 接入失败的 server（KTD5：失败必须能被看见，不能只留一条 warn 日志）。 */
   failed: McpBridgeFailure[];
   dispose(): Promise<void>;
@@ -627,13 +629,14 @@ export async function createMcpInProcTools(
 ): Promise<McpInProcBridge> {
   const opts = resolveOptions(options);
   if (!servers.length) {
-    return { tools: [], connected: [], failed: [], dispose: async () => {} };
+    return { tools: [], connected: [], acceptedTools: {}, failed: [], dispose: async () => {} };
   }
 
   const outcomes = await Promise.all(servers.map((s) => connectServer(s, opts)));
 
   const tools: ToolDefinition[] = [];
   const connected: string[] = [];
+  const acceptedTools: Record<string, string[]> = {};
   const failed: McpBridgeFailure[] = [];
   const clients: McpClient[] = [];
   const claimed = new Set<string>();
@@ -667,6 +670,7 @@ export async function createMcpInProcTools(
       tools.push(buildToolDefinition(info, outcome.server, client));
       accepted.push(name);
     }
+    acceptedTools[outcome.server.id] = accepted;
     log.info("MCP server 已接入", { server: outcome.server.id, tools: accepted });
   }
 
@@ -674,6 +678,7 @@ export async function createMcpInProcTools(
   return {
     tools,
     connected,
+    acceptedTools,
     failed,
     // 幂等：`stop()` 可能被重复调用（renderer 主动关 + 崩溃清理），重复 kill 无害但重复 log 有噪音。
     dispose: async () => {

@@ -35,12 +35,15 @@ describe("自动化 / 日历的注入点只有 pi RPC 一处", () => {
     expect(runner).not.toContain(fn);
   });
 
-  it("两个 server 的 session 映射在 pi:close 与 killAllPiSessions 都被清理", () => {
+  it("两个 server 的 session 映射由统一 disposal 路径清理，pi:close 与 killAllPiSessions 都复用该路径", () => {
     for (const fn of ["unregisterAutomationSession", "unregisterCalendarSession"]) {
-      // 出现两次 = 两处清理点各一次（import 那行不算，故用 >= 3 判定：import + 2 处调用）。
-      const count = piSession.split(fn).length - 1;
-      expect(count).toBeGreaterThanOrEqual(3);
+      // unregister 收敛到一个 helper 后，不再用重复调用次数代表覆盖面；直接钉住 helper 的职责。
+      expect(piSession).toMatch(new RegExp(`function cleanupPiCapabilitySessions[\\s\\S]*?${fn}\\(uiSessionId\\)`));
     }
+    // 显式 close、应用退出和崩溃/重开都经 disposeSessionEntry；该函数必须调用统一 helper。
+    expect(piSession).toMatch(/function disposeSessionEntry[\s\S]*?cleanupPiCapabilitySessions\(uiSessionId\)/);
+    expect(piSession).toMatch(/ipcMain\.handle\("pi:close"[\s\S]*?disposeSessionEntry\(uiSessionId, entry, true\)/);
+    expect(piSession).toMatch(/function killAllPiSessions[\s\S]*?disposeSessionEntry\(uiSessionId, entry, true\)/);
   });
 
   it("日历的 allowWrite 在 pi RPC 路径为 true", () => {

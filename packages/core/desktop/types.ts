@@ -1615,6 +1615,9 @@ export interface OrchestrateStartRequest {
 export interface PiOpenRequest {
   uiSessionId: string; // 渲染层会话标识（一个 UI 会话 = 一个长驻 pi 进程）;复用个人会话 id。
   cwd: string;
+  // 会话产物回合仍使用父 uiSessionId 做事件/审批归属，但 cwd、能力与恢复文件独立于普通聊天。
+  // 主进程必须重新验证该引用，不能只信 renderer 传入的 workspaceRoot/entryPath。
+  artifactContext?: ConversationArtifactRef;
   model?: string;
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildRpcArgs 逐个 --skill 注入。
@@ -1658,6 +1661,14 @@ export interface PiOpenRequest {
   // types.ts 存在（本镜像不含,renderer 传了也会被 preparePiOpenRequest 入口 delete）。
   enableArtifactsTool?: boolean;
   enableJsReplTool?: boolean;
+  // Cortex 主会话的自动/显式委派目录。Pi 长驻 RPC 在 open 时把对应 delegate MCP 工具注册进
+  // 会话；子 Agent 由主进程另开短生命周期 Pi RPC，会话本身不再切回无审批的 startCli。
+  // 工具集在 open 时冻结，因此角色运行配置变化必须进入 renderer 侧 extension fingerprint。
+  delegateRoles?: RoleConfig[];
+  delegatePolicy?: { maxParallel: number; maxChildRuns: number };
+  // 主进程内部协议字段：标记必须成功接入的 capability bridge。renderer 不应填充，
+  // preparePiOpenRequest 会先删除调用方值，再按已验证的 delegate/artifact host 重建。
+  requiredBridgeServerIds?: string[];
 }
 
 // pi-web-ui 移植工具的工具名常量（worker 注册、permissionMode 审批集、渲染端注册表共用,
@@ -1669,7 +1680,8 @@ export const JS_REPL_TOOL_NAME = "javascript_repl";
 export interface PiOpenResult {
   uiSessionId: string;
   sessionId: string;
-  // 磁盘 JSONL 路径（阶段4 崩溃/空闲/LRU/重启恢复用;renderer 持久到 SessionMeta.piSessionFile）。
+  // 磁盘 JSONL 路径（崩溃/空闲/LRU/重启恢复用）；普通聊天写 piSessionFile，产物写各自
+  // artifactSessionIds 槽，避免跨 cwd 串上下文。
   sessionFile?: string;
 }
 

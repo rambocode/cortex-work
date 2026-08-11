@@ -96,7 +96,10 @@ export async function buildWorkerDeps(
     webUiTools.push(createJsReplTool(prepared.jsReplSentinel));
   }
 
-  const { tools: mcpTools, dispose: disposeMcp } = await buildMcpTools(prepared.bridgeServers ?? []);
+  const { tools: mcpTools, dispose: disposeMcp } = await buildMcpTools(
+    prepared.bridgeServers ?? [],
+    prepared.requiredBridgeServerIds ?? [],
+  );
 
   // 磁盘 extension 的两个来源合并成一个槽（与主进程版逐字一致）：
   // Computer Use（按五门控注入的第三方包）与扩展市场里用户自装的扩展
@@ -119,21 +122,64 @@ export async function buildWorkerDeps(
   };
 }
 
-/** MCP 桥。单 server 失败只跳过该 server（桥内部保证不抛），整体失败才降级为无桥。 */
+/**
+ * MCP 桥。普通 server 仍 best-effort；主进程已验证并标成 required 的 capability bridge
+ * 必须完成 initialize + tools/list，否则 open fail-loud，不能给 Agent 一个“看似成功但缺工具”的会话。
+ */
 async function buildMcpTools(
   servers: NonNullable<PiOpenRequest["bridgeServers"]>,
+  requiredServerIds: NonNullable<PiOpenRequest["requiredBridgeServerIds"]>,
 ): Promise<{ tools: ToolDefinition[]; dispose: () => Promise<void> }> {
+  const requiredIds = [...new Set(requiredServerIds)];
+  const requiredIdSet = new Set(requiredIds);
+  const configuredIds = new Set(servers.map((server) => server.id));
+  const missingIds = requiredIds.filter((id) => !configuredIds.has(id));
+  if (missingIds.length) {
+    throw new Error(`Pi required MCP 配置缺失: ${missingIds.join("、")}`);
+  }
   if (!servers.length) return { tools: [], dispose: async () => {} };
+
+  // MCP 工具重名采用输入顺序 first-wins。required server 即使握手成功进入 connected，若排在
+  // 用户 MCP 后面，其 ask_<role>/explore_agent 仍可能因重名被静默跳过。因此在建桥前做稳定分区：
+  // required 与 optional 各自保序，但 required 整体优先，确保不可信 optional 不能抢占必需工具。
+  const orderedServers = [
+    ...servers.filter((server) => requiredIdSet.has(server.id)),
+    ...servers.filter((server) => !requiredIdSet.has(server.id)),
+  ];
+
+  let bridge: Awaited<ReturnType<typeof createMcpInProcTools>>;
   try {
-    const bridge = await createMcpInProcTools(servers);
-    if (bridge.failed.length) {
-      log.warn(`MCP 接入失败 ${bridge.failed.length} 个: ${bridge.failed.map((f) => f.id).join("、")}`);
-    }
-    return { tools: bridge.tools, dispose: () => bridge.dispose() };
+    bridge = await createMcpInProcTools(orderedServers);
   } catch (e) {
+    if (requiredIds.length) {
+      throw new Error(`Pi required MCP 桥建立失败: ${requiredIds.join("、")}`);
+    }
     log.warn(`MCP 桥整体失败，本会话无 MCP 工具: ${String(e)}`);
     return { tools: [], dispose: async () => {} };
   }
+
+  const connectedIds = new Set(bridge.connected);
+  const failedIds = new Set(bridge.failed.map((failure) => failure.id));
+  const unavailableRequiredIds = requiredIds.filter(
+    (id) =>
+      failedIds.has(id) ||
+      !connectedIds.has(id) ||
+      !(bridge.acceptedTools[id] ?? []).some((toolName) => toolName !== "ping"),
+  );
+  if (unavailableRequiredIds.length) {
+    // 其它 optional/required server 可能已经建立 stdio/HTTP 连接；open 拒绝前必须主动回收，
+    // 不能等一个尚未创建成功的 PiInProcSession.stop() 来兜底。
+    try {
+      await bridge.dispose();
+    } catch (error) {
+      log.warn(`required MCP 失败后的桥回收异常: ${String(error)}`);
+    }
+    throw new Error(`Pi required MCP 接入失败或缺少业务工具: ${unavailableRequiredIds.join("、")}`);
+  }
+  if (bridge.failed.length) {
+    log.warn(`MCP 接入失败 ${bridge.failed.length} 个: ${bridge.failed.map((f) => f.id).join("、")}`);
+  }
+  return { tools: bridge.tools, dispose: () => bridge.dispose() };
 }
 
 /**

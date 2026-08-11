@@ -112,12 +112,31 @@ describe("delegate session 注册与清理", () => {
     expect(aOld).not.toHaveBeenCalled();
     expect(aNew).toHaveBeenCalledTimes(1);
   });
+
+  it("旧运行按 expected state 迟到注销时不删除同 sessionId 的新 state", () => {
+    const oldAbort = vi.fn();
+    const newAbort = vi.fn();
+    const oldState = makeState("s1", oldAbort);
+    const newState = makeState("s1", newAbort);
+    registerDelegateSession(oldState);
+    registerDelegateSession(newState);
+
+    unregisterDelegateSession("s1", oldState);
+    killAllDelegates();
+
+    expect(oldAbort).not.toHaveBeenCalled();
+    expect(newAbort).toHaveBeenCalledTimes(1);
+  });
 });
 
 // 端到端：模拟 pi 桥接的 HTTP 握手（initialize → tools/list），验证无状态 host（每请求新建
 // server/transport）是否真能返回 ask_<id>。这是 pi 找不到 ask_codex 的关键验证点。
 describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
-  function post(cfg: { url: string; headers?: Record<string, string> }, body: unknown) {
+  function post(
+    cfg: { url: string; headers?: Record<string, string> },
+    body: unknown,
+    signal?: AbortSignal,
+  ) {
     return new Promise<{ status: number; body: string }>((resolve, reject) => {
       const u = new URL(cfg.url);
       const r = http.request(
@@ -136,6 +155,10 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         },
       );
       r.on("error", reject);
+      const abort = () => r.destroy(new Error("调用方已取消"));
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
+      r.on("close", () => signal?.removeEventListener("abort", abort));
       r.write(JSON.stringify(body));
       r.end();
     });
@@ -204,7 +227,13 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       });
       expect(call.status).toBe(200);
       expect(call.body).toContain("结构分析完成");
-      expect(runSubAgent).toHaveBeenCalledWith(expect.objectContaining({ id: "explore" }), "只读分析目录与技术栈", expect.any(Function), expect.any(String));
+      expect(runSubAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "explore" }),
+        "只读分析目录与技术栈",
+        expect.any(Function),
+        expect.any(String),
+        expect.any(AbortSignal),
+      );
       expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
         type: "init", subagentTask: "只读分析目录与技术栈", subagentTitle: "Project structure", subagentReadOnly: true,
       }));
@@ -251,6 +280,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         "结合必要材料完成子任务",
         expect.any(Function),
         expect.any(String),
+        expect.any(AbortSignal),
       );
       expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
         type: "init",
@@ -404,6 +434,52 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(state.activeRuns).toBe(0);
       expect(state.waiters).toHaveLength(0);
     } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
+  it("排队中的单次 MCP 调用取消后移除 waiter，不得再启动无调用方 child", async () => {
+    await startDelegateHost();
+    const sid = "request-abort-session";
+    const state = makeState(sid);
+    state.roles = [{ id: "review", label: "Reviewer", agent: "pi", systemPrompt: "", createdAt: "", updatedAt: "" }];
+    state.maxParallel = 1;
+    let finishFirst: (() => void) | undefined;
+    state.runSubAgent = vi.fn(async (_role, task) => {
+      if (task === "占用槽位") await new Promise<void>((resolve) => { finishFirst = resolve; });
+      return { text: task, ok: true };
+    });
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const first = post(cfg, {
+        jsonrpc: "2.0",
+        id: 31,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "占用槽位" } },
+      });
+      await vi.waitFor(() => expect(state.runSubAgent).toHaveBeenCalledTimes(1));
+
+      const controller = new AbortController();
+      const second = post(cfg, {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "不应启动" } },
+      }, controller.signal);
+      const rejected = expect(second).rejects.toThrow("调用方已取消");
+      await vi.waitFor(() => expect(state.waiters).toHaveLength(1));
+      controller.abort();
+      await rejected;
+      await vi.waitFor(() => expect(state.waiters).toHaveLength(0));
+
+      finishFirst?.();
+      await first;
+      expect(state.runSubAgent).toHaveBeenCalledTimes(1);
+      expect(state.activeRuns).toBe(0);
+    } finally {
+      finishFirst?.();
       stopDelegateHost();
       unregisterDelegateSession(sid);
     }

@@ -331,6 +331,25 @@ describe("事件流", () => {
 // ── 4. 异常边界 ──────────────────────────────────────────────────────────────────────
 
 describe("异常边界（进程隔离消失后的四道闸）", () => {
+  it("rebind/session_start 前先暴露 respondUi 句柄", async () => {
+    const fake = makeMod();
+    let createdSession: PiInProcSession | undefined;
+    let bindCountAtCallback = -1;
+    const session = await openPiInProcSession({
+      request: { uiSessionId: "ui-opening", cwd: "/proj" },
+      onEvent: () => {},
+      onSessionCreated: (created) => {
+        createdSession = created as PiInProcSession;
+        bindCountAtCallback = fake.created[0]?.state.bindCalls.length ?? -1;
+      },
+      deps: { loadModule: async () => fake.mod },
+    });
+
+    expect(createdSession).toBe(session);
+    expect(bindCountAtCallback).toBe(0);
+    expect(fake.created[0]?.state.bindCalls).toHaveLength(1);
+  });
+
   it("命令抛错转成 success:false,不冒泡", async () => {
     const h = await open();
     h.fake.created[0]!.session.compact = async () => {
@@ -403,7 +422,7 @@ describe("异常边界（进程隔离消失后的四道闸）", () => {
 // ── 5. 扩展命令补发收尾 ──────────────────────────────────────────────────────────────
 
 describe("扩展命令补发收尾", () => {
-  it("/cmd 有 notify 输出且无 agent 活动 → 立即补发 result", async () => {
+  it("/cmd 有 notify 输出且无 agent 活动 → 立即补发 result + authoritative settled", async () => {
     const h = await open();
     await h.session.loadSlashCommands(); // memory 来源 = extension
     const bindings = h.fake.created[0]!.state.bindCalls[0] as {
@@ -417,10 +436,11 @@ describe("扩展命令补发收尾", () => {
     expect(h.events.map((e) => e.ev)).toEqual([
       { type: "notify", message: "索引完成", level: "info" },
       { type: "result", willRetry: false },
+      { type: "settled" },
     ]);
   });
 
-  it("/cmd 无 notify → 走宽限窗补发", async () => {
+  it("/cmd 无 notify → 走宽限窗补发 result + settled", async () => {
     vi.useFakeTimers();
     try {
       const h = await open();
@@ -428,7 +448,10 @@ describe("扩展命令补发收尾", () => {
       await h.session.prompt("/memory", "run-4");
       expect(h.events).toHaveLength(0);
       await vi.advanceTimersByTimeAsync(1_600);
-      expect(h.events.map((e) => e.ev)).toEqual([{ type: "result", willRetry: false }]);
+      expect(h.events.map((e) => e.ev)).toEqual([
+        { type: "result", willRetry: false },
+        { type: "settled" },
+      ]);
     } finally {
       vi.useRealTimers();
     }

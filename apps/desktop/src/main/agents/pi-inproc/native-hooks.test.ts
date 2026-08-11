@@ -114,21 +114,26 @@ describe("createApprovalExtension", () => {
     ]);
   });
 
-  it("用户拒绝 → block + reason 与旧模板逐字一致", async () => {
+  it.each([
+    ["bash", { command: "rm -rf /tmp/cortex-approval-fixture" }],
+    ["write", { path: "/tmp/cortex-approval-fixture" }],
+    ["edit", { path: "/tmp/cortex-approval-fixture" }],
+  ] as const)("默认审批集命中 %s，用户拒绝后必须 block", async (toolName, input) => {
     const rec = recorder();
     const handler = mountApproval({
-      tools: ["write"],
       hasUiOutlet: () => true,
       onDecision: rec.onDecision,
     });
+    const confirm = vi.fn(async () => false);
 
     const result = await handler(
-      toolCall("write", { path: "/a" }),
-      fakeCtx({ confirm: async () => false }),
+      toolCall(toolName, input),
+      fakeCtx({ confirm }),
     );
 
+    expect(confirm).toHaveBeenCalledWith(`允许执行工具 ${toolName}?`, JSON.stringify(input));
     expect(result).toEqual({ block: true, reason: "用户拒绝执行" });
-    expect(rec.records[0]?.decision).toBe("denied");
+    expect(rec.records[0]).toMatchObject({ toolName, decision: "denied" });
   });
 
   it("不在审批集的工具 → 不弹窗、不 block、不留痕", async () => {
@@ -144,6 +149,8 @@ describe("createApprovalExtension", () => {
   });
 
   it("tools 缺省 → 用 DEFAULT_APPROVAL_TOOLS；tools=[] → 空集放行全部", async () => {
+    // 与 renderer 的 ask 派生测试组成跨链护栏：这三个内建工具名必须逐一经过 confirm。
+    expect(DEFAULT_APPROVAL_TOOLS).toEqual(["bash", "write", "edit"]);
     const confirmDefault = vi.fn(async () => true);
     const withDefault = mountApproval({ hasUiOutlet: () => true, onDecision: () => {} });
     for (const name of DEFAULT_APPROVAL_TOOLS) {

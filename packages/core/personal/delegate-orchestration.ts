@@ -16,7 +16,7 @@ function delegateToolId(id: string): string {
 }
 
 /** Repository Explorer 对齐 Kun 的一等工具名，其余角色继续使用通用 ask_<id> 契约。 */
-function delegateToolName(id: string): string {
+export function delegateToolName(id: string): string {
   return id === "explore" ? "explore_agent" : `ask_${delegateToolId(id)}`;
 }
 

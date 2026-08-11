@@ -49,6 +49,9 @@ function fakeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
     piGetState: vi.fn(async () => ({ sessionId: "pi-restored", sessionFile: "/sessions/old.jsonl", messageCount: 5 })),
     piClose: vi.fn(async () => undefined),
     onPiEvent: vi.fn(() => () => undefined),
+    onPiUiRequest: vi.fn(() => () => undefined),
+    onPiUiCancel: vi.fn(() => () => undefined),
+    piUiResponse: vi.fn(async () => undefined),
     ...over,
   } as unknown as DesktopBridge;
 }
@@ -56,17 +59,43 @@ function fakeBridge(over: Partial<DesktopBridge> = {}): DesktopBridge {
 const req = (uiSessionId = "s1"): PiOpenRequest => ({ uiSessionId, cwd: "/proj" });
 
 describe("piRpcAvailable", () => {
-  it("三件套齐备才算可用", () => {
+  it("执行与审批完整能力集齐备才算可用", () => {
     expect(piRpcAvailable(fakeBridge())).toBe(true);
     expect(piRpcAvailable(null)).toBe(false);
     expect(piRpcAvailable(fakeBridge({ piOpen: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ piPrompt: undefined }))).toBe(false);
     expect(piRpcAvailable(fakeBridge({ onPiEvent: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ onPiUiRequest: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ onPiUiCancel: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ piUiResponse: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ piAbort: undefined }))).toBe(false);
+    expect(piRpcAvailable(fakeBridge({ piClose: undefined }))).toBe(false);
   });
 
   it("返回缺失能力列表和可操作提示", () => {
-    const bridge = fakeBridge({ piOpen: undefined, onPiEvent: undefined });
-    expect(piRpcMissingCapabilities(bridge)).toEqual(["piOpen", "onPiEvent"]);
-    expect(piRpcUnavailableMessage(bridge)).toContain("缺少 piOpen, onPiEvent");
+    const bridge = fakeBridge({
+      piOpen: undefined,
+      piPrompt: undefined,
+      onPiEvent: undefined,
+      onPiUiRequest: undefined,
+      onPiUiCancel: undefined,
+      piUiResponse: undefined,
+      piAbort: undefined,
+      piClose: undefined,
+    });
+    expect(piRpcMissingCapabilities(bridge)).toEqual([
+      "piOpen",
+      "piPrompt",
+      "onPiEvent",
+      "onPiUiRequest",
+      "onPiUiCancel",
+      "piUiResponse",
+      "piAbort",
+      "piClose",
+    ]);
+    expect(piRpcUnavailableMessage(bridge)).toContain(
+      "缺少 piOpen, piPrompt, onPiEvent, onPiUiRequest, onPiUiCancel, piUiResponse, piAbort, piClose",
+    );
     expect(piRpcUnavailableMessage(bridge)).toContain("完整重启 Cortex Desktop");
     expect(piRpcUnavailableMessage(fakeBridge())).toBeNull();
   });
@@ -111,6 +140,27 @@ describe("ensurePiSession", () => {
     expect(res.sessionId).toBe("pi-abc"); // 沿用 live pi id（温会话复用守卫需真值）
   });
 
+  it("恢复 switchSession 在途时 close，应答到达后必须关掉迟到进程而不得标记 ready", async () => {
+    let finishSwitch: (() => void) | undefined;
+    const switching = new Promise<void>((resolve) => {
+      finishSwitch = resolve;
+    });
+    const bridge = fakeBridge({
+      piSwitchSession: vi.fn(async () => switching),
+    });
+
+    const opening = ensurePiSession(bridge, req(), { resumeFrom: "/sessions/old.jsonl" });
+    const rejected = expect(opening).rejects.toThrow("开启已取消");
+    await vi.waitFor(() => expect(bridge.piSwitchSession).toHaveBeenCalled());
+    const closing = closePiSession(bridge, "s1");
+    finishSwitch?.();
+
+    await rejected;
+    await closing;
+    expect(bridge.piClose).toHaveBeenCalledTimes(1);
+    expect(isPiSessionOpen("s1")).toBe(false);
+  });
+
   it("resumeFrom 等于新会话自身 file → 不重复 switchSession", async () => {
     const bridge = fakeBridge();
     await ensurePiSession(bridge, req(), { resumeFrom: "/sessions/new.jsonl" });
@@ -123,6 +173,218 @@ describe("ensurePiSession", () => {
     expect(a.sessionId).toBe("pi-abc");
     expect(b.sessionId).toBe("pi-abc");
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("开启中指纹漂移时不复用旧配置,旧开启收口后关闭并按新配置重开", async () => {
+    let finishFirstOpen: ((result: PiOpenResult) => void) | undefined;
+    const firstOpen = new Promise<PiOpenResult>((resolve) => {
+      finishFirstOpen = resolve;
+    });
+    let finishClose: (() => void) | undefined;
+    const closing = new Promise<void>((resolve) => {
+      finishClose = resolve;
+    });
+    const open = vi.fn((request: PiOpenRequest) => {
+      if (!request.enableToolApproval) return firstOpen;
+      return Promise.resolve({ uiSessionId: request.uiSessionId, sessionId: "pi-with-approval" });
+    });
+    const close = vi.fn(() => closing);
+    const bridge = fakeBridge({ piOpen: open, piClose: close });
+
+    const openingWithoutApproval = ensurePiSession(bridge, req());
+    const openingWithApproval = ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+
+    expect(open).toHaveBeenCalledTimes(1);
+    finishFirstOpen?.({ uiSessionId: "s1", sessionId: "pi-without-approval" });
+    await expect(openingWithoutApproval).resolves.toMatchObject({ sessionId: "pi-without-approval" });
+    await vi.waitFor(() => expect(close).toHaveBeenCalledWith("s1"));
+    expect(open).toHaveBeenCalledTimes(1); // 旧进程尚未关完时，不得抢先 open 同一个 uiSessionId。
+    finishClose?.();
+    await expect(openingWithApproval).resolves.toMatchObject({ sessionId: "pi-with-approval" });
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenNthCalledWith(2, expect.objectContaining({ enableToolApproval: true }));
+  });
+
+  it.each([
+    [
+      "model",
+      { model: "model-a", thinkingLevel: "low" },
+      { model: "model-b", thinkingLevel: "low" },
+    ],
+    [
+      "thinking",
+      { model: "model-a", thinkingLevel: "low" },
+      { model: "model-a", thinkingLevel: "high" },
+    ],
+  ] as const)("预热 opening 期间同 provider 仅切 %s → 不复用旧启动参数", async (_field, initial, next) => {
+    let finishPrewarm: ((result: PiOpenResult) => void) | undefined;
+    const prewarming = new Promise<PiOpenResult>((resolve) => {
+      finishPrewarm = resolve;
+    });
+    let openCount = 0;
+    const open = vi.fn((request: PiOpenRequest) => {
+      openCount += 1;
+      if (openCount === 1) return prewarming;
+      return Promise.resolve({ uiSessionId: request.uiSessionId, sessionId: "pi-config-b" });
+    });
+    const close = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ piOpen: open, piClose: close });
+    const a: PiOpenRequest = { ...req(), providerId: "provider-a", ...initial };
+    const b: PiOpenRequest = { ...a, ...next };
+
+    const openingA = ensurePiSession(bridge, a);
+    const openingB = ensurePiSession(bridge, b);
+
+    expect(open).toHaveBeenCalledTimes(1);
+    finishPrewarm?.({ uiSessionId: "s1", sessionId: "pi-config-a" });
+    await expect(openingA).resolves.toMatchObject({ sessionId: "pi-config-a" });
+    await expect(openingB).resolves.toMatchObject({ sessionId: "pi-config-b" });
+    expect(close).toHaveBeenCalledWith("s1");
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenNthCalledWith(2, b);
+  });
+
+  it("普通聊天切入 artifact 时按 cwd/产物身份关闭旧会话并重开", async () => {
+    const bridge = fakeBridge();
+    await ensurePiSession(bridge, req());
+    await ensurePiSession(bridge, {
+      ...req(),
+      cwd: "/artifact/workspace",
+      artifactContext: {
+        kind: "slides",
+        documentId: "deck-1",
+        title: "Deck",
+        workspaceRoot: "/artifact/workspace",
+        entryPath: "/artifact/workspace/.cortex-design/deck-1/deck.bento.html",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+    expect(bridge.piOpen).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cwd: "/artifact/workspace", artifactContext: expect.objectContaining({ documentId: "deck-1" }) }),
+    );
+  });
+
+  it("同一 artifact cwd 仅切 documentId/entryPath 时仍关闭旧会话并重开", async () => {
+    const bridge = fakeBridge();
+    const first: PiOpenRequest = {
+      ...req(),
+      cwd: "/artifact/workspace",
+      artifactContext: {
+        kind: "slides",
+        documentId: "deck-1",
+        title: "Deck 1",
+        workspaceRoot: "/artifact/workspace",
+        entryPath: "/artifact/workspace/.cortex-design/deck-1/deck.bento.html",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    };
+    const second: PiOpenRequest = {
+      ...first,
+      artifactContext: {
+        ...first.artifactContext!,
+        documentId: "deck-2",
+        title: "Deck 2",
+        entryPath: "/artifact/workspace/.cortex-design/deck-2/deck.bento.html",
+      },
+    };
+
+    await ensurePiSession(bridge, first);
+    await ensurePiSession(bridge, second);
+
+    expect(bridge.piClose).toHaveBeenCalledWith("s1");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+    expect(bridge.piOpen).toHaveBeenLastCalledWith(second);
+  });
+
+  it("旧 opening 延迟 reject 不删除已登记的新指纹句柄", async () => {
+    let rejectFirstOpen: ((reason: Error) => void) | undefined;
+    const firstOpen = new Promise<PiOpenResult>((_resolve, reject) => {
+      rejectFirstOpen = reject;
+    });
+    const open = vi.fn((request: PiOpenRequest) => {
+      if (!request.enableToolApproval) return firstOpen;
+      return Promise.resolve({ uiSessionId: request.uiSessionId, sessionId: "pi-with-approval" });
+    });
+    const bridge = fakeBridge({ piOpen: open });
+
+    const staleOpening = ensurePiSession(bridge, req());
+    const replacementOpening = ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+    const staleRejection = expect(staleOpening).rejects.toThrow("first open failed");
+
+    rejectFirstOpen?.(new Error("first open failed"));
+    await staleRejection;
+    await expect(replacementOpening).resolves.toMatchObject({ sessionId: "pi-with-approval" });
+    expect(isPiSessionOpen("s1")).toBe(true);
+
+    await ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it("关闭等待旧世代的 opening 后不会迟到 piOpen，后续新世代仍可正常启动", async () => {
+    let finishFirstOpen: ((result: PiOpenResult) => void) | undefined;
+    const firstOpen = new Promise<PiOpenResult>((resolve) => {
+      finishFirstOpen = resolve;
+    });
+    const open = vi.fn((request: PiOpenRequest) => {
+      if (!request.enableToolApproval) return firstOpen;
+      return Promise.resolve({ uiSessionId: request.uiSessionId, sessionId: "pi-approved" });
+    });
+    const bridge = fakeBridge({ piOpen: open });
+
+    const openingA = ensurePiSession(bridge, req());
+    const openingB = ensurePiSession(bridge, { ...req(), enableToolApproval: true });
+    const closingB = closePiSession(bridge, "s1");
+
+    finishFirstOpen?.({ uiSessionId: "s1", sessionId: "pi-a" });
+    await expect(openingA).resolves.toMatchObject({ sessionId: "pi-a" });
+    await expect(openingB).rejects.toThrow("开启已取消");
+    await closingB;
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(isPiSessionOpen("s1")).toBe(false);
+
+    await expect(ensurePiSession(bridge, { ...req(), enableToolApproval: true })).resolves.toMatchObject({
+      sessionId: "pi-approved",
+    });
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it("已取消的 B 等待 A 关闭时，同配置 C 也必须等迟到 close 收口后再 open", async () => {
+    let finishA: ((result: PiOpenResult) => void) | undefined;
+    const openingAResult = new Promise<PiOpenResult>((resolve) => {
+      finishA = resolve;
+    });
+    let finishClose: (() => void) | undefined;
+    const closingA = new Promise<void>((resolve) => {
+      finishClose = resolve;
+    });
+    const approved = { ...req(), enableToolApproval: true };
+    const open = vi.fn((request: PiOpenRequest) =>
+      request.enableToolApproval
+        ? Promise.resolve({ uiSessionId: request.uiSessionId, sessionId: "pi-c" })
+        : openingAResult,
+    );
+    const close = vi.fn(() => closingA);
+    const bridge = fakeBridge({ piOpen: open, piClose: close });
+
+    const openingA = ensurePiSession(bridge, req());
+    const openingB = ensurePiSession(bridge, approved);
+    const closingB = closePiSession(bridge, "s1");
+    const openingC = ensurePiSession(bridge, approved);
+
+    finishA?.({ uiSessionId: "s1", sessionId: "pi-a" });
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect(open).toHaveBeenCalledTimes(1);
+    finishClose?.();
+    await expect(openingA).resolves.toMatchObject({ sessionId: "pi-a" });
+    await expect(openingB).rejects.toThrow("开启已取消");
+    await closingB;
+    await expect(openingC).resolves.toMatchObject({ sessionId: "pi-c" });
+    expect(open).toHaveBeenCalledTimes(2);
   });
 
   it("已就绪再 ensure 不重复 spawn（同深度定制指纹）", async () => {
@@ -262,10 +524,27 @@ describe("ensurePiSession", () => {
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
 
-  it("thinkingLevel 仅运行时态 → 不进指纹,切档复用温会话不重开（阶段5）", async () => {
+  it("ready 后 setModel 成功同步热配置 → 下一次 ensure 保持温会话快路径", async () => {
     const bridge = fakeBridge();
-    await ensurePiSession(bridge, { ...req(), thinkingLevel: "low" });
-    await ensurePiSession(bridge, { ...req(), thinkingLevel: "high" });
+    const initial = { ...req(), providerId: "provider-a", model: "model-a", thinkingLevel: "low" };
+    await ensurePiSession(bridge, initial);
+    await setModelPi(bridge, "s1", "provider-a", "model-b");
+    await ensurePiSession(bridge, { ...initial, model: "model-b" });
+
+    expect(bridge.piSetModel).toHaveBeenCalledWith("s1", "provider-a", "model-b");
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+    expect(bridge.piClose).not.toHaveBeenCalled();
+  });
+
+  it("ready 后 setThinking 成功同步热配置 → 下一次 ensure 保持温会话快路径", async () => {
+    const setThinking = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ piSetThinking: setThinking });
+    const initial = { ...req(), providerId: "provider-a", model: "model-a", thinkingLevel: "low" };
+    await ensurePiSession(bridge, initial);
+    await setThinkingLevelPi(bridge, "s1", "high");
+    await ensurePiSession(bridge, { ...initial, thinkingLevel: "high" });
+
+    expect(setThinking).toHaveBeenCalledWith("s1", "high");
     expect(bridge.piOpen).toHaveBeenCalledTimes(1);
     expect(bridge.piClose).not.toHaveBeenCalled();
   });
@@ -348,6 +627,34 @@ describe("关闭与崩溃", () => {
     expect(isPiSessionOpen("s1")).toBe(false);
     await closePiSession(bridge, "s1"); // 二次幂等,不再调
     expect(bridge.piClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("旧世代 close 在途的迟到活动不重挂 idle timer，不能在十分钟后误关新世代", async () => {
+    vi.useFakeTimers();
+    let releaseClose: () => void = () => undefined;
+    const closePending = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const piClose = vi.fn(() => closePending);
+    const bridge = fakeBridge({ piClose });
+    await ensurePiSession(bridge, req());
+    touchPiSession(bridge, "s1");
+
+    const closing = closePiSession(bridge, "s1");
+    touchPiSession(bridge, "s1"); // 模拟主进程关闭应答前排队到 renderer 的旧事件。
+    const reopening = ensurePiSession(bridge, req());
+    await Promise.resolve();
+    expect(bridge.piOpen).toHaveBeenCalledTimes(1);
+
+    releaseClose();
+    await Promise.all([closing, reopening]);
+    expect(bridge.piOpen).toHaveBeenCalledTimes(2);
+    expect(isPiSessionOpen("s1")).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(IDLE_RECLAIM_MS);
+    expect(piClose).toHaveBeenCalledTimes(1);
+    expect(isPiSessionOpen("s1")).toBe(true);
+    vi.useRealTimers();
   });
 
   it("closeAllPiSessions 关掉全部", async () => {

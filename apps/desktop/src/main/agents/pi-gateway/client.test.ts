@@ -166,6 +166,21 @@ describe("PiSessionEngine 方法转发", () => {
     expect(msg?.hasUiOutlet).toBe(true);
   });
 
+  it("ask 审批字段经 HostOpen JSON 原样交给 worker", async () => {
+    const rig = makeRig();
+    await openOn(rig, {
+      request: {
+        enableToolApproval: true,
+        approvalTools: ["bash", "write", "edit"],
+      },
+    });
+
+    expect(rig.transport.firstOf("open")?.request).toMatchObject({
+      enableToolApproval: true,
+      approvalTools: ["bash", "write", "edit"],
+    });
+  });
+
   it("无 onUiRequest 时 hasUiOutlet=false（决定 worker 侧审批 hook 的无 UI 语义）", async () => {
     const { transport } = await open({ onUiRequest: false });
     expect(transport.firstOf("open")?.hasUiOutlet).toBe(false);
@@ -398,6 +413,42 @@ describe("反向调用：UI 请求", () => {
     expect(resp.sessionId).toBe(session.sessionId);
     expect(resp.requestId).toBe("rq-42");
     expect(resp.payload).toEqual({ confirmed: true });
+  });
+
+  it("open 应答前暴露已登记 handle，startup UI 可在建会话期间完成回写", async () => {
+    const rig = makeRig();
+    let openingSession: PiGatewaySession | undefined;
+    const uiRequests: PiUiRequest[] = [];
+    const pending = openPiGatewaySession({
+      request: makeRequest(),
+      onEvent: () => {},
+      onSessionCreated: (session) => {
+        openingSession = session;
+      },
+      onUiRequest: (request) => uiRequests.push(request),
+      deps: rig.deps,
+    });
+    await settle();
+    expect(openingSession).toBeDefined();
+    expect(rig.transport.firstOf("open")).toBeDefined();
+
+    rig.transport.emit({
+      kind: "uiRequest",
+      sessionId: openingSession!.sessionId,
+      requestId: "startup-rq",
+      request: uiRequest,
+    });
+    expect(uiRequests).toEqual([uiRequest]);
+    openingSession!.respondUi(uiRequest.id, { confirmed: false });
+    expect(rig.transport.last()).toMatchObject({
+      kind: "uiResponse",
+      sessionId: openingSession!.sessionId,
+      requestId: "startup-rq",
+      payload: { confirmed: false },
+    });
+
+    rig.transport.replyOk();
+    await expect(pending).resolves.toBe(openingSession);
   });
 
   it("无 UI 出口时立即回 cancelled（不回的话 worker 的工具执行栈永久冻住）", async () => {

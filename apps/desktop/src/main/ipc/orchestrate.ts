@@ -552,7 +552,7 @@ export function registerOrchestrateHandlers(): void {
       sendEvent({ type: "thinking", delta: "", stage, stageLabel } as CliStreamEvent);
     };
     const sendPiUiRequest = (piSession: PiSessionEngine, request: PiUiRequest) => {
-      registerTransientPiUiRequest(sessionId, request.id, piSession);
+      registerTransientPiUiRequest(sessionId, request.id, piSession, sender);
       if (!sender.isDestroyed()) {
         sender.send("pi:uiRequest", { uiSessionId: sessionId, request });
       }

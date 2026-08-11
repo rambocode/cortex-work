@@ -5,8 +5,8 @@
 //  ① 纯函数层（classifyImageSupport / checkImageSupport）：三态判定，尤其是
 //     「Catalog 里查不到」必须是 unknown 而不是 unsupported——把未知当不支持会让图片被
 //     静默丢弃，正是本次事故的形态（研究文档 §5.1）。
-//  ② 端到端 send：**RPC（sendPiTurn→piOpen/piPrompt）与 CLI（startCli，delegate 编排）
-//     两条路径都要被拦下**，且拦下后草稿完整保留——即不落盘图片（imageSave 未被调用）、
+//  ② 端到端 send：普通 Pi RPC 与开启自动委派的 Pi RPC 两条路径都要被拦下，
+//     且拦下后草稿完整保留——即不落盘图片（imageSave 未被调用）、
 //     不写入用户消息（消息缓存为空）、composer 侧因 send 返回 false 而保留全部输入。
 // core 通例是 node 纯函数测试，但 usePersonalActions 依赖 React context + bridge 注入，
 // 故照 editResendAttachments.test.tsx 的 per-file jsdom + renderHook/CoreProvider 写法。
@@ -112,6 +112,11 @@ function fakeBridge(opts: { catalogOk?: boolean } = {}) {
     piOpen,
     piPrompt,
     onPiEvent: () => () => {},
+    onPiUiRequest: () => () => {},
+    onPiUiCancel: () => () => {},
+    piUiResponse: vi.fn(async () => {}),
+    piAbort: vi.fn(async () => {}),
+    piClose: vi.fn(async () => {}),
   } as unknown as DesktopBridge;
   return { bridge, providerCatalogGet, imageSave, startCli, piOpen, piPrompt };
 }
@@ -186,13 +191,13 @@ describe("send：文本模型 + 图片 → 阻断且草稿完整保留", () => {
     expect(hint).toEqual({ reason: "unsupported", providerId: "openai", modelId: "gpt-text" });
   });
 
-  it("CLI 路径（delegate 编排走 startCli）被拦下：同一判定，不 startCli", async () => {
+  it("自动委派的 Pi RPC 路径也被拦下：同一判定，不启动旧 startCli", async () => {
     const qc = new QueryClient();
     const { bridge, imageSave, startCli } = fakeBridge();
     const session = piSession({ model: "gpt-text" });
     usePersonalStore.setState({
       sessions: [session],
-      // 自动编排开启 → usesCliDelegate → 本会走 bridge.startCli 而非 sendPiTurn。
+      // 自动委派开启后 Cortex 仍应走 Pi RPC；vision 阻断发生在运行时选择之前。
       generalSettings: { ...usePersonalStore.getState().generalSettings, subagentOrchestration: true },
     });
     const { result } = renderHook(() => usePersonalActions(), { wrapper: wrapper(bridge, qc) });

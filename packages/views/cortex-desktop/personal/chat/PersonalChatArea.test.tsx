@@ -990,6 +990,12 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       saveChat: vi.fn(async () => undefined),
       piOpen: vi.fn(async () => ({ uiSessionId: "s1", sessionId: "pi-live", sessionFile: "/tmp/pi.jsonl" })),
       piPrompt: vi.fn(async () => undefined),
+      onPiEvent: vi.fn(() => () => undefined),
+      onPiUiRequest: vi.fn(() => () => undefined),
+      onPiUiCancel: vi.fn(() => () => undefined),
+      piUiResponse: vi.fn(async () => undefined),
+      piAbort: vi.fn(async () => undefined),
+      piClose: vi.fn(async () => undefined),
     } as unknown as DesktopBridge;
 
     let editResendFn: ReturnType<typeof usePersonalActions>["editResend"] | undefined;
@@ -1039,6 +1045,7 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     };
     const artifactCreate = vi.fn(async () => ({ ok: true as const, artifact }));
     const startCli = vi.fn(async () => undefined);
+    const piOpen = vi.fn(async () => ({ uiSessionId: "s1", sessionId: "pi-live", sessionFile: "/tmp/pi.jsonl" }));
     const piPrompt = vi.fn(async () => undefined);
     usePersonalStore.setState({
       homeOpen: false,
@@ -1079,8 +1086,14 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       }),
       piSkillsList: async () => [],
       startCli,
-      piOpen: vi.fn(async () => ({ uiSessionId: "s1", sessionId: "pi-live", sessionFile: "/tmp/pi.jsonl" })),
+      piOpen,
       piPrompt,
+      onPiEvent: vi.fn(() => () => undefined),
+      onPiUiRequest: vi.fn(() => () => undefined),
+      onPiUiCancel: vi.fn(() => () => undefined),
+      piUiResponse: vi.fn(async () => undefined),
+      piAbort: vi.fn(async () => undefined),
+      piClose: vi.fn(async () => undefined),
     } as unknown as DesktopBridge;
 
     render(
@@ -1103,22 +1116,24 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
         projectId: "p1",
       }),
     );
-    await waitFor(() => expect(startCli).toHaveBeenCalled());
-    expect(startCli).toHaveBeenCalledWith(
+    await waitFor(() => expect(piPrompt).toHaveBeenCalled());
+    expect(piOpen).toHaveBeenCalledWith(
       expect.objectContaining({
-        agent: "pi",
+        uiSessionId: "s1",
         cwd: artifact.workspaceRoot,
-        prompt: "/skill:slides 帮我做一个简单的演示文稿",
         artifactContext: artifact,
         model: "deepseek-v4-flash",
-        // 只传 providerId：endpoint 与密钥由主进程从「Catalog + provider-prefs + 凭据金库」
-        // 解析，渲染端不再拍平 baseUrl/apiKey，也不再产出任何模型能力字段（事故输入端）。
         providerId: "deepseek",
         skillPaths: ["/builtin/slides"],
-        invokedSkill: undefined,
       }),
     );
-    expect(piPrompt).not.toHaveBeenCalled();
+    expect(piPrompt).toHaveBeenCalledWith(
+      "s1",
+      expect.stringContaining("/skill:slides 帮我做一个简单的演示文稿"),
+      expect.stringMatching(/^artifact:slides:slides-1:/),
+      undefined,
+    );
+    expect(startCli).not.toHaveBeenCalled();
     expect(usePersonalStore.getState()).toMatchObject({
       rightView: "artifact",
       sessions: [expect.objectContaining({ id: "s1", activeArtifact: artifact })],

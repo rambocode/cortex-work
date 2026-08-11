@@ -1102,6 +1102,9 @@ export interface AgentTraceEvent {
 export interface PiOpenRequest {
   uiSessionId: string; // 渲染层会话标识（一个 UI 会话 = 一个长驻 pi 进程）
   cwd: string;
+  // 与 core 镜像：会话产物回合仍归属父 uiSessionId，主进程据此复验 workspace/deck 边界并
+  // 注入产物专属能力；delegate child 不继承该字段，避免拿到父产物写权限。
+  artifactContext?: ConversationArtifactRef;
   model?: string;
   useOwnSkills?: boolean; // false → 会话级一键关 skill（清空 skillPaths）
   // pi 插件 Skill（U4）:已启用 + 去重后的 skill 目录绝对路径,buildRpcArgs 逐个 --skill 注入。
@@ -1133,6 +1136,10 @@ export interface PiOpenRequest {
   // 故这里保留结构化配置而非文件路径——鉴权头与 stdio env 因此不再落盘。
   // ⚠️ 含 MCP server 的鉴权头与 env 明文，与 provider 同级，**不得回传 renderer**。
   bridgeServers?: BridgeServer[];
+  // 主进程内部填充：必须成功完成 initialize + tools/list 的 bridge id。普通 MCP 仍可
+  // best-effort；这些 id 任一缺配置或接入失败时，worker 必须拒绝 open。
+  // renderer 传入值会在 preparePiOpenRequest 入口删除，不能自行提升 optional server。
+  requiredBridgeServerIds?: string[];
   // 主进程内部填充（in-process 引擎专用）:磁盘上已安装的第三方 extension 目录（当前只有
   // pi-computer-use）。binary 路径走 extraExtensionPaths + `-e`；in-process 路径经
   // resourceLoaderOptions.additionalExtensionPaths 由 SDK 的 jiti 链路加载。
@@ -1149,6 +1156,10 @@ export interface PiOpenRequest {
   // pi-web-ui 移植工具开关（renderer 传,仅聊天会话路径置 true;oneshot/编排子会话不传即不注册）。
   enableArtifactsTool?: boolean;
   enableJsReplTool?: boolean;
+  // 与 core 镜像：Cortex/Pi 主会话的委派目录与本轮资源上限。主进程据此给长驻 RPC 注入
+  // delegate MCP；delegate 子 Agent 强制另开 Pi gateway RPC，并把审批请求路由回父会话。
+  delegateRoles?: RoleConfig[];
+  delegatePolicy?: { maxParallel: number; maxChildRuns: number };
   // 主进程内部填充:javascript_repl 反向执行请求的会话级 sentinel（askQuestionSentinel 同轨,
   // 防止磁盘扩展/提示注入伪造 ctx.ui.input 触发渲染端执行任意 JS）。renderer 不传,入口强制 delete。
   jsReplSentinel?: string;
@@ -1166,7 +1177,7 @@ export interface PiOpenRequest {
 export interface PiOpenResult {
   uiSessionId: string;
   sessionId: string;
-  // 磁盘 JSONL 路径（阶段4 崩溃/空闲/LRU 恢复用;renderer 持久到 SessionMeta.piSessionFile）。
+  // 磁盘 JSONL 路径（崩溃/空闲/LRU 恢复用）；renderer 会按普通聊天/产物分别持久。
   sessionFile?: string;
 }
 
