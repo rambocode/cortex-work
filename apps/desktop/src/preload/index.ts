@@ -422,6 +422,10 @@ const personal = {
   saveChat: (sessionId: string, messages: unknown[], branchGroups?: unknown[]): Promise<void> =>
     ipcRenderer.invoke("chat:save", sessionId, messages, branchGroups),
   deleteChat: (sessionId: string): Promise<void> => ipcRenderer.invoke("chat:delete", sessionId),
+  // 工作过程归档(每轮过程流 + 工具调用快照,chats/<id>.process.json;与正文分文件)。
+  loadProcessArchive: (sessionId: string): Promise<unknown> => ipcRenderer.invoke("chat:loadProcess", sessionId),
+  saveProcessArchive: (sessionId: string, turns: unknown[]): Promise<void> =>
+    ipcRenderer.invoke("chat:saveProcess", sessionId, turns),
   // 聊天图片上传:落盘(二进制 ArrayBuffer 直传)/ 回读为 dataURL(缩略图)。
   imageSave: (req: ImageSaveRequest): Promise<ImageSaveResult> => ipcRenderer.invoke("image:save", req),
   imageRead: (path: string): Promise<ImageReadResult> => ipcRenderer.invoke("image:read", path),

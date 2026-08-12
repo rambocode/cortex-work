@@ -386,6 +386,11 @@ export interface DesktopBridge {
   saveChat(sessionId: string, messages: unknown[], branchGroups?: unknown[]): Promise<void>;
   // 删除会话消息文件（物理删 chats/<id>.json;不存在不报错）
   deleteChat(sessionId: string): Promise<void>;
+  // 会话「工作过程」归档(chats/<id>.process.json):每轮的过程流 + 工具调用快照,与正文分文件存,
+  // 内容对桥接层不透明(core/personal/process-archive.ts 的 TurnProcessArchive[])。
+  // 可选(web/旧壳无 → 历史轮过程不可回看,当前轮仍走瞬态流,功能降级但不报错)。
+  loadProcessArchive?(sessionId: string): Promise<unknown>;
+  saveProcessArchive?(sessionId: string, turns: unknown[]): Promise<void>;
   // 聊天图片上传:落盘返回绝对路径 / 按路径回读为 dataURL（缩略图）。
   // 可选（web/旧壳无 → composer 图片上传入口降级隐藏）。
   imageSave?(req: ImageSaveRequest): Promise<ImageSaveResult>;

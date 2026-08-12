@@ -456,6 +456,7 @@ export {
   personalBranchKeys,
   personalProcessKeys,
   personalRunEventsKeys,
+  personalProcessArchiveKeys,
   usePersonalBranches,
   buildAttachmentSystemPrompt,
   buildProjectSystemPrompt,
@@ -463,6 +464,9 @@ export {
   usePersonalChat,
   usePersonalProcess,
   usePersonalRunEvents,
+  usePersonalProcessArchive,
+  pruneProcessArchives,
+  discardProcessArchives,
   useRenderWindow,
   windowTailMessages,
   usePersonalActions,
@@ -488,6 +492,19 @@ export {
   type PersonalActions,
   type RunEvent,
 } from "./personal/messages";
+// 工作过程归档(每轮过程流 + 工具调用快照,落 chats/<id>.process.json)：类型与纯逻辑。
+export {
+  collectRunInvocations,
+  runTimeSpan,
+  buildTurnArchive,
+  appendTurnArchive,
+  normalizeLoadedArchives,
+  dropArchivesWithoutAnchor,
+  MAX_ARCHIVED_TURNS,
+  type ArchivedToolInvocation,
+  type TurnProcessArchive,
+} from "./personal/process-archive";
+export { normalizedToolName } from "./personal/tool-name";
 // 分支回复(刷新重新生成的多版本回复):数据模型 + 动作层。
 export {
   anchorForAgentMessage,

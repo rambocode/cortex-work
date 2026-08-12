@@ -83,6 +83,14 @@ import {
 } from "./delegate-orchestration";
 import { normalizeSubagentSettings, type SubagentSurface } from "./subagents";
 import { buildGoalSystemPrompt } from "./goal";
+import { cleanToolName } from "./tool-name";
+import {
+  appendTurnArchive,
+  buildTurnArchive,
+  dropArchivesWithoutAnchor,
+  normalizeLoadedArchives,
+  type TurnProcessArchive,
+} from "./process-archive";
 
 // 全局桥引用：usePersonalCliEvents（个人工作区根部挂载一次）写入，
 // 供模块级缓存写入函数做消息落盘。
@@ -100,17 +108,26 @@ export const personalBranchKeys = {
 };
 
 // 瞬态「执行过程流」query key:tool→agentLog 折叠与 reasoning 思考流落在这条独立通道,
-// 与持久消息流 personalChatKeys.detail 分离,**永不落盘**（无 saveChat 通道）。命名空间仿
-// personalChatKeys,按 sessionId 隔离。
+// 与持久消息流 personalChatKeys.detail 分离,**不进 chat JSON**（无 saveChat 通道）。
+// 轮末会由 archiveRunProcess 打一份快照走 personalProcessArchiveKeys 落到独立的归档文件,
+// 但这条通道本身仍只活在内存(下一轮/切走即清)。命名空间仿 personalChatKeys,按 sessionId 隔离。
 export const personalProcessKeys = {
   detail: (sessionId: string) => ["personal", "process", sessionId] as const,
 };
 
 // 瞬态「运行事件流」query key:原始 CliStreamEvent 按会话累积(跨多轮),供运行过程详情弹层
 // (AgentTranscriptDialog)展示工具输入/输出与统计。与折叠后的 process 流分离:process 只留摘要
-// 且成功轮收起/下一轮即清,而详情视图需要完整原始事件。**永不落盘**,内存上限见 MAX_RUN_EVENTS。
+// 且成功轮收起/下一轮即清,而详情视图需要完整原始事件。原始事件本身**不落盘**(内存上限见
+// MAX_RUN_EVENTS);轮末只把配对后的工具快照(input/output 已截断)并入过程归档。
 export const personalRunEventsKeys = {
   detail: (sessionId: string) => ["personal", "runEvents", sessionId] as const,
+};
+
+// 「工作过程」归档 query key:每轮结束时由瞬态两条流打的快照,**落盘**(chats/<id>.process.json,
+// 与正文分文件,见 process-archive.ts 文件头)。这是过程流里唯一持久的一份:瞬态流只服务当前轮,
+// 归档服务「重开会话/重启后回看历史轮」。
+export const personalProcessArchiveKeys = {
+  detail: (sessionId: string) => ["personal", "processArchive", sessionId] as const,
 };
 
 // 运行事件流单条记录:原始归一化事件 + 归属 runId + 到达时间(统计耗时用)。
@@ -462,13 +479,9 @@ export function typingText(agent: AgentKind, phase: "starting" | "thinking", wai
   return text;
 }
 
-// 工具名在「执行过程」面板与状态文案的清洗:claude 把内置 MCP 工具写成 mcp__<server>__<tool>,
-// 去前缀让用户一眼看出用了哪个内置能力(文档抽取 extract_document / 浏览器 browser_*);非 MCP
-// 工具(bash 等)原样。这是文档抽取等 MCP 能力的可观测性入口——工具被调用即在面板可读地呈现。
-export function cleanToolName(name: string): string {
-  const m = /^mcp__.+?__(.+)$/.exec(name);
-  return m ? m[1]! : name;
-}
+// 工具名清洗实现已移到 ./tool-name（过程归档也要用,独立成文件打断模块环）;此处 re-export
+// 保持 `@cortex-work/core` 的既有导出路径不变。
+export { cleanToolName } from "./tool-name";
 
 function typingToolText(agent: AgentKind, tool: string, detail?: string): string {
   tool = cleanToolName(tool);
@@ -818,6 +831,82 @@ function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: C
 // 「下一轮开始」不清(与 clearProcess 生命周期不同);只在历史被重写/会话消亡时整条移除。
 export function clearRunEvents(qc: QueryClient, sessionId: string): void {
   qc.removeQueries({ queryKey: personalRunEventsKeys.detail(sessionId), exact: true });
+}
+
+// ── 工作过程归档(落盘) ────────────────────────────────────────────────────
+// 瞬态两条流只服务当前轮(下一轮/切走即清),归档是它们在轮末的快照:每轮一条,随会话持久,
+// 供历史轮展开「已处理 Ns · N 步 · 调用了 N 个工具」与工具输入输出。上限与截断见 process-archive.ts。
+
+// 本轮的锚点 = 消息流里最后一条用户消息 uid(过程条渲染时插在它后面)。自动轮无用户消息 → undefined。
+function lastUserMessageUid(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.kind === "text" && m.who === "me" && m.uid) return m.uid;
+  }
+  return undefined;
+}
+
+// 读缓存里的归档;未加载过(undefined)时先补载磁盘,**不能**按空数组直接覆盖落盘 ——
+// 那会把这个会话此前所有轮的归档一次性抹掉(与 flushChat 补载 branchGroups 同一类陷阱)。
+async function currentArchives(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  sessionId: string,
+): Promise<TurnProcessArchive[]> {
+  const cached = qc.getQueryData<TurnProcessArchive[]>(personalProcessArchiveKeys.detail(sessionId));
+  if (cached) return cached;
+  const loaded = normalizeLoadedArchives(await bridge.loadProcessArchive?.(sessionId));
+  qc.setQueryData<TurnProcessArchive[]>(personalProcessArchiveKeys.detail(sessionId), loaded);
+  return loaded;
+}
+
+// 轮结束时把当前过程流 + 该轮工具调用打成一条归档并落盘。纯文本轮(无过程)不写。
+// 失败轮同样归档 —— 出问题的那一步恰恰最需要回看(错误正文另有 text 消息,两者不冲突)。
+// fire-and-forget:归档失败只损失回看,不能影响收尾流程,故整个链路吞异常。
+function archiveRunProcess(qc: QueryClient, sessionId: string, runId: string): void {
+  const bridge = bridgeRef;
+  if (!bridge?.saveProcessArchive) return; // web/旧壳:无归档通道,静默降级
+  const processMessages = qc.getQueryData<Message[]>(personalProcessKeys.detail(sessionId));
+  if (!processMessages || processMessages.length === 0) return;
+  const events = qc.getQueryData<RunEvent[]>(personalRunEventsKeys.detail(sessionId)) ?? [];
+  const chatMessages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  const archive = buildTurnArchive({
+    runId,
+    anchorUid: lastUserMessageUid(chatMessages),
+    processMessages,
+    events,
+    fallbackTs: Date.now(),
+  });
+  if (!archive) return;
+  void (async () => {
+    try {
+      const prev = await currentArchives(qc, bridge, sessionId);
+      const next = appendTurnArchive(prev, archive);
+      qc.setQueryData<TurnProcessArchive[]>(personalProcessArchiveKeys.detail(sessionId), next);
+      await bridge.saveProcessArchive?.(sessionId, next);
+    } catch {
+      /* 归档是可丢数据:写失败不打扰用户,也不影响本轮收尾 */
+    }
+  })();
+}
+
+// 历史被重写(编辑重发/分支切换)后修剪归档:锚点已不在消息流里的轮没有落点,留着会挂错位置。
+// 同步改缓存 + 异步落盘;缓存未加载时跳过(下次加载读盘的仍是旧档,由那时的锚点比对再修剪)。
+export function pruneProcessArchives(qc: QueryClient, sessionId: string): void {
+  const bridge = bridgeRef;
+  const cached = qc.getQueryData<TurnProcessArchive[]>(personalProcessArchiveKeys.detail(sessionId));
+  if (!cached || cached.length === 0) return;
+  const messages = qc.getQueryData<Message[]>(personalChatKeys.detail(sessionId)) ?? [];
+  const liveUids = new Set(messages.map((m) => m.uid).filter((x): x is string => !!x));
+  const next = dropArchivesWithoutAnchor(cached, liveUids);
+  if (next.length === cached.length) return;
+  qc.setQueryData<TurnProcessArchive[]>(personalProcessArchiveKeys.detail(sessionId), next);
+  void bridge?.saveProcessArchive?.(sessionId, next)?.catch?.(() => {});
+}
+
+// 会话消亡:丢弃归档缓存(磁盘文件由主进程 chat:delete 一并删)。
+export function discardProcessArchives(qc: QueryClient, sessionId: string): void {
+  qc.removeQueries({ queryKey: personalProcessArchiveKeys.detail(sessionId), exact: true });
 }
 
 // pi RPC 事件 → 运行事件流记录:转成与 claude/codex 同形态的 CliStreamEvent,落同一通道,
@@ -1960,8 +2049,9 @@ function finalizeRun(
       uid: uid("err"),
     });
   }
-  // 过程流终态处理（KTD4/KTD8）:成功轮收尾打勾后**保留**（收起为可重开入口,数据在内存,不落盘,
+  // 过程流终态处理（KTD4/KTD8）:成功轮收尾打勾后**保留**（收起为可重开入口,数据在内存,
   // 切走/下一轮才清,见 clearProcess 各出口）;失败/异常退出轮立即清空（错误文案已走 text 进消息流）。
+  // 两种结局都先打一份归档快照落盘（archiveRunProcess）——瞬态流清掉后,历史轮靠它回看。
   const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
   if (runOk && run.tokenUsage) {
     appendMsg(qc, sessionId, {
@@ -1974,7 +2064,9 @@ function finalizeRun(
     });
   }
   if (runOk) finalizeProcessForRetain(qc, sessionId);
-  else clearProcess(qc, sessionId);
+  // 归档必须在 clearProcess **之前**:失败轮的过程流马上就被清掉,清后再归档只会得到空快照。
+  archiveRunProcess(qc, sessionId, runId);
+  if (!runOk) clearProcess(qc, sessionId);
   // 会话产物成功落定后重新聚焦编辑器。生成期间用户可能收起/切走右栏；仅当前仍停留在
   // 该会话时自动打开，后台会话完成不能抢走用户正在查看的其它会话。
   if (runOk && run.artifactResumeKey) {
@@ -2683,6 +2775,8 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   clearProcess(qc, sessionId);
   // 运行事件流随会话消亡整条回收(跨轮累积的数据只在此与 editResend 出口清)。
   clearRunEvents(qc, sessionId);
+  // 过程归档缓存同步回收(磁盘文件由主进程 chat:delete 一并删)。
+  discardProcessArchives(qc, sessionId);
 }
 
 // pi:prompt 只收 message 字符串,无 appendSystemPrompt 通道（与单发 startCli 不同）。
@@ -3403,7 +3497,30 @@ export async function ensureChatLoaded(qc: QueryClient, bridge: DesktopBridge, s
         sanitizeForSave(normalizeLoadedChat((await bridge.loadChat(sessionId)) as LoadedChat).messages),
     }),
     ensureBranchesLoaded(qc, bridge, sessionId),
+    ensureProcessArchiveLoaded(qc, bridge, sessionId),
   ]);
+}
+
+// 过程归档补载:与正文并行读盘。归档是可丢数据 —— 读失败按空归档处理,绝不让它挡住会话加载。
+export async function ensureProcessArchiveLoaded(
+  qc: QueryClient,
+  bridge: DesktopBridge,
+  sessionId: string,
+): Promise<void> {
+  if (!bridge.loadProcessArchive) return; // web/旧壳:无归档通道
+  await qc.ensureQueryData<TurnProcessArchive[]>({
+    queryKey: personalProcessArchiveKeys.detail(sessionId),
+    queryFn: async () => {
+      try {
+        return normalizeLoadedArchives(await bridge.loadProcessArchive?.(sessionId));
+      } catch {
+        return [];
+      }
+    },
+    // gcTime Infinity 的理由同 branches:归档写入侧(archiveRunProcess)会把 cache 当前值整份写回磁盘,
+    // 若被 gc 回收后按空数组保存,会静默抹掉该会话的全部历史归档。
+    gcTime: Infinity,
+  });
 }
 
 // 分支组补载:自足读盘(与消息流共用 chat JSON,normalize 后只取 branchGroups)。
@@ -3530,6 +3647,28 @@ export function usePersonalProcess(sessionId: string | undefined): Message[] {
 // 瞬态运行事件流(原始 CliStreamEvent,详情弹层数据源)。生命周期同 usePersonalProcess:
 // 不落盘、恒初始为空、gcTime Infinity(回收由 clearRunEvents 出口闭环负责)。事件已在写入侧
 // 过滤掉逐 token 增量(text/thinking),频率低,套同款渲染节流足够。
+// 已落盘的过程归档(历史轮的时间线数据源)。queryFn 自足读盘,与 ensureProcessArchiveLoaded 共享
+// 同一 queryKey(React Query 去重),写入侧 archiveRunProcess/pruneProcessArchives 直接 setQueryData。
+const EMPTY_ARCHIVES: TurnProcessArchive[] = [];
+export function usePersonalProcessArchive(sessionId: string | undefined): TurnProcessArchive[] {
+  const bridge = useDesktopBridge();
+  const { data } = useQuery<TurnProcessArchive[]>({
+    queryKey: personalProcessArchiveKeys.detail(sessionId ?? "none"),
+    queryFn: async () => {
+      if (!bridge?.loadProcessArchive || !sessionId) return EMPTY_ARCHIVES;
+      try {
+        return normalizeLoadedArchives(await bridge.loadProcessArchive(sessionId));
+      } catch {
+        return EMPTY_ARCHIVES;
+      }
+    },
+    enabled: !!sessionId,
+    staleTime: Infinity,
+    gcTime: Infinity, // 理由同 ensureProcessArchiveLoaded:被 gc 后写回会抹掉历史归档
+  });
+  return data ?? EMPTY_ARCHIVES;
+}
+
 const EMPTY_RUN_EVENTS: RunEvent[] = [];
 export function usePersonalRunEvents(sessionId: string | undefined): RunEvent[] {
   const { data } = useQuery<RunEvent[]>({
@@ -4229,6 +4368,8 @@ export function usePersonalActions(): PersonalActions {
         const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
         // truncated 已过 sanitizeForSave，旧的报错提示（含历史 piForkFailed）已被剥离，无需再单独清理。
         qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+        // 截断掉的那些轮,其过程归档已失去锚点消息 → 一并修剪,免得挂到错误的位置上。
+        pruneProcessArchives(qc, session.id);
         flushChat(qc, session.id);
         let sendSession = session;
         if (!forked) {
@@ -4281,6 +4422,7 @@ export function usePersonalActions(): PersonalActions {
       }
 
       qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+      pruneProcessArchives(qc, session.id); // 同上:截断后修剪失锚归档
       flushChat(qc, session.id);
       await send(
         sendSession,

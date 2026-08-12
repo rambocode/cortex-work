@@ -649,3 +649,74 @@ describe("ChatArea.tsx 导出面未变（R12 / KTD9）", () => {
     expect((ChatAreaModule as Record<string, unknown>).ReasoningMessage).toBeUndefined();
   });
 });
+
+describe("历史轮过程归档（重开会话后仍可回看）", () => {
+  afterEach(() => cleanup());
+
+  const archivedTurn = {
+    runId: "run-old",
+    anchorUid: "user-1",
+    startedAt: 1_000,
+    endedAt: 9_800, // 8.8s：与截图里的「已处理 8.8s」同口径
+    messages: [
+      {
+        kind: "agentLog" as const,
+        who: "pi",
+        time: "10:02",
+        uid: "old-log",
+        title: "Agent 执行完成",
+        active: false,
+        completed: true,
+        items: [
+          { ic: "check" as const, text: "Bash · ls", toolName: "bash", detail: "ls" },
+          { ic: "check" as const, text: "Grep · process", toolName: "grep", detail: "process" },
+        ],
+      },
+    ],
+    invocations: [
+      { key: "tool-1", name: "Bash", detail: "ls", input: { command: "ls" }, output: "a.ts\nb.ts", running: false, startedAt: 1_000, endedAt: 5_000 },
+      { key: "tool-2", name: "Grep", detail: "process", output: "3 matches", running: false, startedAt: 5_000, endedAt: 9_800 },
+    ],
+  };
+
+  function renderWithArchive() {
+    const qc = new QueryClient();
+    const messages: Message[] = [
+      { kind: "text", who: "me", time: "10:00", uid: "user-1", text: "第一轮问题" },
+      { kind: "text", who: "pi", time: "10:03", uid: "answer-1", text: "第一轮回答" },
+      { kind: "text", who: "me", time: "10:10", uid: "user-2", text: "第二轮问题" },
+    ];
+    return render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{ headerStatus: { dot: "online", text: "" }, metaRow: [], messages }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          sessionId="session-1"
+          processArchives={[archivedTurn]}
+        />
+      </CoreProvider>,
+    );
+  }
+
+  it("归档轮渲染出摘要条，并插在它自己那条用户消息之后（不是流末尾）", () => {
+    const view = renderWithArchive();
+    const head = view.getByRole("button", { name: /已处理 8\.8s.*2 步.*调用了 2 个工具/ });
+    expect(head).toHaveAttribute("aria-expanded", "false"); // 历史轮恒为完成态，默认折叠
+    const text = view.container.textContent ?? "";
+    expect(text.indexOf("第一轮问题")).toBeLessThan(text.indexOf("已处理 8.8s"));
+    expect(text.indexOf("已处理 8.8s")).toBeLessThan(text.indexOf("第一轮回答"));
+  });
+
+  it("展开后能看到工具调用快照（输入与输出都在归档里）", () => {
+    const view = renderWithArchive();
+    fireEvent.click(view.getByRole("button", { name: /已处理 8\.8s/ }));
+    const toolRow = view.getByRole("button", { name: /Bash.*ls/ });
+    fireEvent.click(toolRow);
+    expect(view.getByText(/a\.ts/)).toBeInTheDocument();
+    // 历史轮没有瞬态原始事件，「查看完整过程」入口不给（点开只会是空面板）。
+    expect(view.queryByRole("button", { name: /完整过程/ })).not.toBeInTheDocument();
+  });
+});

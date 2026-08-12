@@ -1379,7 +1379,7 @@ export interface ContentSearchResult {
   truncated: boolean;
 }
 
-// GitBar:工作区 git 信息（分支 + ± 行数统计,含 untracked）。
+// git 信息条:工作区 git 信息（分支 + ± 行数统计,含 untracked）。
 export interface GitInfoResult {
   isRepo: boolean;
   branch?: string; // detached HEAD 时为 short SHA
@@ -1389,13 +1389,13 @@ export interface GitInfoResult {
   truncated?: boolean; // 统计因文件过多/过大可能不全
 }
 
-// GitBar「查看 diff」:整仓 diff（tracked 真实 diff + untracked 合成片段）。
+// 整仓 diff 请求:整仓 diff（tracked 真实 diff + untracked 合成片段）。
 export interface GitDiffAllResult {
   diff: string;
   truncated: boolean;
 }
 
-// GitBar 分支操作:本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。
+// git 分支操作:本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。
 export interface GitBranchesResult {
   isRepo: boolean;
   branches: string[]; // 本地分支名（refs/heads）

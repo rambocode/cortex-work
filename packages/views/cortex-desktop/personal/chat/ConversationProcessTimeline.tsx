@@ -1,10 +1,15 @@
 // 个人会话内联工作过程（规格 3a §2–§4）：过程区挂在头像中轴的竖线上，每个「阶段」是折叠的
 // 最小单位——运行中展开并实时追加，完成后自动折叠为摘要条；工具完成态收成单行胶囊，点开是终端块。
-// 完整事件仍是瞬态数据，不改变落盘边界。
+//
+// 两个数据源，同一套渲染：
+//  - 当前轮：瞬态过程流(messages) + 瞬态原始事件(usePersonalRunEvents)，逐 token 实时更新；
+//  - 历史轮：传入 archive（core 在轮末打的快照，落 chats/<id>.process.json），不读瞬态流、
+//    恒为完成态。这样重开会话/重启应用后，「已处理 8.8s · N 步 · 调用了 N 个工具」与工具输入
+//    输出仍可展开回看。
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { usePersonalRunEvents, usePersonalStore } from "@cortex-work/core";
+import { usePersonalRunEvents, usePersonalStore, type TurnProcessArchive } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
 import { renderRich } from "../../rich";
 import {
@@ -305,19 +310,40 @@ function ProcessStageBlock({
  * 个人工作区不再显示消息头像，这一行就是本回合的视觉起点——同时交代「花了多久」和「过程在这里进」。
  * 只有一个阶段时它直接接管展开（阶段摘要条走 bare 形态），不做两层折叠。
  */
-export function ConversationProcessTimeline({ messages, sessionId }: { messages: Message[]; sessionId?: string }) {
+export function ConversationProcessTimeline({
+  messages,
+  sessionId,
+  archive,
+}: {
+  /** 当前轮的瞬态过程流；传 archive 时忽略（归档自带快照）。 */
+  messages: Message[];
+  sessionId?: string;
+  /** 历史轮的过程归档。传入即切到「回看」模式：数据全取自快照，不订阅瞬态事件、恒非运行态。 */
+  archive?: TurnProcessArchive;
+}) {
   const { t } = useTranslation("chat");
   const requestOpenProcessPanel = usePersonalStore((state) => state.requestOpenProcessPanel);
-  const runEvents = usePersonalRunEvents(sessionId);
-  const invocations = useMemo(() => buildCurrentRunToolInvocations(runEvents), [runEvents]);
-  const entries = useMemo(() => buildProcessEntries(messages, invocations), [messages, invocations]);
+  // 归档模式下不订阅瞬态事件：历史轮的事件早已被清掉/被后续轮覆盖，读它只会串到别的轮上。
+  const liveEvents = usePersonalRunEvents(archive ? undefined : sessionId);
+  const sourceMessages = archive ? archive.messages : messages;
+  const invocations = useMemo(
+    () => (archive ? archive.invocations : buildCurrentRunToolInvocations(liveEvents)),
+    [archive, liveEvents],
+  );
+  const entries = useMemo(() => buildProcessEntries(sourceMessages, invocations), [sourceMessages, invocations]);
   const stages = useMemo(() => groupProcessStages(entries), [entries]);
-  const span = useMemo(() => currentRunTimeSpan(runEvents), [runEvents]);
-  const messageActive = messages.some(
+  const span = useMemo(
+    () => (archive ? { startedAt: archive.startedAt, endedAt: archive.endedAt } : currentRunTimeSpan(liveEvents)),
+    [archive, liveEvents],
+  );
+  const messageActive = sourceMessages.some(
     (message) => (message.kind === "reasoning" || message.kind === "agentLog") && message.active === true,
   );
-  const sessionRunning = usePersonalStore((state) => (sessionId ? !!state.runningBySession[sessionId] : false));
-  const active = sessionRunning || messageActive;
+  const sessionRunning = usePersonalStore((state) =>
+    !archive && sessionId ? !!state.runningBySession[sessionId] : false,
+  );
+  // 归档是已完成轮的快照：无论会话此刻是否在跑新一轮，它都不该显示成运行中。
+  const active = !archive && (sessionRunning || messageActive);
 
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   // 运行中展开看实时过程，收尾后自动折回一行；用户手动切换在同一状态内不被刷新打断。
@@ -382,7 +408,8 @@ export function ConversationProcessTimeline({ messages, sessionId }: { messages:
               bare={single}
             />
           ))}
-          {sessionId ? (
+          {/* 「查看完整过程」读的是瞬态原始事件（当前轮），历史轮没有对应数据，入口不给。 */}
+          {sessionId && !archive ? (
             <div className="pw-conversation-process-node" data-kind="more">
               <span className="pw-conversation-process-dot" aria-hidden="true" />
               <button

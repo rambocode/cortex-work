@@ -38,6 +38,10 @@ export async function readEpisodicInputs(deps: EpisodicSourceDeps): Promise<Epis
   const inputs: EpisodicSessionInput[] = [];
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
+    // chats/ 目录里同时躺着「工作过程归档」<id>.process.json(见 ipc/chat.ts)。它不是会话正文,
+    // 结构也是数组 → 不排除会被 normalizeChatFile 当成 messages 采样进记忆,且 sessionId 会带上
+    // ".process" 后缀。做梦只吃对话本身。
+    if (name.endsWith(".process.json")) continue;
     const sessionId = name.slice(0, -".json".length);
     const path = join(deps.chatsDir(), name);
     try {

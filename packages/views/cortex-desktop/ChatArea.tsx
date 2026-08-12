@@ -3,7 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Icon } from "@cortex-work/ui/icons";
-import { whoMeta, useDesktopBridge, usePersonalProfile, usePersonalStore } from "@cortex-work/core";
+import { whoMeta, useDesktopBridge, usePersonalProfile, usePersonalStore, type TurnProcessArchive } from "@cortex-work/core";
 import { usePiArtifactsStore } from "@cortex-work/core/store/piArtifacts";
 import { SandboxedIframe } from "./personal/chat/artifacts/SandboxedIframe";
 import { MarkdownView } from "./personal/markdown/MarkdownView";
@@ -786,6 +786,7 @@ export function MessageStream({
   onActivityClick,
   sessionId,
   processMessages = [],
+  processArchives = [],
 }: {
   contact: Contact;
   convo: Conversation | null | undefined;
@@ -814,6 +815,9 @@ export function MessageStream({
   sessionId?: string;
   // 个人工作区瞬态过程流：按 Kun 语义插在最新用户消息与回答之间；团队侧缺省为空。
   processMessages?: Message[];
+  // 已落盘的历史轮过程归档（core 在每轮末打的快照）：按 anchorUid 插回对应用户消息之后，
+  // 让重开会话/重启后仍能展开「已处理 Ns · N 步 · 调用了 N 个工具」与工具输入输出。团队侧不传。
+  processArchives?: TurnProcessArchive[];
 }) {
   const { t } = useTranslation("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -908,19 +912,51 @@ export function MessageStream({
     );
   }
 
-  // 过程流与落盘消息分属两个 query key；渲染时才把最新一轮过程插回用户消息之后。
-  // 这样既保持 reasoning/tool 永不落盘的边界，又恢复 Kun 的「问题→过程→回答」阅读顺序。
-  const streamMessages: Array<Message | { kind: "conversationProcess"; uid: string }> = [...convo.messages];
-  if (processMessages.length > 0) {
-    let lastUserIndex = -1;
-    for (let i = streamMessages.length - 1; i >= 0; i -= 1) {
-      const message = streamMessages[i];
-      if (message?.kind === "text" && message.who === "me") {
-        lastUserIndex = i;
-        break;
-      }
+  // 过程数据与正文分属不同 query key；渲染时才把过程条插回对应用户消息之后，恢复
+  // 「问题→过程→回答」的阅读顺序。两类过程条：
+  //  - 历史轮：processArchives（已落盘快照），按 anchorUid 精确插到那一轮的用户消息后；
+  //  - 当前轮：processMessages（瞬态流），插到**最后一条**用户消息后。
+  // 当前轮的锚点若已有归档（收尾后归档写入、瞬态流仍留着当回顾入口），只渲染瞬态那条，
+  // 否则同一轮会出现两条一模一样的过程条。
+  const streamMessages: Array<
+    Message | { kind: "conversationProcess"; uid: string; archive?: TurnProcessArchive }
+  > = [...convo.messages];
+  let lastUserIndex = -1;
+  for (let i = streamMessages.length - 1; i >= 0; i -= 1) {
+    const message = streamMessages[i];
+    if (message?.kind === "text" && message.who === "me") {
+      lastUserIndex = i;
+      break;
     }
-    streamMessages.splice(lastUserIndex >= 0 ? lastUserIndex + 1 : streamMessages.length, 0, {
+  }
+  const liveAnchorUid =
+    lastUserIndex >= 0 ? (streamMessages[lastUserIndex] as Message).uid : undefined;
+  if (processArchives.length > 0) {
+    // 逐条按锚点插入。从后往前插，避免前面的插入把后面记下的下标顶偏。
+    const inserts: Array<{ index: number; archive: TurnProcessArchive }> = [];
+    for (const archive of processArchives) {
+      if (processMessages.length > 0 && archive.anchorUid && archive.anchorUid === liveAnchorUid) continue;
+      const anchorIndex = archive.anchorUid
+        ? streamMessages.findIndex((item) => "uid" in item && item.uid === archive.anchorUid)
+        : -1;
+      // 锚点消息还在（正常情况）→ 插它后面；锚点已被隐藏/裁掉 → 跳过，不猜位置。
+      if (anchorIndex < 0) continue;
+      inserts.push({ index: anchorIndex + 1, archive });
+    }
+    for (const { index, archive } of inserts.sort((a, b) => b.index - a.index)) {
+      streamMessages.splice(index, 0, {
+        kind: "conversationProcess",
+        uid: `conversation-process-${archive.runId}`,
+        archive,
+      });
+    }
+  }
+  if (processMessages.length > 0) {
+    // 归档插入可能已改变下标：按锚点 uid 重新定位当前轮的落点。
+    const liveIndex = liveAnchorUid
+      ? streamMessages.findIndex((item) => "uid" in item && item.uid === liveAnchorUid)
+      : -1;
+    streamMessages.splice(liveIndex >= 0 ? liveIndex + 1 : streamMessages.length, 0, {
       kind: "conversationProcess",
       uid: "conversation-process",
     });
@@ -947,7 +983,11 @@ export function MessageStream({
               <div className={`msg ${processGrouped ? "is-grouped" : ""}`} key={key}>
                 <MessageAvatar who={processWho} />
                 <div className="m-body">
-                  <ConversationProcessTimeline messages={processMessages} sessionId={sessionId} />
+                  <ConversationProcessTimeline
+                    messages={processMessages}
+                    sessionId={sessionId}
+                    archive={m.archive}
+                  />
                 </div>
               </div>
             );

@@ -21,6 +21,7 @@ import {
   usePersonalBranches,
   usePersonalChat,
   usePersonalProcess,
+  usePersonalProcessArchive,
   usePersonalStore,
   useRenderWindow,
   useBranchActions,
@@ -241,6 +242,7 @@ export function PersonalChatArea({
 
   const { allMessages, messages, hiddenCount } = usePersonalChat(session?.id);
   const processMessages = usePersonalProcess(session?.id);
+  const processArchives = usePersonalProcessArchive(session?.id);
   const {
     send,
     stop: stopRun,
@@ -850,6 +852,8 @@ export function PersonalChatArea({
         onActivityClick={handleActivityClick}
         sessionId={session.id}
         processMessages={processMessages}
+        // 历史轮过程归档(已落盘):按锚点插回各自的用户消息之后,供重开会话后回看。
+        processArchives={processArchives}
         leadingContent={
           showHiddenHistory ? (
             <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />

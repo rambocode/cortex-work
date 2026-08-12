@@ -1,23 +1,18 @@
-// 个人会话内联过程流的纯逻辑层：原始事件配对、阶段分组与耗时格式化。
+// 个人会话内联过程流的纯逻辑层：阶段分组、摘要统计与耗时格式化。
 // 从 ConversationProcessTimeline.tsx 抽出，渲染层只负责把这里的结果画成规格 3a 的时间线。
-import { cleanToolName, type RunEvent } from "@cortex-work/core";
+//
+// 工具 start/end 的配对与本轮时间跨度已下沉到 core 的 process-archive.ts —— 归档(历史轮)与内联
+// 时间线(当前轮)必须用同一份配对逻辑，否则「实时看到的过程」与「回看的过程」会漂移。
+import { collectRunInvocations, normalizedToolName, runTimeSpan, type RunEvent } from "@cortex-work/core";
+import type { ArchivedToolInvocation } from "@cortex-work/core";
 import type { AgentLogItem, Message } from "@cortex-work/core/types";
 
 export type ProcessMessage = Extract<Message, { kind: "reasoning" | "agentLog" | "stageTitle" }>;
 
-export interface ToolInvocation {
-  key: string;
-  name: string;
-  detail?: string;
-  input?: unknown;
-  output?: string;
-  isError?: boolean;
-  running: boolean;
-  /** 工具 start 事件到达时刻；缺 start 帧（只收到 end）时为空，耗时不显示而非猜测。 */
-  startedAt?: number;
-  /** 工具 end 事件到达时刻；运行中为空。 */
-  endedAt?: number;
-}
+/** 一次工具调用（含输入/输出快照）。结构由 core 定义，归档与内联时间线共用同一形状。 */
+export type ToolInvocation = ArchivedToolInvocation;
+
+export { normalizedToolName };
 
 export type ProcessEntry =
   | { kind: "reasoning"; key: string; message: Extract<ProcessMessage, { kind: "reasoning" }> }
@@ -49,12 +44,6 @@ export interface ProcessStage {
 const READ_TOOLS = new Set(["read", "read_file", "readfile"]);
 const TARGET_KEYS = ["file_path", "filePath", "path", "filename", "query", "pattern", "command", "cmd"];
 
-export function normalizedToolName(name: string | undefined): string {
-  const raw = name?.trim().toLowerCase() ?? "";
-  const mcpParts = raw.split("__").filter(Boolean);
-  return mcpParts.length > 1 ? mcpParts[mcpParts.length - 1]! : raw;
-}
-
 export function isReadTool(name: string | undefined): boolean {
   const normalized = normalizedToolName(name);
   return READ_TOOLS.has(normalized) || normalized.startsWith("read_") || normalized.endsWith("_read_file");
@@ -80,68 +69,10 @@ export function inputTarget(input: unknown): string | undefined {
 }
 
 /**
- * 原始事件按会话跨轮累积，内联过程只能消费最后一轮。工具 start/end 优先按 toolCallId 配对；
- * 缺 id 时回配最近同名的运行项，仍配不到才保留独立结果，避免悄悄丢失输出。
+ * 原始事件按会话跨轮累积，内联过程只能消费最后一轮：取末条事件的 runId 交给 core 的配对逻辑。
  */
 export function buildCurrentRunToolInvocations(events: RunEvent[]): ToolInvocation[] {
-  const lastRunId = events[events.length - 1]?.runId;
-  if (!lastRunId) return [];
-  const invocations: ToolInvocation[] = [];
-  const openByCallId = new Map<string, ToolInvocation>();
-
-  for (const record of events) {
-    if (record.runId !== lastRunId || record.ev.type !== "tool") continue;
-    const ev = record.ev;
-    // 子代理的工具事件归它自己的卡片（预览 / 查看过程），不进主会话时间线——主会话的过程摘要
-    // 与工具胶囊只描述这条会话自己干的活。core 侧已不把它们折进 process 流，这里同口径过滤，
-    // 免得残留的原始事件被顺序回配到主会话某个工具行上，贴出另一个 agent 的 input/output。
-    if (ev.subagentCallId || ev.roleId) continue;
-    if (ev.phase !== "end") {
-      const invocation: ToolInvocation = {
-        key: ev.toolCallId ? `tool-${ev.toolCallId}` : `tool-${invocations.length}`,
-        name: cleanToolName(ev.name) || ev.name,
-        detail: ev.detail,
-        input: ev.input,
-        output: ev.output,
-        isError: ev.isError,
-        // 兼容未显式标 phase 的调用帧：只要尚无输出就先视为打开，最终还会与 process item 状态交叉确认。
-        running: ev.output === undefined,
-        startedAt: record.ts,
-      };
-      invocations.push(invocation);
-      if (ev.toolCallId) openByCallId.set(ev.toolCallId, invocation);
-      continue;
-    }
-
-    let open = ev.toolCallId ? openByCallId.get(ev.toolCallId) : undefined;
-    if (!open) {
-      const normalized = normalizedToolName(ev.name);
-      open = [...invocations].reverse().find(
-        (candidate) => candidate.running && normalizedToolName(candidate.name) === normalized,
-      );
-    }
-    if (open) {
-      open.detail = ev.detail ?? open.detail;
-      open.input = ev.input ?? open.input;
-      open.output = ev.output;
-      open.isError = ev.isError;
-      open.running = false;
-      open.endedAt = record.ts;
-      if (ev.toolCallId) openByCallId.delete(ev.toolCallId);
-    } else {
-      invocations.push({
-        key: ev.toolCallId ? `tool-result-${ev.toolCallId}` : `tool-result-${invocations.length}`,
-        name: cleanToolName(ev.name) || ev.name,
-        detail: ev.detail,
-        input: ev.input,
-        output: ev.output,
-        isError: ev.isError,
-        running: false,
-        endedAt: record.ts,
-      });
-    }
-  }
-  return invocations;
+  return collectRunInvocations(events, events[events.length - 1]?.runId);
 }
 
 /** 把过程摘要与原始工具事件按顺序/名称对齐；原始事件缺失时仍保留摘要列表。 */
@@ -266,23 +197,15 @@ export function groupProcessStages(entries: ProcessEntry[]): ProcessStage[] {
 }
 
 /**
- * 当前这一轮的真实时间跨度：取最后一个 runId 名下**所有**事件的首尾到达时刻。
+ * 当前这一轮的真实时间跨度：取最后一个 runId 名下**所有**事件的首尾到达时刻（实现在 core，
+ * 与归档共用）。
  *
  * 刻意不复用阶段的 startedAt/elapsedMs——那两个只统计工具事件，遇到「只思考不调工具」的轮次
  * 会算不出耗时；也刻意不过滤子代理事件：委派出去的那段时间用户是真的在等，算进整轮耗时才诚实
  *（与「子代理工具不进主会话过程流」是两件事，后者说的是归属，这里说的是时长）。
  */
 export function currentRunTimeSpan(events: RunEvent[]): { startedAt?: number; endedAt?: number } {
-  const lastRunId = events[events.length - 1]?.runId;
-  if (!lastRunId) return {};
-  let startedAt: number | undefined;
-  let endedAt: number | undefined;
-  for (const record of events) {
-    if (record.runId !== lastRunId) continue;
-    if (startedAt === undefined || record.ts < startedAt) startedAt = record.ts;
-    if (endedAt === undefined || record.ts > endedAt) endedAt = record.ts;
-  }
-  return { startedAt, endedAt };
+  return runTimeSpan(events, events[events.length - 1]?.runId);
 }
 
 /** 阶段/子任务级耗时：一律 `m:ss`（规格里的 1:12 / 0:41）。 */

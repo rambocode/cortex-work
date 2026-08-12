@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePersonalStore } from "../store/personal";
+import { normalizeLoadedArchives } from "./process-archive";
 import { setVoiceTurnStreamListener, type VoiceTurnStreamEvent } from "./voiceTurn";
 import { usePiArtifactsStore } from "../store/piArtifacts";
 import { useCortexUIStore } from "../store/ui";
@@ -1999,8 +2000,10 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
   });
 });
 
-describe("U1 过程流永不落盘（saveChat spy）", () => {
-  it("一轮 text+tool+reasoning:saveChat 只收到 text;process key 写入从不触发 bridge.save*", async () => {
+// 过程仍**不进 chat JSON**（正文文件只留问答）；它另有一条独立的归档通道
+// （bridge.saveProcessArchive → chats/<id>.process.json，见下方 describe 与 process-archive.ts）。
+describe("U1 过程流不进 chat JSON（saveChat spy）", () => {
+  it("一轮 text+tool+reasoning:saveChat 只收到 text;process key 写入从不触发 bridge.saveChat", async () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
     const saveChat = vi.fn<(sessionId: string, messages: Message[]) => Promise<void>>(async () => undefined);
@@ -3433,5 +3436,78 @@ describe("resolveSessionModelRef 回退语义（计划 §5：不静默回退）"
   it("全局默认也没有 → 空引用（消费方据此进「未配置模型」阻断态，不兜底任何模型）", () => {
     usePersonalStore.setState({ defaultModelRef: undefined });
     expect(__resolveSessionModelRefForTest(piSession())).toEqual({ providerId: "", modelId: "" });
+  });
+});
+
+// 「已处理 8.8s · N 步 · 调用了 N 个工具」这条摘要与其下的工具输入/输出，在轮末打成快照落盘，
+// 重开会话/重启后仍可展开回看。这里固化的是**写入链路**：轮末必须调 saveProcessArchive，
+// 且负载里带着该轮的工具快照与锚点（锚点 = 本轮回应的那条用户消息，渲染据它插回原位）。
+describe("工作过程归档落盘（saveProcessArchive spy）", () => {
+  function archiveBridge() {
+    const saveProcessArchive = vi.fn<(sessionId: string, turns: unknown[]) => Promise<void>>(async () => undefined);
+    const bridge = {
+      saveChat: async () => undefined,
+      loadChat: async () => [],
+      loadProcessArchive: async () => [],
+      saveProcessArchive,
+    };
+    __setBridgeForTest(bridge as unknown as Parameters<typeof __setBridgeForTest>[0]);
+    return saveProcessArchive;
+  }
+
+  it("一轮结束:过程流 + 工具快照打成一条归档落盘,并带上锚点用户消息 uid", async () => {
+    const qc = new QueryClient();
+    const saveProcessArchive = archiveBridge();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s1", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    qc.setQueryData<Message[]>(personalChatKeys.detail("s1"), [
+      { kind: "text", who: "me", time: "10:00", uid: "u-1", text: "看看目录" } as Message,
+    ]);
+    qc.setQueryData(personalBranchKeys.detail("s1"), []);
+    beginPiRun(qc, { runId: "prun-a", sessionId: "s1", typingUid: "typ", cwd: "/p", promptText: "看看目录" });
+
+    __handlePiEventForTest(qc, "s1", { type: "reasoning", delta: "先列目录" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+    __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", output: "a.ts", isError: false });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "目录里有 a.ts" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(saveProcessArchive).toHaveBeenCalled();
+    const [sessionId, turns] = saveProcessArchive.mock.calls[saveProcessArchive.mock.calls.length - 1]!;
+    expect(sessionId).toBe("s1");
+    const archives = normalizeLoadedArchives(turns);
+    expect(archives).toHaveLength(1);
+    expect(archives[0]!.runId).toBe("prun-a");
+    expect(archives[0]!.anchorUid).toBe("u-1");
+    // 工具输入/输出快照在归档里（回看时终端块靠它渲染）。
+    expect(archives[0]!.invocations.some((inv) => inv.name === "Bash" && inv.output === "a.ts")).toBe(true);
+    // 过程消息也在，且已归一为完成态。
+    expect(archives[0]!.messages.some((m) => m.kind === "agentLog")).toBe(true);
+    expect(archives[0]!.messages.every((m) => m.kind !== "agentLog" || m.active !== true)).toBe(true);
+  });
+
+  it("纯文本轮(无任何过程)不写归档文件", async () => {
+    const qc = new QueryClient();
+    const saveProcessArchive = archiveBridge();
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, id: "s2", agent: "pi", agentSessionIds: {} }],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    qc.setQueryData(personalBranchKeys.detail("s2"), []);
+    beginPiRun(qc, { runId: "prun-b", sessionId: "s2", typingUid: "typ2", cwd: "/p", promptText: "hi" });
+    __handlePiEventForTest(qc, "s2", { type: "text", delta: "你好" });
+    __handlePiEventForTest(qc, "s2", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s2", { type: "settled" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(saveProcessArchive).not.toHaveBeenCalled();
   });
 });
