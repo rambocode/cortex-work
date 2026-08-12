@@ -299,7 +299,7 @@ describe("ComposerShell 图片采集（U3）", () => {
     expect(trigger).toBeInTheDocument();
     expect(container.querySelector(".pw-tb-menu")).toBeNull(); // 默认收起
     fireEvent.click(trigger);
-    // 菜单上弹(避免被 GitBar/终端遮挡),含「文件」与「Skills」两项。
+    // 菜单上弹(避免被项目条/终端遮挡),含「文件」与「Skills」两项。
     expect(container.querySelector(".pw-tb-menu.pw-tb-menu--up")).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "文件" })).toBeInTheDocument();
     expect(screen.getByRole("menuitemcheckbox", { name: /Skills/ })).toBeInTheDocument();

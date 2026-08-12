@@ -1,4 +1,5 @@
-// 共享项目选择器:触发器显示当前项目名 /「不使用项目」/「选择项目」,
+// 项目选择器(当前唯一使用者:新会话落地页的 ProjectBar):
+// 触发器显示当前项目名 /「不使用项目」/「选择项目」,
 // 下拉面板(fixed 定位 + 点击外部/Esc 关闭,交互仿 ProjectMenu)含搜索框、
 // 可见项目列表(当前项右侧 ✓)、「添加新项目」、可选「不使用项目」。
 // Web 端 bridge 为 null,添加新项目按钮会因 pickDirectory 缺失而无操作。
@@ -13,7 +14,6 @@ export function ProjectPicker({
   allowNoProject,
   noProjectChosen,
   disabled,
-  readOnly,
   onToast,
 }: {
   value?: string;
@@ -22,8 +22,6 @@ export function ProjectPicker({
   // value=undefined 时:true 显示「不使用项目」(已显式选/默认),false 显示「选择项目」占位。
   noProjectChosen?: boolean;
   disabled?: boolean;
-  // 只读:仅展示当前项目名(会话页 GitBar——会话已绑定项目,不在此切换;换项目走「新会话」)。
-  readOnly?: boolean;
   onToast: (text: string) => void;
 }) {
   const bridge = useDesktopBridge();
@@ -103,23 +101,6 @@ export function ProjectPicker({
       }
     })();
   };
-
-  // 只读:渲染不可点的项目名标签(沿用 trigger 结构保证视觉一致,但无下拉、无 chevron、
-  // 不可聚焦)。无具体项目即「无项目」会话。
-  if (readOnly) {
-    return (
-      <button
-        type="button"
-        className="pw-proj-picker-trigger is-readonly"
-        aria-disabled="true"
-        tabIndex={-1}
-        title={current ? current.path : undefined}
-      >
-        <Icon.Folder size={13} />
-        <span className="pw-proj-picker-label">{current ? current.name : "无项目"}</span>
-      </button>
-    );
-  }
 
   return (
     <>

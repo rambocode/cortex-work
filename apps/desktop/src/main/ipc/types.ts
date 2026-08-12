@@ -1403,7 +1403,7 @@ export interface UpdateState {
   releaseNotes?: string;
 }
 
-// ── GitBar:工作区 git 信息（与 core/desktop/types.ts 镜像） ──────────────
+// ── git 信息条:工作区 git 信息（与 core/desktop/types.ts 镜像） ──────────────
 
 export interface GitInfoResult {
   isRepo: boolean;
@@ -1438,7 +1438,7 @@ export interface ContentSearchResult {
   truncated: boolean;
 }
 
-// ── GitBar 分支操作（与 core/desktop/types.ts 镜像） ──────────────────────
+// ── git 分支操作（与 core/desktop/types.ts 镜像） ──────────────────────
 
 // 本地分支列表 + 当前分支（非 git 仓库 isRepo:false）。
 export interface GitBranchesResult {

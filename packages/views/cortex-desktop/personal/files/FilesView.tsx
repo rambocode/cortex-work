@@ -349,7 +349,7 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     };
   }, [bridge, project, mode, refresh]);
 
-  // GitBar「查看 diff」:消费整仓 diff 请求,打开聚合 diff 预览。消费即清,
+  // 消费整仓 diff 请求(当前无 UI 触发入口,保留消费侧),打开聚合 diff 预览。消费即清,
   // 防 FilesView 重挂载时误触发;项目不匹配则不消费(等切到对应项目)。
   const gitDiffRequest = usePersonalStore((s) => s.gitDiffRequest);
   const consumeGitDiffRequest = usePersonalStore((s) => s.consumeGitDiffRequest);

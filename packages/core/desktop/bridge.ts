@@ -207,14 +207,14 @@ export interface DesktopBridge {
   searchContent?(root: string, query: string): Promise<ContentSearchResult>;
   gitChanges(root: string): Promise<GitChangesResult>;
   gitDiff(root: string, rel: string): Promise<string>;
-  // GitBar:分支 + 工作区 ± 统计（含 untracked）/ 整仓 diff。可选（旧壳/web 没有,
+  // git 信息条:分支 + 工作区 ± 统计（含 untracked）/ 整仓 diff。可选（旧壳/web 没有,
   // 无此能力时信息条不渲染）。
   gitInfo?(root: string): Promise<GitInfoResult>;
   gitDiffAll?(root: string): Promise<GitDiffAllResult>;
   // 无项目会话工作目录:确保 Documents/cortex/<dayKey> 存在,返回绝对路径。
   // 可选（web 端为 null;旧壳无此能力时不可创建无项目会话）。
   ensureNoProjectDir?(dayKey: string): Promise<string>;
-  // GitBar 分支:列表 / 新建(switch -c) / 切换(dirty 时主进程禁止并回 message)。
+  // git 分支:列表 / 新建(switch -c) / 切换(dirty 时主进程禁止并回 message)。
   // 可选（旧壳/web 没有,无此能力时分支切换 UI 不渲染）。
   gitBranches?(root: string): Promise<GitBranchesResult>;
   gitCreateBranch?(root: string, name: string): Promise<GitOpResult>;

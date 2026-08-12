@@ -1,5 +1,5 @@
-// 新会话落地页:中部 HomeBoard 看板 + 底部「项目·分支」条(可切项目,
-// 复用 GitBar)+ 输入框(复用 ComposerShell,与会话页同一套输入能力:模型/语音/Skills/拖入)。
+// 新会话落地页:中部 HomeBoard 看板 + 输入框(复用 ComposerShell,与会话页同一套输入能力:
+// 模型/语音/Skills/拖入)+ 输入框下方的项目条(ProjectBar,全应用唯一的项目选择入口)。
 // 默认选最近活跃项目。选项目(或不使用项目) + 输入 → createSession(带草稿 model/skills) →
 // send → 自动跳会话页。createSession 已置 homeOpen:false + activeSessionId,渲染自动切会话页。
 
@@ -42,7 +42,7 @@ import {
   prepareResearchDispatch,
   upsertConversationResearch,
 } from "../chat/researchDispatch";
-import { GitBar } from "../files/GitBar";
+import { ProjectBar } from "../projects/ProjectBar";
 import {
   buildConversationArtifactPrompt,
   prepareArtifactDispatch,
@@ -83,7 +83,7 @@ export function NewSessionLanding({
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const { send, appendLocalUserMessage } = usePersonalActions();
 
-  // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 GitBar 切到具体项目。
+  // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 ProjectBar 切到具体项目。
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
 
   // 会话尚未创建,草稿态承载输入框控件(默认 agent + 默认 model/provider),发送时落进 createSession。
@@ -150,7 +150,7 @@ export function NewSessionLanding({
     return { ...sess, ...patch };
   };
 
-  // GitBar 据此查 git/显示分支;undefined（未选 / 不使用项目）只显示项目选择器。
+  // 创建会话时据此拿项目 path;undefined（未选 / 不使用项目）走无项目工作目录。
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
   const sendCreatedSession = async (
@@ -311,14 +311,8 @@ export function NewSessionLanding({
         onToast={onToast}
       />
 
-      <GitBar
-        project={selectedProject}
-        projectValue={selectedProjectId}
-        noProjectChosen
-        onChangeProject={(id) => setSelectedProjectId(id)}
-        running={false}
-        onToast={onToast}
-      />
+      {/* 输入框下方的项目条:全应用唯一的项目选择入口(会话页已不展示项目/git 信息)。 */}
+      <ProjectBar value={selectedProjectId} onChange={(id) => setSelectedProjectId(id)} onToast={onToast} />
     </main>
   );
 }

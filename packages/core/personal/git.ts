@@ -1,6 +1,6 @@
-// GitBar 数据 hook:轮询当前项目工作区 git 信息（分支 + ± 统计）。
+// git 信息条数据 hook:轮询当前项目工作区 git 信息（分支 + ± 统计）。
 // 刷新策略:5s 轮询(git 统计是计算型,watchDir 已被文件视图独占且对 .git
-// 变化不可靠)+ GitBar 在 run 结束边沿主动 invalidate(commit 完成立即刷新)。
+// 变化不可靠)。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDesktopBridge } from "../provider";
@@ -35,7 +35,7 @@ export function useInvalidateGitInfo(): (projectPath: string) => void {
   };
 }
 
-// GitBar 分支选择:本地分支列表 + 当前分支。仿 useProjectGitInfo 的轮询策略。
+// git 分支选择:本地分支列表 + 当前分支。仿 useProjectGitInfo 的轮询策略。
 export function useProjectBranches(projectPath: string | undefined): GitBranchesResult | undefined {
   const bridge = useDesktopBridge();
   const { data } = useQuery<GitBranchesResult>({
@@ -49,7 +49,7 @@ export function useProjectBranches(projectPath: string | undefined): GitBranches
   return data;
 }
 
-// GitBar 分支操作:新建 / 切换。成功后 invalidate 分支列表与 git 统计,立即刷新 UI。
+// git 分支操作:新建 / 切换。成功后 invalidate 分支列表与 git 统计,立即刷新 UI。
 export function useGitBranchActions(): {
   createBranch: (path: string, name: string) => Promise<GitOpResult>;
   checkout: (path: string, name: string) => Promise<GitOpResult>;

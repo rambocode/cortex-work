@@ -452,7 +452,7 @@ describe("文件片段发送中转（终端 / composer）", () => {
   });
 });
 
-describe("GitBar 整仓 diff 请求中转", () => {
+describe("整仓 diff 请求中转", () => {
   it("requestGitDiff 记录请求并把右栏切到 files,消费后清空", () => {
     usePersonalStore.setState({ gitDiffRequest: undefined, rightView: "todos" });
     usePersonalStore.getState().requestGitDiff("p1");

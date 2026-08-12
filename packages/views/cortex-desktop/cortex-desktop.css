@@ -1579,37 +1579,6 @@ input, textarea { font: inherit; color: inherit; }
 .approve-card .ac-foot .spacer { flex: 1; }
 .approve-card .ac-foot .hint { font-size: 11.5px; color: var(--text-3); }
 
-/* Composer 上方 git 信息条（GitBar） */
-.pw-gitbar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px;
-  /* 与 .composer 对齐:同 728px 上限 + 居中;外层 .msgs 的 side padding 保证窄屏留白。 */
-  max-width: 728px;
-  margin: 0 auto 20px;
-  padding: 2px 10px;
-  border: 0;
-  background: transparent;
-  flex-shrink: 0;
-  font-size: 12px;
-}
-/* GitBar 紧贴输入框底部:上移吃掉 .composer-wrap 的底部内边距,贴近 composer 框。 */
-.composer-wrap + .pw-gitbar { margin-top: -5px; }
-/* GitBar 行内的运行模式 / 项目选择器:去灰色填充底色,改透明底 + 描边(标注①),
-   与顶部「自动执行」按钮风格统一。作用域限定在 .pw-gitbar 内,不影响工具栏里复用
-   pw-model-pill 的模型/思考选择器。 */
-.pw-gitbar .pw-gitbar-mode {
-  background: transparent;
-  border: 1px solid var(--border);
-}
-.pw-gitbar .pw-gitbar-mode:hover { background: var(--bg-hover); }
-.pw-gitbar .pw-proj-picker-trigger { border-color: var(--border); }
-.pw-gitbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); }
-.pw-gitbar-name { font-weight: 600; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pw-gitbar-branch { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-/* 运行模式选择器:在 gitbar 行内紧凑展示(复用 pw-model-pill 底色,缩小内边距贴合信息条)。 */
-.pw-gitbar-mode { flex: 0 0 auto; padding: 2px 4px 2px 7px; }
-.pw-gitbar-mode .pw-model-select { font-size: 12px; }
-
 /* 执行/审批 pill 处于「询问后执行」但当前 agent 非 pi(降级)时,描边示警提示降级映射。 */
 .pw-model-pill[data-warn="1"] { border-color: var(--warning, #d9822b); }
 
@@ -1646,32 +1615,6 @@ input, textarea { font: inherit; color: inherit; }
   color: #fff;
 }
 .pw-mode-block-btn.primary:hover { background: #6a48f0; }
-.pw-gitbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.pw-gitbar-stats {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-app);
-  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.pw-gitbar-stats:hover { background: var(--bg-hover); }
-.pw-gitbar-add { color: var(--green); }
-.pw-gitbar-del { color: var(--red); }
-.pw-gitbar-approx { color: var(--text-4); font-weight: 400; }
-.pw-gitbar-commit {
-  padding: 3px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-app);
-  color: var(--text-1);
-  font-size: 11.5px; font-weight: 600;
-  cursor: pointer; white-space: nowrap;
-}
-.pw-gitbar-commit:hover { background: var(--bg-hover); }
-.pw-gitbar-commit:disabled { opacity: 0.45; cursor: default; }
-
 /* Composer */
 .composer-wrap {
   padding: 8px 40px 14px;
@@ -6722,7 +6665,7 @@ button.sb-row {
   padding: 4px;
 }
 /* 向上弹出变体:用于底部工具栏(新会话落地页 composer 的 agent 选择器),
-   避免向下弹出被 GitBar/终端区遮挡。 */
+   避免向下弹出被项目条/终端区遮挡。 */
 .pw-tb-menu.pw-tb-menu--up {
   top: auto;
   bottom: calc(100% + 6px);
@@ -9530,7 +9473,7 @@ button.sb-row {
 }
 /* 落地页整体上提:日历/日报下线后看板只剩 Hero + 场景 chips,若仍让它吃满剩余高度,
    输入框会被压在窗口最底、与 chips 之间空一大片。改为看板按内容高度收缩,
-   由 .pw-landing 把「看板 + 输入框 + GitBar」当一组纵向居中——输入框上移、示例行紧贴输入框。
+   由 .pw-landing 把「看板 + 输入框 + 项目条」当一组纵向居中——输入框上移、示例行紧贴输入框。
    看板保留 overflow-y:auto + min-height:0,窄窗口下内容超高时仍可滚动。
    padding-bottom 补偿:纯居中在宽屏上视觉偏下,底部垫一段(随视口高度伸缩),
    让整组在剩余空间内居中、整体上移约半档。 */
@@ -9542,18 +9485,44 @@ button.sb-row {
   padding-bottom: 10px;
 }
 /* 看板封顶居中:滚动容器 .pw-home 保持整宽(滚动条贴窗口右缘),只对内部分区
-   封顶居中,与 GitBar/输入框共用 --pw-landing-col 左右对齐。 */
+   封顶居中,与项目条/输入框共用 --pw-landing-col 左右对齐。 */
 .pw-landing .pw-home > .pw-hero,
 .pw-landing .pw-home > .pw-scene {
   width: 100%;
   max-width: var(--pw-landing-col);
   margin-inline: auto;
 }
-.pw-landing .pw-gitbar {
-  width: 100%;
-  max-width: var(--pw-landing-col);
-  margin-inline: auto;
+/* 项目条:输入框正下方一张浅灰卡片(与输入框同宽略收,视觉上像输入框的"底座"),
+   内部只有项目选择器。会话页不再有任何项目/git 信息条,这里是唯一入口。 */
+/* 比输入框窄一档（左右各内缩 16px）、紧贴输入框底部,像输入框的一层"底座"。 */
+.pw-project-bar {
+  width: calc(100% - 32px);
+  max-width: calc(var(--pw-landing-col) - 32px);
+  margin: 0 auto;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  flex-shrink: 0;
 }
+/* 紧贴输入框底边:上移吃掉 .composer-wrap 的 14px 底部内边距,再多压 6px 与输入框重叠——
+   输入框自带 1px 描边 + 悬浮投影,只做「零间距」仍会因投影看出一条缝,重叠后由输入框
+   压在项目条上方(见下方 z-index),视觉上像从输入框下沿长出来的底座。
+   重叠的 6px 用等量 padding-top 补回,卡片内容不被吃掉。 */
+.composer-wrap + .pw-project-bar {
+  margin-top: -20px;
+  padding-top: 14px;
+  border-radius: 0 0 14px 14px;
+  position: relative;
+  z-index: 0;
+}
+/* 输入框压在项目条之上,让它的投影落到项目条上而不是被项目条遮住。 */
+.pw-landing .pw-landing-composer { position: relative; z-index: 1; }
+.pw-project-bar .pw-proj-picker-trigger {
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.pw-project-bar .pw-proj-picker-trigger:hover { background: var(--bg-hover); }
 /* 底部输入框:封顶居中,并清零 composer-wrap 的横向内边距,使输入框 .composer
    撑满 --pw-landing-col、与上方看板/分区左右对齐。带 .pw-landing 前缀以压过
    [data-density] .composer-wrap 的 padding 档位。 */
@@ -9564,25 +9533,6 @@ button.sb-row {
   margin-inline: auto;
   padding-inline: 0;
 }
-/* ── GitBar 分支:可点态 + 分支下拉菜单 ──────────────────────────────────── */
-/* 分支段从只读改为可点（建/切分支入口） */
-.pw-gitbar-branch.is-clickable {
-  padding: 2px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-2);
-}
-.pw-gitbar-branch.is-clickable:hover { background: var(--bg-hover); color: var(--text-1); }
-.pw-gitbar-branch[data-open="true"] { background: var(--bg-active); color: var(--text-1); }
-.pw-gitbar-branch .chev { display: inline-flex; color: var(--text-4); flex-shrink: 0; }
-
-/* 会话页项目档(只读):仅展示项目名,不可点击切换(换项目走「新会话」) */
-.pw-proj-picker-trigger.is-readonly { cursor: default; }
-.pw-proj-picker-trigger.is-readonly:hover { background: transparent; }
-
-/* 分支下拉复用 .pw-proj-picker-panel / .pw-proj-picker-list / .pw-tb-menu-item 体系
-   (新建分支输入沿用 .sb-row.sb-search),无需独立样式。 */
-
 /* ── 侧边栏「无项目」伪分组 ─────────────────────────────────────────────── */
 .pw-noproject-group { margin-top: 2px; }
 .pw-noproject-h {

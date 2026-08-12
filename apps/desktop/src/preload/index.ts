@@ -252,12 +252,12 @@ const personal = {
   gitChanges: (root: string): Promise<{ isRepo: boolean; files: { path: string; rel: string; status: string }[] }> =>
     ipcRenderer.invoke("fs:gitChanges", root),
   gitDiff: (root: string, rel: string): Promise<string> => ipcRenderer.invoke("fs:gitDiff", root, rel),
-  // GitBar:分支 + ± 统计 / 整仓 diff
+  // git 信息条:分支 + ± 统计 / 整仓 diff
   gitInfo: (root: string): Promise<GitInfoResult> => ipcRenderer.invoke("fs:gitInfo", root),
   gitDiffAll: (root: string): Promise<GitDiffAllResult> => ipcRenderer.invoke("fs:gitDiffAll", root),
   // 无项目会话工作目录:确保 Documents/cortex/<日期> 存在,返回绝对路径
   ensureNoProjectDir: (dayKey: string): Promise<string> => ipcRenderer.invoke("fs:ensureNoProjectDir", dayKey),
-  // GitBar 分支:列表 / 新建 / 切换
+  // git 分支:列表 / 新建 / 切换
   gitBranches: (root: string): Promise<GitBranchesResult> => ipcRenderer.invoke("fs:gitBranches", root),
   gitCreateBranch: (root: string, name: string): Promise<GitOpResult> =>
     ipcRenderer.invoke("fs:gitCreateBranch", root, name),

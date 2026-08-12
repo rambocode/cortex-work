@@ -188,7 +188,7 @@ export interface PersonalState {
   // 不做真源(pill 的真源仍是 ComposerShell 内部 state),避免会话切换时 pill 跨会话残留。
   // 瞬态,不进 toPersistedState。
   composerSkill?: { cmd: string; displayName: string };
-  // GitBar「查看 diff」请求（FilesView 消费后即清,不持久化;不用 nonce——
+  // 整仓 diff 请求请求（FilesView 消费后即清,不持久化;不用 nonce——
   // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
   gitDiffRequest?: { projectId: string };
   // 首页点 Task 请求:右栏 TodosView 消费后打开该 task 文件详情（消费即清,仿 gitDiffRequest）。
@@ -401,7 +401,7 @@ export interface PersonalState {
   ) => void;
   // ComposerShell 镜像当前 skill pill(传 undefined 表示已清除)。
   setComposerSkill: (skill?: { cmd: string; displayName: string }) => void;
-  // GitBar 点击 ± 徽章:右栏切到文件视图并请求整仓 diff 预览。
+  // ± 统计徽章(当前无 UI 入口):右栏切到文件视图并请求整仓 diff 预览。
   requestGitDiff: (projectId: string) => void;
   consumeGitDiffRequest: () => { projectId: string } | undefined;
   // 首页点 Task:右栏切到 Tasks 视图并请求打开该 task 文件详情。

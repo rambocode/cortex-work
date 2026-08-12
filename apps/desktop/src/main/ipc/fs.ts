@@ -422,7 +422,7 @@ export function registerFsHandlers(): void {
     });
   });
 
-  // GitBar:分支 + 工作区 ± 行数统计(含 untracked,与 commit 后 git show --stat 一致)。
+  // git 信息条:分支 + 工作区 ± 行数统计(含 untracked,与 commit 后 git show --stat 一致)。
   // 任一 git 命令失败(非仓库/超时)→ isRepo:false 静默降级,信息条隐藏。
   ipcMain.handle("fs:gitInfo", async (_e, root: string): Promise<GitInfoResult> => {
     await assertAllowed(root);
@@ -453,7 +453,7 @@ export function registerFsHandlers(): void {
     return { isRepo: true, branch, additions, deletions, dirty, truncated };
   });
 
-  // GitBar「查看 diff」:整仓 diff(tracked 真实 git diff + untracked 合成片段)。
+  // 整仓 diff 请求:整仓 diff(tracked 真实 git diff + untracked 合成片段)。
   ipcMain.handle("fs:gitDiffAll", async (_e, root: string): Promise<GitDiffAllResult> => {
     await assertAllowed(root);
     const statusRes = await runGit(["status", "--porcelain", "-uall"], root);
@@ -491,7 +491,7 @@ export function registerFsHandlers(): void {
     return dir;
   });
 
-  // GitBar 分支选择:本地分支列表 + 当前分支。任一 git 命令失败 → isRepo:false。
+  // git 分支选择:本地分支列表 + 当前分支。任一 git 命令失败 → isRepo:false。
   ipcMain.handle("fs:gitBranches", async (_e, root: string): Promise<GitBranchesResult> => {
     await assertAllowed(root);
     const listRes = await runGit(["for-each-ref", "--format=%(refname:short)", "refs/heads"], root);
@@ -502,7 +502,7 @@ export function registerFsHandlers(): void {
     return { isRepo: true, branches, current: curRes.out.trim() };
   });
 
-  // GitBar 新建分支:git switch -c <name>(同时切到新分支)。
+  // git 新建分支:git switch -c <name>(同时切到新分支)。
   ipcMain.handle("fs:gitCreateBranch", async (_e, root: string, name: string): Promise<GitOpResult> => {
     await assertAllowed(root);
     const trimmed = name.trim();
@@ -512,7 +512,7 @@ export function registerFsHandlers(): void {
     return { ok: false, message: res.err.trim() || res.out.trim() || "创建分支失败" };
   });
 
-  // GitBar 切换分支:工作区有未提交改动时禁止切换并提示先提交。
+  // git 切换分支:工作区有未提交改动时禁止切换并提示先提交。
   ipcMain.handle("fs:gitCheckout", async (_e, root: string, name: string): Promise<GitOpResult> => {
     await assertAllowed(root);
     const status = await runGit(["status", "--porcelain"], root);

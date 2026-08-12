@@ -42,7 +42,6 @@ import { inAppDocumentKind, isOpenExternalLike, isSpreadsheetLike } from "../sha
 import { resolveExistingFile } from "./resolveFileRef";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { FollowupOverlay } from "./FollowupOverlay";
-import { GitBar } from "../files/GitBar";
 import { HomeBoard } from "../home/HomeView";
 import { ModeBlockBanner } from "./ModeBlockBanner";
 import { PersonalComposer } from "./composer/PersonalComposer";
@@ -227,7 +226,7 @@ export function PersonalChatArea({
   const realProject: ProjectMeta | undefined =
     session && session.projectId ? projects.find((p) => p.id === session.projectId) : undefined;
   // 无项目会话:合成一个项目对象,使下游(send / EmptyState 守卫)无需特判;
-  // path 用会话创建时定下的 noProjectDir(不漂移)。GitBar 仍只对真实项目渲染。
+  // path 用会话创建时定下的 noProjectDir(不漂移)。
   const syntheticNoProject = useMemo<ProjectMeta | undefined>(() => {
     if (!session || session.projectId) return undefined;
     return {
@@ -825,7 +824,7 @@ export function PersonalChatArea({
     <main className={landing ? "chat pw-landing pw-personal-chat" : "chat pw-personal-chat"}>
       {/* 会话还没有任何消息时,中栏就是「新会话落地页」——渲染与 NewSessionLanding 同一份
           HomeBoard(Hero + 场景 tab/chips),两处不再各写一套内容。区别只在于:落地页底部
-          还要选项目,这里项目已经由会话定死,GitBar 只读展示。 */}
+          还有项目选择条,会话页项目已由会话定死、不再展示任何项目/git 信息条。 */}
       {landing ? (
         <div className="pw-landing-board">
           <HomeBoard />
@@ -1103,14 +1102,6 @@ export function PersonalChatArea({
         onSetGoal={startOrReplaceGoal}
         onSetGoalStatus={changeGoalStatus}
         onClearGoal={() => clearSessionGoal(session.id)}
-        onToast={onToast}
-      />
-
-      <GitBar
-        project={realProject}
-        projectValue={session.projectId}
-        running={running}
-        onSend={(text) => void send(session, project.path, text, [])}
         onToast={onToast}
       />
       </>)}

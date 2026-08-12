@@ -1,4 +1,4 @@
-// git 信息条（GitBar）相关纯逻辑:解析 git 输出、统计 ± 行数、为
+// git 信息条相关纯逻辑:解析 git 输出、统计 ± 行数、为
 // untracked 文件合成 diff。不 import electron,便于单测(同 watch-noise.ts 模式)。
 
 export interface NumstatRow {
