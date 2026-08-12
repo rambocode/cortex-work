@@ -96,4 +96,9 @@ export interface WritingUiState {
   docSortOrder?: WritingDocSortOrder;
   docShowCreatedAt?: boolean;
   docShowExcerpt?: boolean;
+  // 禅模式偏好（跨空间共享，OmmWriter 式全屏沉浸写作）。注意「是否处于禅模式」本身是瞬态不落盘，
+  // 这里只持久化三项设置：背景场景 id、背景音开关、背景音 id。缺省回落默认（兼容旧档）。
+  zenBackgroundId?: string;
+  zenSoundOn?: boolean;
+  zenSoundId?: string;
 }

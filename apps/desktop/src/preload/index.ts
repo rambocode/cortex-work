@@ -296,6 +296,16 @@ const personal = {
   // ── 写作左栏文稿元信息(时间 + 概要，批量）────────────────────────────────
   writingDocMeta: (req: WritingDocMetaRequest): Promise<WritingDocMetaResult> =>
     ipcRenderer.invoke("writing:docMeta", req),
+  // ── 写作禅模式(对齐 Metion):幕布窗口 + 背景照片/环境音资产 ──────────────
+  // show 传背景照片 id,兼作切换(幕布存在则原地换景);hide 销毁幕布并还原绿灯/菜单栏。
+  writingZenBackdropShow: (backgroundId: string): Promise<void> =>
+    ipcRenderer.invoke("writing:zenBackdropShow", backgroundId),
+  writingZenBackdropHide: (): Promise<void> => ipcRenderer.invoke("writing:zenBackdropHide"),
+  // 资产枚举(背景/环境音 id 列表,供菜单循环切换)与环境音取数(base64 → 渲染端 blob 播放)。
+  writingZenAssets: (): Promise<{ backgrounds: string[]; sounds: string[] }> =>
+    ipcRenderer.invoke("writing:zenAssets"),
+  writingZenSoundData: (soundId: string): Promise<string | null> =>
+    ipcRenderer.invoke("writing:zenSoundData", soundId),
   // ── 写作信息图(U7，对接 media-gen）─────────────────────────────────────
   // writingInfographic：选区文本 → 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径(渲染端换算相对链接);
   // writingInfographicAvailable：media-gen 图片模态是否已配置,未配置渲染端隐藏入口。

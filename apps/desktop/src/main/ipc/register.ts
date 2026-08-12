@@ -43,6 +43,7 @@ import { registerWritingExportHandlers } from "./writing-export";
 import { registerWritingLlmHandlers } from "./writing-llm";
 import { registerWritingPdfHandlers } from "./writing-pdf";
 import { registerWritingDocMetaHandlers } from "./writing-doc-meta";
+import { registerWritingZenHandlers } from "./writing-zen";
 import { registerSlidesHandlers } from "./slides";
 import { registerAgentBrowserHandlers, syncAgentBrowserRuntime } from "./agent-browser";
 import { registerResearchHandlers } from "./research";
@@ -117,6 +118,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerWritingLlmHandlers(); // 写作 LLM(ghost text 续写 + Cmd-K 就地改写）IPC 域（U3）
   registerWritingPdfHandlers(); // 写作 PDF 阅读(取原始字节交渲染端 pdfjs 渲染）IPC 域（U5）
   registerWritingDocMetaHandlers(); // 写作左栏文稿元信息(创建/修改时间 + 正文概要，批量）IPC 域
+  registerWritingZenHandlers(); // 写作禅模式幕布窗口(铺满屏幕的背景层,遮住其它程序)
   registerSlidesHandlers(); // AI Slides deck(bento 单文件:创建/读取/阶段/保存/另存为/演示)IPC 域
   registerArtifactHandlers(); // 会话产物（设计/Slides）创建与索引校验
   registerResearchHandlers(); // Cortex Research Engine(会话/编排/证据/引用)IPC 域(U5)

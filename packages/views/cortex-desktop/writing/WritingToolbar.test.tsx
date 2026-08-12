@@ -26,10 +26,11 @@ afterEach(cleanup);
 beforeEach(() => vi.useRealTimers());
 
 describe("WritingToolbar", () => {
-  it("不再渲染常驻的保存状态文字；状态只进 title / aria-label", () => {
+  it("工具行最右常驻浅色保存状态文本，按钮仍带完整可访问名", () => {
     renderToolbar({ saveStatus: "idle", saveLabel: "已保存" });
-    // 标题栏里没有「已保存」这块常驻 pill（文字只出现在按钮的可访问名里）。
-    expect(document.querySelector(".pw-wt-save")).toBeNull();
+    const text = document.querySelector(".pw-wt-save-text");
+    expect(text?.textContent).toBe("已保存");
+    expect(text?.getAttribute("data-status")).toBe("idle");
     expect(screen.getByRole("button", { name: "保存，当前状态：已保存" })).toBeTruthy();
   });
 

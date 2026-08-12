@@ -146,6 +146,12 @@ extraResources:
   # 预打包脚本构建当前目标；平台目录同时避免错误架构被主进程选中。
   - from: resources/sensevoice
     to: sensevoice
+  # 写作禅模式的背景照片 + 环境音(backgrounds/*.jpg + sounds/*.mp3)。
+  # 落到 <App>/Contents/Resources/zen/,ipc/writing-zen.ts 的 zenAssetsRoot() 打包态指向这里
+  # (开发态回落仓库内 resources/zen)。放 extraResources:幕布窗口以 file:// 直接引用图片,
+  # 环境音按文件读 bytes 给渲染端,真实文件路径最省事。
+  - from: resources/zen
+    to: zen
 # pi 迁 in-process 后,三个 pi 包（coding-agent / agent-core / tui）以**纯 JS/ESM** 形式留在 asar 内,
 # 已实测可从 asar 按包名动态 import,故**不需要** unpack。这里只列必须以真实文件落地的原生模块。
 #（@mariozechner/clipboard 的 NAPI 由 electron-builder 自动 unpack,无需显式列出。）

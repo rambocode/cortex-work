@@ -9,6 +9,7 @@
 
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import {
+  RangeSetBuilder,
   StateField,
   type ChangeDesc,
   type EditorState,
@@ -703,7 +704,62 @@ const writeMarkdownSourceHighlight = HighlightStyle.define([
   { tag: tags.heading6, color: "var(--accent)" },
 ]);
 
+// ── 源码模式行分类标记(标题 / 列表)──────────────────────────────────────
+// 给 ATX 标题行(行首 1–6 个 # + 空白)挂 cm-src-heading + cm-src-h{n} 行装饰;
+// 给列表行(-/*/+ 或「数字.」「数字)」起头)挂 cm-src-list 行装饰,并对行首记号区间
+// 加 cm-src-listmark 标记装饰。只打类不做视觉:「H₁/H₂…」角标、列表提亮与记号橙色
+// 仅在写作禅模式下由 CSS 显示(.pw-writing-root.is-zen 作用域,见 cortex-desktop.css),
+// 普通源码档零视觉变化 —— 装饰常驻可免去进出禅模式时重配 CM 扩展,编辑器状态不动。
+const headingLineDecos = [1, 2, 3, 4, 5, 6].map((n) =>
+  Decoration.line({ class: `cm-src-heading cm-src-h${n}` }),
+);
+const listLineDeco = Decoration.line({ class: "cm-src-list" });
+const listMarkDeco = Decoration.mark({ class: "cm-src-listmark" });
+const ATX_HEADING_RE = /^(#{1,6})[ \t]/;
+// 无序(-/*/+)或有序(1. / 1))列表:缩进≤3 空格视为列表(md 语法),记号后必须跟空白。
+const LIST_LINE_RE = /^(\s{0,3})([-*+]|\d{1,9}[.)])[ \t]/;
+
+// 扫可视范围逐行正则判定(不走语法树:两类判定都只看行首,正则足够且省一次树遍历)。
+function buildSourceLineDecos(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const range of view.visibleRanges) {
+    let pos = range.from;
+    while (pos <= range.to) {
+      const line = view.state.doc.lineAt(pos);
+      const heading = ATX_HEADING_RE.exec(line.text);
+      if (heading) {
+        builder.add(line.from, line.from, headingLineDecos[heading[1]!.length - 1]!);
+      } else {
+        const list = LIST_LINE_RE.exec(line.text);
+        if (list) {
+          // 行装饰(点位,startSide 在前)先于记号标记加入,满足 RangeSetBuilder 的排序要求。
+          builder.add(line.from, line.from, listLineDeco);
+          const markFrom = line.from + list[1]!.length;
+          builder.add(markFrom, markFrom + list[2]!.length, listMarkDeco);
+        }
+      }
+      pos = line.to + 1;
+    }
+  }
+  return builder.finish();
+}
+
+const sourceLineClassesPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = buildSourceLineDecos(view);
+    }
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildSourceLineDecos(update.view);
+      }
+    }
+  },
+  { decorations: (plugin) => plugin.decorations },
+);
+
 // 源码模式扩展（与 live 档共用同一个 compartment，切档即整体换掉）。
 export function writeMarkdownSourceExtensions(): Extension[] {
-  return [syntaxHighlighting(writeMarkdownSourceHighlight)];
+  return [syntaxHighlighting(writeMarkdownSourceHighlight), sourceLineClassesPlugin];
 }

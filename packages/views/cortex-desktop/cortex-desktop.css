@@ -13349,6 +13349,20 @@ button.sb-row {
   background: var(--w-canvas, #fefefe);
 }
 
+/* ── 源码档光标行高亮:只包住本行文本,不横贯整条版心 ──
+   width:fit-content = min(max-content, 可用宽度),所以短行收缩到文本长度、长行仍在原处
+   换行,行内文字不产生任何位移(CM 的 .cm-line 自带 0 2px 内边距,背景比文本略宽即呼吸感)。
+   底色比全局 .cm-activeLine(3%)更深,等宽正文里更容易一眼定位。空行 max-content 近 0,
+   用 min-width 兜一个可见宽度。档位靠 CM contentAttributes 注入的 data-note-editor-mode 判定。
+   聚焦模式已约定「不叠加活动行底色」(见下方 is-focus-mode 规则),故用 :not() 排除,
+   否则本规则权重更高会把它盖掉。 */
+.pw-writing-center:not(.is-focus-mode) .cm-content[data-note-editor-mode="source"] .cm-line.cm-activeLine {
+  width: fit-content;
+  min-width: 2ch;
+  background-color: color-mix(in srgb, var(--text-1) 14%, transparent);
+  border-radius: 4px;
+}
+
 /* ── 聚焦模式:只有光标所在行(富文本档为所在块)保持正常颜色,其余内容变灰 ──
    用 opacity 而不是 color:标题紫、链接蓝、代码底色等都是各自着色的,统一改 color 压不住,
    而降透明度能让所有着色一起退到灰调,且不与语法高亮打架。
@@ -13368,6 +13382,133 @@ button.sb-row {
 .pw-writing-center.is-focus-mode .pw-note-cm-host .cm-activeLine {
   background-color: transparent;
 }
+
+/* ── 禅模式(Metion 式全屏沉浸写作)────────────────────────────────────────
+   开启(.pw-writing-root.is-zen)后:左右栏与中栏工具栏整条隐藏,中栏铺满整窗;
+   背景照片显示在主进程的幕布窗口(遮住其它程序),写作窗口内是不透明灰蓝面板。
+   编辑器实例不动 —— 全屏纯靠 CSS,进出禅模式不丢编辑状态/撤销栈。 */
+.pw-writing-root.is-zen .pw-writing-left,
+.pw-writing-root.is-zen .pw-writing-right { display: none; }
+.pw-writing-root.is-zen .pw-wt { display: none; }
+.pw-writing-root.is-zen .pw-writing-center {
+  min-width: 0;
+  position: relative;
+  /* 暗景亮字:场景一律深色调,把编辑器取色用到的全局 token 在本作用域整套换成亮色,
+     富文本(--text-1..4、--border、--bg-card 等)与 CM(color:var(--text-1))即随之适配,
+     无需触碰编辑器内核。亮色主题下进入禅模式同样成立。 */
+  --text-1: rgba(238, 243, 249, 0.92);
+  --text-2: rgba(222, 230, 240, 0.78);
+  --text-3: rgba(203, 214, 228, 0.6);
+  --text-4: rgba(184, 197, 214, 0.45);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --bg-card: rgba(255, 255, 255, 0.07);
+  --bg-chip: rgba(255, 255, 255, 0.1);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --link: #8ab8f2;
+  --accent-soft: rgba(138, 184, 242, 0.28);
+  /* 窗口内是**不透明**的灰蓝面板(用户要求:不透出背景照片,照片只在身后幕布窗口显示)。 */
+  --w-canvas: transparent;
+  background: linear-gradient(178deg, #4b5766 0%, #3e4a58 46%, #303b48 100%);
+}
+.pw-writing-root.is-zen .pw-writing-editor { position: relative; z-index: 1; background: transparent; }
+/* 工具栏隐藏后正文距窗口顶 27px(对齐 Metion 标尺);红绿灯悬浮在窗口左上角,不再额外避让。 */
+.pw-writing-root.is-zen .pw-writing-rich-host,
+.pw-writing-root.is-zen .pw-note-cm-host .cm-content,
+.pw-writing-root.is-zen .pw-note-editor-preview {
+  padding-top: 27px;
+}
+/* 源码档内容列居中限宽(base 规则是满宽 flex-grow:1,这里限最大宽,由 scroller 的
+   justify-content:center 水平居中;live/rich/preview 三档本就有各自的读列限宽)。 */
+.pw-writing-root.is-zen .pw-note-cm-host .cm-content { max-width: 900px; }
+/* 左栏(原窗口拖拽区)被隐藏:顶部划一条隐形拖拽带保住窗口可拖。z-index 在编辑区之上,
+   高度克制(36px)——只占窗口最上沿,不挡正文点击。 */
+.pw-writing-zen-drag { position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 2; }
+
+/* 禅模式源码档:标题不再上品牌紫 —— 源码高亮的标题色是 var(--accent)(见 markdownLivePreview
+   的 writeMarkdownSourceHighlight),在 cm 宿主作用域把它覆盖为正文色即可,不必动 HighlightStyle;
+   光标(caretColor 同用 --accent)顺带变亮色,在暗景下正合适。 */
+.pw-writing-root.is-zen .pw-note-cm-host { --accent: var(--text-1); }
+/* 标题行左侧 H₁…H₆ 角标(对齐 Metion 禅模式):行装饰类由源码档 CM 插件常驻打上
+   (markdownLivePreview 的 sourceHeadingLinesPlugin),视觉只在禅模式作用域生效。
+   角标吸附在 .cm-content 的 70px gutter 里(行盒即包含块,负 left 伸进留白)。 */
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-heading { position: relative; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-heading::before {
+  position: absolute; left: -46px; top: 50%; transform: translateY(-50%);
+  font-size: 0.72em; letter-spacing: 0.02em;
+  color: var(--text-4);
+  font-family: ui-serif, Georgia, "Songti SC", serif;
+  pointer-events: none;
+}
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h1::before { content: "H₁"; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h2::before { content: "H₂"; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h3::before { content: "H₃"; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h4::before { content: "H₄"; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h5::before { content: "H₅"; }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-h6::before { content: "H₆"; }
+/* 列表与普通文本区分(对齐 Metion):正文整体收敛一档,标题/列表行提亮,列表记号(-/1.)上橙。
+   行类由源码档 CM 插件常驻打上(markdownLivePreview 的 sourceLineClassesPlugin)。 */
+.pw-writing-root.is-zen .pw-note-cm-host .cm-content { color: rgba(222, 231, 241, 0.68); }
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-heading,
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-src-list {
+  color: rgba(240, 245, 251, 0.95);
+}
+.pw-writing-root.is-zen .pw-note-cm-host .cm-src-listmark { color: #de8d3e; }
+
+/* 禅模式左下角悬浮钮 + 上弹菜单(对齐目标截图:深色磨砂、圆角、带指向小尾巴)。 */
+.pw-zen-fab-wrap { position: absolute; left: 22px; bottom: 20px; z-index: 3; }
+.pw-zen-fab {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: none; cursor: pointer;
+  color: rgba(235, 241, 248, 0.85);
+  background: rgba(18, 24, 32, 0.45);
+  backdrop-filter: blur(10px);
+  transition: background 0.15s, color 0.15s, opacity 0.2s;
+  /* 常态半隐:不打扰写作,悬停/打开菜单时亮起。 */
+  opacity: 0.55;
+}
+.pw-zen-fab:hover, .pw-zen-fab[aria-expanded="true"] { opacity: 1; background: rgba(18, 24, 32, 0.65); }
+.pw-zen-menu {
+  position: absolute; left: 0; bottom: calc(100% + 12px);
+  min-width: 248px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(38, 46, 58, 0.92);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+}
+/* 指向小尾巴:锚在菜单左下,指向下方圆钮。 */
+.pw-zen-menu::after {
+  content: ""; position: absolute; left: 14px; top: 100%;
+  border: 7px solid transparent; border-top-color: rgba(38, 46, 58, 0.92);
+}
+.pw-zen-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  width: 100%; padding: 10px 12px; border-radius: 9px;
+  border: none; background: transparent; cursor: pointer; text-align: left;
+  font-size: 13.5px; color: rgba(238, 243, 249, 0.92);
+}
+.pw-zen-menu-item:hover { background: rgba(255, 255, 255, 0.09); }
+.pw-zen-menu-r { display: inline-flex; align-items: center; gap: 8px; color: rgba(214, 224, 236, 0.75); }
+.pw-zen-menu-val { font-size: 12.5px; color: rgba(203, 214, 228, 0.7); }
+.pw-zen-menu-sep { height: 1px; margin: 4px 8px; background: rgba(255, 255, 255, 0.1); }
+/* 背景音开关(纯视觉,整行是热区):胶囊 + 滑块。 */
+.pw-zen-switch {
+  position: relative; display: inline-block;
+  width: 34px; height: 20px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.15s;
+}
+.pw-zen-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.pw-zen-switch.is-on { background: #34c759; }
+.pw-zen-switch.is-on::after { transform: translateX(14px); }
 /* 字号 + 字体 + 行距(设置节「排版与字体」/顶栏步进 → 变量 → 四档)。字体/行距作用于四档正文;
    字号见既有作用点。四档:CM 内容(源码/live)、仅预览、rich。 */
 .pw-writing-center .pw-note-cm-host .cm-content {
@@ -13482,16 +13623,24 @@ button.sb-row {
 .pw-writing-rich-tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
 
 /* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
+/* 两行栅格:第一行「标题 …… 右侧控件组」,第二行「视图模式分段 …… 保存状态」。
+   用 grid-template-areas 而非嵌套 DOM,是为了让组件结构保持扁平——工具栏里每个控件的
+   下拉浮层都靠自身 position:relative 定位,多包一层容器只会多一处需要维护的层叠上下文。
+   刻意不画 border-bottom:第二行的分段控件本身有描边,再叠一条通栏横线会显得脏。 */
 .pw-wt {
-  display: flex; align-items: center; gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title  actions"
+    "modes  status";
+  align-items: center; row-gap: 6px; column-gap: 8px;
   min-height: 52px; padding: 8px 14px; flex-shrink: 0;
-  border-bottom: 1px solid var(--w-border);
   background: transparent;
   font-size: 13px;   /* 标题栏基准字号 */
 }
 /* 左栏折叠时,中栏移到窗口最左 → 左侧让位 macOS 红绿灯。 */
 .pw-wt.is-inset { padding-left: 84px; }
-.pw-wt-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.pw-wt-left { grid-area: title; display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* 图标按钮(折叠/助手/保存):Kun toolbarIconButtonClass h-8 w-8 无边框,hover 行底 */
 .pw-wt-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -13518,29 +13667,44 @@ button.sb-row {
   font-size: 11px; font-weight: 500; color: var(--w-muted); background: var(--w-row-hover);
 }
 
-/* 视图模式 pill + 下拉(Kun modeButtonClass:h-8 rounded-lg,容器带边框) */
-.pw-wt-modes { position: relative; flex-shrink: 0; }
-.pw-wt-mode-pill {
+/* 视图模式:四档平铺的分段控件(第二行左侧,justify-self:start 只占自身宽度、贴标题左缘)。 */
+.pw-wt-modes {
+  grid-area: modes; justify-self: start;
   display: inline-flex; align-items: center; gap: 2px;
-  height: 26px; padding: 0 5px; border-radius: 7px;
-  font-size: 12px; color: var(--w-ink); cursor: pointer;
-  border: 1px solid var(--w-border); background: transparent;
+  padding: 2px; border-radius: 9px;
+  border: 1px solid var(--w-border); background: var(--w-row-hover);
+}
+.pw-wt-mode-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 9px; border-radius: 7px;
+  font-size: 12px; color: var(--w-muted); cursor: pointer;
+  border: none; background: transparent; white-space: nowrap;
   transition: background 0.12s, color 0.12s;
 }
-/* 触发器里的图标统一缩到 14px(组件传的是 16,这里按显示密度收一档) */
-.pw-wt-mode-pill > svg:first-child { width: 14px; height: 14px; }
-.pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
-.pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
-.pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
+/* 图标统一缩到 14px(组件传的是 16,这里按分段密度收一档)。
+   子元素显式继承手型:图标/文字占满了 tab 的可视面积,漏掉它们会出现「指到字上光标变回箭头」。 */
+.pw-wt-mode-tab > svg { width: 14px; height: 14px; cursor: inherit; }
+.pw-wt-mode-tab > span { cursor: inherit; }
+/* hover 给底色而不只是变字色:纯变色反馈太弱,容易被当成不可点。 */
+.pw-wt-mode-tab:hover:not(:disabled) {
+  color: var(--w-ink-strong);
+  background: color-mix(in srgb, var(--w-ink-strong) 8%, transparent);
+}
+.pw-wt-mode-tab.is-active:hover { background: var(--w-canvas, #fff); }
+/* 选中档抬起为「浮起的白片」:靠底色+投影与凹槽底分层,不额外加边框(会与容器描边打架)。 */
+.pw-wt-mode-tab.is-active {
+  background: var(--w-canvas, #fff); color: var(--w-ink-strong); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.09);
+}
+.pw-wt-mode-tab:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* 通用下拉菜单(模式 / 导出) */
+/* 通用下拉菜单(字号 / 导出) */
 .pw-wt-menu {
   position: absolute; top: 100%; margin-top: 6px; z-index: 30;
   min-width: 156px; padding: 5px; border-radius: 10px;
   border: 1px solid var(--w-border); background: var(--w-menu-bg);
   box-shadow: 0 18px 40px rgba(20, 47, 95, 0.14);
 }
-.pw-wt-mode-menu { left: 0; }
 .pw-wt-export-menu { right: 0; min-width: 176px; }
 /* 字号菜单:窄且右对齐(触发器只有两位数宽) */
 .pw-wt-font-menu { right: 0; min-width: 92px; }
@@ -13562,7 +13726,19 @@ button.sb-row {
 }
 
 /* 右侧动作组 */
-.pw-wt-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+/* 控件组仍在第一行右侧(标题同排);第二行同列是保存状态文本。
+   justify-self:end 不可省:actions 与 save-text 共用第二列,列宽取两者较大者,默认的 stretch
+   会把本 flex 容器拉到列宽、按钮从左端排——列宽一变按钮就整组平移。贴右缘后按钮位置恒定。 */
+.pw-wt-actions { grid-area: actions; justify-self: end; display: flex; align-items: center; gap: 6px; }
+/* 保存状态常驻浅色文本:第二行最右(与模式分段同排),错误态才提色。
+   min-width 钉住宽度:文案在 未保存/保存中…/已保存/保存失败 之间跳,不定宽就会带着整列宽度
+   一起抖,连累第一行的按钮左右位移(鼠标停在按钮上时表现为光标在手型/箭头间闪)。 */
+.pw-wt-save-text {
+  grid-area: status; justify-self: end; padding-left: 10px;
+  min-width: 5em; text-align: right;
+  font-size: 12px; color: var(--w-faint); white-space: nowrap;
+}
+.pw-wt-save-text[data-status="error"] { color: #dc2626; }
 /* 字号下拉(取代 − / + 步进器:当前值 + chevron,占位约为原来的一半) */
 .pw-wt-font { position: relative; flex-shrink: 0; }
 .pw-wt-font-trigger {

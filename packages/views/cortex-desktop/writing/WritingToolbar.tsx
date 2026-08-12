@@ -1,9 +1,11 @@
 // 写作工作区中栏顶部工具栏(视觉与交互对齐 Kun WriteWorkspaceToolbar):
-//   自左向右:折叠左栏 | 文件名(粗体)/下方相对路径(与文件名相同则省)+ 字数 badge |
-//     视图模式 pill(仅图标 + 下拉,档名在菜单项里;列 rich/live/preview/source 四档)| 字号下拉(当前值 + 预设档)|
-//     sparkles(切右侧助手栏)| 保存按钮(状态并入图标)| 导出下拉(仅图标)。
-// 占位克制:标题栏横向空间紧张,故控件一律走「图标 + 下拉」而非「图标 + 文字」;
-//   保存状态**不常驻**——成功后短暂显示对勾即回落普通图标,不长期占一块位置(状态文案仍在 title 里)。
+//   分两行(CSS grid,见 .pw-wt 的 grid-template-areas)——
+//     行1:折叠左栏 | 文件名(粗体)/下方相对路径(与文件名相同则省)+ 字数 badge ……
+//        右侧:字号下拉 | 聚焦 | 禅模式 | sparkles(切右侧助手栏)| 保存按钮 | 导出下拉;
+//     行2:视图模式四档(rich/live/preview/source)平铺的分段控件 …… 右侧浅色保存状态文本。
+//   视图模式下沉并平铺展开:它独占一整行、横向空间充裕,直接点比「开下拉再选」少一次点击。
+// 占位克制:控件一律走「图标 + 下拉」而非「图标 + 文字」。
+//   保存按钮上的对勾提示仍不常驻(成功后闪 SAVED_HINT_MS 即回落),状态文字由行尾的浅色文本长期承担。
 // 纯展示壳:文件名/字数/保存状态/模式/字号等由 WritingEditorPane 计算后注入;折叠与助手切换由
 //   WritingWorkspace 注入(standalone 编辑器场景不传 → 对应按钮不渲染)。图标全用 lucide-react,与 Kun 对齐。
 import { useEffect, useState, type ReactElement } from "react";
@@ -18,6 +20,7 @@ import {
   FileCode2,
   FilePenLine,
   Loader2,
+  MoonStar,
   PanelLeft,
   Save,
   Sparkles,
@@ -66,6 +69,8 @@ export interface WritingToolbarProps {
   // 聚焦模式：开启后中栏只有光标所在行正常显色，其余内容变灰（不传 onFocusModeChange 则不渲染开关）。
   focusMode?: boolean;
   onFocusModeChange?: (on: boolean) => void;
+  // 禅模式入口：进入全屏沉浸写作（工具栏随之隐藏，退出走禅内左下菜单或 Esc;不传则不渲染按钮）。
+  onEnterZen?: () => void;
   onSave: () => void;
   saveDisabled?: boolean;
   // 以下由 WritingWorkspace 注入;standalone 编辑器不传则对应控件不渲染。
@@ -99,6 +104,7 @@ export function WritingToolbar({
   saveDisabled = false,
   focusMode = false,
   onFocusModeChange,
+  onEnterZen,
   leftCollapsed = false,
   onToggleLeft,
   assistantOpen = true,
@@ -111,7 +117,6 @@ export function WritingToolbar({
   onExportPng,
   onCopyRichText,
 }: WritingToolbarProps): ReactElement {
-  const modeMenu = useDismissableMenu();
   const exportMenu = useDismissableMenu();
   const fontMenu = useDismissableMenu();
   // 「已保存」不常驻:落盘成功后对勾闪 SAVED_HINT_MS 就回落普通保存图标。
@@ -126,8 +131,7 @@ export function WritingToolbar({
     const timer = setTimeout(() => setSavedHint(false), SAVED_HINT_MS);
     return () => clearTimeout(timer);
   }, [saveStatus]);
-  const current = MODE_ITEMS.find((m) => m.mode === mode) ?? MODE_ITEMS[0]!;
-  const modeDisabled = !hasTextFile || modeLocked;
+  const modeDisabled = !hasTextFile;
   // 有任一导出/复制能力即展示导出下拉;各项在菜单内按注入与否单独渲染。
   const hasHeavyExport = !!(onExportDocx || onExportPdf || onExportHtml || onExportPng || onCopyRichText);
   const canExport = hasTextFile && (onCopyMarkdown || onExportMarkdownCopy || hasHeavyExport);
@@ -169,51 +173,28 @@ export function WritingToolbar({
         </div>
       </div>
 
-      {/* 视图模式 pill + 下拉 */}
-      <div className="pw-wt-modes" ref={modeMenu.wrapRef}>
-        <button
-          type="button"
-          className="pw-wt-mode-pill"
-          disabled={modeDisabled}
-          onClick={() => modeMenu.setOpen((v) => !v)}
-          title={`视图模式：${current.label}`}
-          aria-label={`视图模式：${current.label}`}
-          aria-haspopup="menu"
-          aria-expanded={modeMenu.open}
-        >
-          {/* 触发器只显示当前档的图标 + chevron:档名在展开的菜单项里给（icon + 文字），
-              收起后省下的横向空间留给右侧的字号/导出等控件。title/aria 仍带档名，
-              不靠图标形状传达语义。 */}
-          {current.icon}
-          <ChevronDown size={14} strokeWidth={1.9} className={modeMenu.open ? "is-open" : ""} />
-        </button>
-        {modeMenu.open ? (
-          <div className="pw-wt-menu pw-wt-mode-menu" role="menu">
-            {MODE_ITEMS.map((item) => {
-              // 装载失败时仅 preview 可选,其它档禁用。
-              const itemDisabled = modeLocked && item.mode !== "preview";
-              return (
-                <button
-                  key={item.mode}
-                  type="button"
-                  role="menuitem"
-                  className={`pw-wt-menu-item${item.mode === mode ? " is-active" : ""}`}
-                  disabled={itemDisabled}
-                  onClick={() => {
-                    onModeChange(item.mode);
-                    modeMenu.setOpen(false);
-                  }}
-                >
-                  <span className="pw-wt-menu-item-l">
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </span>
-                  {item.mode === mode ? <span className="pw-wt-menu-on">ON</span> : null}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
+      {/* 视图模式:四档平铺的分段控件(不再收进下拉)。它独占标题下方一整行,横向空间充裕,
+          直接展开比「点开下拉再选」少一次点击,当前档也一眼可见。 */}
+      <div className="pw-wt-modes" role="tablist" aria-label="视图模式">
+        {MODE_ITEMS.map((item) => {
+          // 无文本文件时整组不可用;编辑器装载失败(modeLocked)时只留 preview 可点。
+          const itemDisabled = modeDisabled || (modeLocked && item.mode !== "preview");
+          const active = item.mode === mode;
+          return (
+            <button
+              key={item.mode}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`pw-wt-mode-tab${active ? " is-active" : ""}`}
+              disabled={itemDisabled}
+              onClick={() => onModeChange(item.mode)}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="pw-wt-actions">
@@ -265,6 +246,19 @@ export function WritingToolbar({
             aria-pressed={focusMode}
           >
             <Crosshair size={16} strokeWidth={1.85} />
+          </button>
+        ) : null}
+
+        {/* 禅模式入口:全屏沉浸写作(与聚焦模式同为文本档专属;进入后本工具栏整条隐藏)。 */}
+        {onEnterZen && hasTextFile ? (
+          <button
+            type="button"
+            className="pw-wt-icon-btn"
+            onClick={onEnterZen}
+            title="禅模式：全屏沉浸写作"
+            aria-label="进入禅模式"
+          >
+            <MoonStar size={16} strokeWidth={1.85} />
           </button>
         ) : null}
 
@@ -425,6 +419,12 @@ export function WritingToolbar({
           </div>
         ) : null}
       </div>
+
+      {/* 保存状态常驻浅色文本:与模式分段同一行、贴最右。按钮上的对勾只闪一下,长期状态看这里;
+          aria-live=polite 让读屏在保存态变化时播报,不打断当前输入。 */}
+      <span className="pw-wt-save-text" data-status={saveStatus} aria-live="polite">
+        {saveLabel}
+      </span>
     </header>
   );
 }

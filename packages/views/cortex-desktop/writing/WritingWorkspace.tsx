@@ -22,6 +22,8 @@ import type { NoteEditorSelection } from "../personal/editor/NoteCodeMirrorEdito
 import { WritingSidebar } from "./WritingSidebar";
 import { WritingEditorPane, type WritingEditorPaneHandle } from "./WritingEditorPane";
 import { WritingAssistantPanel } from "./WritingAssistantPanel";
+import { WritingZenMenu } from "./zen/WritingZenMenu";
+import { ZenAudioEngine } from "./zen/zen-audio";
 
 // 三栏宽度契约(与 cortex-desktop.css 的 .pw-writing-left/center/right 保持一致):
 // 左栏固定 260、中栏保底 560(Kun MAIN_MIN_WIDTH)、右侧助手栏固定 360。
@@ -46,6 +48,13 @@ export function WritingWorkspace(): ReactElement {
   // 编辑器实例不参与——切档/切文件都不会丢状态。
   const focusMode = useWritingSpacesStore((s) => s.focusMode);
   const setFocusMode = useWritingSpacesStore((s) => s.setFocusMode);
+  // 禅模式(OmmWriter 式全屏沉浸):开关瞬态、三项偏好持久化。全屏效果由 .is-zen 的 CSS 落地
+  // (隐左右栏与工具栏),编辑器实例不动 —— 进出禅模式不丢编辑状态/撤销栈。
+  const zenMode = useWritingSpacesStore((s) => s.zenMode);
+  const setZenMode = useWritingSpacesStore((s) => s.setZenMode);
+  const zenBackgroundId = useWritingSpacesStore((s) => s.zenBackgroundId);
+  const zenSoundOn = useWritingSpacesStore((s) => s.zenSoundOn);
+  const zenSoundId = useWritingSpacesStore((s) => s.zenSoundId);
   const setFontSizePx = useWritingSpacesStore((s) => s.setFontSizePx);
   // 排版：字体预设/custom → CSS font-family 栈;行距无单位。作用于中栏四档(CM/预览/rich)。
   const fontPreset = useWritingSpacesStore((s) => s.fontPreset);
@@ -155,6 +164,69 @@ export function WritingWorkspace(): ReactElement {
     };
   }, []);
 
+  // 禅模式背景音:懒建单例播放器,仅在「禅模式开 && 背景音开」时播放;音源经 bridge 取随包 mp3
+  // (取自 Metion),无该能力(web 壳)静默不播。切音色由引擎按播放序号防叠播。
+  const zenAudioRef = useRef<ZenAudioEngine | null>(null);
+  useEffect(() => {
+    if (zenMode && zenSoundOn) {
+      if (!zenAudioRef.current) zenAudioRef.current = new ZenAudioEngine();
+      void zenAudioRef.current.play(zenSoundId, (id) => bridgeRef.current?.writingZenSoundData?.(id));
+    } else {
+      zenAudioRef.current?.stop();
+    }
+  }, [zenMode, zenSoundOn, zenSoundId]);
+
+  // 禅资产清单(背景照片 id 列表):首次进禅模式取一次(进程内缓存),供左下菜单循环切换背景。
+  const [zenBgIds, setZenBgIds] = useState<string[]>([]);
+  const zenAssetsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!zenMode || zenAssetsLoadedRef.current) return;
+    const b = bridgeRef.current;
+    if (!b?.writingZenAssets) return;
+    zenAssetsLoadedRef.current = true;
+    void b
+      .writingZenAssets()
+      .then((a) => setZenBgIds(a.backgrounds))
+      .catch(() => undefined);
+  }, [zenMode]);
+
+  // 禅模式幕布(对齐 Metion 形态):写作窗口**不**打成 OS 全屏、保持原尺寸悬浮,由主进程在窗口
+  // 身后垫一层铺满当前显示器的幕布窗口显示背景照片,遮住桌面与其它程序界面,并顺带隐藏菜单栏/Dock、
+  // 禁用绿灯 —— 屏幕上只剩背景 + 写作窗口。show 传照片 id(脏值主进程回落清单首张),兼作切换:
+  // 禅内循环切背景时依赖数组里的 zenBackgroundId 变化,幕布原地换景。
+  // Web 端/旧壳无此能力时静默退化为「铺满应用窗口」的窗口内禅样式。
+  useEffect(() => {
+    if (!bridge?.writingZenBackdropShow) return;
+    if (zenMode) {
+      void bridge.writingZenBackdropShow(zenBackgroundId);
+      return;
+    }
+    void bridge.writingZenBackdropHide?.();
+  }, [bridge, zenMode, zenBackgroundId]);
+
+  // Esc 快捷退出禅模式(window 冒泡监听,任何焦点下可用)。禅内菜单的 useDismissableMenu 也在监听
+  // Esc 收起菜单——两者同时触发时禅模式退出、菜单随整块卸载,行为一致无冲突;若编辑器内部组件
+  // (如 Cmd-K 输入条)对 Esc stopPropagation,则本监听不触发,符合「先取消内层交互」的直觉。
+  useEffect(() => {
+    if (!zenMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZenMode(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zenMode, setZenMode]);
+
+  // 卸载(关写作覆盖层)兜底:退出禅模式 + 停背景音 + 收幕布。zenMode 是模块级 store 的瞬态字段,
+  // 不在此处清掉的话,关闭写作再进来会直接落在禅模式里;幕布也必须在这收——组件已卸载,
+  // 上面的同步 effect 不会再跑 zenMode=false 分支(bridge 经 ref 读,避免依赖)。
+  useEffect(() => {
+    return () => {
+      useWritingSpacesStore.getState().setZenMode(false);
+      zenAudioRef.current?.stop();
+      void bridgeRef.current?.writingZenBackdropHide?.();
+    };
+  }, []);
+
   // 首次进入:无空间时以默认根建一个空间(已有空间则 no-op)。仅挂载时跑一次。
   useEffect(() => {
     void ensureDefaultSpace(bridge);
@@ -174,7 +246,8 @@ export function WritingWorkspace(): ReactElement {
 
   return (
     // 整窗接管:fixed 覆盖层盖住个人工作区侧栏,自成左/中/右三栏(通栏:各列贯穿到顶,无横跨三栏的顶栏)。
-    <div className="pw-writing-root">
+    // is-zen:禅模式全屏 —— CSS 隐掉左右栏与中栏工具栏,中栏铺满整窗、暗景亮字(变量覆盖)。
+    <div className={`pw-writing-root${zenMode ? " is-zen" : ""}`}>
       <div className="pw-writing-body">
         <div className={`pw-writing-left${leftCollapsed ? " is-collapsed" : ""}`}>
           {/* 左栏顶部贴顶拖拽条(避让 macOS 红绿灯)+ 返回按钮 + 折叠按钮。取代原横跨三栏的顶栏。 */}
@@ -221,6 +294,9 @@ export function WritingWorkspace(): ReactElement {
             } as CSSProperties
           }
         >
+          {/* 禅模式:窗口内是**不透明**的灰蓝面板(背景照片只在身后幕布窗口显示,见 CSS .is-zen)。
+              顶部给一条隐形拖拽带 —— 左栏(原拖拽区)被隐藏后窗口仍可拖动。 */}
+          {zenMode ? <div className="pw-writing-zen-drag ds-drag" aria-hidden /> : null}
           <WritingEditorPane
             ref={editorRef}
             path={currentFile}
@@ -232,6 +308,7 @@ export function WritingWorkspace(): ReactElement {
             onFontSizeChange={setFontSizePx}
             focusMode={focusMode}
             onFocusModeChange={setFocusMode}
+            onEnterZen={() => setZenMode(true)}
             leftCollapsed={leftCollapsed}
             onToggleLeft={() => setLeftCollapsed((v) => !v)}
             // 传实际显示值(而非用户意图):窄窗被自动收起时,工具栏 sparkles 状态与实际一致。
@@ -259,6 +336,8 @@ export function WritingWorkspace(): ReactElement {
                 .beginReview({ path, baseline, next: disk, origin: "conflict" })
             }
           />
+          {/* 禅模式左下角悬浮菜单:背景/背景音/还原/退出(背景清单来自主进程资产枚举)。 */}
+          {zenMode ? <WritingZenMenu backgroundIds={zenBgIds} /> : null}
         </div>
         <div className={`pw-writing-right${assistantVisible ? "" : " is-hidden"}`}>
           <WritingAssistantPanel

@@ -55,6 +55,12 @@ function clampFontSize(px: number | undefined): number {
   return Math.min(WRITING_FONT_SIZE_MAX, Math.max(WRITING_FONT_SIZE_MIN, Math.round(px)));
 }
 
+// 禅模式偏好默认值。背景照片 id = 资源文件名去后缀(桌面端 resources/zen/backgrounds,取自
+// Metion zen 资源),"the_three" 为其默认山景;背景音默认「晨莺」(morning_bird.mp3)。
+// 脏值/资产缺失不在 core 校验:主进程 show 时回落清单首张,音色由渲染端预设表兜底。背景音默认关闭。
+export const WRITING_ZEN_BACKGROUND_DEFAULT = "the_three";
+export const WRITING_ZEN_SOUND_DEFAULT = "morning_bird";
+
 // 单调递增序号，配合时间戳生成稳定空间 id（core 跨端，避免依赖 crypto.randomUUID）。
 let idSeq = 0;
 function genSpaceId(): string {
@@ -98,6 +104,12 @@ export interface WritingSpacesState {
   assistantPiProviderId: string | null;
   // 聚焦模式（跨空间共享）：中栏只高亮光标所在行，其余内容变灰。默认关闭。
   focusMode: boolean;
+  // 禅模式（OmmWriter 式全屏沉浸写作）。zenMode 为瞬态开关——不落盘,每次都从普通态进入;
+  // 背景场景 / 背景音三项偏好持久化(跨空间共享)。id 为宽松 string,渲染端按预设表兜底回落。
+  zenMode: boolean;
+  zenBackgroundId: string;
+  zenSoundOn: boolean;
+  zenSoundId: string;
   // 左栏文稿列表偏好（跨空间共享）：排序键 + 升降序；是否显示创建时间 / 概要。
   // 时间与概要要额外向主进程取 stat/正文（writing:docMeta），故这两个开关同时是「要不要拉元信息」的闸门。
   docSortKey: WritingDocSortKey;
@@ -120,6 +132,12 @@ export interface WritingSpacesState {
   setQuickActions: (actions: WritingQuickAction[]) => void;
   // 聚焦模式开关（顶栏按钮）。
   setFocusMode: (on: boolean) => void;
+  // 禅模式开关（顶栏进入 / 禅内菜单与 Esc 退出）与禅偏好写入;resetZenSettings 还原三项偏好为默认。
+  setZenMode: (on: boolean) => void;
+  setZenBackground: (id: string) => void;
+  setZenSoundOn: (on: boolean) => void;
+  setZenSound: (id: string) => void;
+  resetZenSettings: () => void;
   // 左栏文稿列表偏好写入（排序菜单 / 显示项开关）。
   setDocSort: (key: WritingDocSortKey, order: WritingDocSortOrder) => void;
   setDocShowCreatedAt: (show: boolean) => void;
@@ -159,6 +177,10 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   assistantThinkingByAgent: {},
   assistantPiProviderId: null,
   focusMode: false,
+  zenMode: false,
+  zenBackgroundId: WRITING_ZEN_BACKGROUND_DEFAULT,
+  zenSoundOn: false,
+  zenSoundId: WRITING_ZEN_SOUND_DEFAULT,
   docSortKey: DEFAULT_DOC_SORT_KEY,
   docSortOrder: DEFAULT_DOC_SORT_ORDER,
   docShowCreatedAt: true,
@@ -181,6 +203,16 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   setRetrievalEnabled: (enabled) => set({ retrievalEnabled: enabled }),
   setQuickActions: (actions) => set({ quickActions: normalizeWritingQuickActions(actions) }),
   setFocusMode: (on) => set({ focusMode: on }),
+  setZenMode: (on) => set({ zenMode: on }),
+  setZenBackground: (id) => set({ zenBackgroundId: id }),
+  setZenSoundOn: (on) => set({ zenSoundOn: on }),
+  setZenSound: (id) => set({ zenSoundId: id }),
+  resetZenSettings: () =>
+    set({
+      zenBackgroundId: WRITING_ZEN_BACKGROUND_DEFAULT,
+      zenSoundOn: false,
+      zenSoundId: WRITING_ZEN_SOUND_DEFAULT,
+    }),
   setDocSort: (key, order) =>
     set({ docSortKey: normalizeDocSortKey(key), docSortOrder: normalizeDocSortOrder(order) }),
   setDocShowCreatedAt: (show) => set({ docShowCreatedAt: show }),
@@ -250,6 +282,10 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       assistantThinkingByAgent: s.assistantThinkingByAgent,
       ...(s.assistantPiProviderId ? { assistantPiProviderId: s.assistantPiProviderId } : {}),
       focusMode: s.focusMode,
+      // 禅模式偏好(zenMode 本身瞬态不落盘)。
+      zenBackgroundId: s.zenBackgroundId,
+      zenSoundOn: s.zenSoundOn,
+      zenSoundId: s.zenSoundId,
       // 左栏文稿列表偏好。
       docSortKey: s.docSortKey,
       docSortOrder: s.docSortOrder,
@@ -291,6 +327,17 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
         typeof state?.assistantPiProviderId === "string" ? state.assistantPiProviderId : null,
       // 聚焦模式缺省（旧档）视为关闭。
       focusMode: state?.focusMode === true,
+      // 禅模式:回灌一律回到普通态(zenMode 瞬态);三项偏好缺省(旧档)回落默认。
+      zenMode: false,
+      zenBackgroundId:
+        typeof state?.zenBackgroundId === "string" && state.zenBackgroundId
+          ? state.zenBackgroundId
+          : WRITING_ZEN_BACKGROUND_DEFAULT,
+      zenSoundOn: state?.zenSoundOn === true,
+      zenSoundId:
+        typeof state?.zenSoundId === "string" && state.zenSoundId
+          ? state.zenSoundId
+          : WRITING_ZEN_SOUND_DEFAULT,
       // 左栏文稿列表偏好：枚举脏值回落默认；两个展示开关缺省（旧档）视为开启。
       docSortKey: normalizeDocSortKey(state?.docSortKey),
       docSortOrder: normalizeDocSortOrder(state?.docSortOrder),

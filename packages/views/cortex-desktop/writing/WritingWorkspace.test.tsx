@@ -313,12 +313,11 @@ describe("WritingWorkspace 中栏工具栏", () => {
     expect(screen.getByLabelText("展开侧栏")).toBeTruthy();
   });
 
-  it("视图模式下拉切换 → 持久化到 store", async () => {
+  it("视图模式分段切换 → 持久化到 store", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());
     await screen.findByTestId("cm");
-    fireEvent.click(screen.getByTitle(/^视图模式：/));
-    fireEvent.click(screen.getByRole("menuitem", { name: "源码" }));
+    fireEvent.click(screen.getByRole("tab", { name: "源码" }));
     expect(useWritingSpacesStore.getState().previewMode).toBe("source");
   });
 
@@ -335,21 +334,16 @@ describe("WritingWorkspace 中栏工具栏", () => {
     expect(container.querySelector(".pw-wt-file-icon")).toBeNull();
   });
 
-  it("顶栏:模式触发器只显示图标,档名在展开的菜单项里", async () => {
+  it("顶栏:四档模式平铺在标题下方,当前档带 aria-selected", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     const { container } = renderWs(makeBridge());
     await screen.findByTestId("cm");
 
-    // 不绑定具体档（默认档随实现变,rich 档还渲染 tiptap 而非 CodeMirror）：
-    // 从 title 里取出当前档名，再断言 pill 正文里没有它。
-    const pill = container.querySelector(".pw-wt-mode-pill")!;
-    const label = pill.getAttribute("title")!.replace("视图模式：", "");
-    expect(label).toBeTruthy(); // title 仍带档名,不靠图标形状传达语义
-    expect(pill.textContent).not.toContain(label);
-
-    // 展开后菜单项是 icon + 文字。
-    fireEvent.click(pill);
-    expect(screen.getByRole("menuitem", { name: new RegExp(label) })).toBeTruthy();
+    // 四档全部常驻可见(不再收进下拉),档名是可见文字而非只靠图标形状。
+    const tabs = container.querySelectorAll(".pw-wt-mode-tab");
+    expect([...tabs].map((t) => t.textContent)).toEqual(["富文本", "实时预览", "仅预览", "源码"]);
+    // 不绑定具体默认档(随实现变),只断言恰有一个被选中。
+    expect([...tabs].filter((t) => t.getAttribute("aria-selected") === "true")).toHaveLength(1);
   });
 
   it("字号下拉:选预设档改 store,触发器显示当前值(含非预设值)", async () => {
@@ -404,5 +398,41 @@ describe("WritingWorkspace 中栏工具栏", () => {
     renderWs(makeBridge());
     expect(screen.getByText("写作台")).toBeTruthy();
     expect(screen.getByText("尚未打开文件")).toBeTruthy();
+  });
+
+  it("禅模式幕布:进入按 id 显示幕布、切背景原地换景、退出收幕布(窗口本身不打全屏)", async () => {
+    const zenShow = vi.fn(async () => {});
+    const zenHide = vi.fn(async () => {});
+    // 背景照片清单来自主进程资产枚举;菜单循环切换依赖它。
+    const zenAssets = vi.fn(async () => ({ backgrounds: ["bg-a", "bg-b"], sounds: [] }));
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(
+      makeBridge({
+        writingZenBackdropShow: zenShow,
+        writingZenBackdropHide: zenHide,
+        writingZenAssets: zenAssets,
+      } as Partial<DesktopBridge>),
+    );
+    await screen.findByTestId("cm");
+    // 顶栏入口进入禅模式:根容器挂 is-zen(铺满窗口与隐三栏由 CSS 落地)+ 主进程按 id 显示幕布。
+    fireEvent.click(screen.getByLabelText("进入禅模式"));
+    expect(useWritingSpacesStore.getState().zenMode).toBe(true);
+    expect(document.querySelector(".pw-writing-root.is-zen")).toBeTruthy();
+    expect(zenShow).toHaveBeenCalledTimes(1);
+    const firstId = (zenShow.mock.calls[0] as unknown as [string])[0];
+    expect(typeof firstId).toBe("string");
+    // 禅内菜单循环切背景(等资产清单异步就位解禁该行)→ show 再次调用且 id 变化(幕布原地换景)。
+    fireEvent.click(screen.getByLabelText("禅模式设置"));
+    const bgRow = () => screen.getByText("背景图像").closest("button")!;
+    await waitFor(() => expect(bgRow().hasAttribute("disabled")).toBe(false));
+    fireEvent.click(bgRow());
+    expect(zenShow).toHaveBeenCalledTimes(2);
+    expect((zenShow.mock.calls[1] as unknown as [string])[0]).not.toBe(firstId);
+    // 退出禅模式 → 收幕布(挂载时 zenMode=false 分支会先调过一次 hide,这里比较的是计数增量)。
+    const hideCallsBeforeExit = zenHide.mock.calls.length;
+    fireEvent.click(screen.getByText("退出禅模式"));
+    expect(useWritingSpacesStore.getState().zenMode).toBe(false);
+    expect(document.querySelector(".pw-writing-root.is-zen")).toBeNull();
+    expect(zenHide.mock.calls.length).toBeGreaterThan(hideCallsBeforeExit);
   });
 });

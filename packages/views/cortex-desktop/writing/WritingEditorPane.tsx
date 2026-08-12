@@ -139,6 +139,8 @@ interface Props {
   // 聚焦模式(顶栏开关):本组件只透传给工具栏,变灰效果由 .pw-writing-center.is-focus-mode 的 CSS 落地。
   focusMode?: boolean;
   onFocusModeChange?: (on: boolean) => void;
+  // 禅模式入口(顶栏按钮):本组件只透传给工具栏,全屏效果由 .pw-writing-root.is-zen 的 CSS 落地。
+  onEnterZen?: () => void;
   onFontSizeChange?: (px: number) => void;
   // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮),由 WritingWorkspace 持有。
   leftCollapsed?: boolean;
@@ -162,6 +164,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       fontSizePx,
       focusMode,
       onFocusModeChange,
+      onEnterZen,
       onFontSizeChange,
       leftCollapsed,
       onToggleLeft,
@@ -757,6 +760,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
         saveDisabled={saveDisabled}
         focusMode={focusMode}
         onFocusModeChange={onFocusModeChange}
+        onEnterZen={onEnterZen}
         leftCollapsed={leftCollapsed}
         onToggleLeft={onToggleLeft}
         assistantOpen={assistantOpen}
