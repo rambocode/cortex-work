@@ -1,8 +1,8 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
-// 默认宽度继续完整容纳个人工作区三栏；最小宽度只约束用户缩放下限，
-// 窄窗下由渲染层既有的响应式布局负责收缩或隐藏辅助栏。
-export const MAIN_WINDOW_DEFAULT_WIDTH = 1470;
+// 默认宽度 1000（略高于 960 的缩放下限）：每次冷启动都以这个宽度开窗（主窗口没有尺寸持久化，
+// 用户拉宽只在本次运行内有效）。窄窗下由渲染层既有的响应式布局负责收缩或隐藏辅助栏。
+export const MAIN_WINDOW_DEFAULT_WIDTH = 1000;
 export const MAIN_WINDOW_MIN_WIDTH = 960;
 
 export function createMainWindowOptions({
