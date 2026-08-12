@@ -13412,15 +13412,33 @@ button.sb-row {
   background: linear-gradient(178deg, #4b5766 0%, #3e4a58 46%, #303b48 100%);
 }
 .pw-writing-root.is-zen .pw-writing-editor { position: relative; z-index: 1; background: transparent; }
+/* 禅模式取消光标行底色:非禅时源码档用 14% 灰盒标出当前行(见上方 :not(.is-focus-mode) 规则),
+   但在暗景全屏里那块灰盒明显跳脏,沉浸感全无 —— 光标本身(亮色 caret)已足够定位。
+   权重要压过那条规则(5 个类),故带 .pw-writing-root.is-zen + 属性选择器同款结构。 */
+.pw-writing-root.is-zen .pw-writing-center .cm-content[data-note-editor-mode="source"] .cm-line.cm-activeLine,
+.pw-writing-root.is-zen .pw-note-cm-host .cm-line.cm-activeLine {
+  background-color: transparent;
+  width: auto;
+  min-width: 0;
+}
 /* 工具栏隐藏后正文距窗口顶 27px(对齐 Metion 标尺);红绿灯悬浮在窗口左上角,不再额外避让。 */
 .pw-writing-root.is-zen .pw-writing-rich-host,
 .pw-writing-root.is-zen .pw-note-cm-host .cm-content,
 .pw-writing-root.is-zen .pw-note-editor-preview {
   padding-top: 27px;
 }
-/* 源码档内容列居中限宽(base 规则是满宽 flex-grow:1,这里限最大宽,由 scroller 的
-   justify-content:center 水平居中;live/rich/preview 三档本就有各自的读列限宽)。 */
-.pw-writing-root.is-zen .pw-note-cm-host .cm-content { max-width: 900px; }
+/* 禅模式版心统一收窄到 720px(= rich 档读列宽):全屏后各档原读列(源码 900 / live 816 /
+   preview 864)在大屏上铺得过宽,一行字数过多反而累眼;四档同宽也让进出各档时正文不跳位。
+   源码档 base 规则是满宽 flex-grow:1,这里限最大宽,由 scroller 的 justify-content:center 居中;
+   live/preview 的读列规则权重是 5 个类,故这里带 .pw-writing-root.is-zen 前缀压过它们。 */
+.pw-writing-root.is-zen .pw-note-cm-host .cm-content,
+.pw-writing-root.is-zen .pw-writing-center .pw-note-cm-host .cm-editor.cm-write-live-preview .cm-content {
+  max-width: 720px;
+}
+.pw-writing-root.is-zen .pw-writing-center .pw-note-editor-preview > .pw-todo-md,
+.pw-writing-root.is-zen .pw-writing-center .pw-note-editor-preview > .pw-empty-hint {
+  width: min(100%, 720px);
+}
 /* 左栏(原窗口拖拽区)被隐藏:顶部划一条隐形拖拽带保住窗口可拖。z-index 在编辑区之上,
    高度克制(36px)——只占窗口最上沿,不挡正文点击。 */
 .pw-writing-zen-drag { position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 2; }
