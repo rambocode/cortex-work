@@ -12922,6 +12922,7 @@ button.sb-row {
   --w-row-ring: rgba(108, 162, 221, 0.2);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
   --w-border: rgba(20, 47, 95, 0.13);         /* Kun --border-soft */
   --w-menu-bg: #ffffff;                       /* Kun 下拉菜单底(bg-white) */
+  --w-canvas: #fefefe;                        /* 协作区(中栏编辑区)底色 */
   --w-danger: #d6493f;                        /* Kun --ds-danger(删除 hover) */
   --w-danger-soft: rgba(214, 73, 63, 0.1);
 }
@@ -12941,6 +12942,7 @@ button.sb-row {
   --w-row-ring: rgba(151, 192, 235, 0.1);
   --w-border: rgba(151, 192, 235, 0.13);
   --w-menu-bg: #131722;                       /* Kun 暗色菜单底 */
+  --w-canvas: #0f1421;                        /* 协作区暗色底(比侧栏 --w-panel-bg 更深一档,拉出层次) */
   --w-danger: #f8736a;
   --w-danger-soft: rgba(248, 115, 106, 0.12);
 }
@@ -13095,6 +13097,36 @@ button.sb-row {
   transition: background 0.12s, color 0.12s;
 }
 .pw-writing-head-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-writing-spaces-head-actions { display: inline-flex; align-items: center; gap: 2px; }
+
+/* 文稿排序 / 列表显示模式菜单:锚在标题行右侧按钮下方。
+   右对齐(right:0)而非左对齐 —— 左栏窄且贴屏幕左边,向右展开容易被视口裁掉。 */
+.pw-writing-listprefs { position: relative; display: inline-flex; }
+.pw-writing-listprefs-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 40;
+  min-width: 168px; max-width: 240px; max-height: 60vh; overflow-y: auto;
+  padding: 4px; border-radius: 10px;
+  background: var(--w-panel-bg); border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.pw-writing-listprefs-title {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 8px 4px; font-size: 11.5px; color: var(--w-faint);
+}
+.pw-writing-listprefs-item {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; border-radius: 7px; border: none; background: transparent;
+  font-size: 12.5px; color: var(--w-ink); text-align: left; cursor: pointer;
+}
+.pw-writing-listprefs-item:hover:not(:disabled) { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-writing-listprefs-item.is-on { color: var(--w-ink-strong); }
+.pw-writing-listprefs-item:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 勾选位固定宽度:选中/未选中时文字不左右跳。 */
+.pw-writing-listprefs-check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; flex-shrink: 0; color: var(--w-accent);
+}
+.pw-writing-listprefs-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* 空间列表(Kun 容器 px-1 pb-2 overflow-y-auto) */
 .pw-writing-spaces { flex: 1; overflow-y: auto; padding: 0 4px 8px; min-height: 0; }
@@ -13129,9 +13161,11 @@ button.sb-row {
   font-size: 12.5px; color: var(--w-ink-strong); outline: none;
 }
 
-/* 文件树行(Kun SidebarTreeRow min-h-34;paddingLeft 由 JSX inline 提供 10+depth*14) */
+/* 文稿/目录行(Kun SidebarTreeRow min-h-34)。
+   左栏是逐级进入式列表(点目录进入,只显示该目录内容),不是递归树,
+   故行**没有层级缩进**——所有卡片左边缘对齐,深层文档不会被推到右边。 */
 .pw-writing-space-body .pw-tree-row {
-  min-height: 34px; padding: 4px 6px; border-radius: 8px; gap: 8px;
+  min-height: 34px; padding: 4px 6px 4px 10px; border-radius: 8px; gap: 8px;
   font-size: 13px; font-weight: 400; color: var(--w-ink);
   transition: background 0.12s, color 0.12s;
 }
@@ -13141,20 +13175,52 @@ button.sb-row {
   background: var(--w-row-active); color: var(--w-ink-strong);
   box-shadow: inset 0 0 0 1px var(--w-row-ring);
 }
-/* 文件行左侧占位(对齐目录行 chevron 宽度;Kun h-3 w-3=12px) */
-.pw-writing-space-body .pw-tree-lead { width: 12px; flex-shrink: 0; }
-/* 文件图标(Kun FileText:未选 ds-faint,选中 accent 蓝) */
-.pw-writing-space-body .pw-w-file { flex-shrink: 0; color: var(--w-faint); }
-.pw-writing-space-body .pw-tree-row.is-active .pw-w-file { color: var(--w-accent); }
+/* 目录行内的文档数(递归):贴在目录名后,淡色小字,不抢名字的视觉权重。 */
+.pw-writing-dir-count {
+  flex-shrink: 0; margin-left: 6px;
+  font-size: 11px; line-height: 1; color: var(--w-faint); opacity: 0.75;
+}
+/* 目录行右侧的「进入」箭头:常显淡色,提示这一行是可进入的下级目录。 */
+.pw-writing-enter-chev { flex-shrink: 0; margin-left: auto; opacity: 0.55; }
+/* hover 时动作组浮出并接管右侧,箭头让位(否则两者挤在一起) */
+.pw-writing-space-body .pw-tree-row:hover .pw-writing-enter-chev { display: none; }
 
-/* 树节点/空间行内动作组(Kun actionsVisibility 'subtle':常显 opacity-55,行 hover → 100;
-   按钮 SidebarIconButton h-7 w-7 rounded-md #9a9a9a,gap-0.5) */
+/* 面包屑:当前所在目录路径,点任一级跳回;最左是「返回上级」 */
+.pw-writing-crumbs {
+  display: flex; align-items: center; gap: 2px;
+  padding: 2px 6px 4px; min-width: 0;
+  font-size: 11.5px; color: var(--w-faint);
+  white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+}
+.pw-writing-crumbs::-webkit-scrollbar { display: none; }
+.pw-writing-crumb-back {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--w-icon); cursor: pointer;
+}
+.pw-writing-crumb-back:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-writing-crumb-item { display: inline-flex; align-items: center; gap: 2px; }
+.pw-writing-crumb {
+  max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 1px 4px; border: none; border-radius: 5px; background: transparent;
+  font-size: 11.5px; color: var(--w-faint); cursor: pointer;
+}
+.pw-writing-crumb:hover { background: var(--w-row-hover); color: var(--w-ink); }
+.pw-writing-crumb.is-current { color: var(--w-ink-strong); }
+.pw-writing-crumb-sep { color: var(--w-faint); opacity: 0.6; }
+
+/* 树节点/空间行内动作组:平时完全隐藏(编辑/删除图标常显会淹没文件名),
+   行 hover 或组内按钮获得键盘焦点时才浮出;重命名另有「双击文件名」入口。
+   用 opacity 而非 display:none —— 隐藏时仍占位,hover 时文件名不会因让位而抖动;
+   pointer-events 同步关闭,避免隐藏状态下误点到删除。 */
 .pw-writing-node-actions {
   display: inline-flex; align-items: center; gap: 2px; margin-left: auto;
-  opacity: 0.55; transition: opacity 0.12s;
+  opacity: 0; pointer-events: none; transition: opacity 0.12s;
 }
 .pw-writing-space-row:hover .pw-writing-node-actions,
-.pw-writing-space-body .pw-tree-row:hover .pw-writing-node-actions { opacity: 1; }
+.pw-writing-space-body .pw-tree-row:hover .pw-writing-node-actions,
+.pw-writing-node-actions:focus-within { opacity: 1; pointer-events: auto; }
 .pw-writing-node-actions button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 6px;
@@ -13167,6 +13233,84 @@ button.sb-row {
 
 /* pending 徽标:待审阅文件的小圆点(accent 蓝) */
 .pw-writing-pending-badge { margin-left: 4px; color: var(--w-accent); font-size: 10px; line-height: 1; flex-shrink: 0; }
+
+/* 文件行主体:文件名 / 概要 / 创建时间竖排(概要与时间由左栏「排序与显示」菜单控制)。
+   删除按钮在标题行内(不是行级尾部),概要与时间因此能铺满整行宽度——否则右侧会白出一条动作列。
+   min-width:0 是省略号生效的前提(flex 子项默认 min-width:auto 不肯收缩)。 */
+.pw-writing-file-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.pw-writing-file-head { display: flex; align-items: center; min-width: 0; }
+.pw-writing-file-head .pw-tree-name { flex: 1; min-width: 0; }
+/* 概要:最多两行,超出截断(内容侧已限 50 字,这里兜住窄栏换行) */
+.pw-writing-file-excerpt {
+  font-size: 11.5px; line-height: 1.45; color: var(--w-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+/* 创建时间:视觉层级最低(比概要更淡一档),靠右下角对齐参考稿的卡片形态 */
+.pw-writing-file-time {
+  align-self: flex-end; font-size: 11px; line-height: 1.3;
+  color: var(--w-faint); opacity: 0.62;
+}
+/* 带元信息的行是多行卡片:行高放开由内容撑。 */
+.pw-writing-space-body .pw-tree-row.has-meta { align-items: flex-start; padding: 7px 6px 7px 10px; }
+/* 每条文档底部一条淡灰分隔线(仅文件行,目录行不切分层级)。
+   用 border-box 内的 border 而非伪元素,行 hover/选中的圆角底色不会盖住它。 */
+.pw-writing-space-body .pw-tree-row.is-file { border-bottom: 1px solid var(--w-border); }
+.pw-writing-space-body .pw-tree-row.is-file:last-child { border-bottom: none; }
+
+/* ── 重命名弹窗(双击文件/目录名唤起;portal 到 body)───────────────────── */
+.pw-writing-rename-mask {
+  position: fixed; inset: 0; z-index: 240;
+  display: grid; place-items: center; padding: 32px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.pw-writing-rename-card {
+  width: min(380px, calc(100vw - 64px));
+  border-radius: 14px; border: 1px solid var(--border);
+  background: var(--w-panel-bg, var(--bg-card));
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+}
+.pw-writing-rename-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.pw-writing-rename-title { font-size: 13.5px; font-weight: 600; color: var(--w-ink-strong, var(--text-1)); }
+.pw-writing-rename-head button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: none; border-radius: 7px;
+  background: transparent; color: var(--w-icon, var(--text-3)); cursor: pointer;
+}
+.pw-writing-rename-head button:hover { background: var(--w-row-hover, var(--bg-hover)); }
+.pw-writing-rename-body { padding: 14px; }
+/* 输入框 + 只读后缀片:后缀在框内右侧,提示「后缀不会丢」 */
+.pw-writing-rename-field {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--w-accent, var(--accent));
+  background: var(--w-panel-bg, var(--bg-app));
+}
+.pw-writing-rename-field input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  font-size: 13px; color: var(--w-ink-strong, var(--text-1));
+}
+.pw-writing-rename-ext { flex-shrink: 0; font-size: 12px; color: var(--w-faint, var(--text-4)); }
+.pw-writing-rename-error { margin-top: 8px; font-size: 12px; color: var(--w-danger, #dc2626); }
+.pw-writing-rename-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 0 14px 14px;
+}
+.pw-writing-rename-btn {
+  min-width: 64px; padding: 6px 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: transparent;
+  font-size: 12.5px; color: var(--w-ink, var(--text-2)); cursor: pointer;
+}
+.pw-writing-rename-btn:hover { background: var(--w-row-hover, var(--bg-hover)); }
+.pw-writing-rename-btn.is-primary {
+  border-color: transparent; background: var(--w-accent, var(--accent)); color: #fff;
+}
+.pw-writing-rename-btn.is-primary:hover { filter: brightness(1.06); }
+.pw-writing-rename-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 中/右栏占位(U5/U8 替换实现) */
 .pw-writing-placeholder {
@@ -13201,6 +13345,28 @@ button.sb-row {
   --pw-writing-font-size: 16px;
   --pw-writing-font-family: inherit;
   --pw-writing-line-height: 1.75;
+  /* 协作区(中栏)底色。深色主题不能照搬 #FEFEFE(会白得刺眼),沿用写作面板暗底。 */
+  background: var(--w-canvas, #fefefe);
+}
+
+/* ── 聚焦模式:只有光标所在行(富文本档为所在块)保持正常颜色,其余内容变灰 ──
+   用 opacity 而不是 color:标题紫、链接蓝、代码底色等都是各自着色的,统一改 color 压不住,
+   而降透明度能让所有着色一起退到灰调,且不与语法高亮打架。
+   开关只挂在中栏容器上,编辑器实例不参与 —— 切档/切文件/撤销栈都不受影响。
+   .cm-activeLine(CM,highlightActiveLine 恒开)与 .is-focus-block(富文本档的 PM 装饰)
+   分别标出「当前行/当前块」,两者在非聚焦模式下不产生任何视觉差异。 */
+.pw-writing-center.is-focus-mode .pw-note-cm-host .cm-line,
+.pw-writing-center.is-focus-mode .write-rich-editor > * {
+  opacity: 0.32;
+  transition: opacity 0.15s ease;
+}
+.pw-writing-center.is-focus-mode .pw-note-cm-host .cm-line.cm-activeLine,
+.pw-writing-center.is-focus-mode .write-rich-editor > .is-focus-block {
+  opacity: 1;
+}
+/* 聚焦态下不再叠加活动行底色:靠明暗对比区分即可,底色反而显脏。 */
+.pw-writing-center.is-focus-mode .pw-note-cm-host .cm-activeLine {
+  background-color: transparent;
 }
 /* 字号 + 字体 + 行距(设置节「排版与字体」/顶栏步进 → 变量 → 四档)。字体/行距作用于四档正文;
    字号见既有作用点。四档:CM 内容(源码/live)、仅预览、rich。 */
@@ -13317,10 +13483,11 @@ button.sb-row {
 
 /* ── 中栏顶部工具栏(视觉对齐 Kun WriteWorkspaceToolbar;色值经 .pw-writing-root 的 --w-*)── */
 .pw-wt {
-  display: flex; align-items: center; gap: 12px;
-  min-height: 56px; padding: 8px 14px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  min-height: 52px; padding: 8px 14px; flex-shrink: 0;
   border-bottom: 1px solid var(--w-border);
   background: transparent;
+  font-size: 13px;   /* 标题栏基准字号 */
 }
 /* 左栏折叠时,中栏移到窗口最左 → 左侧让位 macOS 红绿灯。 */
 .pw-wt.is-inset { padding-left: 84px; }
@@ -13328,7 +13495,7 @@ button.sb-row {
 /* 图标按钮(折叠/助手/保存):Kun toolbarIconButtonClass h-8 w-8 无边框,hover 行底 */
 .pw-wt-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
   color: var(--w-faint); cursor: pointer; border: none; background: transparent;
   transition: background 0.12s, color 0.12s;
 }
@@ -13337,7 +13504,7 @@ button.sb-row {
 .pw-wt-icon-btn.is-on { background: var(--w-accent-soft); color: var(--w-accent); }
 .pw-wt-file-meta { min-width: 0; flex: 1; line-height: 1; }
 .pw-wt-file-name {
-  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--w-ink-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pw-wt-file-sub {
@@ -13354,29 +13521,33 @@ button.sb-row {
 /* 视图模式 pill + 下拉(Kun modeButtonClass:h-8 rounded-lg,容器带边框) */
 .pw-wt-modes { position: relative; flex-shrink: 0; }
 .pw-wt-mode-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 32px; padding: 0 10px; border-radius: 8px;
-  font-size: 13px; color: var(--w-ink); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 2px;
+  height: 26px; padding: 0 5px; border-radius: 7px;
+  font-size: 12px; color: var(--w-ink); cursor: pointer;
   border: 1px solid var(--w-border); background: transparent;
   transition: background 0.12s, color 0.12s;
 }
+/* 触发器里的图标统一缩到 14px(组件传的是 16,这里按显示密度收一档) */
+.pw-wt-mode-pill > svg:first-child { width: 14px; height: 14px; }
 .pw-wt-mode-pill:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
 .pw-wt-mode-pill:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
 .pw-wt-mode-pill svg.is-open { transform: rotate(180deg); }
 
 /* 通用下拉菜单(模式 / 导出) */
 .pw-wt-menu {
-  position: absolute; top: 100%; margin-top: 8px; z-index: 30;
-  min-width: 184px; padding: 6px; border-radius: 12px;
+  position: absolute; top: 100%; margin-top: 6px; z-index: 30;
+  min-width: 156px; padding: 5px; border-radius: 10px;
   border: 1px solid var(--w-border); background: var(--w-menu-bg);
   box-shadow: 0 18px 40px rgba(20, 47, 95, 0.14);
 }
 .pw-wt-mode-menu { left: 0; }
-.pw-wt-export-menu { right: 0; min-width: 200px; }
+.pw-wt-export-menu { right: 0; min-width: 176px; }
+/* 字号菜单:窄且右对齐(触发器只有两位数宽) */
+.pw-wt-font-menu { right: 0; min-width: 92px; }
 .pw-wt-menu-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  width: 100%; padding: 8px 12px; border-radius: 8px;
-  font-size: 13px; color: var(--w-ink); text-align: left; cursor: pointer;
+  width: 100%; padding: 6px 10px; border-radius: 7px;
+  font-size: 12px; color: var(--w-ink); text-align: left; cursor: pointer;
   border: none; background: transparent; transition: background 0.12s, color 0.12s;
 }
 .pw-wt-menu-item:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
@@ -13392,47 +13563,43 @@ button.sb-row {
 
 /* 右侧动作组 */
 .pw-wt-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
-/* 字号步进器(Kun rounded-xl border) */
-.pw-wt-font {
+/* 字号下拉(取代 − / + 步进器:当前值 + chevron,占位约为原来的一半) */
+.pw-wt-font { position: relative; flex-shrink: 0; }
+.pw-wt-font-trigger {
   display: inline-flex; align-items: center; gap: 2px;
-  border: 1px solid var(--w-border); border-radius: 10px; padding: 2px 4px;
+  height: 26px; padding: 0 5px; border-radius: 7px;
+  border: 1px solid var(--w-border); background: transparent;
+  color: var(--w-ink); cursor: pointer; transition: background 0.12s, color 0.12s;
 }
-.pw-wt-font-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: 6px;
-  color: var(--w-ink); cursor: pointer; border: none; background: transparent;
-  transition: background 0.12s;
-}
-.pw-wt-font-btn:hover { background: var(--w-row-hover); }
-.pw-wt-font-btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+.pw-wt-font-trigger:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
+.pw-wt-font-trigger svg.is-open { transform: rotate(180deg); }
 .pw-wt-font-val {
-  min-width: 28px; text-align: center; font-size: 12px; font-weight: 600;
+  min-width: 18px; text-align: center; font-size: 12px; font-weight: 600;
   color: var(--w-ink-strong); font-variant-numeric: tabular-nums;
 }
 
-/* 保存状态字(绿=已保存,照 Kun 分状态配色) */
-.pw-wt-save {
-  min-width: 60px; text-align: center; border-radius: 8px;
-  padding: 3px 10px; font-size: 11.5px; font-weight: 600; flex-shrink: 0;
+/* 保存按钮:状态并入图标(不再有常驻的状态文字 pill)。
+   dirty 用右上角小圆点提示「有未落盘改动」;saved-hint 是保存成功后的短暂绿勾。 */
+.pw-wt-save-btn { position: relative; }
+.pw-wt-save-btn[data-status="saved-hint"] { color: #15803d; }
+.pw-wt-save-btn[data-status="saving"] { color: #0369a1; }
+.pw-wt-save-btn[data-status="error"] { color: #dc2626; }
+.pw-wt-save-btn[data-status="dirty"]::after {
+  content: ""; position: absolute; top: 6px; right: 6px;
+  width: 5px; height: 5px; border-radius: 50%; background: #d97706;
 }
-.pw-wt-save[data-status="saved"], .pw-wt-save[data-status="idle"] {
-  background: rgba(16, 163, 74, 0.12); color: #15803d;
-}
-.pw-wt-save[data-status="dirty"] { background: rgba(217, 119, 6, 0.12); color: #b45309; }
-.pw-wt-save[data-status="saving"] { background: rgba(2, 132, 199, 0.12); color: #0369a1; }
-.pw-wt-save[data-status="error"] { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+@keyframes pw-wt-spin { to { transform: rotate(360deg); } }
+.pw-wt-spin { animation: pw-wt-spin 0.9s linear infinite; }
 
 /* 导出下拉按钮(Kun toolbarMenuButtonClass:无边框) */
 .pw-wt-export { position: relative; flex-shrink: 0; }
 .pw-wt-menu-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 32px; padding: 0 10px; border-radius: 8px;
-  font-size: 12.5px; font-weight: 500; color: var(--w-faint); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  color: var(--w-faint); cursor: pointer;
   border: none; background: transparent; transition: background 0.12s, color 0.12s;
 }
 .pw-wt-menu-btn:hover { background: var(--w-row-hover); color: var(--w-ink-strong); }
-.pw-wt-menu-btn svg.is-open { transform: rotate(180deg); }
-.pw-wt-export-label { white-space: nowrap; }
 /* 文件被删提示条:红底告警,右侧另存入口 */
 .pw-writing-deleted-bar {
   display: flex; align-items: center; gap: 10px;

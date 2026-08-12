@@ -30,6 +30,7 @@
     "./desktop/provider-catalog": "./desktop/provider-catalog.ts",
     "./desktop/research-bridge": "./desktop/research-bridge.ts",
     "./desktop/writing-retrieval-types": "./desktop/writing-retrieval-types.ts",
+    "./desktop/writing-doc-meta-types": "./desktop/writing-doc-meta-types.ts",
     "./desktop/slides-ipc-types": "./desktop/slides-ipc-types.ts",
     "./desktop/media-gen-types": "./desktop/media-gen-types.ts",
     "./desktop/media-provider-directory": "./desktop/media-provider-directory.ts",

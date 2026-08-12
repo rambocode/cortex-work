@@ -137,7 +137,7 @@ describe("WritingWorkspace(U4)", () => {
     renderWs(makeBridge());
     // 通栏设计:无横跨顶栏;返回按钮在左栏贴顶条,左栏树内容渲染。
     expect(screen.getByLabelText("返回")).toBeTruthy();
-    expect(await screen.findByText("a1.md")).toBeTruthy();
+    expect(await screen.findByText("a1")).toBeTruthy();
     // 点返回 → closeWriting:writingOpen 复位、homeOpen 回落
     fireEvent.click(screen.getByLabelText("返回"));
     expect(usePersonalStore.getState().writingOpen).toBe(false);
@@ -147,7 +147,7 @@ describe("WritingWorkspace(U4)", () => {
   it("顶部「新建文件」→ 在活跃空间根建 untitled.md 并打开", async () => {
     const bridge = makeBridge();
     renderWs(bridge);
-    await screen.findByText("a1.md"); // 活跃空间 alpha 自动展开
+    await screen.findByText("a1"); // 活跃空间 alpha 自动展开
     fireEvent.click(screen.getByRole("button", { name: "新建文件" }));
     await waitFor(() => expect(bridge.writeFile).toHaveBeenCalledWith("/w/alpha/untitled.md", ""));
     await waitFor(() =>
@@ -187,16 +187,16 @@ describe("WritingWorkspace(U4)", () => {
     renderWs(bridge);
     // 活跃空间 alpha 自动展开 → 扫描 + watch
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_A.id, SPACE_A.root));
-    await screen.findByText("a1.md");
+    await screen.findByText("a1");
     // 展开 beta(点其空间行,标题=空间名)→ 扫描 + watch beta;两空间同时展开
     fireEvent.click(screen.getByText("beta"));
-    await screen.findByText("b1.md");
+    await screen.findByText("b1");
     expect(bridge.scanDirTree).toHaveBeenCalledWith(SPACE_B.root);
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_B.id, SPACE_B.root));
     // alpha 仍展开 → 未被 unwatch
     expect(bridge.unwatchDir).not.toHaveBeenCalledWith(SPACE_A.id);
     // 点 beta 的文件 → 切活跃空间 + 打开
-    fireEvent.click(screen.getByText("b1.md"));
+    fireEvent.click(screen.getByText("b1"));
     expect(useWritingSpacesStore.getState().activeSpaceId).toBe(SPACE_B.id);
     expect(useWritingWorkspaceStore.getState().currentFile).toBe("/w/beta/b1.md");
     // 折叠 beta(再点其空间行)→ unwatch beta
@@ -352,19 +352,31 @@ describe("WritingWorkspace 中栏工具栏", () => {
     expect(screen.getByRole("menuitem", { name: new RegExp(label) })).toBeTruthy();
   });
 
-  it("字号步进:增大/减小改 store,边界禁用", async () => {
+  it("字号下拉:选预设档改 store,触发器显示当前值(含非预设值)", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());
     await screen.findByTestId("cm");
-    // 默认 16 → 增大到 17
-    fireEvent.click(screen.getByLabelText("增大字号"));
-    expect(useWritingSpacesStore.getState().fontSizePx).toBe(17);
-    // 拉到上界 48:增大按钮禁用
-    act(() => useWritingSpacesStore.setState({ fontSizePx: 48 }));
-    expect(screen.getByLabelText("增大字号")).toBeDisabled();
-    // 拉到下界 10:减小按钮禁用
-    act(() => useWritingSpacesStore.setState({ fontSizePx: 10 }));
-    expect(screen.getByLabelText("减小字号")).toBeDisabled();
+    const trigger = screen.getByLabelText("编辑器字号");
+    expect(trigger.textContent).toContain("16"); // beforeEach 预置值(默认值 13 由 core spaces 单测覆盖)
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "20 px" }));
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(20);
+    // 持久化里的任意值(不在预设档里)也照常显示,不被改写。
+    act(() => useWritingSpacesStore.setState({ fontSizePx: 17 }));
+    expect(screen.getByLabelText("编辑器字号").textContent).toContain("17");
+  });
+
+  it("聚焦模式:顶栏开关 → 中栏容器挂 is-focus-mode(变灰规则全在 CSS)", async () => {
+    useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
+    renderWs(makeBridge());
+    await screen.findByTestId("cm");
+    const center = () => document.querySelector(".pw-writing-center")!;
+    expect(center().classList.contains("is-focus-mode")).toBe(false);
+    fireEvent.click(screen.getByLabelText("开启聚焦模式"));
+    expect(useWritingSpacesStore.getState().focusMode).toBe(true);
+    expect(center().classList.contains("is-focus-mode")).toBe(true);
+    fireEvent.click(screen.getByLabelText("退出聚焦模式"));
+    expect(center().classList.contains("is-focus-mode")).toBe(false);
   });
 
   it("手动保存:编辑后点保存立即落盘(flush)", async () => {
@@ -373,7 +385,8 @@ describe("WritingWorkspace 中栏工具栏", () => {
     renderWs(bridge);
     const cm = (await screen.findByTestId("cm")) as HTMLTextAreaElement;
     fireEvent.change(cm, { target: { value: "手动保存内容" } });
-    fireEvent.click(screen.getByLabelText("保存"));
+    // 保存按钮的 aria-label 带当前状态(状态文案不再单独占一块常驻 pill)。
+    fireEvent.click(screen.getByRole("button", { name: /^保存，当前状态：/ }));
     await waitFor(() =>
       expect(bridge.writeFile).toHaveBeenCalledWith("/w/alpha/a1.md", "手动保存内容"),
     );

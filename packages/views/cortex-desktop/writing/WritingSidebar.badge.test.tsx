@@ -51,7 +51,7 @@ describe("WritingSidebar pending 徽标", () => {
       </CoreProvider>,
     );
     // 等文件树渲染。
-    await screen.findByText("a.md");
+    await screen.findByText("a");
     expect(screen.queryByLabelText("有待审阅的改动")).toBeNull();
 
     // 给 a.md 入队审阅 → 徽标出现且仅一个。

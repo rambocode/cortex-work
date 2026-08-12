@@ -42,6 +42,10 @@ export function WritingWorkspace(): ReactElement {
   const previewMode = useWritingSpacesStore((s) => s.previewMode);
   const setPreviewMode = useWritingSpacesStore((s) => s.setPreviewMode);
   const fontSizePx = useWritingSpacesStore((s) => s.fontSizePx);
+  // 聚焦模式(顶栏开关,持久化):只在中栏容器上挂一个类,具体变灰规则全在 CSS 里,
+  // 编辑器实例不参与——切档/切文件都不会丢状态。
+  const focusMode = useWritingSpacesStore((s) => s.focusMode);
+  const setFocusMode = useWritingSpacesStore((s) => s.setFocusMode);
   const setFontSizePx = useWritingSpacesStore((s) => s.setFontSizePx);
   // 排版：字体预设/custom → CSS font-family 栈;行距无单位。作用于中栏四档(CM/预览/rich)。
   const fontPreset = useWritingSpacesStore((s) => s.fontPreset);
@@ -207,7 +211,7 @@ export function WritingWorkspace(): ReactElement {
           />
         </div>
         <div
-          className="pw-writing-center"
+          className={`pw-writing-center${focusMode ? " is-focus-mode" : ""}`}
           // 排版 CSS 变量:字号/字体/行距经此作用于中栏四档编辑器与预览(设置节/顶栏步进 → 变量 → 生效)。
           style={
             {
@@ -226,6 +230,8 @@ export function WritingWorkspace(): ReactElement {
             onModeChange={setPreviewMode}
             fontSizePx={fontSizePx}
             onFontSizeChange={setFontSizePx}
+            focusMode={focusMode}
+            onFocusModeChange={setFocusMode}
             leftCollapsed={leftCollapsed}
             onToggleLeft={() => setLeftCollapsed((v) => !v)}
             // 传实际显示值(而非用户意图):窄窗被自动收起时,工具栏 sparkles 状态与实际一致。

@@ -105,7 +105,8 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     expect(s.activeSpaceId).toBeNull();
     // 编辑器视图偏好回落默认。
     expect(s.previewMode).toBe("rich");
-    expect(s.fontSizePx).toBe(16);
+    // 字号回落到当前默认值(13):旧档没有 fontSizeUserSet,一律按「没动过」处理。
+    expect(s.fontSizePx).toBe(13);
   });
 
   it("previewMode / fontSizePx 进 serialize 分片并 roundtrip；字号越界夹取", () => {
@@ -121,10 +122,24 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     useWritingSpacesStore.getState().setFontSizePx(2);
     expect(useWritingSpacesStore.getState().fontSizePx).toBe(10);
 
-    // hydrate 缺字段回默认 + 脏字号夹取。
-    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, fontSizePx: 9999 });
+    // hydrate 缺字段回默认 + 脏字号夹取(手动调过的档才回灌落盘值)。
+    useWritingSpacesStore
+      .getState()
+      .hydrate({ spaces: [], activeSpaceId: null, fontSizePx: 9999, fontSizeUserSet: true });
     expect(useWritingSpacesStore.getState().previewMode).toBe("rich");
     expect(useWritingSpacesStore.getState().fontSizePx).toBe(48);
+
+    // 旧档(无 fontSizeUserSet)躺着上一版的默认 16 → 回灌到当前默认 13,不被旧数字钉死。
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, fontSizePx: 16 });
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(13);
+    expect(useWritingSpacesStore.getState().fontSizeUserSet).toBe(false);
+
+    // 手动调过则永远尊重用户选择;resetTypography 把控制权交还默认值。
+    useWritingSpacesStore.getState().setFontSizePx(16);
+    expect(useWritingSpacesStore.getState().serialize().fontSizeUserSet).toBe(true);
+    useWritingSpacesStore.getState().resetTypography();
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(13);
+    expect(useWritingSpacesStore.getState().fontSizeUserSet).toBe(false);
   });
 
   it("助手 composer 选择记忆(agent/模型/思考/pi 供应商)进分片并 roundtrip;旧档缺字段回默认", () => {

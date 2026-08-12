@@ -127,7 +127,7 @@
 
 **用户功能域**：`notes*.ts`（闪记）、`tasks*.ts`（任务）、`timeline.ts`（时间线/日报）、`push.ts`（推送）、`agent-projects.ts`（项目扫描）、`skills.ts`、`plugins.ts`、`voice.ts`（语音热键事务 / 听写）、`voice-assistant.ts`（语音助手窗口编排与状态中继）、`stt.ts`、`memory.ts`、`reply.ts`、`pet.ts`、`petdex.ts`（公共宠物图鉴：manifest 缓存 + sprite 落盘 + LRU 淘汰 + 只读协议）、`spotlight.ts`、`notification-window.ts`、`update.ts`、`app.ts`（语言/托盘）、`store.ts`（`personal-workspace.json` 持久化总仓）、`knowledge.ts`（公司知识库连接配置：令牌 safeStorage 加密落盘 + MCP 连通性自检）。
 
-**写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）。
+**写作域**（前缀 `writing-`）：`writing-types.ts`（空间/文档契约）、`writing-llm.ts`（续写 + Cmd-K 改写）、`writing-retrieval.ts`（轻量 RAG）、`writing-pdf.ts`、`writing-export.ts`（DOCX/PDF/PNG/HTML）、`writing-infographic.ts`（信息图）、`writing-doc-meta.ts`（左栏文稿列表元信息：批量 stat + 正文概要，供「显示创建时间/概要」与按时间排序）。
 
 **设计 / 演示 / 研究**：`artifact.ts` + `artifact-workspace.ts`（会话产物创建、索引与路径校验）、`design-types.ts`（历史设计工作台持久化契约）、`slides.ts` + `slides-ipc-types.ts`（演示文稿）、`research.ts` + `types-research.ts`（深度研究）、`agent-browser.ts`（Agent 用浏览器）。
 
@@ -138,7 +138,7 @@
 | 域 | 对应名词 |
 |---|---|
 | `design/` | 设计工作台：`canvas/`（画布）、`slides/`（演示文稿）、`directions/`（方向探索）、`design-system/`（设计系统/Tokens）、`code-binding/`（代码同步）、`prototype-flow/` + `prototype-player/`（原型）、`html-quality/`（质量检查）、`design-contract/` + `interop/`（交付/Penpot）、`agent-manager/` + `agent-actions/` + `agent-notes/`（设计智能体）、`run/`（回合派发）、`compat/`（Kun 移植兼容层）、`generator-lane/`（生成流水线） |
-| `writing/` | 写作台：spaces / threads / file-tree / inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
+| `writing/` | 写作台：spaces / threads / file-tree / doc-list（左栏列表：隐藏 md 后缀、重命名后缀回填、排序、时间格式化、目录定位与面包屑、文档计数）/ inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
 | `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头） |
 | `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
 | `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client |

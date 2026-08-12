@@ -54,6 +54,10 @@ export interface WritingQuickAction {
   enabled: boolean;
 }
 
+// 左栏文稿列表排序键：name=文件名、created=创建时间、updated=修改时间。
+export type WritingDocSortKey = "name" | "created" | "updated";
+export type WritingDocSortOrder = "asc" | "desc";
+
 // 写作空间 UI/持久化态：空间列表 + 当前活跃空间 id（无空间时为 null）+ 会话元数据 + 编辑器视图偏好。
 // 替代 Kun 侧 localStorage（core 禁用 localStorage），经 PersistedState.writingUi 分片落盘。
 export interface WritingUiState {
@@ -67,6 +71,9 @@ export interface WritingUiState {
   previewMode?: WritingPreviewMode;
   // 编辑器字号 px（中栏工具栏步进 + 设置滑杆同一状态源，Kun 口径 10–48，默认 16）。缺省回落默认（兼容旧档）。
   fontSizePx?: number;
+  // 用户是否手动调过字号。缺省（旧档）视为 false → 回灌时用当前默认值而非落盘的旧默认数字，
+  // 这样调整默认字号能对「从没动过设置」的用户生效。
+  fontSizeUserSet?: boolean;
   // 编辑器字体预设 + custom 时的 CSS font-family + 正文行距（1.4–2.2 默认 1.75）。缺省回落默认。
   fontPreset?: WritingFontPreset;
   customFontFamily?: string;
@@ -80,4 +87,13 @@ export interface WritingUiState {
   assistantModelByAgent?: Record<string, string>;
   assistantThinkingByAgent?: Record<string, string>;
   assistantPiProviderId?: string;
+  // 聚焦模式（跨空间共享）：开启后中栏只有光标所在行保持正常颜色，其余内容变灰。
+  // 缺省（旧档）视为关闭。
+  focusMode?: boolean;
+  // 左栏文稿列表偏好（跨空间共享）：排序键 + 升降序 + 是否显示创建时间 / 概要。
+  // 缺省（旧档）回落默认：名称升序、显示创建时间与概要。
+  docSortKey?: WritingDocSortKey;
+  docSortOrder?: WritingDocSortOrder;
+  docShowCreatedAt?: boolean;
+  docShowExcerpt?: boolean;
 }

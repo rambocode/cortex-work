@@ -7,6 +7,8 @@
 import { create } from "zustand";
 import type { DesktopBridge } from "../desktop/bridge";
 import type {
+  WritingDocSortKey,
+  WritingDocSortOrder,
   WritingFontPreset,
   WritingPreviewMode,
   WritingQuickAction,
@@ -21,13 +23,31 @@ import {
   normalizeWritingFontPreset,
 } from "./typography";
 
-// 便于 views 经本子路径直接取用编辑器视图档位类型(core 主入口未导出 writing-types)。
-export type { WritingPreviewMode } from "../desktop/writing-types";
+// 便于 views 经本子路径直接取用编辑器视图档位 / 文稿列表排序类型(core 主入口未导出 writing-types)。
+export type {
+  WritingDocSortKey,
+  WritingDocSortOrder,
+  WritingPreviewMode,
+} from "../desktop/writing-types";
 
-// 编辑器字号步进边界（与 Kun WRITE_EDITOR_FONT_SIZE_MIN/MAX/DEFAULT 一致）。
+// 左栏文稿列表默认偏好：保持原有「名称升序」不变，展示项默认开（时间 + 概要即是本次新增的列表形态）。
+const DEFAULT_DOC_SORT_KEY: WritingDocSortKey = "name";
+const DEFAULT_DOC_SORT_ORDER: WritingDocSortOrder = "asc";
+
+// 排序键/序脏值(旧档或手改落盘文件)回落默认，避免 UI 拿到不认识的枚举值。
+function normalizeDocSortKey(key: unknown): WritingDocSortKey {
+  return key === "created" || key === "updated" || key === "name" ? key : DEFAULT_DOC_SORT_KEY;
+}
+function normalizeDocSortOrder(order: unknown): WritingDocSortOrder {
+  return order === "asc" || order === "desc" ? order : DEFAULT_DOC_SORT_ORDER;
+}
+
+// 编辑器字号边界（Kun 口径 10–48）。默认 13——注意这个值只对「用户从没手动调过字号」的档生效，
+// 判据是 fontSizeUserSet（见 hydrate）：旧档一律写过 fontSizePx:16，只看这个数字无法区分
+// 「用户特意选了 16」和「从来没动过，落盘的只是当年的默认值」，所以必须靠显式标记。
 export const WRITING_FONT_SIZE_MIN = 10;
 export const WRITING_FONT_SIZE_MAX = 48;
-export const WRITING_FONT_SIZE_DEFAULT = 16;
+export const WRITING_FONT_SIZE_DEFAULT = 13;
 
 // 字号夹取到合法区间；非数值/越界回落默认（兼容旧档脏值）。
 function clampFontSize(px: number | undefined): number {
@@ -58,6 +78,9 @@ export interface WritingSpacesState {
   // 中栏编辑器视图偏好（跨空间共享，由中栏工具栏切换/步进；随 WritingUiState 分片持久化）。
   previewMode: WritingPreviewMode;
   fontSizePx: number;
+  // 用户是否手动调过字号：false（含旧档缺字段）时 hydrate 回落到当前默认值，
+  // 使默认值调整能对「没动过设置」的用户即时生效；一旦手动调过就永远尊重用户的选择。
+  fontSizeUserSet: boolean;
   // 排版（设置节「排版与字体」）：字体预设 + custom 字体 + 行距。字号复用 fontSizePx（与工具栏同源）。
   fontPreset: WritingFontPreset;
   customFontFamily: string;
@@ -73,6 +96,14 @@ export interface WritingSpacesState {
   assistantModelByAgent: Record<string, string>;
   assistantThinkingByAgent: Record<string, string>;
   assistantPiProviderId: string | null;
+  // 聚焦模式（跨空间共享）：中栏只高亮光标所在行，其余内容变灰。默认关闭。
+  focusMode: boolean;
+  // 左栏文稿列表偏好（跨空间共享）：排序键 + 升降序；是否显示创建时间 / 概要。
+  // 时间与概要要额外向主进程取 stat/正文（writing:docMeta），故这两个开关同时是「要不要拉元信息」的闸门。
+  docSortKey: WritingDocSortKey;
+  docSortOrder: WritingDocSortOrder;
+  docShowCreatedAt: boolean;
+  docShowExcerpt: boolean;
 
   // 编辑器视图档位切换（source/live/preview）。
   setPreviewMode: (mode: WritingPreviewMode) => void;
@@ -87,6 +118,12 @@ export interface WritingSpacesState {
   setRetrievalEnabled: (enabled: boolean) => void;
   // 覆盖快捷指令配置（设置编辑器增删改后整表写入，写入即归一化）。
   setQuickActions: (actions: WritingQuickAction[]) => void;
+  // 聚焦模式开关（顶栏按钮）。
+  setFocusMode: (on: boolean) => void;
+  // 左栏文稿列表偏好写入（排序菜单 / 显示项开关）。
+  setDocSort: (key: WritingDocSortKey, order: WritingDocSortOrder) => void;
+  setDocShowCreatedAt: (show: boolean) => void;
+  setDocShowExcerpt: (show: boolean) => void;
   // 写作助手 composer 选择记忆写入（切 agent / 选模型 / 调思考强度时调用）。
   setAssistantAgent: (agent: string) => void;
   setAssistantModel: (agent: string, model: string, piProviderId?: string) => void;
@@ -111,6 +148,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   activeSpaceId: null,
   previewMode: "rich",
   fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+  fontSizeUserSet: false,
   fontPreset: DEFAULT_WRITING_FONT_PRESET,
   customFontFamily: "",
   lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
@@ -120,21 +158,33 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   assistantModelByAgent: {},
   assistantThinkingByAgent: {},
   assistantPiProviderId: null,
+  focusMode: false,
+  docSortKey: DEFAULT_DOC_SORT_KEY,
+  docSortOrder: DEFAULT_DOC_SORT_ORDER,
+  docShowCreatedAt: true,
+  docShowExcerpt: true,
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
-  setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px) }),
+  setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px), fontSizeUserSet: true }),
   setFontPreset: (preset) => set({ fontPreset: normalizeWritingFontPreset(preset) }),
   setCustomFontFamily: (family) => set({ customFontFamily: family.slice(0, 200) }),
   setLineHeight: (lineHeight) => set({ lineHeight: clampWritingLineHeight(lineHeight) }),
   resetTypography: () =>
     set({
       fontSizePx: WRITING_FONT_SIZE_DEFAULT,
+      // 重置排版 = 交还给默认值管理，之后默认值再变也跟着变。
+      fontSizeUserSet: false,
       fontPreset: DEFAULT_WRITING_FONT_PRESET,
       customFontFamily: "",
       lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
     }),
   setRetrievalEnabled: (enabled) => set({ retrievalEnabled: enabled }),
   setQuickActions: (actions) => set({ quickActions: normalizeWritingQuickActions(actions) }),
+  setFocusMode: (on) => set({ focusMode: on }),
+  setDocSort: (key, order) =>
+    set({ docSortKey: normalizeDocSortKey(key), docSortOrder: normalizeDocSortOrder(order) }),
+  setDocShowCreatedAt: (show) => set({ docShowCreatedAt: show }),
+  setDocShowExcerpt: (show) => set({ docShowExcerpt: show }),
   setAssistantAgent: (agent) => set({ assistantAgent: agent }),
   setAssistantModel: (agent, model, piProviderId) =>
     set((s) => ({
@@ -188,6 +238,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       activeSpaceId: s.activeSpaceId,
       previewMode: s.previewMode,
       fontSizePx: s.fontSizePx,
+      fontSizeUserSet: s.fontSizeUserSet,
       fontPreset: s.fontPreset,
       customFontFamily: s.customFontFamily,
       lineHeight: s.lineHeight,
@@ -198,6 +249,12 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       assistantModelByAgent: s.assistantModelByAgent,
       assistantThinkingByAgent: s.assistantThinkingByAgent,
       ...(s.assistantPiProviderId ? { assistantPiProviderId: s.assistantPiProviderId } : {}),
+      focusMode: s.focusMode,
+      // 左栏文稿列表偏好。
+      docSortKey: s.docSortKey,
+      docSortOrder: s.docSortOrder,
+      docShowCreatedAt: s.docShowCreatedAt,
+      docShowExcerpt: s.docShowExcerpt,
     };
   },
 
@@ -205,9 +262,13 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
     set({
       spaces: state?.spaces ?? [],
       activeSpaceId: state?.activeSpaceId ?? null,
-      // 缺字段回落默认（兼容旧档）；字号夹取到合法区间。
+      // 缺字段回落默认（兼容旧档）。
       previewMode: state?.previewMode ?? "rich",
-      fontSizePx: clampFontSize(state?.fontSizePx),
+      // 字号：只有「手动调过」的档才回灌落盘值；旧档 / 没动过的一律用当前默认值，
+      // 否则默认值改了对老用户永远不生效（他们档里躺着上一版的默认数字）。
+      fontSizePx:
+        state?.fontSizeUserSet === true ? clampFontSize(state?.fontSizePx) : WRITING_FONT_SIZE_DEFAULT,
+      fontSizeUserSet: state?.fontSizeUserSet === true,
       // 排版：预设/字体/行距缺省或脏值回落默认。
       fontPreset: normalizeWritingFontPreset(state?.fontPreset),
       customFontFamily: typeof state?.customFontFamily === "string" ? state.customFontFamily.slice(0, 200) : "",
@@ -228,5 +289,12 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
           : {},
       assistantPiProviderId:
         typeof state?.assistantPiProviderId === "string" ? state.assistantPiProviderId : null,
+      // 聚焦模式缺省（旧档）视为关闭。
+      focusMode: state?.focusMode === true,
+      // 左栏文稿列表偏好：枚举脏值回落默认；两个展示开关缺省（旧档）视为开启。
+      docSortKey: normalizeDocSortKey(state?.docSortKey),
+      docSortOrder: normalizeDocSortOrder(state?.docSortOrder),
+      docShowCreatedAt: state?.docShowCreatedAt ?? true,
+      docShowExcerpt: state?.docShowExcerpt ?? true,
     }),
 }));

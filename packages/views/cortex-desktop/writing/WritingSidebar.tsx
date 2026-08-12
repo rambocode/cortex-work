@@ -1,7 +1,7 @@
 // 写作工作区左栏(结构对齐 Kun WriteSidebar):
 //   顶部两个整行按钮:「新建文件」(在活跃空间根即时建 untitled.md,重名自动递增,建后打开并进入就地重命名)、
 //     「添加写作空间」(系统目录选择器,取消不加);
-//   「写作空间」分组标题行(右侧 + = 添加空间);
+//   「写作空间」分组标题行(右侧:排序与显示菜单 + 添加空间);
 //   空间列表:每个空间一个可折叠块(WritingSpaceGroup)——空间行 + 悬浮动作(新建文件/目录/刷新/移除)、
 //     默认空间副标、展开后的文件树。
 // 关键契约:
@@ -9,10 +9,15 @@
 //     折叠时 unwatch 并清树(下次展开重扫)。多空间可同时展开。
 //   - core/views 硬边界:不直接碰 window.desktopAPI,一律经注入的 DesktopBridge(useDesktopBridge)。
 //   - 点击任意空间的文件 → setActiveSpace(该空间) + setCurrentFile(path),修复「非活跃空间文件点不到」。
+//   - 文件名展示去掉 md 系后缀(写作空间默认 md);重命名输入/提交经 doc-list 的
+//     writingDisplayName / applyWritingRenameName 成对换算,保证磁盘上后缀不丢。
+//   - 文稿列表偏好(排序键/序 + 显示创建时间/概要)在 spaces store,随 writingUi 分片持久化;
+//     时间与概要经 writing:docMeta 批量拉取,仅在「需要」时拉(见 needsMeta)。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { FilePlus2, FolderOpen, Plus } from "lucide-react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import type { DesktopBridge, PromptNode } from "@cortex-work/core";
+import type { WritingDocMetaItem } from "@cortex-work/core/desktop/writing-doc-meta-types";
 import { useWritingSpacesStore } from "@cortex-work/core/writing/spaces";
 import { useWritingWorkspaceStore } from "@cortex-work/core/writing/workspace-store";
 import { useWritingReviewStore } from "@cortex-work/core/writing/review-manager";
@@ -26,7 +31,17 @@ import {
   renameNode,
   type FsActionResult,
 } from "@cortex-work/core/writing/file-tree";
+import {
+  applyWritingRenameName,
+  collectWritingFilePaths,
+  findWritingDirNode,
+  sortWritingTree,
+  writingDisplayName,
+  writingHiddenExt,
+} from "@cortex-work/core/writing/doc-list";
 import { WritingSpaceGroup } from "./WritingSpaceGroup";
+import { WritingRenameDialog } from "./WritingRenameDialog";
+import { WritingListPrefsMenu } from "./WritingListPrefsMenu";
 
 // CRUD 失败原因 → 用户可读提示(zh-Hans)。
 function actionErrorText(res: FsActionResult): string {
@@ -64,6 +79,15 @@ export function WritingSidebar({
   const removeSpace = useWritingSpacesStore((s) => s.removeSpace);
   const setActiveSpace = useWritingSpacesStore((s) => s.setActiveSpace);
 
+  // 文稿列表偏好(排序 + 显示项,跨空间共享、随 writingUi 分片持久化)。
+  const docSortKey = useWritingSpacesStore((s) => s.docSortKey);
+  const docSortOrder = useWritingSpacesStore((s) => s.docSortOrder);
+  const docShowCreatedAt = useWritingSpacesStore((s) => s.docShowCreatedAt);
+  const docShowExcerpt = useWritingSpacesStore((s) => s.docShowExcerpt);
+  const setDocSort = useWritingSpacesStore((s) => s.setDocSort);
+  const setDocShowCreatedAt = useWritingSpacesStore((s) => s.setDocShowCreatedAt);
+  const setDocShowExcerpt = useWritingSpacesStore((s) => s.setDocShowExcerpt);
+
   // 待审阅文件集合(U6):pending 文件在树上显示徽标。
   const pendingPaths = useWritingReviewStore((s) => s.pending);
 
@@ -78,11 +102,18 @@ export function WritingSidebar({
   // 每空间展开态(id → bool);每空间文件树(缺省=未扫描/加载中,null=无 bridge,PromptNode=已扫描)。
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [treesBySpace, setTreesBySpace] = useState<Record<string, PromptNode | null>>({});
+  // 每空间的「当前所在目录」(缺省=空间根):左栏是逐级进入式列表,不是递归树——
+  // 点子目录即进入并只显示其内容,面包屑回上级。目录被删/改名时由 dirNodeFor 兜底回落。
+  const [cwdBySpace, setCwdBySpace] = useState<Record<string, string>>({});
   // 新建目录内联输入(文件创建走即时 untitled,不用输入行):spaceId 定位归属、dir 目标目录、name 输入值。
   const [creatingDir, setCreatingDir] = useState<{ spaceId: string; dir: string; name: string } | null>(null);
-  // 就地重命名:renaming=目标绝对路径;renameName=输入框值(默认原名)。
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState("");
+  // 重命名弹窗:renaming=目标(路径 + 是否目录,null=未打开);renameError=上次提交失败原因(弹窗内就地展示)。
+  // 输入值由弹窗自持(WritingRenameDialog),这里只管「改谁」与「失败了没」。
+  const [renaming, setRenaming] = useState<{ path: string; isDir: boolean } | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  // 文稿元信息(创建/修改时间 + 概要):按绝对路径归集,跨空间共用一张表(绝对路径全局唯一)。
+  // 只增量合并、不随树收缩清理——过期条目最多占点内存,清掉反而会让折叠再展开时闪一下空白。
+  const [metaByPath, setMetaByPath] = useState<Record<string, WritingDocMetaItem>>({});
 
   // 稳定 ref:供 effect 内的回调读最新 spaces / expanded(避免把易变值塞进 effect 依赖导致频繁重订阅)。
   const spacesRef = useRef(spaces);
@@ -182,9 +213,104 @@ export function WritingSidebar({
     });
   }, [onRegisterRefresh, scanSpace]);
 
-  const startRename = useCallback((path: string): void => {
-    setRenaming(path);
-    setRenameName(basename(path));
+  // ── 文稿元信息(时间 + 概要)与排序 ────────────────────────────────────────
+  // 仅在「显示创建时间 / 显示概要 / 按时间排序」任一成立时才拉元信息:纯名称排序且两个显示项都关时零额外 IO。
+  const metaSupported = !!b?.writingDocMeta;
+  const needsMeta = docShowCreatedAt || docShowExcerpt || docSortKey !== "name";
+
+  // 树或偏好变化 → 批量拉一次当前已展开空间内全部文件的元信息(单次 IPC,非逐文件)。
+  // 主进程按 path+mtime+size 缓存摘要,故 watch 去抖重扫触发的重复拉取不会重复读盘。
+  useEffect(() => {
+    const docMeta = b?.writingDocMeta;
+    if (!needsMeta || !docMeta) return;
+    const paths = Object.values(treesBySpace).flatMap((t) => collectWritingFilePaths(t));
+    if (paths.length === 0) return;
+    let alive = true;
+    void docMeta({ paths, withExcerpt: docShowExcerpt })
+      .then((res) => {
+        if (!alive) return;
+        setMetaByPath((prev) => {
+          const next = { ...prev };
+          for (const item of res.items) next[item.path] = item;
+          return next;
+        });
+      })
+      .catch(() => {
+        // 元信息拉取失败静默降级:列表照常可用,只是没有时间/概要(不打断左栏,也不弹 toast 骚扰)。
+      });
+    return () => {
+      alive = false;
+    };
+  }, [b, needsMeta, docShowExcerpt, treesBySpace]);
+
+  // 渲染用的排序后树:纯函数派生,依赖树 + 排序偏好 + 元信息(时间排序要读 metaByPath)。
+  const sortedTrees = useMemo(() => {
+    const out: Record<string, PromptNode | null> = {};
+    for (const [id, tree] of Object.entries(treesBySpace)) {
+      out[id] = tree
+        ? sortWritingTree(tree, { key: docSortKey, order: docSortOrder, metaByPath })
+        : tree;
+    }
+    return out;
+  }, [treesBySpace, docSortKey, docSortOrder, metaByPath]);
+
+  // 某空间当前所在目录:未导航过 → 空间根。
+  const cwdOf = useCallback(
+    (spaceId: string, root: string): string => cwdBySpace[spaceId] ?? normalizeRoot(root),
+    [cwdBySpace],
+  );
+
+  // 进入目录 / 面包屑跳转。切目录只改本地视图,不动活跃空间与当前打开文件。
+  const navigateDir = useCallback((spaceId: string, dir: string): void => {
+    setCwdBySpace((m) => ({ ...m, [spaceId]: dir }));
+  }, []);
+
+  // 当前目录对应的树节点:目录已被删/改名(找不到)时,逐级回落到仍存在的祖先,
+  // 最终兜底到空间根——否则左栏会卡在一个不存在的目录上,永远空列表。
+  const dirNodeFor = useCallback(
+    (spaceId: string, root: string): PromptNode | null | undefined => {
+      const tree = sortedTrees[spaceId];
+      if (tree === undefined) return undefined; // 尚未扫描
+      if (tree === null) return null; // 无 bridge
+      const base = normalizeRoot(root);
+      let dir = cwdOf(spaceId, root);
+      while (dir !== base) {
+        const hit = findWritingDirNode(tree, dir);
+        if (hit) return hit;
+        dir = dir.slice(0, dir.lastIndexOf("/")) || base;
+      }
+      return tree;
+    },
+    [sortedTrees, cwdOf],
+  );
+
+  // 树刷新后,若当前目录已不存在则把 cwd 收敛回仍存在的祖先(与 dirNodeFor 的回落保持一致,
+  // 否则面包屑还停在已删除的路径上)。
+  useEffect(() => {
+    setCwdBySpace((m) => {
+      let changed = false;
+      const next = { ...m };
+      for (const space of spacesRef.current) {
+        const tree = treesBySpace[space.id];
+        const base = normalizeRoot(space.root);
+        let dir = next[space.id];
+        if (!tree || !dir || dir === base) continue;
+        while (dir !== base && !findWritingDirNode(tree, dir)) {
+          dir = dir.slice(0, dir.lastIndexOf("/")) || base;
+        }
+        if (dir !== next[space.id]) {
+          next[space.id] = dir;
+          changed = true;
+        }
+      }
+      return changed ? next : m;
+    });
+  }, [treesBySpace]);
+
+  // 打开重命名弹窗(双击行 / 新建文件后自动唤起)。isDir 决定弹窗标题与后缀提示。
+  const startRename = useCallback((path: string, isDir = false): void => {
+    setRenaming({ path, isDir });
+    setRenameError(null);
   }, []);
 
   // 新建文件:在 dir 下建 untitled.md(重名自动递增 untitled-2.md…),建后展开+设活跃+打开+就地重命名。
@@ -206,6 +332,8 @@ export function WritingSidebar({
       const target = created.path;
       setActiveSpace(spaceId);
       setExpanded((e) => ({ ...e, [spaceId]: true }));
+      // 新文件建在 dir 里,列表也切到 dir——否则在子目录建的文件当场看不见。
+      setCwdBySpace((m) => ({ ...m, [spaceId]: dir }));
       await scanSpace(spaceId);
       setCurrentFile(target);
       startRename(target);
@@ -223,9 +351,11 @@ export function WritingSidebar({
     void createNewFile(active.id, active.root);
   }, [spaces, activeSpaceId, createNewFile, toast]);
 
-  // 打开新建目录输入行(定位到 spaceId 的 dir 目录);同时确保该空间已展开。
+  // 打开新建目录输入行(定位到 spaceId 的 dir 目录);确保该空间已展开,并把列表切到该目录——
+  // 输入行渲染在「当前目录」顶部,不先切进去的话用户看不到自己正在哪儿建。
   const startCreateDir = useCallback((spaceId: string, dir: string): void => {
     setExpanded((e) => ({ ...e, [spaceId]: true }));
+    setCwdBySpace((m) => ({ ...m, [spaceId]: dir }));
     setCreatingDir({ spaceId, dir, name: "" });
   }, []);
 
@@ -241,20 +371,26 @@ export function WritingSidebar({
     await scanSpace(spaceId);
   }, [b, creatingDir, scanSpace, toast]);
 
-  // 提交重命名:成功后同步当前打开文件 key + 重扫归属空间树。
-  const commitRename = useCallback(async (): Promise<void> => {
-    if (!b || !renaming) return;
-    const res = await renameNode(b, renaming, renameName);
-    if (!res.ok) {
-      toast(actionErrorText(res));
-      return;
-    }
-    if (res.path && res.path !== renaming) renameCurrentFile(renaming, res.path);
-    const spaceId = spaceIdForPath(renaming);
-    setRenaming(null);
-    setRenameName("");
-    if (spaceId) await scanSpace(spaceId);
-  }, [b, renaming, renameName, renameCurrentFile, spaceIdForPath, scanSpace, toast]);
+  // 提交重命名(弹窗「确定」/回车):成功后关弹窗 + 同步当前打开文件 key + 重扫归属空间树。
+  // 失败不关弹窗——把原因就地显示在弹窗里,用户可直接改名重试(关掉再重来会丢输入)。
+  const commitRename = useCallback(
+    async (input: string): Promise<void> => {
+      if (!b || !renaming) return;
+      const from = renaming.path;
+      // 弹窗里是去后缀名,提交前补回原后缀,否则 `笔记` 会把 `笔记.md` 改成无后缀文件。
+      const res = await renameNode(b, from, applyWritingRenameName(basename(from), input));
+      if (!res.ok) {
+        setRenameError(actionErrorText(res));
+        return;
+      }
+      if (res.path && res.path !== from) renameCurrentFile(from, res.path);
+      const spaceId = spaceIdForPath(from);
+      setRenaming(null);
+      setRenameError(null);
+      if (spaceId) await scanSpace(spaceId);
+    },
+    [b, renaming, renameCurrentFile, spaceIdForPath, scanSpace],
+  );
 
   // 删除:命中当前打开文件(或其祖先目录)先二次确认,避免静默丢未保存内容(R8 树侧联动)。
   const onDelete = useCallback(
@@ -356,18 +492,31 @@ export function WritingSidebar({
       {/* 「写作空间」分组标题行 + 添加按钮 */}
       <div className="pw-writing-spaces-head">
         <span className="pw-writing-spaces-title">写作空间</span>
-        {b?.pickDirectory ? (
-          <button
-            type="button"
-            className="pw-writing-head-btn"
-            title="添加写作空间"
-            aria-label="添加写作空间"
-            onClick={() => void onAddSpace()}
-          >
-            {/* Kun SidebarSectionHeader 右侧 SidebarIconButton:Plus h-3.5 w-3.5(14px) strokeWidth 1.75 */}
-            <Plus size={14} strokeWidth={1.75} />
-          </button>
-        ) : null}
+        <span className="pw-writing-spaces-head-actions">
+          {/* 文稿排序 + 列表显示模式(创建时间 / 概要)配置 */}
+          <WritingListPrefsMenu
+            sortKey={docSortKey}
+            sortOrder={docSortOrder}
+            showCreatedAt={docShowCreatedAt}
+            showExcerpt={docShowExcerpt}
+            metaSupported={metaSupported}
+            onSort={setDocSort}
+            onToggleCreatedAt={setDocShowCreatedAt}
+            onToggleExcerpt={setDocShowExcerpt}
+          />
+          {b?.pickDirectory ? (
+            <button
+              type="button"
+              className="pw-writing-head-btn"
+              title="添加写作空间"
+              aria-label="添加写作空间"
+              onClick={() => void onAddSpace()}
+            >
+              {/* Kun SidebarSectionHeader 右侧 SidebarIconButton:Plus h-3.5 w-3.5(14px) strokeWidth 1.75 */}
+              <Plus size={14} strokeWidth={1.75} />
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {/* 空间列表 */}
@@ -382,32 +531,49 @@ export function WritingSidebar({
               active={space.id === activeSpaceId}
               expanded={expanded[space.id] === true}
               canRemove={spaces.length > 1}
-              tree={treesBySpace[space.id]}
+              dirNode={dirNodeFor(space.id, space.root)}
+              cwd={cwdOf(space.id, space.root)}
               currentFile={currentFile}
               pendingPaths={pendingPaths}
+              metaByPath={metaByPath}
+              // 宿主壳不支持元信息通道时,时间/概要一律不渲染(开关在菜单里也已置灰)。
+              showCreatedAt={docShowCreatedAt && metaSupported}
+              showExcerpt={docShowExcerpt && metaSupported}
               creatingDir={creatingDir}
               setCreateDirName={(v) =>
                 setCreatingDir((c) => (c ? { ...c, name: v } : c))
               }
               commitCreateDir={() => void commitCreateDir()}
               cancelCreateDir={() => setCreatingDir(null)}
-              renaming={renaming}
-              renameName={renameName}
-              setRenameName={setRenameName}
-              commitRename={() => void commitRename()}
-              cancelRename={() => setRenaming(null)}
               onToggleExpand={() => toggleExpand(space.id)}
+              onNavigate={(dir) => navigateDir(space.id, dir)}
               onCreateFile={(dir) => void createNewFile(space.id, dir)}
               onCreateDir={(dir) => startCreateDir(space.id, dir)}
               onRefresh={() => void scanSpace(space.id)}
               onRemove={() => onRemoveSpace(space.id)}
               onOpenFile={(path) => onOpenFile(space.id, path)}
-              onStartRename={startRename}
+              onStartRename={(path, isDir) => startRename(path, isDir)}
               onDelete={(path) => void onDelete(path)}
             />
           ))
         )}
       </div>
+
+      {/* 重命名弹窗(双击行唤起):挂 body 的 portal,不受左栏滚动容器裁切。 */}
+      {renaming ? (
+        <WritingRenameDialog
+          key={renaming.path}
+          initialName={writingDisplayName(basename(renaming.path))}
+          keptExt={writingHiddenExt(basename(renaming.path))}
+          isDir={renaming.isDir}
+          error={renameError}
+          onCommit={(name) => void commitRename(name)}
+          onCancel={() => {
+            setRenaming(null);
+            setRenameError(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

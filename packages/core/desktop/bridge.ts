@@ -128,6 +128,8 @@ import type {
 import type { PetdexCacheStats, PetdexManifestResult, PetdexSpriteRef } from "./petdex-types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
+// 写作左栏文稿元信息(时间 + 概要）IPC 契约(与 apps/desktop/src/main/ipc/writing-doc-meta-types.ts 镜像）。
+import type { WritingDocMetaRequest, WritingDocMetaResult } from "./writing-doc-meta-types";
 // 写作信息图(U7）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-infographic-types.ts 镜像）。
 import type { WritingInfographicRequest, WritingInfographicResult } from "./writing-infographic-types";
 // 写作重型导出(U6）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-export-types.ts 镜像）。
@@ -252,6 +254,10 @@ export interface DesktopBridge {
   writingRetrieve?(req: WritingRetrievalRequest): Promise<WritingRetrievalResult>;
   // 失效某空间根的检索索引(WritingWorkspace 的 watch dirChanged 触发):下次检索重建。fire-and-forget。
   writingRetrievalInvalidate?(root: string): void;
+  // 写作左栏文稿列表元信息:一次请求一批文档路径,返回创建/修改时间 + 正文概要(≤50 字)。
+  // withExcerpt=false 时只 stat 不读盘(左栏未开「显示概要」)。取不到的路径不在结果里(渲染端降级)。
+  // 可选——web/旧壳无此能力时左栏时间/概要与按时间排序整体降级(仍可按名称排序)。
+  writingDocMeta?(req: WritingDocMetaRequest): Promise<WritingDocMetaResult>;
   // ── 写作信息图(U7,对接 media-gen）───────────────────────────────────────
   // 选区文本 → Kun 信息图提示词 → media-gen 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径。
   // 渲染端据 absolutePath 复用 U1 relativeImageLink 换算相对当前 md 的链接插入。失败给可读 message。

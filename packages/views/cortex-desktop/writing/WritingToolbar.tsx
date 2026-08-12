@@ -1,20 +1,24 @@
 // 写作工作区中栏顶部工具栏(视觉与交互对齐 Kun WriteWorkspaceToolbar):
 //   自左向右:折叠左栏 | 文件名(粗体)/下方相对路径(与文件名相同则省)+ 字数 badge |
-//     视图模式 pill(仅图标 + 下拉,档名在菜单项里;列 rich/live/preview/source 四档)| 字号步进器(− px +)|
-//     sparkles(切右侧助手栏)| 保存按钮 | 保存状态字 | 导出下拉(复制 Markdown / 导出 .md 副本)。
+//     视图模式 pill(仅图标 + 下拉,档名在菜单项里;列 rich/live/preview/source 四档)| 字号下拉(当前值 + 预设档)|
+//     sparkles(切右侧助手栏)| 保存按钮(状态并入图标)| 导出下拉(仅图标)。
+// 占位克制:标题栏横向空间紧张,故控件一律走「图标 + 下拉」而非「图标 + 文字」;
+//   保存状态**不常驻**——成功后短暂显示对勾即回落普通图标,不长期占一块位置(状态文案仍在 title 里)。
 // 纯展示壳:文件名/字数/保存状态/模式/字号等由 WritingEditorPane 计算后注入;折叠与助手切换由
 //   WritingWorkspace 注入(standalone 编辑器场景不传 → 对应按钮不渲染)。图标全用 lucide-react,与 Kun 对齐。
-import { type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import {
+  AlertCircle,
+  Check,
+  Crosshair,
   ChevronDown,
   Copy,
   Download,
   Eye,
   FileCode2,
   FilePenLine,
-  Minus,
+  Loader2,
   PanelLeft,
-  Plus,
   Save,
   Sparkles,
   Type,
@@ -34,8 +38,17 @@ const MODE_ITEMS: { mode: WritingPreviewMode; label: string; icon: ReactElement 
   { mode: "source", label: "源码", icon: <FileCode2 size={16} strokeWidth={1.85} /> },
 ];
 
-// 保存状态 → 状态 pill 的配色 data 值(CSS 按 data-status 上色,绿=已保存,对齐 Kun)。
+// 保存状态 → 保存按钮图标的形态/配色(CSS 按 data-status 上色)。
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+
+// 字号下拉的预设档(取代原来的 − / + 步进器,省一半横向占位)。
+// 只列常用档;持久化里的任意值仍原样显示在触发器上(不在档位里也不会被改写)。
+const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16, 18, 20, 24, 28, 32, 40, 48].filter(
+  (px) => px >= WRITING_FONT_SIZE_MIN && px <= WRITING_FONT_SIZE_MAX,
+);
+
+// 「已保存」提示的驻留时长:短暂闪一下就回落,不在标题栏长期占位。
+const SAVED_HINT_MS = 1600;
 
 export interface WritingToolbarProps {
   fileName: string;
@@ -50,6 +63,9 @@ export interface WritingToolbarProps {
   onFontSizeChange?: (px: number) => void;
   saveStatus: SaveStatus;
   saveLabel: string;
+  // 聚焦模式：开启后中栏只有光标所在行正常显色，其余内容变灰（不传 onFocusModeChange 则不渲染开关）。
+  focusMode?: boolean;
+  onFocusModeChange?: (on: boolean) => void;
   onSave: () => void;
   saveDisabled?: boolean;
   // 以下由 WritingWorkspace 注入;standalone 编辑器不传则对应控件不渲染。
@@ -81,6 +97,8 @@ export function WritingToolbar({
   saveLabel,
   onSave,
   saveDisabled = false,
+  focusMode = false,
+  onFocusModeChange,
   leftCollapsed = false,
   onToggleLeft,
   assistantOpen = true,
@@ -95,6 +113,19 @@ export function WritingToolbar({
 }: WritingToolbarProps): ReactElement {
   const modeMenu = useDismissableMenu();
   const exportMenu = useDismissableMenu();
+  const fontMenu = useDismissableMenu();
+  // 「已保存」不常驻:落盘成功后对勾闪 SAVED_HINT_MS 就回落普通保存图标。
+  // status 从别的态再回到 saved(下一次保存)时 effect 重跑,提示会再闪一次。
+  const [savedHint, setSavedHint] = useState(false);
+  useEffect(() => {
+    if (saveStatus !== "saved") {
+      setSavedHint(false);
+      return;
+    }
+    setSavedHint(true);
+    const timer = setTimeout(() => setSavedHint(false), SAVED_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
   const current = MODE_ITEMS.find((m) => m.mode === mode) ?? MODE_ITEMS[0]!;
   const modeDisabled = !hasTextFile || modeLocked;
   // 有任一导出/复制能力即展示导出下拉;各项在菜单内按注入与否单独渲染。
@@ -186,31 +217,55 @@ export function WritingToolbar({
       </div>
 
       <div className="pw-wt-actions">
-        {/* 字号步进器 */}
+        {/* 字号下拉(取代 − / + 步进器:同样的功能,一半的占位) */}
         {hasTextFile ? (
-          <div className="pw-wt-font" role="group" aria-label="编辑器字号">
+          <div className="pw-wt-font" ref={fontMenu.wrapRef}>
             <button
               type="button"
-              className="pw-wt-font-btn"
-              title="减小字号"
-              aria-label="减小字号"
-              disabled={fontSizePx <= WRITING_FONT_SIZE_MIN}
-              onClick={() => onFontSizeChange?.(fontSizePx - 1)}
+              className="pw-wt-font-trigger"
+              title={`编辑器字号：${fontSizePx}px`}
+              aria-label="编辑器字号"
+              aria-haspopup="menu"
+              aria-expanded={fontMenu.open}
+              onClick={() => fontMenu.setOpen((v) => !v)}
             >
-              <Minus size={14} strokeWidth={2} />
+              <span className="pw-wt-font-val">{fontSizePx}</span>
+              <ChevronDown size={12} strokeWidth={1.9} className={fontMenu.open ? "is-open" : ""} />
             </button>
-            <span className="pw-wt-font-val">{fontSizePx}</span>
-            <button
-              type="button"
-              className="pw-wt-font-btn"
-              title="增大字号"
-              aria-label="增大字号"
-              disabled={fontSizePx >= WRITING_FONT_SIZE_MAX}
-              onClick={() => onFontSizeChange?.(fontSizePx + 1)}
-            >
-              <Plus size={14} strokeWidth={2} />
-            </button>
+            {fontMenu.open ? (
+              <div className="pw-wt-menu pw-wt-font-menu" role="menu">
+                {FONT_SIZE_OPTIONS.map((px) => (
+                  <button
+                    key={px}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={px === fontSizePx}
+                    className={`pw-wt-menu-item${px === fontSizePx ? " is-active" : ""}`}
+                    onClick={() => {
+                      onFontSizeChange?.(px);
+                      fontMenu.setOpen(false);
+                    }}
+                  >
+                    <span className="pw-wt-menu-item-l">{`${px} px`}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
+        ) : null}
+
+        {/* 聚焦模式开关:仅文本档有光标概念,纯预览档不渲染 */}
+        {onFocusModeChange && hasTextFile ? (
+          <button
+            type="button"
+            className={`pw-wt-icon-btn${focusMode ? " is-on" : ""}`}
+            onClick={() => onFocusModeChange(!focusMode)}
+            title={focusMode ? "退出聚焦模式" : "聚焦模式：只高亮当前行"}
+            aria-label={focusMode ? "退出聚焦模式" : "开启聚焦模式"}
+            aria-pressed={focusMode}
+          >
+            <Crosshair size={16} strokeWidth={1.85} />
+          </button>
         ) : null}
 
         {/* 助手栏开合 */}
@@ -227,22 +282,27 @@ export function WritingToolbar({
           </button>
         ) : null}
 
-        {/* 手动保存 */}
+        {/* 手动保存:状态并入这一个图标(保存中转圈 / 刚存好打勾 / 出错告警 / 有改动带点),
+            状态文案只进 title,不再单独占一块常驻 pill。 */}
         <button
           type="button"
-          className="pw-wt-icon-btn"
+          className="pw-wt-icon-btn pw-wt-save-btn"
+          data-status={savedHint ? "saved-hint" : saveStatus}
           onClick={onSave}
           disabled={saveDisabled}
-          title="保存"
-          aria-label="保存"
+          title={`保存（${saveLabel}）`}
+          aria-label={`保存，当前状态：${saveLabel}`}
         >
-          <Save size={16} strokeWidth={1.85} />
+          {saveStatus === "error" ? (
+            <AlertCircle size={16} strokeWidth={1.85} />
+          ) : saveStatus === "saving" ? (
+            <Loader2 size={16} strokeWidth={1.85} className="pw-wt-spin" />
+          ) : savedHint ? (
+            <Check size={16} strokeWidth={2} />
+          ) : (
+            <Save size={16} strokeWidth={1.85} />
+          )}
         </button>
-
-        {/* 保存状态字(绿=已保存) */}
-        <span className="pw-wt-save" data-status={saveStatus} title="保存状态">
-          {saveLabel}
-        </span>
 
         {/* 导出下拉(复制 Markdown / 导出 .md 副本) */}
         {canExport ? (
@@ -256,9 +316,8 @@ export function WritingToolbar({
               aria-haspopup="menu"
               aria-expanded={exportMenu.open}
             >
+              {/* 只留图标:文字「导出」在标题栏里是纯占位,语义由 title/aria-label 承担。 */}
               <Download size={16} strokeWidth={1.85} />
-              <span className="pw-wt-export-label">导出</span>
-              <ChevronDown size={14} strokeWidth={1.9} className={exportMenu.open ? "is-open" : ""} />
             </button>
             {exportMenu.open ? (
               <div className="pw-wt-menu pw-wt-export-menu" role="menu">

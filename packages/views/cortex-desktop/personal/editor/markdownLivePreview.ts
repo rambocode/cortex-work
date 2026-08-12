@@ -688,3 +688,22 @@ export function writeMarkdownLivePreviewExtensions(): Extension[] {
     markdownLivePreviewPlugin,
   ];
 }
+
+// 源码模式的 markdown 着色：只给标题上品牌紫（--accent），字号/字重不动——
+// 源码模式的价值是「所见即文件内容」，放大标题会破坏等宽排版的对齐感。
+// 这里**刻意不给** processingInstruction（HeaderMark）单独配色：`#` 是标题节点的子节点，
+// 不覆盖就继承标题色，于是 `#` 与标题文字同为紫色；而同样归到 processingInstruction 的
+// 列表符号 / 引用符号不在标题内，保持默认色不受影响。
+const writeMarkdownSourceHighlight = HighlightStyle.define([
+  { tag: tags.heading1, color: "var(--accent)" },
+  { tag: tags.heading2, color: "var(--accent)" },
+  { tag: tags.heading3, color: "var(--accent)" },
+  { tag: tags.heading4, color: "var(--accent)" },
+  { tag: tags.heading5, color: "var(--accent)" },
+  { tag: tags.heading6, color: "var(--accent)" },
+]);
+
+// 源码模式扩展（与 live 档共用同一个 compartment，切档即整体换掉）。
+export function writeMarkdownSourceExtensions(): Extension[] {
+  return [syntaxHighlighting(writeMarkdownSourceHighlight)];
+}

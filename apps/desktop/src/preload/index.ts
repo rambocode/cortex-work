@@ -140,6 +140,11 @@ import type {
   WritingRetrievalRequest,
   WritingRetrievalResult,
 } from "../main/ipc/writing-retrieval-types";
+// 写作左栏文稿元信息 IPC 契约类型(type-only;与 core/desktop/writing-doc-meta-types.ts 镜像）。
+import type {
+  WritingDocMetaRequest,
+  WritingDocMetaResult,
+} from "../main/ipc/writing-doc-meta-types";
 // 写作信息图(U7）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-infographic-types.ts 镜像）。
 import type {
   WritingInfographicRequest,
@@ -288,6 +293,9 @@ const personal = {
     ipcRenderer.invoke("writing:retrieve", req),
   writingRetrievalInvalidate: (root: string): void =>
     ipcRenderer.send("writing:retrievalInvalidate", root),
+  // ── 写作左栏文稿元信息(时间 + 概要，批量）────────────────────────────────
+  writingDocMeta: (req: WritingDocMetaRequest): Promise<WritingDocMetaResult> =>
+    ipcRenderer.invoke("writing:docMeta", req),
   // ── 写作信息图(U7，对接 media-gen）─────────────────────────────────────
   // writingInfographic：选区文本 → 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径(渲染端换算相对链接);
   // writingInfographicAvailable：media-gen 图片模态是否已配置,未配置渲染端隐藏入口。

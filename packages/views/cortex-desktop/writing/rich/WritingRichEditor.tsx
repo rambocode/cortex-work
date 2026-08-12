@@ -13,6 +13,8 @@ import {
   type ReactNode,
 } from "react";
 import type { Editor } from "@tiptap/core";
+// 仅类型引用(编译期擦除):ProseMirror 运行时仍走下方动态 import,不会被静态卷进 web 产物。
+import type { EditorState as PmEditorState } from "@tiptap/pm/state";
 import { extractClipboardImageFile } from "@cortex-work/core/writing/paste-image";
 import type { NoteEditorSelection } from "../../personal/editor/NoteCodeMirrorEditor";
 import type { WriteRichFidelity } from "./markdown-manager";
@@ -195,12 +197,14 @@ export function WritingRichEditor({
     let disposed = false;
     let built: Editor | null = null;
     void (async () => {
-      let core, mm, sync;
+      let core, mm, sync, pmState, pmView;
       try {
-        [core, mm, sync] = await Promise.all([
+        [core, mm, sync, pmState, pmView] = await Promise.all([
           import("@tiptap/core"),
           import("./markdown-manager"),
           import("./markdown-sync"),
+          import("@tiptap/pm/state"),
+          import("@tiptap/pm/view"),
         ]);
       } catch (err) {
         console.error("[writing-rich] tiptap 动态装载失败", err);
@@ -224,6 +228,33 @@ export function WritingRichEditor({
         },
       });
 
+      // 聚焦模式支撑:给光标所在的顶层块打 is-focus-block 类。
+      // 装饰**恒常挂载**(不随开关重配),开不开由中栏容器上的 .is-focus-mode 决定样式——
+      // 这样切换聚焦模式不需要重建/重配编辑器,不会丢光标与撤销栈。
+      // 富文本档没有「源码行」概念,一个段落/列表项/代码块即用户眼里的一行,故按顶层块粒度。
+      const { Plugin: PmPlugin } = pmState;
+      const { Decoration, DecorationSet } = pmView;
+      const focusBlockHighlight = Extension.create({
+        name: "writingRichFocusBlock",
+        addProseMirrorPlugins() {
+          return [
+            new PmPlugin({
+              props: {
+                decorations(state: PmEditorState) {
+                  const $head = state.doc.resolve(state.selection.head);
+                  // depth 0 = doc 本身(没有可标的块);取最外层块(depth 1),
+                  // 嵌套列表项因此整条(含子项)保持正常色,不会只亮半行。
+                  if ($head.depth < 1) return DecorationSet.empty;
+                  return DecorationSet.create(state.doc, [
+                    Decoration.node($head.before(1), $head.after(1), { class: "is-focus-block" }),
+                  ]);
+                },
+              },
+            }),
+          ];
+        },
+      });
+
       const editor = new EditorCtor({
         element: hostRef.current,
         extensions: [
@@ -232,6 +263,7 @@ export function WritingRichEditor({
             resolveImage: (src) => resolveImageSrcRef.current?.(src) ?? Promise.resolve(null),
           }),
           saveShortcut,
+          focusBlockHighlight,
         ],
         content: mm.parseWriteMarkdown(value),
         editable: !readOnlyRef.current,

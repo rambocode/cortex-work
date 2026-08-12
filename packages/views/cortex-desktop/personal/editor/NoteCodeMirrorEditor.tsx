@@ -66,7 +66,9 @@ export function NoteCodeMirrorEditor({
   const livePreviewCompartmentRef = useRef<Compartment | null>(null);
   const editableCompartmentRef = useRef<Compartment | null>(null);
   // live-preview 扩展工厂与外部同步 annotation 在异步装载后才可用,经 ref 暴露给后续 effect。
-  const buildLiveExtensionsRef = useRef<(() => Extension[]) | null>(null);
+  // 档位 → markdown 着色扩展(live=实时预览整套 / source=标题紫);
+  // 两档共用 livePreviewCompartment,切档整体换掉。
+  const buildMarkdownStyleRef = useRef<((mode: NoteEditorAppearance) => Extension[]) | null>(null);
   const buildEditableExtensionsRef = useRef<((readOnly: boolean, appearance: NoteEditorAppearance) => Extension[]) | null>(null);
   const buildThemeRef = useRef<((appearance: NoteEditorAppearance) => Extension) | null>(null);
   const externalSyncAnnotationRef = useRef<AnnotationType<boolean> | null>(null);
@@ -129,7 +131,7 @@ export function NoteCodeMirrorEditor({
       const { markdown, markdownLanguage } = mods.langMarkdown;
       const { languages } = mods.languageData;
       const { bracketMatching, indentOnInput } = mods.language;
-      const { writeMarkdownLivePreviewExtensions } = mods.livePreview;
+      const { writeMarkdownLivePreviewExtensions, writeMarkdownSourceExtensions } = mods.livePreview;
 
       const themeCompartment = new Compartment();
       const livePreviewCompartment = new Compartment();
@@ -182,17 +184,21 @@ export function NoteCodeMirrorEditor({
       ];
 
       const buildLive = () => writeMarkdownLivePreviewExtensions();
+      const buildSource = () => writeMarkdownSourceExtensions();
+      // 档位 → markdown 着色扩展:live 走实时预览整套,source 只上标题色,其余档不着色。
+      const buildMarkdownStyle = (mode: NoteEditorAppearance): Extension[] =>
+        mode === "live" ? buildLive() : mode === "source" ? buildSource() : [];
 
       buildThemeRef.current = buildTheme;
       buildEditableExtensionsRef.current = buildEditable;
-      buildLiveExtensionsRef.current = buildLive;
+      buildMarkdownStyleRef.current = buildMarkdownStyle;
 
       const initialAppearance = appearanceRef.current;
       const state = EditorState.create({
         doc: valueRef.current,
         extensions: [
           themeCompartment.of(buildTheme(initialAppearance)),
-          livePreviewCompartment.of(initialAppearance === "live" ? buildLive() : []),
+          livePreviewCompartment.of(buildMarkdownStyle(initialAppearance)),
           editableCompartment.of(buildEditable(readOnlyRef.current, initialAppearance)),
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           history(),
@@ -310,13 +316,13 @@ export function NoteCodeMirrorEditor({
     const editableCompartment = editableCompartmentRef.current;
     const buildTheme = buildThemeRef.current;
     const buildEditable = buildEditableExtensionsRef.current;
-    const buildLive = buildLiveExtensionsRef.current;
+    const buildMarkdownStyle = buildMarkdownStyleRef.current;
     if (!view || !themeCompartment || !livePreviewCompartment || !editableCompartment) return;
-    if (!buildTheme || !buildEditable || !buildLive) return;
+    if (!buildTheme || !buildEditable || !buildMarkdownStyle) return;
     view.dispatch({
       effects: [
         themeCompartment.reconfigure(buildTheme(appearance)),
-        livePreviewCompartment.reconfigure(appearance === "live" ? buildLive() : []),
+        livePreviewCompartment.reconfigure(buildMarkdownStyle(appearance)),
         editableCompartment.reconfigure(buildEditable(readOnly, appearance)),
       ],
     });

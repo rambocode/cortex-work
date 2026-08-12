@@ -18,6 +18,21 @@ const treeDefault: PromptNode = {
   kind: "dir",
   children: [{ name: "a.md", path: "/space/a.md", kind: "file" }],
 };
+// 带子目录的树:验「进入子目录只显示其内容」与「在子目录里新建目录」。
+const treeWithDir: PromptNode = {
+  name: "writing",
+  path: "/space",
+  kind: "dir",
+  children: [
+    {
+      name: "sub",
+      path: "/space/sub",
+      kind: "dir",
+      children: [{ name: "c.md", path: "/space/sub/c.md", kind: "file" }],
+    },
+    { name: "a.md", path: "/space/a.md", kind: "file" },
+  ],
+};
 const treeOther: PromptNode = {
   name: "other",
   path: "/other",
@@ -71,7 +86,7 @@ describe("WritingSidebar 新结构", () => {
     expect(screen.getByText("writing")).toBeTruthy();
     expect(screen.getByText("other")).toBeTruthy();
     // 活跃(默认)空间自动展开 → 其文件渲染
-    expect(await screen.findByText("a.md")).toBeTruthy();
+    expect(await screen.findByText("a")).toBeTruthy();
   });
 
   it("默认空间渲染「默认写作空间」副标,非默认空间不渲染", () => {
@@ -86,7 +101,7 @@ describe("WritingSidebar 新结构", () => {
       fileExists: vi.fn(async (p: string) => p === "/space/untitled.md"),
     });
     renderSidebar(bridge);
-    await screen.findByText("a.md");
+    await screen.findByText("a");
     fireEvent.click(screen.getByRole("button", { name: "新建文件" }));
     await waitFor(() =>
       expect(bridge.writeFile).toHaveBeenCalledWith("/space/untitled-2.md", ""),
@@ -108,44 +123,53 @@ describe("WritingSidebar 新结构", () => {
   it("展开非活跃空间并点其文件 → 切活跃空间 + 打开", async () => {
     const bridge = makeBridge();
     renderSidebar(bridge);
-    await screen.findByText("a.md");
+    await screen.findByText("a");
     // 点 other 空间行展开 → 扫描其树
     fireEvent.click(screen.getByText("other"));
-    expect(await screen.findByText("b.md")).toBeTruthy();
+    expect(await screen.findByText("b")).toBeTruthy();
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_OTHER.id, SPACE_OTHER.root));
     // 点 other 的文件 → 活跃空间切到 s2 + 打开
-    fireEvent.click(screen.getByText("b.md"));
+    fireEvent.click(screen.getByText("b"));
     expect(useWritingSpacesStore.getState().activeSpaceId).toBe(SPACE_OTHER.id);
     expect(useWritingWorkspaceStore.getState().currentFile).toBe("/other/b.md");
   });
 
-  it("目录内新建目录:输入行渲染在该目录行正下方,且目录自动展开", async () => {
-    // 树里放一个折叠子目录 sub(含 c.md):点 sub 行的「新建目录」→ 输入行紧贴 sub 行下方 + sub 自动展开。
-    const treeWithDir: PromptNode = {
-      name: "writing",
-      path: "/space",
-      kind: "dir",
-      children: [
-        {
-          name: "sub",
-          path: "/space/sub",
-          kind: "dir",
-          children: [{ name: "c.md", path: "/space/sub/c.md", kind: "file" }],
-        },
-        { name: "a.md", path: "/space/a.md", kind: "file" },
-      ],
-    };
+  it("点子目录进入:只显示该目录内容,面包屑可回上级", async () => {
     renderSidebar(makeBridge({ scanDirTree: vi.fn(async () => treeWithDir) } as Partial<DesktopBridge>));
     await screen.findByText("sub");
-    // 目录默认折叠:c.md 不可见。
-    expect(screen.queryByText("c.md")).toBeNull();
+    // 根层:只有 sub 与 a,子目录里的 c 不显示(逐级进入式列表,不是递归树)。
+    expect(screen.getByText("a")).toBeTruthy();
+    expect(screen.queryByText("c")).toBeNull();
+
+    fireEvent.click(screen.getByText("sub"));
+    // 进入 sub:只剩 c,根层的 a 不再显示。
+    expect(await screen.findByText("c")).toBeTruthy();
+    expect(screen.queryByText("a")).toBeNull();
+
+    // 面包屑回上级 → 回到根层。
+    fireEvent.click(screen.getByLabelText("返回上级"));
+    expect(await screen.findByText("a")).toBeTruthy();
+    expect(screen.queryByText("c")).toBeNull();
+  });
+
+  it("目录行显示内含文档数", async () => {
+    renderSidebar(makeBridge({ scanDirTree: vi.fn(async () => treeWithDir) } as Partial<DesktopBridge>));
+    const subRow = (await screen.findByText("sub")).closest(".pw-tree-row")!;
+    expect(subRow.querySelector(".pw-writing-dir-count")!.textContent).toBe("1");
+  });
+
+  it("目录内新建目录:自动进入该目录,输入行在其列表顶部", async () => {
+    renderSidebar(makeBridge({ scanDirTree: vi.fn(async () => treeWithDir) } as Partial<DesktopBridge>));
+    await screen.findByText("sub");
     fireEvent.click(screen.getByRole("button", { name: "在 sub 新建目录" }));
-    // 输入行出现且紧贴 sub 行正下方(DOM 相邻),不在树顶。
+    // 列表切进 sub(能看到 c),输入行出现在其顶部——用户看得见自己正在哪儿建。
+    expect(await screen.findByText("c")).toBeTruthy();
     const input = screen.getByLabelText("新建目录名");
-    const subRow = screen.getByText("sub").closest(".pw-tree-row")!;
-    expect(subRow.nextElementSibling).toBe(input.closest(".pw-writing-inline-input"));
-    // 目录随之自动展开(否则输入行/新目录看不见)。
-    expect(await screen.findByText("c.md")).toBeTruthy();
+    const body = input.closest(".pw-writing-space-body")!;
+    // 面包屑之后紧跟输入行。
+    expect(body.querySelector(".pw-writing-crumbs")!.nextElementSibling).toBe(
+      input.closest(".pw-writing-inline-input"),
+    );
   });
 
   it("折叠空间 → unwatch 该空间", async () => {
@@ -153,7 +177,7 @@ describe("WritingSidebar 新结构", () => {
     renderSidebar(bridge);
     // 活跃空间 writing 自动展开 + watch
     await waitFor(() => expect(bridge.watchDir).toHaveBeenCalledWith(SPACE_DEFAULT.id, SPACE_DEFAULT.root));
-    await screen.findByText("a.md");
+    await screen.findByText("a");
     // 折叠 writing(点空间行)→ unwatch
     act(() => {
       fireEvent.click(screen.getByText("writing"));

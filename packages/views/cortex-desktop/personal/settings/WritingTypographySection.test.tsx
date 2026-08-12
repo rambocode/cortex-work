@@ -60,7 +60,9 @@ describe("WritingTypographySection", () => {
     fireEvent.click(screen.getByRole("button", { name: "重置排版" }));
     const s = useWritingSpacesStore.getState();
     expect(s.fontPreset).toBe("system");
-    expect(s.fontSizePx).toBe(16);
+    expect(s.fontSizePx).toBe(13); // WRITING_FONT_SIZE_DEFAULT
+    // 重置后控制权交还默认值:之后默认值再调整也会跟着变。
+    expect(s.fontSizeUserSet).toBe(false);
     expect(s.lineHeight).toBe(1.75);
   });
 });

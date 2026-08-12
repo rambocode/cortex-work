@@ -1,6 +1,12 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { markdownLivePreviewTestInternals } from "./markdownLivePreview";
+import {
+  markdownLivePreviewTestInternals,
+  writeMarkdownSourceExtensions,
+} from "./markdownLivePreview";
+import { highlightingFor } from "@codemirror/language";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { tags } from "@lezer/highlight";
 import { renderFallbackCodeHtml } from "./markdownLiveWidgets";
 
 // 信任边界回归(code-review:security):代码块渲染前必须转义,防止 note 正文注入 HTML/脚本。
@@ -147,5 +153,25 @@ describe("markdown live preview", () => {
     // 本地相对路径 → null(交由普通 markdown 文本渲染,不接 workspace 图片解析)。
     expect(markdownLivePreviewTestInternals.markdownImageFromSource("![hero](img/hero.png)")).toBeNull();
     expect(markdownLivePreviewTestInternals.markdownImageFromSource("not an image")).toBeNull();
+  });
+});
+
+
+// 源码模式着色:标题走品牌紫(--accent),`#` 作为标题子节点继承同色;
+// 列表/引用等同属 processingInstruction 的记号不在标题内,不应被染色。
+describe("源码模式 markdown 着色", () => {
+  const state = EditorState.create({
+    doc: "# 标题\n- 列表项\n",
+    extensions: [markdown({ base: markdownLanguage }), writeMarkdownSourceExtensions()],
+  });
+
+  it("标题标签有着色类,普通正文没有", () => {
+    expect(highlightingFor(state, [tags.heading1])).toBeTruthy();
+    expect(highlightingFor(state, [tags.heading3])).toBeTruthy();
+    expect(highlightingFor(state, [tags.content])).toBeFalsy();
+  });
+
+  it("不给 processingInstruction 单独配色(否则列表/引用记号会被一起染紫)", () => {
+    expect(highlightingFor(state, [tags.processingInstruction])).toBeFalsy();
   });
 });
