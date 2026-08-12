@@ -13801,20 +13801,21 @@ button.sb-row {
 .pw-writing-assistant {
   flex: 1; display: flex; flex-direction: column; min-height: 0;
 }
+/* 顶栏(设计稿):徽标 + 标题靠左,图标按钮靠右;不画下边框——下方的上下文 chip 已经分出了层次。 */
 .pw-wa-head {
-  flex-shrink: 0; padding: 8px 10px 6px;
-  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; padding: 14px 14px 0;
 }
-.pw-wa-head-row { display: flex; align-items: center; gap: 6px; }
-/* 顶栏中央「写作助手」标题 pill(对齐 Kun:accent 星标 + 中性浅底) */
-.pw-wa-title-pill {
-  display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;
-  padding: 6px 12px; border-radius: 12px;
-  background: var(--bg-app); color: var(--w-accent, var(--accent));
+.pw-wa-head-row { display: flex; align-items: center; gap: 8px; }
+.pw-wa-head-row .spacer { flex: 1; }
+/* 「写作助手」徽标:accent 星标坐在 accent-soft 圆角方块里 */
+.pw-wa-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex-shrink: 0; border-radius: 7px;
+  background: var(--w-accent-soft, var(--accent-soft)); color: var(--w-accent, var(--accent));
 }
 .pw-wa-title-text {
-  min-width: 0; flex: 1; text-align: left;
-  font-size: 13px; font-weight: 600; color: var(--text-1);
+  min-width: 0; text-align: left;
+  font-size: 14px; font-weight: 700; color: var(--w-ink-strong, var(--text-1));
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pw-wa-thread-menu { min-width: 200px; max-height: 300px; overflow-y: auto; }
@@ -13826,60 +13827,64 @@ button.sb-row {
   padding: 6px 10px; font-size: 12px; color: var(--text-4);
 }
 .pw-wa-thread-menu-foot { border-top: 1px solid var(--border); padding: 4px; }
-.pw-wa-file {
-  margin-top: 6px; padding: 4px 10px; border-radius: 999px;
-  background: var(--bg-app); color: var(--text-3);
-  font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* 上下文 chip:width:fit-content 让胶囊只包住文案(不横贯整栏),超栏宽时由 max-width 截断。 */
+.pw-wa-ctx {
+  display: inline-flex; align-items: center; gap: 6px;
+  width: fit-content; max-width: 100%;
+  margin: 12px 0 14px; padding: 5px 10px; border-radius: 999px;
+  background: var(--w-row-hover, var(--bg-app)); font-size: 12px;
+}
+.pw-wa-ctx-k { flex-shrink: 0; color: var(--w-faint, var(--text-4)); }
+.pw-wa-ctx-v {
+  min-width: 0; color: var(--w-ink, var(--text-2));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pw-wa-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; flex-shrink: 0;
-  border-radius: 8px; color: var(--text-3); cursor: pointer;
+  width: 26px; height: 26px; flex-shrink: 0;
+  border-radius: 7px; color: var(--w-faint, var(--text-3)); cursor: pointer;
 }
-.pw-wa-icon-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-wa-icon-btn:hover { background: var(--w-row-hover, var(--bg-hover)); color: var(--w-ink-strong, var(--text-1)); }
 .pw-wa-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 /* 检索上下文开关开启态高亮(U4) */
 .pw-wa-icon-btn.is-active { background: var(--accent-soft, var(--bg-hover)); color: var(--accent, var(--text-1)); }
 
-.pw-wa-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
-/* 空态(对齐 Kun):待命卡置顶,三卡由 margin-top:auto 推到贴底;min-height 撑满滚动容器。 */
-.pw-wa-empty { display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
-.pw-wa-empty-card {
-  padding: 16px; border-radius: 20px; margin-bottom: auto;
-  border: 1px solid var(--border); background: var(--bg-app);
+.pw-wa-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px; }
+/* 空态(设计稿):一句能力说明 → 「快捷动作」分组标题 → 三行动作,自上而下顺序流,不再贴底。 */
+.pw-wa-empty { display: flex; flex-direction: column; }
+.pw-wa-empty-lead {
+  margin: 0 0 20px; font-size: 13px; line-height: 1.7; color: var(--w-faint, var(--text-3));
 }
-.pw-wa-empty-icon {
+.pw-wa-empty-label {
+  margin-bottom: 6px; font-size: 11px; font-weight: 500;
+  letter-spacing: 0.05em; color: var(--w-faint, var(--text-4));
+}
+.pw-wa-acts { display: flex; flex-direction: column; gap: 2px; }
+/* 快捷动作行:彩色圆角图标 + 标题/副标题两行;无描边,hover 整行浅底(窄栏里比卡片轻)。 */
+.pw-wa-act {
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 10px; border-radius: 10px; cursor: pointer;
+  border: none; background: transparent;
+  transition: background 0.12s;
+}
+.pw-wa-act:hover:not(:disabled) { background: var(--w-row-hover, var(--bg-hover)); }
+.pw-wa-act:disabled { opacity: 0.5; cursor: not-allowed; }
+.pw-wa-act-ic {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px; border-radius: 14px;
-  background: color-mix(in srgb, var(--w-accent, var(--accent)) 12%, transparent);
-  color: var(--w-accent, var(--accent));
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px;
 }
-.pw-wa-empty-title { margin-top: 14px; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-1); }
-.pw-wa-empty-sub { margin-top: 7px; font-size: 12.5px; line-height: 1.7; color: var(--text-3); }
-.pw-wa-cards { display: grid; gap: 8px; }
-/* 快捷卡横排(对齐 Kun):彩色圆角图标 + 标题/副标题两行 */
-.pw-wa-card {
-  display: flex; align-items: center; gap: 11px; text-align: left;
-  padding: 11px 12px; border-radius: 16px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--bg-app);
+/* 三行图标配色:accent 走写作栏主蓝(随主题),绿/橙沿用 emerald/amber 的 500/10 底 + 600 前景 */
+.pw-wa-act-ic[data-tone="accent"] {
+  background: var(--w-accent-soft, var(--accent-soft)); color: var(--w-accent, var(--accent));
 }
-.pw-wa-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--w-accent, var(--accent)) 28%, transparent); background: var(--bg-hover); }
-.pw-wa-card:disabled { opacity: 0.5; cursor: not-allowed; }
-.pw-wa-card-ic {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; flex-shrink: 0; border-radius: 12px;
-}
-/* 三卡图标配色照 Kun tailwind:sky/emerald/amber 的 500/10 底 + 600 前景(暗色 300 前景) */
-.pw-wa-card-ic[data-tone="sky"] { background: rgba(14, 165, 233, 0.1); color: #0284c7; }
-.pw-wa-card-ic[data-tone="emerald"] { background: rgba(16, 185, 129, 0.1); color: #059669; }
-.pw-wa-card-ic[data-tone="amber"] { background: rgba(245, 158, 11, 0.1); color: #d97706; }
-[data-theme="dark"] .pw-wa-card-ic[data-tone="sky"] { color: #7dd3fc; }
-[data-theme="dark"] .pw-wa-card-ic[data-tone="emerald"] { color: #6ee7b7; }
-[data-theme="dark"] .pw-wa-card-ic[data-tone="amber"] { color: #fcd34d; }
-.pw-wa-card-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pw-wa-card-t { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
-.pw-wa-card-s {
-  font-size: 12px; color: var(--text-4);
+.pw-wa-act-ic[data-tone="emerald"] { background: rgba(16, 185, 129, 0.1); color: #2e9e5b; }
+.pw-wa-act-ic[data-tone="amber"] { background: rgba(245, 158, 11, 0.12); color: #c77e1f; }
+[data-theme="dark"] .pw-wa-act-ic[data-tone="emerald"] { color: #6ee7b7; }
+[data-theme="dark"] .pw-wa-act-ic[data-tone="amber"] { color: #fcd34d; }
+.pw-wa-act-tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pw-wa-act-t { font-size: 13px; font-weight: 500; color: var(--w-ink-strong, var(--text-1)); }
+.pw-wa-act-s {
+  font-size: 12px; color: var(--w-faint, var(--text-4));
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -13892,7 +13897,8 @@ button.sb-row {
 }
 .pw-wa-selchip:hover { border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text-1); background: var(--bg-hover); }
 
-.pw-wa-timeline { display: flex; flex-direction: column; gap: 10px; }
+/* 时间线自带上下留白:.pw-wa-body 的 padding 只剩左右(空态要贴着上下文 chip 起排)。 */
+.pw-wa-timeline { display: flex; flex-direction: column; gap: 10px; padding: 2px 0 12px; }
 .pw-wa-msg { font-size: 13px; line-height: 1.6; }
 .pw-wa-msg.is-user {
   align-self: flex-end; max-width: 90%;
@@ -13943,10 +13949,18 @@ button.sb-row {
   white-space: pre-wrap; word-break: break-word;
 }
 
+/* composer:不画上边框——输入区自己是一张有描边的白卡,再加一条通栏横线会重复分割。 */
 .pw-wa-composer {
-  flex-shrink: 0; padding: 8px 10px 10px;
-  border-top: 1px solid var(--border);
+  flex-shrink: 0; padding: 12px 14px 14px;
 }
+/* 输入卡:输入框 + 工具行共用一张卡的描边与投影,读作单个输入部件。 */
+.pw-wa-box {
+  padding: 10px; border-radius: 12px;
+  border: 1px solid var(--w-border, var(--border)); background: var(--w-menu-bg, var(--bg-card));
+  box-shadow: 0 1px 2px rgba(20, 24, 32, 0.04);
+  transition: border-color 0.12s;
+}
+.pw-wa-box:focus-within { border-color: color-mix(in srgb, var(--w-accent, var(--accent)) 45%, transparent); }
 .pw-wa-blocked {
   margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px;
   background: color-mix(in srgb, var(--amber, orange) 14%, transparent); color: var(--text-1);
@@ -13966,23 +13980,24 @@ button.sb-row {
 .pw-wa-quote-x:hover { background: var(--bg-hover); color: var(--text-1); }
 /* 写作助手 composer 内的 slash 菜单:贴输入框上缘(沿用 .pw-slash-* 项目样式) */
 .pw-wa-slash { margin: 0 0 8px; }
+/* 卡内输入框:自身不再描边/铺底,边框由 .pw-wa-box 统一承担。 */
 .pw-wa-input {
-  width: 100%; resize: none; box-sizing: border-box;
-  padding: 8px 10px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--bg-app);
-  font-size: 13px; line-height: 1.5; color: var(--text-1); outline: none;
+  width: 100%; resize: none; box-sizing: border-box; display: block;
+  min-height: 40px; padding: 2px; border: none; background: transparent;
+  font-size: 13px; line-height: 1.6; color: var(--w-ink-strong, var(--text-1)); outline: none;
 }
-.pw-wa-input:focus { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.pw-wa-toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.pw-wa-input::placeholder { color: var(--w-faint, var(--text-4)); }
+.pw-wa-toolbar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .pw-wa-toolbar .spacer { flex: 1; }
+/* 发送:设计稿的圆形 accent 按钮(中断态复用同形,只换红底)。 */
 .pw-wa-send {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; flex-shrink: 0;
-  border-radius: 8px; cursor: pointer;
-  background: var(--accent); color: #fff;
+  width: 28px; height: 28px; flex-shrink: 0;
+  border-radius: 50%; cursor: pointer;
+  background: var(--w-accent, var(--accent)); color: #fff;
 }
 .pw-wa-send:disabled { opacity: 0.4; cursor: not-allowed; }
-.pw-wa-send.is-stop { background: var(--red); }
+.pw-wa-send.is-stop { background: var(--w-danger, var(--red)); }
 
 /* ===== 右栏：知识库文档预览（点会话正文里的 kb:// 引用打开）===== */
 /* 结构与其它右栏视图一致：头行固定，正文区独立滚动。正文复用 .pw-todo-md 的 markdown 排版。 */

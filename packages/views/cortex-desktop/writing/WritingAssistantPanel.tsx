@@ -1,9 +1,11 @@
 // 写作工作区右栏:写作助手面板(布局对齐 Kun WriteAssistantPanel)。一个自足的对话回合承载体——
-//   顶栏:折叠按钮 + 「写作助手」标题 pill + 会话历史(文件夹图标下拉)+ 新建会话;下行为当前文件 pill;
+//   顶栏:徽标 + 「写作助手」标题靠左,会话历史(文件夹下拉)/ 新建 / 收起靠右;下行为「上下文」chip;
 //   时间线:渲染 run-manager 折叠出的轻量消息(user/assistant/tool/system);
-//   空态:待命卡置顶 + 固定三卡贴底(总结/大纲/润色,见 WritingEmptyState);
+//   空态:一句能力说明 + 「快捷动作」三行(总结/大纲/润色,见 WritingEmptyState);
 //   引用条:编辑器选区快照 chip(创建时冻结文本+行号,可移除);
-//   composer:textarea + 发送/中断 + ModelThinkingPill(agent/模型/推理三合一)。
+//   composer:白卡内 textarea + 工具行(引用 / ModelThinkingPill / 圆形发送·中断)。
+// 视觉基线是「写作界面 Redesign」设计稿,取色一律走写作栏的 --w-* token(不用全局暖色 token),
+// 以便深色主题与禅模式下整栏配色保持一致。
 //
 // 后端复用 cortex 既有 CLI 管线:发送 = composeWritingPrompt 拼装 → 先调 U5 flush 钩子(确保 agent
 // 读到最新盘面)→ sendWritingMessage(runId=writing:<spaceId>:*、sessionId=writing-<threadId>、
@@ -670,23 +672,15 @@ export function WritingAssistantPanel({
 
   return (
     <aside className="pw-writing-assistant">
-      {/* 顶栏(对齐 Kun):折叠 | 「写作助手」标题 pill | 会话历史(文件夹)| 新建会话;下行为文件 pill */}
+      {/* 顶栏(按设计稿):徽标 + 「写作助手」标题靠左,操作图标(会话历史 / 新建 / 收起)靠右;
+          下行是「上下文 · 当前文件」chip。收起按钮从左移到右端——它折叠的是本栏,与栏同侧更直观。 */}
       <div className="pw-wa-head">
         <div className="pw-wa-head-row">
-          <button
-            type="button"
-            className="pw-wa-icon-btn"
-            title="收起写作助手"
-            aria-label="收起写作助手"
-            onClick={onCollapse}
-            disabled={!onCollapse}
-          >
-            <PanelRightClose size={16} strokeWidth={1.85} />
-          </button>
-          <div className="pw-wa-title-pill">
-            <Sparkles size={15} strokeWidth={1.8} />
-            <span className="pw-wa-title-text">写作助手</span>
-          </div>
+          <span className="pw-wa-badge" aria-hidden="true">
+            <Sparkles size={13} strokeWidth={2} />
+          </span>
+          <span className="pw-wa-title-text">写作助手</span>
+          <div className="spacer" />
           {/* 会话历史下拉:Kun 此处是「更换 AI 工作目录」;cortex 空间管理在左栏,
               该位置映射为会话历史入口(原 thread pill 下拉迁移至此)。 */}
           <div className="pw-tb-menu-wrap" ref={threadMenu.wrapRef}>
@@ -742,9 +736,21 @@ export function WritingAssistantPanel({
           >
             <Plus size={16} strokeWidth={2.1} />
           </button>
+          <button
+            type="button"
+            className="pw-wa-icon-btn"
+            title="收起写作助手"
+            aria-label="收起写作助手"
+            onClick={onCollapse}
+            disabled={!onCollapse}
+          >
+            <PanelRightClose size={16} strokeWidth={1.85} />
+          </button>
         </div>
-        <div className="pw-wa-file" title={activeFilePath ?? undefined}>
-          {fileLabel}
+        {/* 上下文 chip:标明助手当前挂在哪个文件上。「上下文」是恒定前缀标签,文件名过长省略号截断。 */}
+        <div className="pw-wa-ctx" title={activeFilePath ?? undefined}>
+          <span className="pw-wa-ctx-k">上下文</span>
+          <span className="pw-wa-ctx-v">{fileLabel}</span>
         </div>
       </div>
 
@@ -822,74 +828,78 @@ export function WritingAssistantPanel({
             onPick={pickSlash}
           />
         ) : null}
-        <textarea
-          className="pw-wa-input"
-          value={input}
-          placeholder="向智能体提问…"
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onComposerKeyDown}
-          rows={3}
-        />
-        <div className="pw-wa-toolbar">
-          <button
-            type="button"
-            className="pw-wa-icon-btn"
-            title="引用当前选区"
-            aria-label="引用当前选区"
-            onClick={quoteSelection}
-            disabled={!hasSelection}
-          >
-            <Icon.Comment size={15} />
-          </button>
-          {/* 检索开关已移入「设置 → 写作 → 写作建议 → 参考其他文档」(单一入口,对齐 Kun);
-              此处不再放快捷开关。检索仍在发送时按 retrievalEnabled 注入(见 doSend)。 */}
-          {/* agent + 模型 + 思考强度合并为单个 pill,与主会话落地页 composer 同构
-              （见 personal/chat/composer/ComposerShell.tsx）。
-              原先是「独立 AgentSelect + 模型 pill」两个控件并排,在这条 ~370px 的窄栏里
-              挤到模型名被截断（实测显示成「DeepSeek V」）;合并后只占一个 pill,
-              agent 改从面板的 Agent 行下钻切换。
-              切 agent 后自动按新 agent 读各自的模型集与记忆值。 */}
-          <ModelThinkingPill
-            isPi={isPi}
-            models={agentModels}
-            model={modelByAgent[agent]}
-            onChangeModel={onChangeModel}
-            piModelOptions={piModelOptions}
-            piModelValue={piModelValue}
-            onChangePiModel={onChangePiModel}
-            thinkingOptions={thinkingOptions}
-            resolvedThinkingValue={resolvedThinkingValue}
-            onChangeThinking={onChangeThinking}
-            disabled={isPi ? piModelOptions.length === 0 : agentModels.length === 0}
-            agent={agent}
-            derivedAgentId={derivedAgentId}
-            agentsAvailable={agentsAvailable}
-            derivedAgents={derivedAgents}
-            onSwitchAgent={onChangeAgent}
+        {/* 输入区按设计稿收进一张白卡:输入框与工具行共用卡片描边,卡内不再各自描边,
+            视觉上是「一个输入部件」而非「输入框 + 一排按钮」。 */}
+        <div className="pw-wa-box">
+          <textarea
+            className="pw-wa-input"
+            value={input}
+            placeholder="向写作助手提问…"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onComposerKeyDown}
+            rows={2}
           />
-          <div className="spacer" />
-          {busy ? (
+          <div className="pw-wa-toolbar">
             <button
               type="button"
-              className="pw-wa-send is-stop"
-              title="中断"
-              aria-label="中断"
-              onClick={doInterrupt}
+              className="pw-wa-icon-btn"
+              title="引用当前选区"
+              aria-label="引用当前选区"
+              onClick={quoteSelection}
+              disabled={!hasSelection}
             >
-              <Icon.Stop size={15} />
+              <Icon.Comment size={15} />
             </button>
-          ) : (
-            <button
-              type="button"
-              className="pw-wa-send"
-              title="发送"
-              aria-label="发送"
-              disabled={!canSend}
-              onClick={() => void doSend()}
-            >
-              <Icon.Send size={15} />
-            </button>
-          )}
+            {/* 检索开关已移入「设置 → 写作 → 写作建议 → 参考其他文档」(单一入口,对齐 Kun);
+                此处不再放快捷开关。检索仍在发送时按 retrievalEnabled 注入(见 doSend)。 */}
+            {/* agent + 模型 + 思考强度合并为单个 pill,与主会话落地页 composer 同构
+                （见 personal/chat/composer/ComposerShell.tsx）。
+                原先是「独立 AgentSelect + 模型 pill」两个控件并排,在这条 ~370px 的窄栏里
+                挤到模型名被截断（实测显示成「DeepSeek V」）;合并后只占一个 pill,
+                agent 改从面板的 Agent 行下钻切换。
+                切 agent 后自动按新 agent 读各自的模型集与记忆值。 */}
+            <ModelThinkingPill
+              isPi={isPi}
+              models={agentModels}
+              model={modelByAgent[agent]}
+              onChangeModel={onChangeModel}
+              piModelOptions={piModelOptions}
+              piModelValue={piModelValue}
+              onChangePiModel={onChangePiModel}
+              thinkingOptions={thinkingOptions}
+              resolvedThinkingValue={resolvedThinkingValue}
+              onChangeThinking={onChangeThinking}
+              disabled={isPi ? piModelOptions.length === 0 : agentModels.length === 0}
+              agent={agent}
+              derivedAgentId={derivedAgentId}
+              agentsAvailable={agentsAvailable}
+              derivedAgents={derivedAgents}
+              onSwitchAgent={onChangeAgent}
+            />
+            <div className="spacer" />
+            {busy ? (
+              <button
+                type="button"
+                className="pw-wa-send is-stop"
+                title="中断"
+                aria-label="中断"
+                onClick={doInterrupt}
+              >
+                <Icon.Stop size={15} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pw-wa-send"
+                title="发送"
+                aria-label="发送"
+                disabled={!canSend}
+                onClick={() => void doSend()}
+              >
+                <Icon.Send size={15} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </aside>

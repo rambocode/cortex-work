@@ -80,12 +80,12 @@ describe("WritingAssistantPanel", () => {
     });
   });
 
-  it("空态固定三卡(对齐 Kun):chat 卡点击填入输入框且不自动发送;其余快捷指令不进空态", () => {
+  it("空态快捷动作三行:chat 行点击填入输入框且不自动发送;其余快捷指令不进空态", () => {
     const { bridge, startCalls } = fakeBridge();
     renderPanel(bridge);
 
-    // 待命卡文案(Kun 形态)
-    expect(screen.getByText("写作助手待命中")).toBeInTheDocument();
+    // 空态引导语 + 分组标题(设计稿形态)
+    expect(screen.getByText("快捷动作")).toBeInTheDocument();
     // 内置 summarize(chat):填入输入框、不发送。
     fireEvent.click(screen.getByText("总结当前文档"));
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
