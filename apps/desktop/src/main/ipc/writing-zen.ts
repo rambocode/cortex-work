@@ -94,8 +94,17 @@ async function showBackdrop(parent: BrowserWindow, imagePath: string): Promise<v
   }
   detachParentClose?.();
   const onParentClosed = () => hideBackdrop();
+  // 渲染端重载(dev HMR / 手动刷新 / 渲染进程崩溃重建)兜底:zenMode 是**瞬态不落盘**的,重载后
+  // 渲染端回到普通态,但主进程这边的幕布与 simple fullscreen 会原样留着 —— 那是 app 级
+  // presentationOptions(自动隐藏菜单栏/Dock),留住就再没人来还原,只能靠退出登录/重启复位。
+  // 导航开始即视为渲染端状态已丢,主动收幕布。
+  const onParentNavigate = () => hideBackdrop();
   parent.once("closed", onParentClosed);
-  detachParentClose = () => parent.removeListener("closed", onParentClosed);
+  parent.webContents.on("did-start-navigation", onParentNavigate);
+  detachParentClose = () => {
+    parent.removeListener("closed", onParentClosed);
+    if (!parent.isDestroyed()) parent.webContents.removeListener("did-start-navigation", onParentNavigate);
+  };
   backdropParent = parent;
   // 禅模式下窗口全屏无意义:绿灯置灰,退出时还原。
   parent.setFullScreenable(false);
@@ -132,6 +141,12 @@ function hideBackdrop(): void {
 }
 
 export function registerWritingZenHandlers(): void {
+  // app 退出兜底:用户可能直接在禅模式里 Cmd+Q。simple fullscreen 改的是 **app 级**
+  // presentationOptions(自动隐藏菜单栏/Dock),不显式 setSimpleFullScreen(false) 就还原不了;
+  // 窗口 destroy 不顺带处理,进程没了这份系统状态也未必立刻复位。before-quit 早于窗口销毁,
+  // 是最后一个能干净还原的时机。
+  app.on("before-quit", hideBackdrop);
+
   const root = zenAssetsRoot();
   const bgDir = join(root, "backgrounds");
   const soundDir = join(root, "sounds");
