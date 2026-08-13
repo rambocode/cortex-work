@@ -195,7 +195,7 @@ export function PersonalWorkspace({
   useDelegateIntentListener(onToast);
   // 进入落地页默认收起右栏（无项目不显示、选项目不自动弹出）。
   useCloseRightPanelOnHome(homeOpen);
-  // 窗口宽度 < 760pt 时自动收缩左栏；恢复宽度后自动展开。
+  // 窗口宽度 < 770pt 时自动收缩左栏（保住中栏 440px 下限）；恢复宽度后由用户主动展开。
   useResponsiveLeftCollapsed();
 
   // 启动时探测本机已安装的 agent CLI（claude/codex…）,供新建会话默认值与

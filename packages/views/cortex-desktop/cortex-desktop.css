@@ -47,6 +47,10 @@
 
   /* 个人工作区三栏「浮起」效果:中栏铺底,左右栏作为悬浮卡片(外边距透出中栏同色底)。 */
   --pw-float-gap: 8px;
+  /* 中栏(会话区)默认最小宽度:右栏各档展宽/收缩公式与拖拽上限都以它为基准。
+     改这里必须同步 PersonalRightPanel.tsx 的 RP_LEFT_RESERVED(= 本值 + 右侧 rail 48px),
+     以及 useResponsiveLeftCollapsed 的 770 断点(≈ 左栏 271 + 本值 + rail 48)。 */
+  --pw-center-min: 440px;
   --pw-float-radius: 12px;
   --pw-float-shadow: 0 4px 16px rgba(20, 18, 12, 0.10), 0 1px 3px rgba(20, 18, 12, 0.06);
 
@@ -1025,7 +1029,9 @@ input, textarea { font: inherit; color: inherit; }
 
 /* Kun 对齐的个人会话版心：阅读列封顶 730px，并保留 MessageStream 原有的头像与连续消息分组语义；
    用户输入保留右侧卡片，Agent 正文维持无气泡的文档式阅读。团队会话沿用原样。 */
-.pw-personal-chat .msgs { padding: 24px 36px 32px; }
+/* 横向内边距固定 20px:与输入框(.composer-wrap)对齐,窄列(中栏下限 440 / 拆分窗格)下
+   正文两侧始终留 20px;宽列时版心由 .msgs-inner 的 max-width 730 + margin auto 居中兜住。 */
+.pw-personal-chat .msgs { padding: 24px 20px 32px; }
 .pw-personal-chat {
   --bg-app: var(--pw-workspace-surface);
   background: var(--pw-workspace-surface);
@@ -4376,7 +4382,8 @@ button.sb-row {
 .pw-center-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; }
 
 /* Prompt 库右栏（列表态固定 320px,不可拖） */
-.pw-prompts { width: 320px; position: relative; }
+/* min-width:0——中栏有 --pw-center-min 的硬下限,空间不足时右栏(而不是会话区)收缩让位。 */
+.pw-prompts { width: 320px; min-width: 0; position: relative; }
 /* 右栏浮起卡片:去分隔线,加圆角/阴影,左侧间隙改由中栏透出(margin-left:0)。
    不用 overflow:hidden(否则裁掉左缘拖拽条 .pw-rp-resizer),改给顶部头加圆角。 */
 .body:has(.pw-main) .pw-upper > .right {
@@ -4456,10 +4463,12 @@ button.sb-row {
 /* 内嵌浏览器:默认宽度占应用 3/7(向左延展),可拖拽调宽(--rp-custom-width 优先),
    关闭浏览器视图回到 320px。
    默认宽度限制在视口内;一旦拖拽写入 --rp-custom-width,不再用 CSS max-width 二次夹小,
-   避免 TS 已按当前几何算出的宽度被 CSS 再夹一次,造成第一帧向右跳。 */
+   避免 TS 已按当前几何算出的宽度被 CSS 再夹一次,造成第一帧向右跳。
+   min-width 的兜底项 = 100vw - 左栏 288 - 中栏下限(--pw-center-min) - 右 rail 48:
+   中栏优先保下限,窗口不够宽时浏览器面板收缩(calc 为负时按 0 处理,面板可被完全让出)。 */
 .pw-prompts:has(.pw-browser) {
   width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
-  min-width: min(360px, max(280px, calc(100vw - 250px)));
+  min-width: min(360px, calc(100vw - 288px - var(--pw-center-min) - 48px));
 }
 /* 产物编辑器(演示文稿 / 设计稿):默认展宽,但必须给中栏(会话区)留出 660px——
    低于这个宽度消息气泡与输入框那一排控件会被挤成窄条(实机反馈)。
@@ -4468,13 +4477,13 @@ button.sb-row {
    宁可让中栏低于 660,也不能把编辑器夹成不可用的窄缝。 */
 .pw-prompts:has(.pw-artifact-editor) {
   width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
 /* 会话白板是宽内容面板：560px 起步、允许拖拽，并让画布根节点完整占满内容区。 */
 .pw-prompts:has(.pw-code-canvas) {
   width: var(--rp-custom-width, min(62vw, max(560px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-code-canvas) .pw-rp-resizer { display: block; }
 .pw-code-canvas { min-height: 0; flex: 1; }
@@ -4484,14 +4493,14 @@ button.sb-row {
    算进同一档），否则会出现「拖拽上限按 660 算、默认宽度按 250 算」的错位。 */
 .pw-prompts:has(.pw-research-panel) {
   width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
 /* 知识库文档预览：同上那条宽度公式。文档里表格很常见,320px 的窄栏会把每列压成一列一个字;
    中栏仍保 660px 以便边读边问。同样三处联动（本规则 + isWidePanel 判定 + RP_LEFT_RESERVED_ARTIFACT）。 */
 .pw-prompts:has(.pw-kbdoc) {
   width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-kbdoc) .pw-rp-resizer { display: block; }
 /* pi 会话产物面板(rightView:"piArtifacts")：同上那条宽度公式。HTML 产物(图表/仪表盘)在
@@ -4499,7 +4508,7 @@ button.sb-row {
    拖拽条不显示,只能靠放大键全屏遮中栏」——三处联动(本规则 + isWidePanel + RP_LEFT_RESERVED_ARTIFACT)。 */
 .pw-prompts:has(.pw-pa-panel) {
   width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-pa-panel) .pw-rp-resizer { display: block; }
 
@@ -4508,7 +4517,8 @@ button.sb-row {
    但正常桌面窗口至少保留 360px，保证角色名称、状态和开关仍能同排展示。 */
 .pw-prompts:has(.pw-sa-panel) {
   width: min(420px, calc(100vw - 48px));
-  min-width: min(360px, calc(100vw - 48px));
+  /* 360px 让位于中栏下限:窗口不够宽时目录先收缩,不把会话区压到 --pw-center-min 以下。 */
+  min-width: min(360px, calc(100vw - 288px - var(--pw-center-min) - 48px));
   max-width: 420px;
 }
 
@@ -4544,7 +4554,8 @@ button.sb-row {
    返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {
   width: var(--rp-custom-width, 40vw);
-  min-width: var(--rp-custom-width, 480px);
+  /* 480px 上限 + 中栏下限让位:默认窗宽(1000)下详情不再把会话区压到 --pw-center-min 以下。 */
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 /* 文件打开后:与产物/研究/知识库同一条向左展宽公式 —— 参与三栏 flex,中栏被真实压缩
    到 660px 并自适应重排(旧版是绝对定位 overlay 盖住中栏,会话内容左边留白右边被遮挡)。
@@ -4553,7 +4564,7 @@ button.sb-row {
    不排除放大态的话宽度档位会压住放大规则,「放大」按钮形同虚设。 */
 .pw-prompts:not(.is-maximized):has(.pw-rp-view.is-fileopen) {
   width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
 }
 /* 展宽态(详情/文件预览):顶部贴齐标题栏——去掉顶部 8px 浮起缝隙与顶角圆角,
    否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
@@ -5612,13 +5623,15 @@ button.sb-row {
 }
 .pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 .pw-upper > .chat { flex: 1; min-height: 0; }
-/* 中栏列:顶部头(.pw-col-head)固定占首行；会话/页面占内容行。 */
+/* 中栏列:顶部头(.pw-col-head)固定占首行；会话/页面占内容行。
+   min-width 保住会话区下限(--pw-center-min):右栏再宽也不能把中栏挤到不可用,
+   空间不足时由右栏各档 min-width 公式让位(见 .pw-prompts 系列规则)。 */
 .pw-center-col {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
+  min-width: var(--pw-center-min);
   min-height: 0;
 }
 /* 顶栏与内容显式落在唯一一列，overlay 不参与常规布局。 */
@@ -9494,9 +9507,10 @@ button.sb-row {
 }
 /* 项目条:输入框正下方一张浅灰卡片(与输入框同宽略收,视觉上像输入框的"底座"),
    内部只有项目选择器。会话页不再有任何项目/git 信息条,这里是唯一入口。 */
-/* 比输入框窄一档（左右各内缩 16px）、紧贴输入框底部,像输入框的一层"底座"。 */
+/* 比输入框窄一档（左右各内缩 16px）、紧贴输入框底部,像输入框的一层"底座"。
+   72 = 输入框自身预留的 40(两侧各 20)+ 再内缩 32:窄列下底座始终比输入框窄一档。 */
 .pw-project-bar {
-  width: calc(100% - 32px);
+  width: calc(100% - 72px);
   max-width: calc(var(--pw-landing-col) - 32px);
   margin: 0 auto;
   padding: 8px 10px;
@@ -9524,11 +9538,14 @@ button.sb-row {
 }
 .pw-project-bar .pw-proj-picker-trigger:hover { background: var(--bg-hover); }
 /* 底部输入框:封顶居中,并清零 composer-wrap 的横向内边距,使输入框 .composer
-   撑满 --pw-landing-col、与上方看板/分区左右对齐。带 .pw-landing 前缀以压过
-   [data-density] .composer-wrap 的 padding 档位。 */
-.pw-landing .pw-landing-composer {
+   撑满 --pw-landing-col、与上方看板/分区左右对齐。选择器带 .chat 三连:压过
+   [data-density] .composer-wrap 的 padding 档位,以及空会话落地态下源码更靠后的
+   .pw-personal-chat .composer-wrap(否则两个落地面横向内边距差 40px,宽度不一致)。
+   width 预留 40px:列宽低于封顶值(750)时输入框两侧始终保留 20px 边距,不贴左右栏;
+   宽列时封顶 750 居中,与看板对齐不受影响。 */
+.chat.pw-landing .pw-landing-composer {
   flex-shrink: 0;
-  width: 100%;
+  width: calc(100% - 40px);
   max-width: var(--pw-landing-col);
   margin-inline: auto;
   padding-inline: 0;
@@ -14892,6 +14909,8 @@ button.sb-row {
    输入盒白底、圆角 14、极轻阴影。 */
 /* 规格 §7 原写「与消息区以 1px 分隔」，实机上这条线把输入区切成了一个独立色块；
    消息流末尾的留白已经把边界说清楚，故不画分隔线。 */
+/* 横向内边距固定 20px:与消息区(.msgs)对齐,输入框两侧始终留 20px;
+   宽列时 .composer 自身 max-width 728 + margin auto 居中兜住。 */
 .pw-personal-chat .composer-wrap { padding: 14px 20px 18px; }
 .pw-personal-chat .composer {
   padding: 4px;

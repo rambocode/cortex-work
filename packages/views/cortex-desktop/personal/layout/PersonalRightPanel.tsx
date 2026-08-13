@@ -45,7 +45,9 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
 export const RP_MIN_WIDTH = 280;
 // 左侧内容(中栏)至少保留的宽度。拖拽上限至少保留拖拽开始时已经渲染出来的宽度,
 // 避免第一帧把面板夹小造成可见边界向右跳。
-export const RP_LEFT_RESERVED = 250;
+// 488 = 中栏最小宽 440(CSS 的 --pw-center-min)+ 右侧 rail 48;与 CSS 各档
+// min-width 公式是同一基准,改一处必须同步另一处。
+export const RP_LEFT_RESERVED = 488;
 // 产物编辑器(演示文稿 / 设计稿)与深度研究面板例外:两者默认就展得很宽,若沿用 250px 的保留,
 // 中栏会被压成放不下消息气泡与输入框控件的窄条,故把中栏下限抬到 660px。
 // 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) / :has(.pw-research-panel) 的默认宽度公式

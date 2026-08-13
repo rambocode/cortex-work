@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createMainWindowOptions } from "./main-window-geometry";
 
 describe("主窗口宽度", () => {
-  it("默认宽度 1000、最小宽度 960，首启即紧凑姿态", () => {
+  it("默认宽度 1000、最小宽度 520（允许缩到 770 以下触发自动收左栏，中栏保 440）", () => {
     const options = createMainWindowOptions({
       isMacOS: false,
       icon: "/tmp/cortex-icon.png",
@@ -10,6 +10,6 @@ describe("主窗口宽度", () => {
     });
 
     expect(options.width).toBe(1000);
-    expect(options.minWidth).toBe(960);
+    expect(options.minWidth).toBe(520);
   });
 });

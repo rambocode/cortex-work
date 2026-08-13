@@ -291,7 +291,7 @@ describe("PersonalRightPanel 拖拽调宽", () => {
       "width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));",
     );
     expect(block).toContain(
-      "min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));",
+      "min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));",
     );
     // 不再是绝对定位覆盖层:那会让中栏布局不动,内容左边留白、右边被遮挡。
     expect(block).not.toContain("position: absolute");
