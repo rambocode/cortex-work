@@ -56,9 +56,9 @@ function clampFontSize(px: number | undefined): number {
 }
 
 // 禅模式偏好默认值。背景照片 id = 资源文件名去后缀(桌面端 resources/zen/backgrounds,取自
-// Metion zen 资源),"the_three" 为其默认山景;背景音默认「晨莺」(morning_bird.mp3)。
+// Metion zen 资源,清单已裁剪);默认雾山山景 asoggetti;背景音默认「晨莺」(morning_bird.mp3)。
 // 脏值/资产缺失不在 core 校验:主进程 show 时回落清单首张,音色由渲染端预设表兜底。背景音默认关闭。
-export const WRITING_ZEN_BACKGROUND_DEFAULT = "the_three";
+export const WRITING_ZEN_BACKGROUND_DEFAULT = "asoggetti-zxcBR3zNc7I-unsplash";
 export const WRITING_ZEN_SOUND_DEFAULT = "morning_bird";
 
 // 单调递增序号，配合时间戳生成稳定空间 id（core 跨端，避免依赖 crypto.randomUUID）。
@@ -89,6 +89,9 @@ export interface WritingSpacesState {
   fontSizeUserSet: boolean;
   // 排版（设置节「排版与字体」）：字体预设 + custom 字体 + 行距。字号复用 fontSizePx（与工具栏同源）。
   fontPreset: WritingFontPreset;
+  // 用户是否手动选过字体预设：与 fontSizeUserSet 同款语义——false（含旧档缺字段）时 hydrate
+  // 回落当前默认预设，使默认字体升级（如切到随包思源宋体）对没动过设置的用户即时生效。
+  fontPresetUserSet: boolean;
   customFontFamily: string;
   lineHeight: number;
   // 工作区级检索上下文开关（U4，跨空间共享）：开启时助手发送按用户正文检索 top-k 片段注入 prompt。
@@ -168,6 +171,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
   fontSizePx: WRITING_FONT_SIZE_DEFAULT,
   fontSizeUserSet: false,
   fontPreset: DEFAULT_WRITING_FONT_PRESET,
+  fontPresetUserSet: false,
   customFontFamily: "",
   lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
   retrievalEnabled: true,
@@ -188,7 +192,8 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
 
   setPreviewMode: (mode) => set({ previewMode: mode }),
   setFontSizePx: (px) => set({ fontSizePx: clampFontSize(px), fontSizeUserSet: true }),
-  setFontPreset: (preset) => set({ fontPreset: normalizeWritingFontPreset(preset) }),
+  setFontPreset: (preset) =>
+    set({ fontPreset: normalizeWritingFontPreset(preset), fontPresetUserSet: true }),
   setCustomFontFamily: (family) => set({ customFontFamily: family.slice(0, 200) }),
   setLineHeight: (lineHeight) => set({ lineHeight: clampWritingLineHeight(lineHeight) }),
   resetTypography: () =>
@@ -197,6 +202,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       // 重置排版 = 交还给默认值管理，之后默认值再变也跟着变。
       fontSizeUserSet: false,
       fontPreset: DEFAULT_WRITING_FONT_PRESET,
+      fontPresetUserSet: false,
       customFontFamily: "",
       lineHeight: WRITING_LINE_HEIGHT_DEFAULT,
     }),
@@ -272,6 +278,7 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       fontSizePx: s.fontSizePx,
       fontSizeUserSet: s.fontSizeUserSet,
       fontPreset: s.fontPreset,
+      fontPresetUserSet: s.fontPresetUserSet,
       customFontFamily: s.customFontFamily,
       lineHeight: s.lineHeight,
       retrievalEnabled: s.retrievalEnabled,
@@ -305,8 +312,13 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       fontSizePx:
         state?.fontSizeUserSet === true ? clampFontSize(state?.fontSizePx) : WRITING_FONT_SIZE_DEFAULT,
       fontSizeUserSet: state?.fontSizeUserSet === true,
-      // 排版：预设/字体/行距缺省或脏值回落默认。
-      fontPreset: normalizeWritingFontPreset(state?.fontPreset),
+      // 排版：预设/字体/行距缺省或脏值回落默认。预设与字号同款「userSet 才回灌」——
+      // 否则默认预设升级(如思源宋体)对档里躺着旧默认值的用户永不生效。
+      fontPreset:
+        state?.fontPresetUserSet === true
+          ? normalizeWritingFontPreset(state?.fontPreset)
+          : DEFAULT_WRITING_FONT_PRESET,
+      fontPresetUserSet: state?.fontPresetUserSet === true,
       customFontFamily: typeof state?.customFontFamily === "string" ? state.customFontFamily.slice(0, 200) : "",
       lineHeight: clampWritingLineHeight(state?.lineHeight),
       // 缺省视为开启（默认 true）：旧档没有该字段时保持检索启用。
@@ -329,8 +341,13 @@ export const useWritingSpacesStore = create<WritingSpacesState>((set, get) => ({
       focusMode: state?.focusMode === true,
       // 禅模式:回灌一律回到普通态(zenMode 瞬态);三项偏好缺省(旧档)回落默认。
       zenMode: false,
+      // "the_three" 是已从随包清单裁掉的旧默认:老档写着它的迁到当前默认,
+      // 否则主进程按「找不到 → 清单首张」回落,老用户永远看不到新默认背景。
+      // 其余 id(含用户主动选的)原样回灌,资产缺失仍由主进程兜底。
       zenBackgroundId:
-        typeof state?.zenBackgroundId === "string" && state.zenBackgroundId
+        typeof state?.zenBackgroundId === "string" &&
+        state.zenBackgroundId &&
+        state.zenBackgroundId !== "the_three"
           ? state.zenBackgroundId
           : WRITING_ZEN_BACKGROUND_DEFAULT,
       zenSoundOn: state?.zenSoundOn === true,

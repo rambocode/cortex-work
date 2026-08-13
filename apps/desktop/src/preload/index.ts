@@ -306,6 +306,11 @@ const personal = {
     ipcRenderer.invoke("writing:zenAssets"),
   writingZenSoundData: (soundId: string): Promise<string | null> =>
     ipcRenderer.invoke("writing:zenSoundData", soundId),
+  // 禅模式自绘红/黄灯 → 关闭/最小化写作窗口(系统红绿灯组在禅模式被整组隐藏)。
+  writingZenWindowControl: (action: "close" | "minimize"): Promise<void> =>
+    ipcRenderer.invoke("writing:zenWindowControl", action),
+  // 禅模式衬线字体(思源宋体 Light)整文件 base64;资产缺失回 null。
+  writingZenFontData: (): Promise<string | null> => ipcRenderer.invoke("writing:zenFontData"),
   // ── 写作信息图(U7，对接 media-gen）─────────────────────────────────────
   // writingInfographic：选区文本 → 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径(渲染端换算相对链接);
   // writingInfographicAvailable：media-gen 图片模态是否已配置,未配置渲染端隐藏入口。

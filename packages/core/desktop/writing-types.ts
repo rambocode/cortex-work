@@ -30,7 +30,9 @@ export interface WritingThreadMeta {
 export type WritingPreviewMode = "rich" | "source" | "live" | "preview";
 
 // 编辑器字体预设（对齐 Kun WriteFontPreset）：system=系统默认；其余为具体中文字体；custom=用户自填 CSS font-family。
+// sourceHanSerif=思源宋体 Light(随包 zen 资产,FontFace 注册,见 WritingWorkspace),是当前默认预设。
 export type WritingFontPreset =
+  | "sourceHanSerif"
   | "system"
   | "sourceHanSans"
   | "yahei"
@@ -75,8 +77,11 @@ export interface WritingUiState {
   // 用户是否手动调过字号。缺省（旧档）视为 false → 回灌时用当前默认值而非落盘的旧默认数字，
   // 这样调整默认字号能对「从没动过设置」的用户生效。
   fontSizeUserSet?: boolean;
-  // 编辑器字体预设（设置节「排版与字体」）。缺省视为 system（兼容旧档）。
+  // 编辑器字体预设（设置节「排版与字体」）。缺省回落当前默认预设（兼容旧档）。
   fontPreset?: WritingFontPreset;
+  // 用户是否手动选过字体预设。缺省（旧档）视为 false → 回灌时用当前默认预设而非落盘的旧默认,
+  // 与 fontSizeUserSet 同款语义:默认字体升级对「从没动过设置」的用户即时生效。
+  fontPresetUserSet?: boolean;
   // 预设为 custom 时的 CSS font-family。缺省空串。
   customFontFamily?: string;
   // 正文行距（无单位，Kun 口径 1.4–2.2，默认 1.75）。缺省回落默认（兼容旧档）。

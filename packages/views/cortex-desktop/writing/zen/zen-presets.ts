@@ -10,15 +10,14 @@ export interface ZenSound {
   name: string;
 }
 
-// 与 resources/zen/sounds 的 8 首 mp3 一一对应(缺文件时播放静默失败,菜单仍可切换)。
+// 与 resources/zen/sounds 的 mp3 一一对应(清单已裁剪到 6 首;缺文件时播放静默失败,菜单仍可切换)。
+// 增删音频文件必须同步本表 —— WritingZenMode.test 有「预设表 ↔ 随包资产」的一致性护栏。
 export const ZEN_SOUNDS: ZenSound[] = [
   { id: "morning_bird", name: "晨莺" },
   { id: "rain", name: "细雨" },
   { id: "sea_and_wind", name: "海风" },
   { id: "sea_and_bird", name: "海鸟" },
   { id: "summer_night", name: "夏夜" },
-  { id: "summer_cicada", name: "夏蝉" },
-  { id: "morning_city", name: "晨市" },
   { id: "mixed_nature", name: "山野" },
 ];
 

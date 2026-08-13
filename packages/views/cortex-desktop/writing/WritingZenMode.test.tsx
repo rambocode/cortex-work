@@ -114,6 +114,18 @@ describe("禅模式", () => {
     expect(row.hasAttribute("disabled")).toBe(true);
   });
 
+  it("音色预设表与随包资产一一对应(增删 resources/zen/sounds 必须同步 ZEN_SOUNDS)", async () => {
+    const { readdirSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    // vitest 的 cwd 固定为本包根(packages/views);vite 下 import.meta.url 是 http scheme 不可用。
+    const soundsDir = resolve(process.cwd(), "../../apps/desktop/resources/zen/sounds");
+    const fileIds = readdirSync(soundsDir)
+      .filter((n) => n.endsWith(".mp3") || n.endsWith(".m4a"))
+      .map((n) => n.replace(/\.[^.]+$/, ""))
+      .sort();
+    expect([...ZEN_SOUNDS.map((s) => s.id)].sort()).toEqual(fileIds);
+  });
+
   it("音色预设与循环游标:脏 id 回落首项(晨莺),清单游标回绕", () => {
     expect(zenSoundById("no-such").id).toBe(ZEN_SOUNDS[0]!.id);
     // 音色默认 id 必须真实存在于预设表(core 默认值与 views 预设清单的跨包契约)。

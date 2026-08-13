@@ -14,6 +14,9 @@ describe("writing typography", () => {
     expect(writingFontStackFor("pingfang", "")).toContain("PingFang SC");
     expect(writingFontStackFor("kaiti", "")).toContain("KaiTi");
     expect(writingFontStackFor("system", "")).toContain("sans-serif");
+    // 默认预设:随包思源宋体的 FontFace 注册名居首,系统衬线兜底。
+    expect(writingFontStackFor("sourceHanSerif", "")).toContain("Source Han Serif Cortex");
+    expect(writingFontStackFor("sourceHanSerif", "")).toContain("serif");
   });
 
   it("custom:用 customFontFamily;空则回落 system", () => {
@@ -29,9 +32,10 @@ describe("writing typography", () => {
     expect(clampWritingLineHeight(Number.NaN)).toBe(WRITING_LINE_HEIGHT_DEFAULT);
   });
 
-  it("预设归一化:非法值 → system", () => {
+  it("预设归一化:非法值 → 当前默认(sourceHanSerif)", () => {
     expect(normalizeWritingFontPreset("kaiti")).toBe("kaiti");
-    expect(normalizeWritingFontPreset("nope")).toBe("system");
-    expect(normalizeWritingFontPreset(undefined)).toBe("system");
+    expect(normalizeWritingFontPreset("system")).toBe("system");
+    expect(normalizeWritingFontPreset("nope")).toBe("sourceHanSerif");
+    expect(normalizeWritingFontPreset(undefined)).toBe("sourceHanSerif");
   });
 });

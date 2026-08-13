@@ -218,6 +218,42 @@ describe("WritingWorkspace(U4)", () => {
     expect(center.style.getPropertyValue("--pw-writing-line-height")).toBe("2");
   });
 
+  it("禅模式切专属排版档(衬线/16px/行距 2),用户常规排版偏好不被改写", async () => {
+    useWritingSpacesStore.setState({
+      zenMode: true,
+      fontSizePx: 20,
+      fontPreset: "kaiti",
+      customFontFamily: "",
+      lineHeight: 1.5,
+    });
+    const { container } = renderWs(makeBridge());
+    const center = container.querySelector(".pw-writing-center") as HTMLElement;
+    expect(center.style.getPropertyValue("--pw-writing-font-size")).toBe("16px");
+    // 首位是随包注册的思源宋体 Light,系统衬线(Songti SC)兜底。
+    expect(center.style.getPropertyValue("--pw-writing-font-family")).toContain("Source Han Serif Cortex");
+    expect(center.style.getPropertyValue("--pw-writing-font-family")).toContain("Songti");
+    expect(center.style.getPropertyValue("--pw-writing-line-height")).toBe("2");
+    // 专属档只作用于渲染,store 里的用户偏好原样保留(退出禅模式即还原)。
+    expect(useWritingSpacesStore.getState().fontSizePx).toBe(20);
+    expect(useWritingSpacesStore.getState().fontPreset).toBe("kaiti");
+  });
+
+  it("禅模式自绘红/黄灯:点击经 bridge 关闭/最小化;bridge 缺方法则不渲染", async () => {
+    useWritingSpacesStore.setState({ zenMode: true });
+    const zenWindowControl = vi.fn(async () => {});
+    const { container } = renderWs(makeBridge({ writingZenWindowControl: zenWindowControl }));
+    fireEvent.click(screen.getByLabelText("关闭窗口"));
+    expect(zenWindowControl).toHaveBeenCalledWith("close");
+    fireEvent.click(screen.getByLabelText("最小化窗口"));
+    expect(zenWindowControl).toHaveBeenCalledWith("minimize");
+    expect(container.querySelector(".pw-writing-zen-lights")).not.toBeNull();
+
+    cleanup();
+    // web/旧壳:bridge 无该方法 → 不渲染自绘灯(系统红绿灯也未被隐藏,不失关闭入口)。
+    const { container: c2 } = renderWs(makeBridge());
+    expect(c2.querySelector(".pw-writing-zen-lights")).toBeNull();
+  });
+
   it("编辑器选区上报 → 助手面板选区 chip 条出现(含 edit 类指令);取消选区后消失(R11)", async () => {
     useWritingWorkspaceStore.setState({ currentFile: "/w/alpha/a1.md" });
     renderWs(makeBridge());

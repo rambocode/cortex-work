@@ -32,6 +32,27 @@ const LEFT_W = 260;
 const CENTER_MIN_W = 560;
 const RIGHT_W = 360;
 
+// 随包衬线字体(思源宋体 Light,zen 资产目录)的一次性注册:11MB 经 IPC 取回 →
+// FontFace 注册为 "Source Han Serif Cortex"(独立命名,不与本机安装的思源宋体冲突)。
+// 它同时服务两处:默认字体预设 sourceHanSerif(四档文档区域,见 core/writing/typography.ts)
+// 与禅模式专属排版,故在工作台挂载时即注册,而非等进禅模式。
+// 模块级 promise 兼作「已在加载/已完成」标记;失败置空允许下次挂载重试。
+// jsdom/web 壳:bridge 缺方法或无 FontFace 时静默跳过,衬线栈回落系统字体。
+let bundledSerifFontOnce: Promise<void> | null = null;
+function ensureBundledSerifFont(bridge: { writingZenFontData?: () => Promise<string | null> } | null): void {
+  if (bundledSerifFontOnce || !bridge?.writingZenFontData || typeof FontFace === "undefined") return;
+  bundledSerifFontOnce = (async () => {
+    const b64 = await bridge.writingZenFontData!();
+    if (!b64) return;
+    const buf = await (await fetch(`data:font/otf;base64,${b64}`)).arrayBuffer();
+    const face = new FontFace("Source Han Serif Cortex", buf);
+    await face.load();
+    document.fonts.add(face);
+  })().catch(() => {
+    bundledSerifFontOnce = null;
+  });
+}
+
 export function WritingWorkspace(): ReactElement {
   const bridge = useDesktopBridge();
   const closeWriting = usePersonalStore((s) => s.closeWriting);
@@ -61,6 +82,20 @@ export function WritingWorkspace(): ReactElement {
   const customFontFamily = useWritingSpacesStore((s) => s.customFontFamily);
   const lineHeight = useWritingSpacesStore((s) => s.lineHeight);
   const fontFamily = writingFontStackFor(fontPreset, customFontFamily);
+  // 禅模式专属排版(对齐 Metion:思源宋体 Light + 16px + 双倍行距):进入即切换、退出即还原,
+  // 不写回用户在设置里的常规排版偏好。工具栏(含字号步进)在禅模式整条隐藏,固定值自洽。
+  // 首位 "Source Han Serif Cortex" 由随包字体经 FontFace 注册(见挂载 effect),未就绪/缺资产时
+  // 回落系统衬线栈(Songti SC 等)。
+  const ZEN_FONT_FAMILY =
+    '"Source Han Serif Cortex", "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", Georgia, serif';
+  const effFontSize = zenMode ? "16px" : `${fontSizePx}px`;
+  const effFontFamily = zenMode ? ZEN_FONT_FAMILY : fontFamily;
+  const effLineHeight = zenMode ? "2" : `${lineHeight}`;
+  // 挂载即注册随包衬线字体(模块级缓存,每次运行只经 IPC 取一次 11MB):
+  // 默认预设 sourceHanSerif 的四档文档区域与禅模式都依赖它。
+  useEffect(() => {
+    ensureBundledSerifFont(bridge);
+  }, [bridge]);
 
   const [toast, setToast] = useState<string | null>(null);
   // 左栏折叠 / 右侧助手栏开合(顶栏两个按钮控制;瞬态,不持久化)。
@@ -286,17 +321,38 @@ export function WritingWorkspace(): ReactElement {
         <div
           className={`pw-writing-center${focusMode ? " is-focus-mode" : ""}`}
           // 排版 CSS 变量:字号/字体/行距经此作用于中栏四档编辑器与预览(设置节/顶栏步进 → 变量 → 生效)。
+          // 禅模式切到专属排版档(eff* 见上方),内联变量优先级最高,CSS 覆盖不了,只能在这里切。
           style={
             {
-              ["--pw-writing-font-size" as string]: `${fontSizePx}px`,
-              ["--pw-writing-font-family" as string]: fontFamily,
-              ["--pw-writing-line-height" as string]: `${lineHeight}`,
+              ["--pw-writing-font-size" as string]: effFontSize,
+              ["--pw-writing-font-family" as string]: effFontFamily,
+              ["--pw-writing-line-height" as string]: effLineHeight,
             } as CSSProperties
           }
         >
           {/* 禅模式:窗口内是**不透明**的灰蓝面板(背景照片只在身后幕布窗口显示,见 CSS .is-zen)。
               顶部给一条隐形拖拽带 —— 左栏(原拖拽区)被隐藏后窗口仍可拖动。 */}
           {zenMode ? <div className="pw-writing-zen-drag ds-drag" aria-hidden /> : null}
+          {/* 自绘红/黄灯:系统红绿灯组在禅模式被主进程整组隐藏(Electron 藏不了单颗绿灯),
+              这里补回关闭/最小化两颗;bridge 缺该方法(web/旧壳)时不渲染。 */}
+          {zenMode && bridge?.writingZenWindowControl ? (
+            <div className="pw-writing-zen-lights ds-no-drag">
+              <button
+                type="button"
+                className="is-close"
+                title="关闭"
+                aria-label="关闭窗口"
+                onClick={() => void bridge.writingZenWindowControl?.("close")}
+              />
+              <button
+                type="button"
+                className="is-min"
+                title="最小化"
+                aria-label="最小化窗口"
+                onClick={() => void bridge.writingZenWindowControl?.("minimize")}
+              />
+            </div>
+          ) : null}
           <WritingEditorPane
             ref={editorRef}
             path={currentFile}

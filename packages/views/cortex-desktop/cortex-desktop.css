@@ -13362,11 +13362,12 @@ button.sb-row {
   position: relative;
   /* 暗景亮字:场景一律深色调,把编辑器取色用到的全局 token 在本作用域整套换成亮色,
      富文本(--text-1..4、--border、--bg-card 等)与 CM(color:var(--text-1))即随之适配,
-     无需触碰编辑器内核。亮色主题下进入禅模式同样成立。 */
-  --text-1: rgba(238, 243, 249, 0.92);
-  --text-2: rgba(222, 230, 240, 0.78);
-  --text-3: rgba(203, 214, 228, 0.6);
-  --text-4: rgba(184, 197, 214, 0.45);
+     无需触碰编辑器内核。亮色主题下进入禅模式同样成立。
+     正文亮度刻意压低(0.8 而非 0.9+):暗景下高对比白字晃眼,参考 Metion 的低对比灰蓝白。 */
+  --text-1: rgba(228, 236, 244, 0.8);
+  --text-2: rgba(222, 230, 240, 0.7);
+  --text-3: rgba(203, 214, 228, 0.55);
+  --text-4: rgba(184, 197, 214, 0.42);
   --border: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.24);
   --bg-card: rgba(255, 255, 255, 0.07);
@@ -13374,11 +13375,24 @@ button.sb-row {
   --bg-hover: rgba(255, 255, 255, 0.08);
   --link: #8ab8f2;
   --accent-soft: rgba(138, 184, 242, 0.28);
-  /* 窗口内是**不透明**的灰蓝面板(用户要求:不透出背景照片,照片只在身后幕布窗口显示)。 */
+  /* 窗口内是**不透明**的灰蓝面板(用户要求:不透出背景照片,照片只在身后幕布窗口显示)。
+     渐变刻意平缓(明暗差一档):参考图的面板近乎单色斜面,原先底部压到 #303b48 显得头重脚轻。 */
   --w-canvas: transparent;
-  background: linear-gradient(178deg, #4b5766 0%, #3e4a58 46%, #303b48 100%);
+  background: linear-gradient(178deg, #4e5864 0%, #47515d 52%, #3d4854 100%);
 }
 .pw-writing-root.is-zen .pw-writing-editor { position: relative; z-index: 1; background: transparent; }
+/* 禅模式滚动条:全局默认 thumb 是黑基(rgba(0,0,0,.12)),在暗景面板上发黑显脏,
+   换成中性灰(白基低透明),hover 略提亮;轨道保持透明。 */
+.pw-writing-root.is-zen ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.pw-writing-root.is-zen ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
 /* 禅模式取消光标行底色:非禅时源码档用 14% 灰盒标出当前行(见上方 :not(.is-focus-mode) 规则),
    但在暗景全屏里那块灰盒明显跳脏,沉浸感全无 —— 光标本身(亮色 caret)已足够定位。
    权重要压过那条规则(5 个类),故带 .pw-writing-root.is-zen + 属性选择器同款结构。 */
@@ -13409,6 +13423,21 @@ button.sb-row {
 /* 左栏(原窗口拖拽区)被隐藏:顶部划一条隐形拖拽带保住窗口可拖。z-index 在编辑区之上,
    高度克制(36px)——只占窗口最上沿,不挡正文点击。 */
 .pw-writing-zen-drag { position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 2; }
+/* 自绘红/黄灯(关闭/最小化):位置对齐主窗口系统红绿灯(trafficLightPosition x16/y13,直径 12)。
+   默认低饱和灰点融入暗景(参考 Metion),悬停整组显色 —— 与 macOS 非激活窗口的红绿灯行为同款。
+   z-index 压过同区域的拖拽带,否则点击被 ds-drag 吃掉。 */
+.pw-writing-zen-lights { position: absolute; top: 13px; left: 16px; display: flex; gap: 8px; z-index: 3; }
+.pw-writing-zen-lights button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.pw-writing-zen-lights:hover .is-close { background: #ff5f57; border-color: rgba(0, 0, 0, 0.18); }
+.pw-writing-zen-lights:hover .is-min { background: #febc2e; border-color: rgba(0, 0, 0, 0.18); }
 
 /* 禅模式源码档:标题不再上品牌紫 —— 源码高亮的标题色是 var(--accent)(见 markdownLivePreview
    的 writeMarkdownSourceHighlight),在 cm 宿主作用域把它覆盖为正文色即可,不必动 HighlightStyle;

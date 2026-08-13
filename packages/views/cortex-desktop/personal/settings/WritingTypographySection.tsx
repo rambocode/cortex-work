@@ -18,6 +18,7 @@ import { SettingCard } from "./settingsControls";
 
 // 预设 → i18n label key。
 const PRESET_LABEL_KEY: Record<WritingFontPreset, string> = {
+  sourceHanSerif: "writing.fontSourceHanSerif",
   system: "writing.fontSystem",
   sourceHanSans: "writing.fontSourceHanSans",
   yahei: "writing.fontYahei",

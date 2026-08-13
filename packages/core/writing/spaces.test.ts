@@ -142,6 +142,26 @@ describe("useWritingSpacesStore 持久化 roundtrip", () => {
     expect(useWritingSpacesStore.getState().fontSizeUserSet).toBe(false);
   });
 
+  it("fontPreset 与字号同款 userSet 语义:旧档躺着旧默认 system → 回灌当前默认(思源宋体)", () => {
+    // 旧档(无 fontPresetUserSet)存着上一版默认 "system" → 不被钉死,升级到当前默认。
+    useWritingSpacesStore.getState().hydrate({ spaces: [], activeSpaceId: null, fontPreset: "system" });
+    expect(useWritingSpacesStore.getState().fontPreset).toBe("sourceHanSerif");
+    expect(useWritingSpacesStore.getState().fontPresetUserSet).toBe(false);
+
+    // 手动选过(userSet)则永远尊重用户选择,包括显式选回 system。
+    useWritingSpacesStore.getState().setFontPreset("system");
+    const snap = useWritingSpacesStore.getState().serialize();
+    expect(snap.fontPreset).toBe("system");
+    expect(snap.fontPresetUserSet).toBe(true);
+    useWritingSpacesStore.getState().hydrate(snap);
+    expect(useWritingSpacesStore.getState().fontPreset).toBe("system");
+
+    // resetTypography 交还默认值管理。
+    useWritingSpacesStore.getState().resetTypography();
+    expect(useWritingSpacesStore.getState().fontPreset).toBe("sourceHanSerif");
+    expect(useWritingSpacesStore.getState().fontPresetUserSet).toBe(false);
+  });
+
   it("助手 composer 选择记忆(agent/模型/思考/pi 供应商)进分片并 roundtrip;旧档缺字段回默认", () => {
     const st = useWritingSpacesStore.getState();
     st.setAssistantAgent("codex");

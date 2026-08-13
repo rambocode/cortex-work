@@ -65,6 +65,7 @@
     "fontPresetLabel": "编辑器字体",
     "fontPresetDesc": "写作区正文字体，挑一个适合中文长文阅读的字体。",
     "fontCustomPlaceholder": "CSS font-family，如 \"LXGW WenKai\", serif",
+    "fontSourceHanSerif": "思源宋体（随包）",
     "fontSystem": "系统默认",
     "fontSourceHanSans": "思源黑体",
     "fontYahei": "微软雅黑",

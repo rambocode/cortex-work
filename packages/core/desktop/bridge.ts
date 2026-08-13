@@ -259,9 +259,9 @@ export interface DesktopBridge {
   // 可选——web/旧壳无此能力时左栏时间/概要与按时间排序整体降级(仍可按名称排序)。
   writingDocMeta?(req: WritingDocMetaRequest): Promise<WritingDocMetaResult>;
   // ── 写作禅模式(对齐 Metion 形态)─────────────────────────────────────────
-  // 写作窗口保持原尺寸,主进程在其后垫一层铺满当前显示器的幕布窗口显示背景照片、遮住其它程序,
-  // 并顺带隐藏菜单栏/Dock、禁用绿灯。show 传背景照片 id(空串/脏值主进程回落清单首张),
-  // 兼作切换(幕布已存在则原地换景);hide 销毁幕布并还原。
+  // 进入时写作窗口收缩到显示器最佳比例居中,主进程在其后垫一层铺满当前显示器的幕布窗口
+  // 显示背景照片、遮住其它程序,并顺带隐藏菜单栏/Dock 与系统红绿灯组。show 传背景照片 id
+  // (空串/脏值主进程回落清单首张),兼作切换(幕布已存在则原地换景);hide 销毁幕布并还原。
   // 资产:writingZenAssets 枚举背景/环境音 id;writingZenSoundData 取环境音整文件 base64
   // (渲染端转 blob 循环播放;dev 渲染端 http origin 直连 file:// 会被 webSecurity 拦)。
   // 均可选——web/旧壳无此能力时禅模式退化为「铺满应用窗口 + 无背景音」。
@@ -269,6 +269,12 @@ export interface DesktopBridge {
   writingZenBackdropHide?(): Promise<void>;
   writingZenAssets?(): Promise<{ backgrounds: string[]; sounds: string[] }>;
   writingZenSoundData?(soundId: string): Promise<string | null>;
+  // 禅模式自绘红/黄灯 → 关闭/最小化窗口(系统红绿灯被整组隐藏,Electron 不支持只藏绿灯)。
+  // 可选——缺失时渲染端隐藏自绘灯(此时系统红绿灯也未被隐藏,不会失去关闭入口)。
+  writingZenWindowControl?(action: "close" | "minimize"): Promise<void>;
+  // 禅模式衬线字体(思源宋体 Light,随包 zen 资产)整文件 base64,渲染端 FontFace 注册;
+  // 可选——缺失时禅模式回落系统衬线栈(Songti SC 等)。
+  writingZenFontData?(): Promise<string | null>;
   // ── 写作信息图(U7,对接 media-gen）───────────────────────────────────────
   // 选区文本 → Kun 信息图提示词 → media-gen 生成 PNG → 落 <spaceRoot>/img/,返回落盘绝对路径。
   // 渲染端据 absolutePath 复用 U1 relativeImageLink 换算相对当前 md 的链接插入。失败给可读 message。

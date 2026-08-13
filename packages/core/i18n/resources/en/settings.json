@@ -65,6 +65,7 @@
     "fontPresetLabel": "Editor font",
     "fontPresetDesc": "Body font for the writing area; pick one suited to long-form Chinese reading.",
     "fontCustomPlaceholder": "CSS font-family, e.g. \"LXGW WenKai\", serif",
+    "fontSourceHanSerif": "Source Han Serif (bundled)",
     "fontSystem": "System default",
     "fontSourceHanSans": "Source Han Sans",
     "fontYahei": "Microsoft YaHei",

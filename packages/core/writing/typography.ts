@@ -6,6 +6,7 @@ import type { WritingFontPreset } from "../desktop/writing-types";
 export type { WritingFontPreset } from "../desktop/writing-types";
 
 export const WRITING_FONT_PRESETS: readonly WritingFontPreset[] = [
+  "sourceHanSerif",
   "system",
   "sourceHanSans",
   "yahei",
@@ -16,15 +17,21 @@ export const WRITING_FONT_PRESETS: readonly WritingFontPreset[] = [
   "custom",
 ] as const;
 
-export const DEFAULT_WRITING_FONT_PRESET: WritingFontPreset = "system";
+// 默认预设 = 思源宋体 Light(随包字体,四档文档区域统一衬线观感;禅模式同款)。
+// 依赖 WritingWorkspace 挂载时的 FontFace 注册,未就绪/缺资产时栈内系统衬线兜底。
+export const DEFAULT_WRITING_FONT_PRESET: WritingFontPreset = "sourceHanSerif";
 
 // 行距(无单位)范围与默认(照 Kun WRITE_EDITOR_LINE_HEIGHT_*)。
 export const WRITING_LINE_HEIGHT_MIN = 1.4;
 export const WRITING_LINE_HEIGHT_MAX = 2.2;
 export const WRITING_LINE_HEIGHT_DEFAULT = 1.75;
 
-// 预设 → CSS font-family 栈(逐字移植 Kun WRITE_FONT_STACKS)。
+// 预设 → CSS font-family 栈(逐字移植 Kun WRITE_FONT_STACKS;sourceHanSerif 为 cortex 新增)。
 const WRITING_FONT_STACKS: Record<Exclude<WritingFontPreset, "custom">, string> = {
+  // 首位 "Source Han Serif Cortex" 是随包思源宋体 Light 的 FontFace 注册名
+  // (独立命名避免与本机安装的思源宋体冲突);后续为本机同族/系统衬线兜底。
+  sourceHanSerif:
+    "'Source Han Serif Cortex', 'Source Han Serif SC', 'Source Han Serif CN', '思源宋体', 'Songti SC', 'Noto Serif SC', serif",
   system:
     "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
   sourceHanSans: "'Source Han Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",

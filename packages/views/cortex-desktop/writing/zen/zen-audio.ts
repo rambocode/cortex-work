@@ -19,8 +19,10 @@ export class ZenAudioEngine {
     fetchData: (id: string) => Promise<string | null> | undefined,
   ): Promise<void> {
     if (this.currentId === soundId && this.audio) return;
-    const mySeq = ++this.seq;
+    // 顺序有意:先 stop 再取本次序号。stop() 内部会自增 seq(作废在途请求),
+    // 若先取序号再 stop,本次请求会被自己作废 —— 实机表现为「怎么开都没声音」。
     this.stop();
+    const mySeq = ++this.seq;
     this.currentId = soundId;
     let base64: string | null = null;
     try {
