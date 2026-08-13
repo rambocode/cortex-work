@@ -78,11 +78,14 @@ function frameRms(frame: Float32Array): number {
   return Math.sqrt(sum / frame.length);
 }
 
-/** 资产基址:dev(http)同源 /vad/;打包态(file:)走主进程 cortex-vad:// 协议。 */
+/** 资产基址:dev(http)同源 /vad/;打包态走主进程 cortex-vad:// 协议。
+    打包态判定用「非 http(s)」而非「=== file:」:主窗口打包态已迁 cortex-app://
+    (见 main/renderer-protocol.ts),写成 file: 判定会误走 dev 分支。 */
 function assetBase(): string {
-  return window.location.protocol === "file:"
-    ? "cortex-vad://assets/"
-    : new URL("vad/", window.location.href).toString();
+  const p = window.location.protocol;
+  return p === "http:" || p === "https:"
+    ? new URL("vad/", window.location.href).toString()
+    : "cortex-vad://assets/";
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {

@@ -10,10 +10,18 @@ import { protocol } from "electron";
 import { PETDEX_SCHEME } from "./ipc/petdex";
 import { VAD_ASSET_SCHEME } from "./vad-assets";
 import { KWS_ASSET_SCHEME } from "./kws-assets";
+import { APP_SCHEME } from "./renderer-protocol";
 
 /** 注册全部自定义协议的特权。必须在 app.ready 之前、index.ts 模块顶层调用一次。 */
 export function registerAppSchemes(): void {
   protocol.registerSchemesAsPrivileged([
+    {
+      // 渲染端页面承载协议(打包态主窗口经它加载,替代 file:// —— file:// 宿主下 <webview>
+      // guest 合成不上屏,见 renderer-protocol.ts 文件头)。standard+secure 使其获得与 http
+      // 同款 origin/进程模型;supportFetchAPI+stream 供渲染端 fetch 同源资产(如 vad/ 模型)。
+      scheme: APP_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+    },
     {
       // petdex 图鉴只读协议:corsEnabled 让渲染端可给 <img crossOrigin="anonymous">,
       // 保持 canvas 不被污染(原注册处注释迁移至此)。

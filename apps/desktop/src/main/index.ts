@@ -57,6 +57,7 @@ import { ensurePetOverlayWindow, destroyPetOverlayWindow, getPetOverlayWindow } 
 import { registerPetHandlers } from "./ipc/pet";
 import { registerPetdexHandlers } from "./ipc/petdex";
 import { registerAppSchemes } from "./protocol-schemes";
+import { registerRendererProtocol, rendererPageUrl } from "./renderer-protocol";
 import { registerVadAssetProtocol } from "./vad-assets";
 import { registerKwsAssetProtocol } from "./kws-assets";
 import { applyWakeWordSettings } from "./ipc/wake-word";
@@ -556,7 +557,9 @@ function createWindow(): void {
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    // 打包态经 cortex-app:// 加载(不再 loadFile):file:// 宿主下 <webview> guest 合成不上屏,
+    // 内嵌浏览器/画板 HTML 框架整片白屏(v0.1.60 用户实锤),详见 renderer-protocol.ts。
+    mainWindow.loadURL(rendererPageUrl("index.html"));
   }
 }
 
@@ -639,6 +642,8 @@ if (!app.requestSingleInstanceLock()) {
     // 内嵌浏览器 <webview> 安全闸门须在任何 webview 可能 attach 之前装好(建窗之前)。
     installBrowserWebviewGuards();
     configureBrowserPartition();
+    // 渲染端承载协议(cortex-app://)的文件服务:必须先于 createWindow(主窗口 loadURL 依赖)。
+    registerRendererProtocol();
     // 真任务系统 v1→v2 迁移：必须在 registerIpcHandlers（store:load/save/tasks:*）之前 eager+await，
     // 使 renderer 的一切 store 访问都排在迁移之后处理，从根上消除「renderer 首个 save 先于迁移
     // 抹掉源 todos」的竞态（数据安全，见 U3/KTD2）。migratedAt 幂等，已迁移则纯 no-op。

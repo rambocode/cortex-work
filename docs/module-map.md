@@ -133,6 +133,8 @@
 
 主进程另有非 ipc 的功能目录：`agents/`（agent 适配：claude / codex 走 CLI `spawn`；Cortex 的 Pi 主会话、delegate 子会话与编排走常驻 gateway worker `agents/pi-gateway/`，其余单发可走 in-process `pi-inproc/oneshot.ts`）、`capabilities/`（给 Agent 的能力：automation / browser / calendar / computer-use / doc-extract / delegate / design-delegate / knowledge / loop-workflows / media-gen / research / slides / whisper / mcp-host——其中 `computer-use` 是唯一不走 MCP 的一个，它以原生 `customTools` / tool-call hook 形式注册进会话，且**只在聊天会话路径**生效；`automation` 与 `calendar` 同样**只在 pi 聊天会话路径注入**（`ipc/pi-session.ts` 一处，`ipc/cli.ts` 刻意不接），因为它们的写工具必须逐次经用户确认，而 claude 走 `--dangerously-skip-permissions`、codex 内置 server 被强制 `approve`、pi 单发路径不注册审批 hook——那些路径上**兑现不了审批**；定时任务自身的执行路径 `automation/runner.ts` 更是绝不注入，无人值守时给 Agent 建/删定时任务的权限等于让它无监督自增殖。这条约束由 `capabilities/automation/inject-points.test.ts` 读源码守住）、`research/`（CRE 引擎：orchestrator / planner / clients / worker / report / SQLite 存储）、`automation/`、`workflow/`、`memory/`、`reply/`、`skills/`、`plugins/`、`browser/`、`log/`。
 
+**打包态主窗口经 `cortex-app://` 协议加载**（`renderer-protocol.ts` + 特权注册并入 `protocol-schemes.ts`）：Electron 39 下 file:// 宿主页面里的 `<webview>` guest 合成不上屏（guest 加载成功但一帧不画），实机表现为内嵌浏览器 / 画板 HTML 框架整片白屏（v0.1.60 用户实锤，A/B 复现：同 bundle 换标准 scheme 即恢复）。该协议只读服务 `out/renderer`（防穿越、未命中 404），**不代理任意本地文件**——本地图片等仍走 bridge IPC dataURL。其它窗口（pet-overlay / projects / spotlight 等，无 webview）仍走 file://。渲染端判「打包态」不得再写 `location.protocol === "file:"`，应写「非 http(s)」（sileroVad 的 assetBase 是先例）。
+
 ## packages/core 域速查
 
 | 域 | 对应名词 |
