@@ -68,6 +68,11 @@ export default interface Resources {
       "emptyImage": "当前页面不可见或为空,无法截图",
       "fail": "截图失败",
       "ok": "已截图并复制到剪贴板,可粘贴到其他应用"
+    },
+    "tabs": {
+      "close": "关闭标签页",
+      "new": "新建标签页",
+      "newTab": "新标签页"
     }
   },
   "chat": {
@@ -2910,6 +2915,7 @@ export default interface Resources {
       "fontSizeDesc": "正文字号（10–48px），作用于编辑器与预览，与顶栏字号步进同源。",
       "fontSizeLabel": "字号",
       "fontSourceHanSans": "思源黑体",
+      "fontSourceHanSerif": "思源宋体（随包）",
       "fontSystem": "系统默认",
       "fontYahei": "微软雅黑",
       "imageGenCard": "信息图与图片生成",

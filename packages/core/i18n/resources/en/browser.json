@@ -9,6 +9,11 @@
     "screenshot": "Screenshot to clipboard",
     "annotate": "Annotate page elements"
   },
+  "tabs": {
+    "newTab": "New tab",
+    "new": "New tab",
+    "close": "Close tab"
+  },
   "address": {
     "placeholder": "Enter a URL, or a local port (e.g. localhost:5173)",
     "label": "Address bar",

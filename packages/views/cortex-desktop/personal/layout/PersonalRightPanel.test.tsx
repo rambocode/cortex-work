@@ -287,11 +287,13 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     )?.[1];
     // 与 .pw-prompts:has(.pw-artifact-editor) 同一条宽度公式:中栏保 660px(自适应重排),
     // 窗口不够宽时 max() 兜底不让预览被夹成窄缝。
+    // 100vw 改为 --pw-vw(zoom 校正视口宽):字号缩放(zoom)下 100vw 不缩放,会高估可用
+    // 宽度导致右栏溢出窗口右缘(x 按钮被裁),公式一律以 --pw-vw 为基准。
     expect(block).toContain(
-      "width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));",
+      "width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));",
     );
     expect(block).toContain(
-      "min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));",
+      "min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));",
     );
     // 不再是绝对定位覆盖层:那会让中栏布局不动,内容左边留白、右边被遮挡。
     expect(block).not.toContain("position: absolute");

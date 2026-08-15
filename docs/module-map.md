@@ -80,7 +80,7 @@
 | 快捷回复 | renderer `src/reply-bubble.tsx`；设置 `personal/settings/ReplySettingsSection.tsx` | `reply/` | `reply/`（controller/气泡窗）、`ipc/reply.ts`。触发键的 `none` 会经 `reply/trigger-config.ts` 显式下发为 helper 协议 `null`，同时禁用起草降级 accelerator；禁止省略字段后沿用旧键。原生 helper `native/Cortex_Helper` 同时承载日历 MCP 的 `calendar-events` / `calendar-create`；其 `calendar` 子命令（未来 3 天忙碌区间）是快捷回复专用，`reply/controller.ts` 逐字段依赖它，**不要参数化** |
 | Spotlight 浮动框 / 全局热键 | renderer `src/spotlight.tsx` | `personal/spotlightHandoff.ts` | `ipc/spotlight.ts`、`hotkey.ts` |
 | 记忆 / 做梦 | `personal/settings/MemorySettingsSection.tsx`、`settings/ResearchMemoryCandidates.tsx` | `memory/` | `ipc/memory.ts`、`memory/`（dreamer/scheduler） |
-| 内嵌浏览器 / 页面标注 | `personal/browser/`（`BrowserView.tsx`、`BrowserAnnotator.tsx`） | — | `ipc/browser.ts`、`browser/`、`capabilities/browser/` |
+| 内嵌浏览器 / 页面标注 | `personal/browser/`（`BrowserView.tsx` 多标签壳、`BrowserTabPane.tsx` 单标签面板、`BrowserAnnotator.tsx`） | — | `ipc/browser.ts`、`browser/`、`capabilities/browser/` |
 | 内嵌终端 | `personal/terminal/TerminalPanel.tsx` | — | `ipc/pty.ts` |
 | 文件树 / 文件预览 / Git 信息（UI 信息条已下线，仅剩数据链路） | `personal/files/`（`FilesView.tsx` + `MonacoViewer`/`PdfViewer`/`DocxViewer`/`PptxViewer`/`sheet/`；Markdown 渲染栈独立在 `personal/markdown/`） | `personal/filePaths.ts` | `ipc/fs.ts`、`ipc/watch.ts`、`ipc/git-info.ts` |
 | 图片 / 文档上传 | `personal/chat/composer/PersonalComposer.tsx` | — | `ipc/image.ts`、`ipc/doc.ts`、`capabilities/doc-extract/` |

@@ -9,6 +9,11 @@
     "screenshot": "截图并复制到剪贴板",
     "annotate": "标注页面元素"
   },
+  "tabs": {
+    "newTab": "新标签页",
+    "new": "新建标签页",
+    "close": "关闭标签页"
+  },
   "address": {
     "placeholder": "输入网址,或本地端口(如 localhost:5173)",
     "label": "地址栏",

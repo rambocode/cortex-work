@@ -147,6 +147,10 @@ html, body {
   position: relative;
   /* 全局字号/UI 缩放（通用设置 字号 → --font-scale，挂 documentElement）。 */
   zoom: var(--font-scale, 1);
+  /* zoom 校正后的「帧内可用视口宽」:zoom 子树里 100vw 不随 zoom 缩放(渲染时还会再乘 zoom),
+     直接用 100vw 的宽度公式会高估可用宽度 → 右栏溢出窗口右缘(x 按钮/右 rail 被裁)。
+     所有帧内布局公式一律用本变量代替 100vw。 */
+  --pw-vw: calc(100vw / var(--font-scale, 1));
 }
 
 /* button 视觉 reset 置于 @layer base，与 Tailwind v4 base 层对齐：让 <button> 上的
@@ -4382,8 +4386,11 @@ button.sb-row {
 .pw-center-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; }
 
 /* Prompt 库右栏（列表态固定 320px,不可拖） */
-/* min-width:0——中栏有 --pw-center-min 的硬下限,空间不足时右栏(而不是会话区)收缩让位。 */
-.pw-prompts { width: 320px; min-width: 0; position: relative; }
+/* min-width:0——中栏有 --pw-center-min 的硬下限,空间不足时右栏(而不是会话区)收缩让位。
+   flex-shrink:1 必须显式写:经典布局的 .right 基础规则带 flex-shrink:0,会一并命中本栏;
+   不放开 shrink 的话,下方各档 min-width 让位公式全部失效——宽度公式(按视口算)一旦超过
+   实际可用空间就整栏溢出窗口右缘,表现为面板头的 x 按钮与右 rail 被裁掉(非全屏窗口实锤)。 */
+.pw-prompts { width: 320px; min-width: 0; position: relative; flex-shrink: 1; }
 /* 右栏浮起卡片:去分隔线,加圆角/阴影,左侧间隙改由中栏透出(margin-left:0)。
    不用 overflow:hidden(否则裁掉左缘拖拽条 .pw-rp-resizer),改给顶部头加圆角。 */
 .body:has(.pw-main) .pw-upper > .right {
@@ -4464,11 +4471,11 @@ button.sb-row {
    关闭浏览器视图回到 320px。
    默认宽度限制在视口内;一旦拖拽写入 --rp-custom-width,不再用 CSS max-width 二次夹小,
    避免 TS 已按当前几何算出的宽度被 CSS 再夹一次,造成第一帧向右跳。
-   min-width 的兜底项 = 100vw - 左栏 288 - 中栏下限(--pw-center-min) - 右 rail 48:
+   min-width 的兜底项 = 视口宽(--pw-vw,经 zoom 校正) - 左栏 288 - 中栏下限(--pw-center-min) - 右 rail 48:
    中栏优先保下限,窗口不够宽时浏览器面板收缩(calc 为负时按 0 处理,面板可被完全让出)。 */
 .pw-prompts:has(.pw-browser) {
-  width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
-  min-width: min(360px, calc(100vw - 288px - var(--pw-center-min) - 48px));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 3 / 7), max(280px, calc(var(--pw-vw) - 250px))));
+  min-width: min(360px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px));
 }
 /* 产物编辑器(演示文稿 / 设计稿):默认展宽,但必须给中栏(会话区)留出 660px——
    低于这个宽度消息气泡与输入框那一排控件会被挤成窄条(实机反馈)。
@@ -4476,14 +4483,14 @@ button.sb-row {
    288px 是左栏 .sidebar 的固定宽。窗口本身撑不下「288+660+编辑器」时由 max() 兜底:
    宁可让中栏低于 660,也不能把编辑器夹成不可用的窄缝。 */
 .pw-prompts:has(.pw-artifact-editor) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
 /* 会话白板是宽内容面板：560px 起步、允许拖拽，并让画布根节点完整占满内容区。 */
 .pw-prompts:has(.pw-code-canvas) {
-  width: var(--rp-custom-width, min(62vw, max(560px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(560px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-code-canvas) .pw-rp-resizer { display: block; }
 .pw-code-canvas { min-height: 0; flex: 1; }
@@ -4492,23 +4499,23 @@ button.sb-row {
    两处必须一起改（PersonalRightPanel 的 RP_LEFT_RESERVED_ARTIFACT 判定也把 research
    算进同一档），否则会出现「拖拽上限按 660 算、默认宽度按 250 算」的错位。 */
 .pw-prompts:has(.pw-research-panel) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
 /* 知识库文档预览：同上那条宽度公式。文档里表格很常见,320px 的窄栏会把每列压成一列一个字;
    中栏仍保 660px 以便边读边问。同样三处联动（本规则 + isWidePanel 判定 + RP_LEFT_RESERVED_ARTIFACT）。 */
 .pw-prompts:has(.pw-kbdoc) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-kbdoc) .pw-rp-resizer { display: block; }
 /* pi 会话产物面板(rightView:"piArtifacts")：同上那条宽度公式。HTML 产物(图表/仪表盘)在
    320px 窄栏没有可用性;中栏保 660px 继续对话。缺这条规则的实机表现是「默认窄条只露一角、
    拖拽条不显示,只能靠放大键全屏遮中栏」——三处联动(本规则 + isWidePanel + RP_LEFT_RESERVED_ARTIFACT)。 */
 .pw-prompts:has(.pw-pa-panel) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 .pw-prompts:has(.pw-pa-panel) .pw-rp-resizer { display: block; }
 
@@ -4516,9 +4523,9 @@ button.sb-row {
    右栏已经持久化的 --rp-custom-width 后横向铺满会话区。窄窗口允许继续收缩到可用空间，
    但正常桌面窗口至少保留 360px，保证角色名称、状态和开关仍能同排展示。 */
 .pw-prompts:has(.pw-sa-panel) {
-  width: min(420px, calc(100vw - 48px));
+  width: min(420px, calc(var(--pw-vw) - 48px));
   /* 360px 让位于中栏下限:窗口不够宽时目录先收缩,不把会话区压到 --pw-center-min 以下。 */
-  min-width: min(360px, calc(100vw - 288px - var(--pw-center-min) - 48px));
+  min-width: min(360px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px));
   max-width: 420px;
 }
 
@@ -4553,9 +4560,9 @@ button.sb-row {
 /* 详情/文件预览态:--rp-custom-width（拖拽设置）优先,未设置走自动档位。
    返回列表后回到上方固定 320px,自定义宽度不影响列表。 */
 .pw-prompts:has(.pw-todos.is-detail) {
-  width: var(--rp-custom-width, 40vw);
+  width: var(--rp-custom-width, calc(var(--pw-vw) * 0.4));
   /* 480px 上限 + 中栏下限让位:默认窗宽(1000)下详情不再把会话区压到 --pw-center-min 以下。 */
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 /* 文件打开后:与产物/研究/知识库同一条向左展宽公式 —— 参与三栏 flex,中栏被真实压缩
    到 660px 并自适应重排(旧版是绝对定位 overlay 盖住中栏,会话内容左边留白右边被遮挡)。
@@ -4563,8 +4570,8 @@ button.sb-row {
    :not(.is-maximized):本条特异性高于 .pw-prompts.is-maximized(在源码上方),
    不排除放大态的话宽度档位会压住放大规则,「放大」按钮形同虚设。 */
 .pw-prompts:not(.is-maximized):has(.pw-rp-view.is-fileopen) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - var(--pw-center-min) - 48px)));
+  width: var(--rp-custom-width, min(calc(var(--pw-vw) * 0.62), max(480px, calc(var(--pw-vw) - 288px - 660px))));
+  min-width: var(--rp-custom-width, min(480px, calc(var(--pw-vw) - 288px - var(--pw-center-min) - 48px)));
 }
 /* 展宽态(详情/文件预览):顶部贴齐标题栏——去掉顶部 8px 浮起缝隙与顶角圆角,
    否则浮起卡片左上圆角+阴影会在缝隙里露出一个静态小凸角(窄态在最右不显眼,
@@ -10187,6 +10194,48 @@ button.sb-row {
 
 /* ── 内嵌浏览器面板（右栏 RightView="browser"，见 BrowserView.tsx）─────────── */
 .pw-browser { display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--bg-1, #fff); }
+/* 多标签条(壳级):标签横排可滚,末尾常驻「新建」。标签 = 标题(截断) + 关闭钮。 */
+.pw-browser-tabs {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.pw-browser-tab {
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0; max-width: 180px; flex: 0 1 auto;
+  padding: 3px 6px 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.pw-browser-tab:hover { background: var(--bg-hover); }
+.pw-browser-tab.is-active { background: var(--bg-card); border-color: var(--border); color: var(--text-1); }
+.pw-browser-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pw-browser-tab-close {
+  display: grid; place-items: center;
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.pw-browser-tab-close:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-browser-tab-add { flex-shrink: 0; }
+/* pane 堆叠层:各标签页绝对定位叠放,非活跃用 visibility 隐藏(保持挂载,webview 保活)。
+   不能用 display:none —— Electron <webview> 在 display:none 下会进入异常状态(官方已知限制)。 */
+.pw-browser-panes { position: relative; flex: 1; min-height: 0; }
+.pw-browser-pane {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  visibility: hidden;
+  background: var(--bg-1, #fff);
+}
+.pw-browser-pane.is-active { visibility: visible; z-index: 1; }
 .pw-browser-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .pw-browser-nav { display: flex; align-items: center; gap: 2px; }
 .pw-browser-actions { display: flex; align-items: center; gap: 2px; }
