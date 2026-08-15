@@ -456,6 +456,7 @@ export {
   personalBranchKeys,
   personalProcessKeys,
   personalRunEventsKeys,
+  personalRunPromptsKeys,
   personalProcessArchiveKeys,
   usePersonalBranches,
   buildAttachmentSystemPrompt,
@@ -464,6 +465,7 @@ export {
   usePersonalChat,
   usePersonalProcess,
   usePersonalRunEvents,
+  usePersonalRunPrompts,
   usePersonalProcessArchive,
   pruneProcessArchives,
   discardProcessArchives,
@@ -491,6 +493,7 @@ export {
   type TodoAttachment,
   type PersonalActions,
   type RunEvent,
+  type RunPromptRecord,
 } from "./personal/messages";
 // 工作过程归档(每轮过程流 + 工具调用快照,落 chats/<id>.process.json)：类型与纯逻辑。
 export {

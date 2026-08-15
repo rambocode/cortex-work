@@ -133,6 +133,23 @@ export const personalRunEventsKeys = {
   detail: (sessionId: string) => ["personal", "runEvents", sessionId] as const,
 };
 
+// 瞬态「每轮用户 prompt」query key:trajectory 视图(运行过程详情)按 runId 匹配出每一轮
+// (Turn)的 USER 单元格。CliStreamEvent 流本身不含用户输入(init 帧无 prompt 正文),
+// 故在发送入口单独记一条。生命周期与运行事件流一致:不落盘,随 clearRunEvents 一并清。
+export const personalRunPromptsKeys = {
+  detail: (sessionId: string) => ["personal", "runPrompts", sessionId] as const,
+};
+
+// 每轮用户 prompt 记录(trajectory USER 行数据源)。
+export interface RunPromptRecord {
+  runId: string;
+  ts: number;
+  text: string;
+}
+
+// prompt 记录上限:与 MAX_RUN_EVENTS 同理防膨胀;一轮一条,200 轮远超单会话实际规模。
+const MAX_RUN_PROMPTS = 200;
+
 // 「工作过程」归档 query key:每轮结束时由瞬态两条流打的快照,**落盘**(chats/<id>.process.json,
 // 与正文分文件,见 process-archive.ts 文件头)。这是过程流里唯一持久的一份:瞬态流只服务当前轮,
 // 归档服务「重开会话/重启后回看历史轮」。
@@ -988,10 +1005,20 @@ function recordRunEvent(qc: QueryClient, sessionId: string, runId: string, ev: C
   });
 }
 
+// 记录一轮的用户 prompt 到瞬态流(发送入口调用):trajectory 视图据 runId 归位 USER 行。
+function recordRunPrompt(qc: QueryClient, sessionId: string, runId: string, text: string): void {
+  qc.setQueryData<RunPromptRecord[]>(personalRunPromptsKeys.detail(sessionId), (prev) => {
+    const next = [...(prev ?? []), { runId, ts: Date.now(), text }];
+    return next.length > MAX_RUN_PROMPTS ? next.slice(next.length - MAX_RUN_PROMPTS) : next;
+  });
+}
+
 // 立即清空某会话的运行事件流(会话删除/editResend 截断出口用)。运行事件跨轮累积,故普通
 // 「下一轮开始」不清(与 clearProcess 生命周期不同);只在历史被重写/会话消亡时整条移除。
+// 每轮 prompt 记录与事件流同生命周期,一并清除。
 export function clearRunEvents(qc: QueryClient, sessionId: string): void {
   qc.removeQueries({ queryKey: personalRunEventsKeys.detail(sessionId), exact: true });
+  qc.removeQueries({ queryKey: personalRunPromptsKeys.detail(sessionId), exact: true });
 }
 
 // ── 工作过程归档(落盘) ────────────────────────────────────────────────────
@@ -3875,6 +3902,19 @@ export function usePersonalRunEvents(sessionId: string | undefined): RunEvent[] 
   return useThrottledValue(data ?? EMPTY_RUN_EVENTS, CHAT_RENDER_THROTTLE_MS);
 }
 
+// 瞬态每轮用户 prompt(trajectory USER 行)。生命周期/形态同 usePersonalRunEvents。
+const EMPTY_RUN_PROMPTS: RunPromptRecord[] = [];
+export function usePersonalRunPrompts(sessionId: string | undefined): RunPromptRecord[] {
+  const { data } = useQuery<RunPromptRecord[]>({
+    queryKey: personalRunPromptsKeys.detail(sessionId ?? "none"),
+    queryFn: () => EMPTY_RUN_PROMPTS,
+    enabled: !!sessionId,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  return useThrottledValue(data ?? EMPTY_RUN_PROMPTS, CHAT_RENDER_THROTTLE_MS);
+}
+
 // 渲染窗口默认尺寸与每次「展开更多」步长。
 export const RENDER_WINDOW_INITIAL = 20;
 export const RENDER_WINDOW_STEP = 20;
@@ -4275,6 +4315,8 @@ export function usePersonalActions(): PersonalActions {
       clearProcess(qc, session.id);
 
       appendUserMessage(qc, session.id, text, attachments, refs, docRefs);
+      // trajectory 视图(运行过程详情)的 USER 行:事件流无 prompt 正文,发送入口单独记一条。
+      recordRunPrompt(qc, session.id, runId, text);
       appendMsg(qc, session.id, {
         kind: "typing",
         who: session.agent,
