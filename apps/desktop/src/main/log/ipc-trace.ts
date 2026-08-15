@@ -16,6 +16,11 @@ import { redactData } from "./redact";
 const log = createLogger("ipc");
 let installed = false;
 
+// 高频探测型通道:一次消息渲染就会批量发几十次(会话里的文件链接逐个探测),成功日志恒为
+// `{ ms: 0 }`,无观测价值,却按次付日志格式化/控制台输出的 CPU。成功路径不记;
+// 失败(reject)仍走下方分级记录,可观测性缺口只砍噪声不砍故障。
+const NOISY_SUCCESS_CHANNELS = new Set(["fs:exists", "fs:resolveProjectFile"]);
+
 // 入参摘要：第 0 个实参是 IpcMainInvokeEvent（含 sender 等重对象），跳过；其余脱敏 + 截断。
 function summarizeArgs(args: unknown[]): unknown {
   return redactData(args.slice(1));
@@ -43,10 +48,12 @@ export function installIpcTrace(): void {
       const start = Date.now();
       try {
         const result = await listener(...args);
-        try {
-          log.debug(`ipc ${channel}`, { ms: Date.now() - start });
-        } catch {
-          /* 日志失败不影响 IPC */
+        if (!NOISY_SUCCESS_CHANNELS.has(channel)) {
+          try {
+            log.debug(`ipc ${channel}`, { ms: Date.now() - start });
+          } catch {
+            /* 日志失败不影响 IPC */
+          }
         }
         return result;
       } catch (err) {

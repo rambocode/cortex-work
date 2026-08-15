@@ -87,6 +87,24 @@ describe("installIpcTrace", () => {
     expect(logSpies.error).toHaveBeenCalledTimes(1);
   });
 
+  // fs:exists 一类批量探测通道:一次消息渲染几十条 { ms: 0 } 成功日志纯属噪声 + CPU 浪费。
+  it("高频探测通道(fs:exists)成功不记日志,失败仍记 error", async () => {
+    installIpcTrace();
+    ipcMainStub.handle("fs:exists", async () => true);
+    await expect(handleStore.get("fs:exists")!(fakeEvent, "/x")).resolves.toBe(true);
+    expect(logSpies.debug).not.toHaveBeenCalled();
+    expect(logSpies.error).not.toHaveBeenCalled();
+
+    ipcMainStub.handle = origHandle;
+    __resetIpcTraceForTests();
+    installIpcTrace();
+    ipcMainStub.handle("fs:exists", async () => {
+      throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    });
+    await expect(handleStore.get("fs:exists")!(fakeEvent, "/x")).rejects.toThrow("EACCES");
+    expect(logSpies.error).toHaveBeenCalledTimes(1);
+  });
+
   it("幂等：重复 install 不重复包裹（成功仅记一次）", async () => {
     installIpcTrace();
     installIpcTrace();
