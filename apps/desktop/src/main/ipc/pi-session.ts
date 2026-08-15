@@ -23,6 +23,7 @@ import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
 import { assertSpawnCwd, resolveSpawnCwd } from "./cli";
+import { resolveRgPath } from "./fs-search-core";
 import { getPersistedState } from "./store";
 import { buildBrowserMcpServerConfig } from "../capabilities/browser/inject";
 import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "../capabilities/agent-browser/inject";
@@ -388,6 +389,8 @@ export async function preparePiOpenRequest(
   delete prepared.provider;
   // jsReplSentinel 同为主进程内部字段:renderer 若能预置它,就能伪造 method:"jsrepl" 的触发前缀。
   delete prepared.jsReplSentinel;
+  // rgBinaryPath 同为主进程内部字段:renderer 若能预置,就能让 worker execFile 任意二进制。
+  delete prepared.rgBinaryPath;
   // cwd 归一放在最前:空串历史上会让 spawn 继承 Electron 自己的工作目录;gateway 下 worker 的
   // 会话文件与工具根同样按它推导,语义保留。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
@@ -403,6 +406,7 @@ export async function preparePiOpenRequest(
     prepared.webSearch = false;
     prepared.enableArtifactsTool = false;
     prepared.enableJsReplTool = false;
+    prepared.enableGlobTool = false;
     prepared.enableSampleTools = false;
     prepared.enableSampleCommands = false;
   }
@@ -413,6 +417,7 @@ export async function preparePiOpenRequest(
     prepared.inProcExtensionPaths = undefined;
     prepared.enableArtifactsTool = false;
     prepared.enableJsReplTool = false;
+    prepared.enableGlobTool = false;
     prepared.enableSampleTools = false;
     prepared.enableSampleCommands = false;
   }
@@ -434,6 +439,15 @@ export async function preparePiOpenRequest(
   // jsrepl 的会话级 sentinel:仅在 renderer 请求启用该工具时生成（不启用就不给 normalize 分支
   // 留任何可命中的前缀）。上方已 delete renderer 传入的同名字段,这里必为新生成值。
   if (prepared.enableJsReplTool) prepared.jsReplSentinel = `@@CORTEX_JSREPL:${randomUUID()}@@`;
+  // glob 工具的 rg 二进制路径:主进程解析一次随 open 下发（worker 模块解析跨 dev/asar 不可靠）。
+  // 解析失败(平台包缺失)→ 不注入,worker 侧据此不注册工具——比注册一个必然失败的工具更好。
+  if (prepared.enableGlobTool) {
+    try {
+      prepared.rgBinaryPath = resolveRgPath();
+    } catch (err) {
+      log.warn(`glob 工具不可用（rg 二进制解析失败）: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   // child profile 到此已完成全部必要准备。后续代码会读取用户设置并注册普通聊天 MCP / Computer
   // Use，绝不能让 delegate/design child 进入；空 bridgeServers 也让 worker 侧工具集可直接断言。

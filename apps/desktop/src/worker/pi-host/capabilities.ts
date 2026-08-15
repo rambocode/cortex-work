@@ -34,6 +34,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { PiInProcDeps } from "../../main/agents/pi-inproc";
 import { createArtifactsTool } from "../../main/agents/pi-inproc/artifacts-tool";
+import { createGlobTool } from "../../main/agents/pi-inproc/glob-tool";
 import { createJsReplTool } from "../../main/agents/pi-inproc/js-repl-tool";
 import { createPiNativeHooks, type PiApprovalRecord } from "../../main/agents/pi-inproc/native-hooks";
 import { createMcpInProcTools } from "../../main/agents/pi-mcp-inproc";
@@ -94,6 +95,11 @@ export async function buildWorkerDeps(
   if (prepared.enableArtifactsTool) webUiTools.push(createArtifactsTool());
   if (prepared.enableJsReplTool && prepared.jsReplSentinel && ctx.hasUiOutlet()) {
     webUiTools.push(createJsReplTool(prepared.jsReplSentinel));
+  }
+  // glob 文件发现:执行体就在 worker 内 execFile 打包 rg。二进制路径必须由主进程解析注入
+  // (rgBinaryPath);缺失 = 平台包不可用,不注册——必然失败的工具比不给更糟(computer-use 判例)。
+  if (prepared.enableGlobTool && prepared.rgBinaryPath) {
+    webUiTools.push(createGlobTool(prepared.cwd, prepared.rgBinaryPath));
   }
 
   const { tools: mcpTools, dispose: disposeMcp } = await buildMcpTools(

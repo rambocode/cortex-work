@@ -1165,6 +1165,12 @@ export interface PiOpenRequest {
   // pi-web-ui 移植工具开关（renderer 传,仅聊天会话路径置 true;oneshot/编排子会话不传即不注册）。
   enableArtifactsTool?: boolean;
   enableJsReplTool?: boolean;
+  // glob 文件发现工具（renderer 传,聊天会话置 true;与 core 镜像）。执行体在 worker 内跑
+  // 打包 rg,二进制路径见下方 rgBinaryPath。
+  enableGlobTool?: boolean;
+  // 主进程内部填充（同 jsReplSentinel 的模式）:preparePiOpenRequest 解析的 rg 二进制绝对路径。
+  // worker 的模块解析跨 dev/asar 不可靠,主进程解析一次是唯一权威;renderer 不传,入口强制 delete。
+  rgBinaryPath?: string;
   // 与 core 镜像：Cortex/Pi 主会话的委派目录与本轮资源上限。主进程据此给长驻 RPC 注入
   // delegate MCP；delegate 子 Agent 强制另开 Pi gateway RPC，并把审批请求路由回父会话。
   delegateRoles?: RoleConfig[];
@@ -1543,6 +1549,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "grep",
   "find",
   "ls",
+  // glob 文件发现(自定义工具,agents/pi-inproc/glob-tool.ts):纯只读,plan 档应可用。与 core 镜像。
+  "glob",
   "browser_navigate",
   "browser_screenshot",
   "browser_read_dom",

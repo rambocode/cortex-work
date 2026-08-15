@@ -1680,6 +1680,9 @@ export interface PiOpenRequest {
   // types.ts 存在（本镜像不含,renderer 传了也会被 preparePiOpenRequest 入口 delete）。
   enableArtifactsTool?: boolean;
   enableJsReplTool?: boolean;
+  // glob 文件发现工具(参照 deepseek-harness glob 契约,worker 内跑打包 rg):聊天会话置 true。
+  // rg 二进制路径是主进程内部字段,不在本镜像。
+  enableGlobTool?: boolean;
   // Cortex 主会话的自动/显式委派目录。Pi 长驻 RPC 在 open 时把对应 delegate MCP 工具注册进
   // 会话；子 Agent 由主进程另开短生命周期 Pi RPC，会话本身不再切回无审批的 startCli。
   // 工具集在 open 时冻结，因此角色运行配置变化必须进入 renderer 侧 extension fingerprint。
@@ -2092,6 +2095,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "grep",
   "find",
   "ls",
+  // glob 文件发现(自定义工具,agents/pi-inproc/glob-tool.ts):纯只读,plan 档应可用。
+  "glob",
   ...BROWSER_MCP_PLAN_TOOLS,
   ...COMPUTER_USE_READONLY_TOOLS,
   ...AUTOMATION_READONLY_TOOLS,

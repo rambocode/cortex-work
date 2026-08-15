@@ -3247,6 +3247,8 @@ async function buildPiOpenForSession(
     // 工作区与 MCP 写入面，不能因为迁到 RPC 就顺带扩大为另一套产物/JS 执行能力。
     enableArtifactsTool: execution?.artifact ? undefined : true,
     enableJsReplTool: execution?.artifact ? undefined : true,
+    // glob 文件发现工具(deepseek-harness 契约):与上两者同属普通聊天能力,产物会话不注入。
+    enableGlobTool: execution?.artifact ? undefined : true,
     // 用户人设在前、工作目录约束在后（与 send 侧 globalAppend → workspaceAppend 的顺序一致）。
     appendSystemPrompt: [piSystemPrompt, workspacePrompt].filter(Boolean).join("\n\n") || undefined,
     thinkingLevel,
