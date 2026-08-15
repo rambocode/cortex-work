@@ -98,6 +98,7 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
   - 并发、时序、缓存失效、WebSocket 触发 invalidation 等隐式依赖。
   - 临时绕过 / TODO / 已知限制，注明原因与后续计划。
 - **简洁优先**：改动只触及必要代码，避免顺手重构无关逻辑；能复用现有抽象就不要新造。
+- **系统提示词一律用英文**：所有发给 LLM 的 system prompt / `appendSystemPrompt` / prompt 注入块（`build*SystemPrompt`、`render*Block` 等的**返回正文**，含块内标签与说明句）必须用英文撰写。理由是模型对英文指令的遵循度更稳、token 更省。这与「和用户用 `zh-Hans` 交流」「代码注释用中文」是**按受众区分的三件事**，互不冲突：解释这段代码为什么这么写的注释仍用中文。需要模型用中文回复时，那条指令本身也用英文表述（如 `Reply in Simplified Chinese.`）。
 
 ## 提交规范
 

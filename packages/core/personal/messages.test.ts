@@ -1877,6 +1877,92 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     beginPiRun(qc, { runId, sessionId, typingUid: `typ-${sessionId}`, cwd: "/proj", promptText: "hi" });
   }
 
+  // ── 会话统计条：一轮 pi 事件流 → turnUsage 消息里的 stats。
+  // 计时用 fake timer 精确推进，断言的是「哪段时间被算进哪一项」，而不是模糊的量级。
+  it("统计条:一整轮 pi 事件折算出 LLM/工具/TTFT/解码四项与四个 token 桶", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    try {
+      const qc = new QueryClient();
+      setupPiRun(qc);
+      // 首步没有 step-start（pi 的 firstTurn 分支不发），锚点由 beginPiRun 打在 run 创建时刻。
+      vi.advanceTimersByTime(300); // 首 token 前等 300ms → TTFT
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "先" });
+      vi.advanceTimersByTime(700); // 解码 700ms
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "看看" });
+      // tool-start 封住本步 LLM 段：LLM = 300 + 700 = 1000ms，解码 = 700ms。
+      __handlePiEventForTest(qc, "s1", { type: "tool-start", name: "Bash", toolCallId: "t1", detail: "ls" });
+      vi.advanceTimersByTime(500); // 工具跑 500ms
+      __handlePiEventForTest(qc, "s1", { type: "tool-end", name: "Bash", toolCallId: "t1", isError: false });
+      __handlePiEventForTest(qc, "s1", {
+        type: "turn-end",
+        usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 900, cacheWriteTokens: 0 },
+      });
+      // 第二步：有 step-start 锚点。
+      __handlePiEventForTest(qc, "s1", { type: "step-start" });
+      vi.advanceTimersByTime(200); // TTFT
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "答案" });
+      vi.advanceTimersByTime(400); // 解码
+      __handlePiEventForTest(qc, "s1", {
+        type: "turn-end",
+        usage: { inputTokens: 50, outputTokens: 10, cacheReadTokens: 950, cacheWriteTokens: 0 },
+      });
+      __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+      __handlePiEventForTest(qc, "s1", { type: "settled" });
+
+      const usage = chatOf(qc).find((m) => m.kind === "turnUsage") as
+        | Extract<Message, { kind: "turnUsage" }>
+        | undefined;
+      expect(usage).toBeDefined();
+      // 四个桶各自累加，缓存桶不再被丢弃。
+      expect(usage).toMatchObject({
+        inputTokens: 150,
+        outputTokens: 30,
+        cacheReadTokens: 1850,
+        cacheWriteTokens: 0,
+      });
+      expect(usage?.stats).toEqual({
+        steps: 2,
+        llmMs: 1000 + 600, // 第一步到 tool-start 为止；第二步到最后一个 delta 为止
+        toolMs: 500,
+        ttftMs: 300 + 200,
+        ttftSteps: 2,
+        decodeMs: 700 + 400,
+        decodeTokens: 30,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("统计条:自动重试作废上一次尝试的耗时与 token", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    try {
+      const qc = new QueryClient();
+      setupPiRun(qc);
+      vi.advanceTimersByTime(900);
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "半截" });
+      __handlePiEventForTest(qc, "s1", { type: "turn-end", usage: { inputTokens: 999, outputTokens: 99 } });
+      // 宣布重试：本次尝试没有产出结果，其耗时与 token 一并作废。
+      __handlePiEventForTest(qc, "s1", { type: "result", willRetry: true });
+      vi.advanceTimersByTime(100);
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "重来的答案" });
+      vi.advanceTimersByTime(200);
+      __handlePiEventForTest(qc, "s1", { type: "turn-end", usage: { inputTokens: 10, outputTokens: 2 } });
+      __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+      __handlePiEventForTest(qc, "s1", { type: "settled" });
+
+      const usage = chatOf(qc).find((m) => m.kind === "turnUsage") as
+        | Extract<Message, { kind: "turnUsage" }>
+        | undefined;
+      expect(usage).toMatchObject({ inputTokens: 10, outputTokens: 2 });
+      expect(usage?.stats).toMatchObject({ steps: 1, ttftMs: 100, decodeMs: 200, decodeTokens: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("CLI 纯工具轮(ev.ok、!sawText、!ev.text):不追加持久 text 占位", () => {
     const qc = new QueryClient();
     setupCliRun(qc);

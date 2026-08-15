@@ -250,7 +250,8 @@ describe("parseAppServerEvent(U4)", () => {
           last: { inputTokens: 12, outputTokens: 3, cachedInputTokens: 2 },
         },
       }),
-    ).toEqual({ type: "usage", inputTokens: 12, outputTokens: 3, cachedInputTokens: 2 });
+      // inputTokens 是 12 - 2 = 10:缓存部分是 inputTokens 的子集,归一化时剥离(与 codex.ts 同口径)。
+    ).toEqual({ type: "usage", inputTokens: 10, outputTokens: 3, cachedInputTokens: 2 });
     expect(parseAppServerEvent("thread/tokenUsage/updated", { tokenUsage: { total: {}, last: {} } })).toBeNull();
   });
 
@@ -552,7 +553,8 @@ describe("CodexWsChannel 握手与会话(U3)", () => {
         toolCallId: "c1",
       },
       { type: "text", delta: "这是答案" },
-      { type: "usage", inputTokens: 10, outputTokens: 3, cachedInputTokens: 1 },
+      // last.inputTokens 10 - cached 1 = 9（缓存部分已剥离，与 codex.ts 同口径）。
+      { type: "usage", inputTokens: 9, outputTokens: 3, cachedInputTokens: 1 },
       { type: "result", ok: true },
     ]);
   });

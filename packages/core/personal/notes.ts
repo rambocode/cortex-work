@@ -456,7 +456,7 @@ export function useDeepenNotes(): (noteIds: string[], onToast: (text: string) =>
       const outPath = deepenDocPath(cwd, sess.id);
       // 注入 ce-ideate 元数据 + SKILL.md 路径（降格执行,产出落点给死 outPath）+ 项目信息块共存。
       const seedPrompt = buildDeepenSystemPrompt(prep.notes, { skill, outPath });
-      const projectPrompt = buildProjectSystemPrompt(st.projects);
+      const projectPrompt = buildProjectSystemPrompt(st.projects, proj?.path);
       const extraSystemPrompt = [projectPrompt, seedPrompt].filter(Boolean).join("\n\n") || undefined;
 
       // 触发即置 deepening + 把新会话 id 追加进 conversationIds（传完整数组,main 不做 merge）。
@@ -590,7 +590,7 @@ export function useGeneratePlan(): (noteId: string, onToast: (text: string) => v
       // plan 产出确定路径（复用深化会话 id;run 收尾 fs.exists 探测此路径追加 docPaths）。
       const outPath = planDocPath(cwd, conversationId);
       const planPrompt = buildPlanSystemPrompt({ skill, outPath });
-      const projectPrompt = buildProjectSystemPrompt(st.projects);
+      const projectPrompt = buildProjectSystemPrompt(st.projects, proj?.path);
       const extraSystemPrompt = [projectPrompt, planPrompt].filter(Boolean).join("\n\n") || undefined;
       // 注意:plan 路径不在此即时追加 docPaths,改靠 run 收尾 applyDeepenFinalize 探测 planDocPath
       // 后追加（deepened 分流,不改 status）——产出未真正落地则不追加,语义更准。

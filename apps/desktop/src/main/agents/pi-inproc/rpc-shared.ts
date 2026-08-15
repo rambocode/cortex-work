@@ -17,6 +17,7 @@ import type {
   AskQuestionOption,
   JsReplEnvelope,
   PiSessionEvent,
+  TurnTokenUsage,
 } from "../../ipc/types";
 
 const log = createLogger("pi-events");
@@ -87,19 +88,27 @@ export function slashCommandName(message: string): string | undefined {
   return name || undefined;
 }
 
-// turn_end / message_end 的 usage 归一化（input/output token 数）。
-function piTurnUsage(value: unknown): { inputTokens?: number; outputTokens?: number } | undefined {
+// turn_end / message_end 的 usage 归一化。
+// 四个桶在 pi-ai 侧已是**互斥**口径：`input` 只含未命中缓存的输入（Anthropic 天然如此，
+// OpenAI 兼容层由 `prompt_tokens - cached - written` 反算），故渲染层可直接相加得计费输入，
+// 不会把缓存读重复计一次。缺失字段一律保持 undefined（供应商未上报 ≠ 0）。
+function piTurnUsage(value: unknown): TurnTokenUsage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const usage = value as Record<string, unknown>;
-  const inputTokens = typeof usage.input === "number" ? usage.input : undefined;
-  const outputTokens = typeof usage.output === "number" ? usage.output : undefined;
-  if (inputTokens === undefined && outputTokens === undefined) return undefined;
-  return { inputTokens, outputTokens };
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+  const out: TurnTokenUsage = {
+    inputTokens: num(usage.input),
+    outputTokens: num(usage.output),
+    cacheReadTokens: num(usage.cacheRead),
+    cacheWriteTokens: num(usage.cacheWrite),
+  };
+  return Object.values(out).some((v) => v !== undefined) ? out : undefined;
 }
 
 /**
  * 把 pi 的 AgentSessionEvent 映射为归一化 PiSessionEvent。
- * 无状态纯函数:无法识别 / 需忽略的事件（agent_start、turn_start、message_start、
+ * 无状态纯函数:无法识别 / 需忽略的事件（agent_start、message_start、
  * text_start、text_end、toolcall_start/delta/end、auto_retry_end、response、以及 toolUse 中间收尾的
  * message_end）返回 null。run 失败的 message_end（stopReason=error|aborted）映射为 error 事件。
  * 正常最终 message_end（stop/length）也映射为 result，兜住 pi 偶发缺 agent_end 的终态。
@@ -150,9 +159,14 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
         return { type: "error", error };
       }
       // stop/length 是最终边界,产出 result,兜住 pi 偶发缺 agent_end 时 renderer 永久卡 running。
+      //
+      // ⚠️ **刻意不带 usage**:pi 的 agent loop 对每一步都在 message_end 之后紧接着 emit
+      // turn_end,且两者携带的是**同一个 message 的同一份 usage**(pi-agent-core 的
+      // agent-loop:`streamAssistantResponse` 内发 message_end,循环末尾发 turn_end)。
+      // 这里再带一份,渲染层的 addRunTokenUsage 会把最后一步的 token 累加两次——会话统计条
+      // 的输入/输出与缓存命中率会随之失真。usage 的唯一来源统一收敛到 turn-end。
       if (stopReason === "stop" || stopReason === "length") {
-        const usage = piTurnUsage(msg?.usage);
-        return { type: "result", willRetry: false, ...(usage ? { usage } : {}) };
+        return { type: "result", willRetry: false };
       }
       // 盲区补点(R10):非空的未知 stopReason → 不产任何终态事件,renderer 可能永久卡「思考中」。
       // 记录原始值便于定位 pi 协议漂移;已知值(error/aborted/stop/length/toolUse)与缺省静默,不噪声。
@@ -220,6 +234,11 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       if (output !== undefined) out.output = output;
       return out;
     }
+    // 一步开始:会话统计条的计时锚点(TTFT / LLM 耗时的 0 点)。pi 的一个 turn =
+    // 一次 provider 请求 + 其后的工具执行,故 turn_start → turn_end 是完整一步。
+    // 无载荷、不渲染;渲染层只在 RunState 上打时间戳。
+    case "turn_start":
+      return { type: "step-start" };
     case "turn_end": {
       const message = o.message as Record<string, unknown> | undefined;
       const usage = piTurnUsage(message?.usage);

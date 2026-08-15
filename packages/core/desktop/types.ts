@@ -6,9 +6,20 @@ import type { PetSpriteSource } from "./petdex-types";
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+/**
+ * 一次模型调用的 token 用量。四个桶**互斥不重叠**，可直接相加：
+ * pi-ai 在各 provider 适配层已统一口径——`inputTokens` 是「未命中缓存的输入」
+ * （Anthropic 天然如此；OpenAI 侧由 `prompt_tokens - cached - written` 反算），
+ * 缓存读/写各自独立成桶。所以计费输入 = input + cacheRead + cacheWrite。
+ * 缺失字段表示该供应商未上报，不等于 0（展示层要按 undefined 处理）。
+ */
 export interface TurnTokenUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /** 命中缓存被读取的输入 token（Anthropic `cache_read_input_tokens` 同源）。 */
+  cacheReadTokens?: number;
+  /** 写入缓存的输入 token（Anthropic `cache_creation_input_tokens` 同源）。 */
+  cacheWriteTokens?: number;
 }
 
 export type ConversationArtifactKind = "design" | "slides";
@@ -1698,6 +1709,10 @@ export type PiSessionEvent =
   // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
   // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
   | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
+  // 一步（pi turn_start）开始 —— 会话统计条的**计时锚点**：TTFT 与 LLM 耗时都以它为 0 点。
+  // pi 的一个 turn = 一次 provider 请求 + 其后的工具执行，故 step-start → turn-end 是完整一步。
+  // 纯信号、无载荷；渲染层只在 RunState 上打时间戳，不进消息流也不进过程流。
+  | { type: "step-start" }
   | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
   | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）

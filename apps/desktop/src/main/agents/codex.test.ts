@@ -360,13 +360,15 @@ describe("codexDef.parseLine", () => {
     expect(codexDef.parseLine(line)).toEqual({ type: "text", delta: "OK" });
   });
 
-  it("turn.completed 带 usage → [usage, result] 两事件(usage 在前)", () => {
+  // inputTokens 是 10 - 3 = 7:OpenAI 的 cached_input_tokens 是 input_tokens 的子集,
+  // 归一化时剥离,才能与 claude / pi 共用「四桶互斥、可直接相加」的口径(见 TurnTokenUsage)。
+  it("turn.completed 带 usage → [usage, result] 两事件(usage 在前,输入已剥离缓存部分)", () => {
     const line = JSON.stringify({
       type: "turn.completed",
       usage: { input_tokens: 10, output_tokens: 5, cached_input_tokens: 3 },
     });
     expect(codexDef.parseLine(line)).toEqual([
-      { type: "usage", inputTokens: 10, outputTokens: 5, cachedInputTokens: 3 },
+      { type: "usage", inputTokens: 7, outputTokens: 5, cachedInputTokens: 3 },
       { type: "result", ok: true },
     ]);
   });

@@ -1682,6 +1682,28 @@ input, textarea { font: inherit; color: inherit; }
   min-width: 0;
 }
 .composer:focus-within { border-color: var(--border-strong); }
+
+/* 会话统计条：输入框下方一行弱化说明文本，宽度轴与 .composer 对齐（同样的 728px 上限
+   + 居中），这样它读起来是输入框的脚注而不是另一块内容。
+   用 block 而不是 flex：text-overflow 只对块级元素的行内内容生效，flex 布局下超长文本
+   会在字形中间被硬裁，看不到省略号（截断时由组件挂 title 给出全文）。 */
+.pw-stats-line {
+  display: block;
+  width: 100%;
+  max-width: 728px;
+  margin: 4px auto 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pw-stats-sep { margin: 0 8px; opacity: 0.5; }
 .composer .attach-row {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 6px 10px 0;

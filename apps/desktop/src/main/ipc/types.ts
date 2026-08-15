@@ -10,9 +10,18 @@ export type { ResearchEngineMainSettings, ResearchSearchServerSettings } from ".
 
 export type AgentKind = "claude" | "codex" | "pi";
 
+/**
+ * 一次模型调用的 token 用量。四个桶**互斥不重叠**，可直接相加：pi-ai 在各
+ * provider 适配层已统一口径（`inputTokens` 只含未命中缓存的输入），故计费输入
+ * = input + cacheRead + cacheWrite。缺失字段表示供应商未上报，不等于 0。
+ */
 export interface TurnTokenUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /** 命中缓存被读取的输入 token。 */
+  cacheReadTokens?: number;
+  /** 写入缓存的输入 token。 */
+  cacheWriteTokens?: number;
 }
 
 export type ConversationArtifactKind = "design" | "slides";
@@ -1194,6 +1203,8 @@ export type PiSessionEvent =
   // todo 事件:自定义 todo_write 工具(pi-todo extension)调用的任务清单整表快照(覆盖语义)。
   // adapter 侧把 tool_execution_start 特判转成本事件,对应 tool-end 被吞掉(避免过程流噪音)。
   | { type: "todo"; todos: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
+  // 一步（pi turn_start）开始 —— 会话统计条的计时锚点：TTFT 与 LLM 耗时以它为 0 点。
+  | { type: "step-start" }
   | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
   | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）

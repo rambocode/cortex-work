@@ -242,6 +242,11 @@ export class PiInProcSession implements PiSessionEngine {
     private readonly uiBridge: PiUiBridge,
     private readonly onEvent: (ev: PiSessionEvent, runId?: string) => void,
     private readonly uiSessionId: string,
+    /**
+     * 本会话 open 时的工作目录（`PiOpenRequest.cwd`，已过主进程 resolveSpawnCwd 归一）。
+     * 恢复链路要用它压过 JSONL header 里的历史 cwd —— 见 `switchSession`。
+     */
+    private readonly cwd: string,
     /** 外部资源释放钩子，见 `PiInProcDeps.onDispose`。 */
     private readonly onDispose?: () => Promise<void> | void,
   ) {
@@ -485,10 +490,19 @@ export class PiInProcSession implements PiSessionEngine {
     });
   }
 
-  /** 从磁盘 JSONL 恢复会话（崩溃/空闲/LRU/重启恢复）。cwd 缺失等由 run() 转成 success:false。 */
+  /**
+   * 从磁盘 JSONL 恢复会话（崩溃/空闲/LRU/重启恢复）。cwd 缺失等由 run() 转成 success:false。
+   *
+   * **必须传 `cwdOverride`**：pi 的 `switchSession` 默认拿 JSONL header 里记的 cwd 重建运行时
+   * （`sessionManager.getCwd()`），那是**会话文件创建当时**的目录。它与 Cortex 的真相不一致——
+   * 用户可能已把会话挪到别的项目，历史档甚至可能是早年空 cwd 落在程序目录时写的。不覆盖的话，
+   * 恢复后系统提示里的 `Current working directory` 就是个陈旧值，模型据此检索必然跑偏。
+   * 单发路径早已显式传 cwd 防这一手（见 oneshot.ts 的 SessionManager.open 第三参），长驻会话
+   * 此前漏了。
+   */
   switchSession(sessionPath: string): Promise<RpcResponse> {
     return this.run("switch_session", async () => {
-      const result = await this.runtime.switchSession(sessionPath);
+      const result = await this.runtime.switchSession(sessionPath, { cwdOverride: this.cwd });
       if (!result.cancelled) await this.rebind();
       return result;
     });
@@ -735,7 +749,7 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
     ...(jsReplSentinel ? { jsReplSentinel } : {}),
   });
 
-  const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, deps.onDispose);
+  const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, cwd, deps.onDispose);
   notifySlot.emit = session.notifySink();
   // 必须早于 rebind：session_start handler 本身可能等待 UI 应答，调用方需先
   // 拿到 respondUi 句柄才能解锁它。此回调不表示 open 已完成，权威就绪点仍是下方 await。

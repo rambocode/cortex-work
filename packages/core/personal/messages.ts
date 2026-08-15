@@ -5,7 +5,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { AgentLogItem, ChatFileRef, ChatImageRef, Message, TodoListItem, TypingActivity } from "../types";
+import type {
+  AgentLogItem,
+  ChatFileRef,
+  ChatImageRef,
+  Message,
+  TodoListItem,
+  TurnStats,
+  TurnTokenUsage,
+  TypingActivity,
+} from "../types";
 import type {
   AgentKind,
   ConversationArtifactRef,
@@ -32,6 +41,7 @@ import type { ModelRef } from "../desktop/provider-catalog";
 // 发送前 vision 阻断（计划 §2.3）：能力只读、三态（含 unknown），见 modelCapabilities 文件头。
 import { checkImageSupport, providerConfigFingerprint } from "./modelCapabilities";
 import { renderSkillBlock, resolveEnabledSkillRecords, stripSkillDirective, type InjectableSkill } from "./skill-injection";
+import { buildWorkspaceSystemPrompt } from "./workspacePrompt";
 import { useDesktopBridge } from "../provider";
 import { usePersonalStore, type VisionBlockHint } from "../store/personal";
 import { piArtifactKind, usePiArtifactsStore } from "../store/piArtifacts";
@@ -206,16 +216,29 @@ export function buildTurnPromptText(text: string, attachmentPrompt: string | und
 }
 
 // 个人工作区项目清单 → system prompt 块（让 agent 知道用户有哪些本地项目及绝对路径）。
-// 排除归档项目;无可用项目返回 undefined。Spotlight 默认「不使用项目」时 cwd 是 no-project
-// 目录,但此块仍列出项目,便于 agent 按需进入某项目。
-export function buildProjectSystemPrompt(projects: ProjectMeta[]): string | undefined {
+// 排除归档项目;无可用项目返回 undefined。
+//
+// ⚠️ `currentProjectPath` 不是可选的装饰：该块此前**无条件**写死一句「当前会话默认不在任何
+// 项目目录下工作」，而三个调用点（Spotlight 交接、闪记深化、生成 plan）在**已绑定项目**的
+// 会话里同样注入它。于是模型一边看到 `Current working directory: <项目路径>`，一边被告知
+// 「你不在任何项目目录下」——一句与事实矛盾的话，正是用户报告「检索位置被放大」的来源。
+// 绑定了项目就必须把这句改成事实陈述。注意只改事实、**不加范围限制**：其它项目照常列出，
+// 该不该进去由模型自己判断（见 workspacePrompt.ts 关于「不写约束」的说明）。
+export function buildProjectSystemPrompt(
+  projects: ProjectMeta[],
+  currentProjectPath?: string,
+): string | undefined {
   const active = projects.filter((p) => p.archivedAt == null);
   if (active.length === 0) return undefined;
   const lines = active.map((p) => `- ${p.name}: ${p.path}`).join("\n");
+  const current = currentProjectPath?.trim();
+  // 块的正文用英文（全局约定：发给 LLM 的系统提示一律英文）。
   return [
     "<personal_workspace_projects>",
-    "以下是用户「个人工作区」中登记的本地项目(名称: 绝对路径)。",
-    "当前会话默认不在任何项目目录下工作;如需操作某项目,请使用其绝对路径。",
+    "Local projects registered in the user's personal workspace (name: absolute path).",
+    current
+      ? `This session works in the project directory ${current}. Use absolute paths to reach any of the other projects listed below.`
+      : "This session is not working inside any project directory by default. Use a project's absolute path to work with it.",
     lines,
     "</personal_workspace_projects>",
   ].join("\n");
@@ -264,7 +287,10 @@ interface RunState {
   buffer: string;
   gotResult: boolean;
   resultOk?: boolean;
-  tokenUsage?: { inputTokens?: number; outputTokens?: number };
+  tokenUsage?: TurnTokenUsage;
+  // 会话统计条的本轮累计量 + 计时游标。累计部分在轮末原样写进 turnUsage 消息落盘；
+  // 游标部分只活在内存（见 statsTimer 的字段注释）。
+  stats?: RunStatsState;
   // 启动状态机:starting(进程启动中)→ thinking(收到 init,等首个输出)。
   phase: "starting" | "thinking";
   // 最近一次收到事件的时间,看门狗据此判定卡死。
@@ -323,30 +349,165 @@ interface RunState {
   stopping?: boolean;
 }
 
-function addRunTokenUsage(
-  run: RunState,
-  usage: { inputTokens?: number; outputTokens?: number } | undefined,
-): void {
+/** 非负有限数才收，其余读作 undefined（供应商未上报 ≠ 0）。 */
+function usageNum(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+
+function addRunTokenUsage(run: RunState, usage: TurnTokenUsage | undefined): void {
   if (!usage) return;
-  const inputTokens =
-    typeof usage.inputTokens === "number" && Number.isFinite(usage.inputTokens) && usage.inputTokens >= 0
-      ? usage.inputTokens
-      : undefined;
-  const outputTokens =
-    typeof usage.outputTokens === "number" && Number.isFinite(usage.outputTokens) && usage.outputTokens >= 0
-      ? usage.outputTokens
-      : undefined;
-  if (inputTokens === undefined && outputTokens === undefined) return;
-  run.tokenUsage = {
-    inputTokens:
-      inputTokens === undefined
-        ? run.tokenUsage?.inputTokens
-        : (run.tokenUsage?.inputTokens ?? 0) + inputTokens,
-    outputTokens:
-      outputTokens === undefined
-        ? run.tokenUsage?.outputTokens
-        : (run.tokenUsage?.outputTokens ?? 0) + outputTokens,
+  const next: TurnTokenUsage = { ...run.tokenUsage };
+  let changed = false;
+  // 四个桶逐一累加：只在本次上报了该桶时才写，否则保留既有值（不要把 undefined 覆盖成 0，
+  // 也不要把「没上报」当 0 参与后续的缓存命中率分母）。
+  for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"] as const) {
+    const value = usageNum(usage[key]);
+    if (value === undefined) continue;
+    next[key] = (next[key] ?? 0) + value;
+    changed = true;
+  }
+  if (changed) run.tokenUsage = next;
+}
+
+/**
+ * 本轮统计的累计量 + 计时游标。累计量（TurnStats 那七个字段）轮末原样落盘；
+ * 游标只活在内存，用来把「一步」的几个时刻串起来。
+ *
+ * 一步的时间轴（pi）：step-start → 首个 text/reasoning delta → …deltas… →
+ * 首个 tool-start → …工具执行… → turn-end。因此：
+ *   · LLM 段结束 = 该步**首个 tool-start** 时刻——工具在 pi 的 message_end 之后才执行，
+ *     所以它是 message_end 最贴近的可观测代理。
+ *   · 该步没有工具时，pi 的 agent loop 会在 message_end 之后直接发 turn_end，两者近乎
+ *     同一时刻，于是退化成 turn-end 时刻。（**不能**退化成「最后一个 delta」：只吐一个
+ *     delta 的短回复会算出 0ms 解码时长，把 tok/s 抬到天上去。）
+ *   · 工具耗时独立按 toolCallId 配对累计，不与 LLM 段重叠。
+ */
+interface RunStatsState extends TurnStats {
+  /** 当前步的 step-start 时刻；null 表示不在步内。 */
+  stepStartAt: number | null;
+  /** 当前步首个正文/思考 delta 的时刻（TTFT 与解码段的起点）。 */
+  firstTokenAt: number | null;
+  /** 当前步 LLM 段的结束时刻（首个 tool-start）；null 表示本步无工具，由 turn-end 兜底。 */
+  llmEndAt: number | null;
+  /** 尚未配对的 tool-start 时刻，按 toolCallId。 */
+  pendingTools: Map<string, number>;
+}
+
+function emptyRunStats(): RunStatsState {
+  return {
+    steps: 0,
+    llmMs: 0,
+    toolMs: 0,
+    ttftMs: 0,
+    ttftSteps: 0,
+    decodeMs: 0,
+    decodeTokens: 0,
+    stepStartAt: null,
+    firstTokenAt: null,
+    llmEndAt: null,
+    pendingTools: new Map(),
   };
+}
+
+/** 复位当前步的计时游标（累计量保留）。 */
+function resetStatsStep(s: RunStatsState, startAt: number | null): void {
+  s.stepStartAt = startAt;
+  s.firstTokenAt = null;
+  s.llmEndAt = null;
+}
+
+/** step-start：结算上一步（pi 漏发 turn-end 时的兜底），再开新步。 */
+function statsStepStart(run: RunState, at: number): void {
+  const s = (run.stats ??= emptyRunStats());
+  if (s.stepStartAt !== null) statsStepEnd(run, at, undefined);
+  resetStatsStep(s, at);
+}
+
+/** 正文/思考增量：只记本步的首 token 时刻（TTFT 与解码段的起点）。 */
+function statsToken(run: RunState, at: number): void {
+  const s = (run.stats ??= emptyRunStats());
+  // 没收到 step-start 就来了 delta（事件丢失 / 协议漂移）：把首 delta 时刻当步起点，
+  // 这样 llmMs 与解码仍能记到，只是 TTFT 记为 0 —— 好过整步不计。
+  if (s.stepStartAt === null) resetStatsStep(s, at);
+  if (s.firstTokenAt === null) s.firstTokenAt = at;
+}
+
+/** tool-start：首个工具即本步 LLM 段的终点；同时登记待配对的工具起始时刻。 */
+function statsToolStart(run: RunState, toolCallId: string, at: number): void {
+  const s = (run.stats ??= emptyRunStats());
+  if (s.llmEndAt === null) s.llmEndAt = at;
+  s.pendingTools.set(toolCallId, at);
+}
+
+/** tool-end：按 toolCallId 配对累加工具耗时；配不上（无对应 start）直接忽略。 */
+function statsToolEnd(run: RunState, toolCallId: string, at: number): void {
+  const s = run.stats;
+  const startedAt = s?.pendingTools.get(toolCallId);
+  if (!s || startedAt === undefined) return;
+  s.pendingTools.delete(toolCallId);
+  s.toolMs += Math.max(0, at - startedAt);
+}
+
+/**
+ * turn-end：结算本步的 LLM / TTFT / 解码三项并计一步。
+ * 解码吞吐只在「有首 token、本步上报了输出 token **且**解码时长为正」时才计入：
+ * 三者缺一都会得到一个缺分子或缺分母的样本，直接污染整条会话的 tok/s。
+ */
+function statsStepEnd(run: RunState, at: number, usage: TurnTokenUsage | undefined): void {
+  const s = (run.stats ??= emptyRunStats());
+  const stepStartAt = s.stepStartAt;
+  if (stepStartAt !== null) {
+    const llmEndAt = s.llmEndAt ?? at;
+    s.llmMs += Math.max(0, llmEndAt - stepStartAt);
+    if (s.firstTokenAt !== null) {
+      s.ttftMs += Math.max(0, s.firstTokenAt - stepStartAt);
+      s.ttftSteps += 1;
+      const outputTokens = usageNum(usage?.outputTokens);
+      const decodeMs = llmEndAt - s.firstTokenAt;
+      if (outputTokens !== undefined && decodeMs > 0) {
+        s.decodeMs += decodeMs;
+        s.decodeTokens += outputTokens;
+      }
+    }
+  }
+  s.steps += 1;
+  resetStatsStep(s, null);
+}
+
+/**
+ * （重新）开始本轮统计，并手动打上第一步的计时锚点。
+ *
+ * 锚点必须手打：pi 的 agent loop **第一步不发 turn_start**（agent-loop 的 firstTurn
+ * 分支），自动重试后的首步同样如此。少了它，最重要的那次 TTFT 会恒为 0。
+ * 用在两处——run 创建（起点 = 发送时刻，用户感知的等待本来就从这里算）与自动重试
+ * （上一次尝试没有产出任何结果，其耗时与 token 一并作废，不进会话总量）。
+ * @param run - 目标 run。
+ * @param at - 第一步的起始时刻。
+ */
+function beginRunStats(run: RunState, at: number): void {
+  run.stats = emptyRunStats();
+  run.stats.stepStartAt = at;
+  run.tokenUsage = undefined;
+}
+
+/**
+ * 取本轮可落盘的统计量（剥掉内存游标）。全 0 时返回 undefined —— 没有任何计时锚点的
+ * 通道（claude / codex 走 CLI 适配层，没有 pi 的 turn_start 等价物）不该写一段全 0 的
+ * 假数据进档，展示层据此只显示 token 组。
+ */
+function persistedRunStats(run: RunState): TurnStats | undefined {
+  const s = run.stats;
+  if (!s) return undefined;
+  const out: TurnStats = {
+    steps: s.steps,
+    llmMs: Math.round(s.llmMs),
+    toolMs: Math.round(s.toolMs),
+    ttftMs: Math.round(s.ttftMs),
+    ttftSteps: s.ttftSteps,
+    decodeMs: Math.round(s.decodeMs),
+    decodeTokens: s.decodeTokens,
+  };
+  return Object.values(out).some((v) => v > 0) ? out : undefined;
 }
 
 const runs = new Map<string, RunState>();
@@ -1760,7 +1921,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   if (ev.type === "usage") {
     // 同一用户回合可能包含编排阶段、delegate 子 Agent 与安全重试的多次模型调用；
     // usage 事件均是调用级增量，在 renderer run 内汇总，成功收尾后落一条 turnUsage。
-    addRunTokenUsage(run, ev);
+    // CLI 侧只上报「缓存读」(claude 的 cache_read_input_tokens / codex 的 cached_input_tokens)，
+    // 没有缓存写这一桶——保持 undefined 而不是填 0，缓存命中率的分母才不会被压低。
+    addRunTokenUsage(run, {
+      inputTokens: ev.inputTokens,
+      outputTokens: ev.outputTokens,
+      cacheReadTokens: ev.cachedInputTokens,
+    });
     return;
   }
 
@@ -2053,13 +2220,18 @@ function finalizeRun(
   // 切走/下一轮才清,见 clearProcess 各出口）;失败/异常退出轮立即清空（错误文案已走 text 进消息流）。
   // 两种结局都先打一份归档快照落盘（archiveRunProcess）——瞬态流清掉后,历史轮靠它回看。
   const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
-  if (runOk && run.tokenUsage) {
+  // 轮末汇总:token 用量 + 耗时统计一起落一条 turnUsage,它同时是「轮末 token 行」与
+  // 输入框统计条的唯一数据源(统计条按会话内全部 turnUsage 折叠,见 personal/turnStats.ts)。
+  // 只要有任一侧有值就落——纯工具轮可能没有 token 上报,但耗时仍有展示价值。
+  const persistedStats = persistedRunStats(run);
+  if (runOk && (run.tokenUsage || persistedStats)) {
     appendMsg(qc, sessionId, {
       kind: "turnUsage",
       who: run.agent,
       time: realHHMM(),
       runId,
       ...run.tokenUsage,
+      ...(persistedStats ? { stats: persistedStats } : {}),
       uid: uid("usage"),
     });
   }
@@ -2258,6 +2430,8 @@ export function beginPiRun(
     permissionMode: opts.permissionMode,
   };
   attachDelegateRoles(run, "pi", opts.delegateRoles);
+  // 统计条:打上第一步的计时锚点（pi 首步不发 turn_start，详见 beginRunStats）。
+  beginRunStats(run, run.startedAt ?? Date.now());
   runs.set(opts.runId, run);
   // pi 看门狗:只滚动显示等待时长,绝不杀进程（长驻;一轮靠 settled/abort 收尾,无静默超时杀）。
   run.watchdog = setInterval(() => {
@@ -2601,6 +2775,9 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
 
   switch (ev.type) {
     case "reasoning":
+      // 统计条:思考增量与正文增量同样算「首 token」——TTFT 量的是「等了多久才有输出」,
+      // reasoning 模型先吐思考再吐正文,只认 text 会把思考时长错算进 TTFT。
+      statsToken(run, Date.now());
       // 先折叠再取片段:snippet 从累进后的 reasoningText 尾部派生,活动行与过程面板同步。
       foldReasoning(qc, run, ev.delta);
       setTypingActivity(qc, sessionId, run.typingUid, typingText(run.agent, "thinking", 0), {
@@ -2611,6 +2788,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       });
       return;
     case "text":
+      statsToken(run, Date.now());
       dropMsg(qc, sessionId, run.typingUid);
       finalizeRunReasoning(qc, run);
       run.buffer += ev.delta;
@@ -2628,6 +2806,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       foldToolIntoProcess(qc, sessionId, run, { type: "tool", name: ev.name, detail: ev.detail });
       // 活动行进入工具相:记起始时刻供渲染层做慢工具「已运行 Ns」心跳。
       run.toolStartedAt = Date.now();
+      // 统计条:首个工具起始即本步 LLM 段的终点(pi 的 message_end 之后才执行工具)。
+      statsToolStart(run, ev.toolCallId, run.toolStartedAt);
       setTypingActivity(qc, sessionId, run.typingUid, typingToolText(run.agent, ev.name, ev.detail), {
         phase: "tool",
         toolName: cleanToolName(ev.name),
@@ -2647,6 +2827,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "tool-end":
       finalizeLastToolItem(qc, run, ev.isError);
+      statsToolEnd(run, ev.toolCallId, Date.now());
       // 短暂 ✓ 完成态:被下一个 reasoning/tool/text 事件覆盖;若直接 result 则由占位/正文兜底。
       run.stepCount = (run.stepCount ?? 0) + 1;
       run.toolStartedAt = undefined;
@@ -2657,8 +2838,14 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         startedAt: run.startedAt,
       });
       return;
+    // 一步开始:统计条的计时锚点(纯信号,不渲染、不进过程流)。
+    case "step-start":
+      statsStepStart(run, Date.now());
+      return;
     case "turn-end":
       addRunTokenUsage(run, ev.usage);
+      // 结算本步:usage 里的 output 就是本步输出 token,是解码吞吐的分子。
+      statsStepEnd(run, Date.now(), ev.usage);
       finalizeProcessAgentLog(qc, sessionId, run);
       return;
     case "error":
@@ -2703,6 +2890,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         // 活动行进度同步复位:重试是重新执行本轮,步数/工具计时不应从上次尝试续算。
         run.stepCount = undefined;
         run.toolStartedAt = undefined;
+        // 统计条同理:失败尝试的耗时与 token 不该进会话总量(它们没有产出任何结果)。
+        beginRunStats(run, Date.now());
         return;
       }
       // 最终 result 已明确结束重试链；即使协议漏了 retry 事件，也不能让上一尝试留下的
@@ -2987,6 +3176,10 @@ async function buildPiOpenForSession(
   // 持久 system prompt（阶段4）:用户配置的人设/规则,经 --append-system-prompt 系统级注入。
   // 与每轮临时 appendSystemPrompt（buildPiPromptMessage 内联）解耦——后者走 prompt 文本,前者走会话启动参数。
   const piSystemPrompt = usePersonalStore.getState().generalSettings.piSystemPrompt;
+  // 工作目录约束走**会话级**而非每轮:pi 是长驻会话、cwd 在 open 时就冻结(改 cwd 必然重开
+  // 会话),把它放进 system prompt 只付一次 token,而每轮前缀注入会在长会话里重复几十上百遍。
+  // 这里的 `projectPath` 形参在 sendPiTurn 侧传入的已是最终 cwd(`artifact?.workspaceRoot ?? 项目路径`)。
+  const workspacePrompt = buildWorkspaceSystemPrompt(projectPath);
   // 思考强度初值（阶段5）:会话级优先,缺省回退全局默认;再缺省 = 不传 --thinking = pi 内置默认。
   const thinkingLevel = session.thinkingLevel ?? usePersonalStore.getState().generalSettings.piThinkingDefault;
   // 插件 Skill（U5）:解析已启用 + 授信 + 去重的 skill 目录,经 --skill 注入;集合变化经
@@ -3027,7 +3220,8 @@ async function buildPiOpenForSession(
     // 工作区与 MCP 写入面，不能因为迁到 RPC 就顺带扩大为另一套产物/JS 执行能力。
     enableArtifactsTool: execution?.artifact ? undefined : true,
     enableJsReplTool: execution?.artifact ? undefined : true,
-    appendSystemPrompt: piSystemPrompt || undefined,
+    // 用户人设在前、工作目录约束在后（与 send 侧 globalAppend → workspaceAppend 的顺序一致）。
+    appendSystemPrompt: [piSystemPrompt, workspacePrompt].filter(Boolean).join("\n\n") || undefined,
     thinkingLevel,
     // 会话级联网:主进程据此把研究引擎 MCP 并进桥接扩展。pi 工具集在 open 时冻结,
     // 故该值计入 extensionFingerprint(见 ./pi-session)——中途切开关会触发会话重开。
@@ -4105,16 +4299,25 @@ export function usePersonalActions(): PersonalActions {
       // 活动目标是会话级执行约束，必须同时进入 CLI fresh turn 与 Pi 长驻 RPC 两条发送链。
       // paused/complete/blocked 等状态由 builder 直接返回 undefined，暂停后下一轮不会再看到目标。
       const goalAppend = session.goal ? buildGoalSystemPrompt(session.goal) : undefined;
-      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 项目信息(Spotlight) → 文档清单;皆空仍传 undefined。
+      // 工作目录约束（三端统一）。取值必须与下方真正传给 agent 的 cwd 同源
+      // （`artifact?.workspaceRoot ?? projectPath`，见 sendPiTurn 实参与 RunState.cwd），
+      // 否则提示里写的目录和 agent 实际所在目录会对不上，比不写还糟。
+      const workspaceAppend = buildWorkspaceSystemPrompt(artifact?.workspaceRoot ?? projectPath);
+      // 组装顺序:全局指令/语言(U3/U4,三端统一) → 工作目录约束 → 目标 → 项目信息(Spotlight)
+      // → 文档清单;皆空仍传 undefined。工作目录紧跟全局指令:它是本轮的环境事实与范围约束,
+      // 得排在任务性内容之前,否则模型容易先按任务自由发挥再回头看目录。
       // 附件块刻意不在此列:claude --resume / codex exec resume 只回放对话历史,不回放上一轮 system
       // prompt,附件走 append 只在拖入那一轮生效,续轮 skill 指令即丢失 → 经 buildTurnPromptText 并入
       // prompt 文本随历史持久。
       // 证据段排在最后：它是本轮一次性资料，优先级低于全局指令与记忆（那两者是长期约束）。
       const appendSystemPrompt =
-        [globalAppend, goalAppend, extraSystemPrompt, docPrompt, evidenceAppend].filter(Boolean).join("\n\n") ||
-        undefined;
+        [globalAppend, workspaceAppend, goalAppend, extraSystemPrompt, docPrompt, evidenceAppend]
+          .filter(Boolean)
+          .join("\n\n") || undefined;
       // pi 例外:RPC 长驻会话,注入前缀随进程内历史持久,维持既有「附件并入 append 前缀」行为
       // (buildPiPromptMessage);其编辑重发定位(piEntryMatchesText 后缀匹配)已覆盖该形态。
+      // pi 不带 workspaceAppend:它是长驻会话,工作目录已在 buildPiOpenForSession 里进了**会话级**
+      // system prompt（cwd 冻结于 open,改则重开）。每轮再带一份纯属重复付费。
       const piAppendSystemPrompt =
         [globalAppend, goalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend]
           .filter(Boolean)

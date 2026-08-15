@@ -160,10 +160,16 @@ function mapCodexUsage(usage: unknown): CliStreamEvent | null {
   if (!usage || typeof usage !== "object") return null;
   const u = usage as Record<string, unknown>;
   const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
-  const inputTokens = num(u.input_tokens);
+  const rawInput = num(u.input_tokens);
   const outputTokens = num(u.output_tokens);
   const cachedInputTokens = num(u.cached_input_tokens);
-  if (inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined) return null;
+  if (rawInput === undefined && outputTokens === undefined && cachedInputTokens === undefined) return null;
+  // ⚠️ 口径对齐：OpenAI 的 `cached_input_tokens` 是 `input_tokens` 的**子集**（来自
+  // input_tokens_details.cached_tokens），而 claude / pi 两条通道的 inputTokens 都是
+  // 「未命中缓存的输入」。这里先剥掉缓存部分，三端才共用同一套「四桶互斥、可直接相加」的
+  // 语义（见 TurnTokenUsage 注释）；否则会话统计条的计费输入会把缓存读重复计一次。
+  const inputTokens =
+    rawInput === undefined ? undefined : Math.max(0, rawInput - (cachedInputTokens ?? 0));
   return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
 }
 

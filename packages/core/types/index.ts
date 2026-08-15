@@ -123,9 +123,40 @@ export interface TypingActivity {
   toolStartedAt?: number; // 当前工具起始时刻 —— 渲染层算慢工具「已运行 Ns」心跳
 }
 
+/**
+ * 一次用户回合（一个 run）的耗时统计，写进该轮 `turnUsage` 消息随会话落盘。
+ * 所有字段都是「可加」的累计量，会话级折叠即逐轮相加（见 personal/turnStats.ts）。
+ * 定义放在 types 而非 turnStats.ts，是为了避免 types ↔ turnStats 循环 import。
+ */
+export interface TurnStats {
+  /** 本轮的模型调用步数（pi 的 turn 数）。 */
+  steps: number;
+  /** 模型调用墙钟耗时之和（step-start → 该步 LLM 结束），不含工具执行。 */
+  llmMs: number;
+  /** 工具执行墙钟耗时之和（tool-start → tool-end 按 toolCallId 配对）。 */
+  toolMs: number;
+  /** 首 token 延迟之和，分母是 `ttftSteps` 而非 `steps`。 */
+  ttftMs: number;
+  /** 记录到首 token 的步数（纯工具步没有首 token，不计入）。 */
+  ttftSteps: number;
+  /** 解码墙钟耗时之和（首 token → 该步 LLM 结束），只统计同时上报了输出 token 的步。 */
+  decodeMs: number;
+  /** 与 `decodeMs` 同批步次的输出 token 之和 —— tok/s 的分子。 */
+  decodeTokens: number;
+}
+
+/**
+ * 一次模型调用的 token 用量。四个桶**互斥不重叠**，可直接相加：pi-ai 在各
+ * provider 适配层已统一口径（`inputTokens` 只含未命中缓存的输入），故计费输入
+ * = input + cacheRead + cacheWrite。缺失字段表示供应商未上报，不等于 0。
+ */
 export interface TurnTokenUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /** 命中缓存被读取的输入 token。 */
+  cacheReadTokens?: number;
+  /** 写入缓存的输入 token。 */
+  cacheWriteTokens?: number;
 }
 
 export type Message =
@@ -254,14 +285,24 @@ export type Message =
       uid?: string;
     }
   | {
-      // 一次用户回合的 token 汇总。独立消息保证纯工具回合也有稳定的轮末展示位；
-      // 与正文一起落盘并随回复分支切换，不保存缓存 token，避免跨供应商口径重复计算。
+      // 一次用户回合的 token 与耗时汇总。独立消息保证纯工具回合也有稳定的轮末展示位；
+      // 与正文一起落盘并随回复分支切换。
+      //
+      // 缓存 token 现在**保存**（此前刻意不存，理由是「跨供应商口径可能重复计算」）：
+      // pi-ai / claude / codex 三条通道都已把缓存读写与未命中输入拆成互斥桶（见
+      // TurnTokenUsage 注释），相加不会重复计费，故该顾虑不再成立。会话统计条的缓存
+      // 命中率就靠这两个字段，旧档缺字段时按「未上报」处理、不展示该组。
       kind: "turnUsage";
       who: string;
       time: string;
       runId: string;
       inputTokens?: number;
       outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      // 本轮耗时统计（步数 / LLM 与工具墙钟 / TTFT / 解码吞吐）。老档没有该字段，
+      // 折叠时按 0 计，展示层自动省略对应组。
+      stats?: TurnStats;
       uid?: string;
     };
 

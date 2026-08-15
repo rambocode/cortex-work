@@ -289,6 +289,16 @@ export default interface Resources {
     "reasoning": {
       "title": "思考过程"
     },
+    "stats": {
+      "cacheHit": "缓存命中 {{percent}}%",
+      "counts": "{{turns}} 轮 · {{steps}} 步",
+      "llm": "LLM {{duration}}",
+      "tokens": "输入 {{input}} tok · 输出 {{output}} tok",
+      "tokensPerSecond": "{{throughput}} tok/s",
+      "toolCall": "工具调用 {{duration}}",
+      "ttftAverage": "首 token 平均 {{duration}}",
+      "turnsOnly": "{{turns}} 轮"
+    },
     "stream": {
       "empty": "这里还没有对话内容,从下方输入框开始 →"
     },

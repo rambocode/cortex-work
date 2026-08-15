@@ -389,6 +389,8 @@ function mapPiToCliEvent(ev: PiSessionEvent): CliStreamEvent | null {
     // settled（agent_settled）在编排链路不映射成终态:runPiStage 自带 settle 去重 + 超时兜底,
     // 且 result 已是这里的收尾信号。转成 result 只会与既有路径抢收尾,收益为零。
     // artifact:编排子会话不注册 artifacts 工具(不置 enableArtifactsTool),此处仅为穷尽兜底。
+    // step-start 是会话统计条的计时锚点，编排链路没有统计条，不映射。
+    case "step-start":
     case "settled":
     case "compaction":
     case "queue":

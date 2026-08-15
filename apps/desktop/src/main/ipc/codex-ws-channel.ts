@@ -189,11 +189,15 @@ export function parseAppServerEvent(
       const last = (params as TokenUsageParams)?.tokenUsage?.last;
       if (!last) return null;
       const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-      const inputTokens = num(last.inputTokens);
+      const rawInput = num(last.inputTokens);
       const outputTokens = num(last.outputTokens);
       const cachedInputTokens = num(last.cachedInputTokens);
-      if (inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined)
+      if (rawInput === undefined && outputTokens === undefined && cachedInputTokens === undefined)
         return null;
+      // 与 codex.ts 的 mapCodexUsage 同一口径修正：OpenAI 的 cachedInputTokens 是
+      // inputTokens 的子集，先剥掉，才能与 claude / pi 共用「四桶互斥可相加」的语义。
+      const inputTokens =
+        rawInput === undefined ? undefined : Math.max(0, rawInput - (cachedInputTokens ?? 0));
       return { type: "usage", inputTokens, outputTokens, cachedInputTokens };
     }
     case CODEX_NOTIF.turnCompleted: {

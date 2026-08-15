@@ -180,6 +180,8 @@ function mapPiDelegateEvent(ev: PiSessionEvent): CliStreamEvent | null {
       return ev.message ? { type: "text", delta: ev.message } : null;
     // error/result/crashed/settled 由 runPiDelegateSubAgent 的单一 settle 点处理，不能先把子卡片
     // 收尾一次、再由 delegate server 的 tool_result 收尾第二次。其余是 child UI 不消费的会话态。
+    // step-start 是主会话统计条的计时锚点，子代理卡不消费。
+    case "step-start":
     case "error":
     case "result":
     case "crashed":

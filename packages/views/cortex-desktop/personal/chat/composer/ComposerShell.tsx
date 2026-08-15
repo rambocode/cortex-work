@@ -3,7 +3,7 @@
 // 会话页（PersonalComposer 薄封装）与新会话落地页（草稿态）共用。复用 cortex-desktop.css
 // 的 composer 类名体系。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import {
   AGENT_LABEL,
@@ -170,6 +170,7 @@ export function ComposerShell({
   acceptComposerInsert = false,
   visionBlockSessionId,
   className,
+  footer,
   placeholder,
   onSend,
   onStop,
@@ -218,6 +219,8 @@ export function ComposerShell({
   visionBlockSessionId?: string;
   /** 注入根 .composer-wrap 的附加类名(如落地页 pw-landing-composer)。 */
   className?: string;
+  /** 输入框下方的附加信息位（会话统计条）。落地页等无会话上下文的宿主不传。 */
+  footer?: ReactNode;
   /** 覆盖非运行态占位文案;缺省用「给 {agent名} 发消息…」。 */
   placeholder?: string;
   // 返回是否「已消费」(真正发出):composer 据此决定清空待发图(未消费则保留供重试,KTD9)。
@@ -1265,6 +1268,10 @@ export function ComposerShell({
           )}
         </div>
       </div>
+      {/* 输入框下方的附加信息位（当前用于会话统计条）。放在 .composer 之外、
+          .composer-wrap 之内：它属于会话上下文而非输入控件，不该跟着输入框一起浮起。
+          落地页等复用 ComposerShell 的宿主不传即不渲染。 */}
+      {footer}
     </div>
   );
 }

@@ -81,9 +81,9 @@ const BASELINE_CASES: Record<
     expected: null,
   },
   turn_start: {
-    why: "单次模型调用开始的边界标记，不产事件",
+    why: "单次模型调用开始 → step-start，会话统计条的 TTFT / LLM 耗时以它为 0 点",
     event: { type: "turn_start", messages: [], model: { id: "claude-sonnet-4-5", provider: "anthropic" } },
-    expected: null,
+    expected: { type: "step-start" },
   },
   message_start: {
     why: "assistant message 开始的边界标记，不产事件",
@@ -106,18 +106,21 @@ const BASELINE_CASES: Record<
     expected: { type: "text", delta: "第一段" },
   },
   message_end: {
-    why: "stopReason=stop 是最终边界，产 result 兜住 pi 偶发缺 agent_end",
+    why: "stopReason=stop 是最终边界，产 result 兜住 pi 偶发缺 agent_end；usage 刻意不带（紧随其后的 turn_end 携带同一份，带上会双计）",
     event: { type: "message_end", message: assistantMessage({ stopReason: "stop" }) },
-    expected: { type: "result", willRetry: false, usage: { inputTokens: 120, outputTokens: 30 } },
+    expected: { type: "result", willRetry: false },
   },
   turn_end: {
-    why: "透出该次模型调用的 usage，供同一用户回合累加",
+    why: "透出该次模型调用的 usage（含互斥的缓存读/写桶），供同一用户回合累加",
     event: {
       type: "turn_end",
       message: assistantMessage({ usage: { input: 13, output: 4, cacheRead: 9, cacheWrite: 1 } }),
       toolResults: [{ toolCallId: "call_0", content: [{ type: "text", text: "ok" }] }],
     },
-    expected: { type: "turn-end", usage: { inputTokens: 13, outputTokens: 4 } },
+    expected: {
+      type: "turn-end",
+      usage: { inputTokens: 13, outputTokens: 4, cacheReadTokens: 9, cacheWriteTokens: 1 },
+    },
   },
   agent_end: {
     why: "一次 run 结束的权威终态，willRetry 透传给渲染端决定是否继续转圈",

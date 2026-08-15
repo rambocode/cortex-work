@@ -7,7 +7,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_AGENT_THINKING, prewarmPiSession, useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type { AgentThinkingValue, ExecPermission, PendingDocFile, PendingImage, PersonalAttachment, SessionMeta, ThreadGoalStatus } from "@cortex-work/core";
 import { hasSearchBackend, normalizeResearchEngineSettings } from "@cortex-work/core/research/settings";
+import { usePersonalChat } from "@cortex-work/core/personal/messages";
 import { ComposerShell } from "./ComposerShell";
+import { SessionStatsLine } from "../SessionStatsLine";
 import { upsertConversationArtifact } from "../artifactDispatch";
 import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands";
 
@@ -100,6 +102,10 @@ export function PersonalComposer({
   // hasSearchBackend 与主进程共用 core 的同一实现，避免「按钮可点、点了不注入」的漂移。
   const webSearchUnavailable = !hasSearchBackend(researchSettings);
 
+  // 会话统计条的数据源。取 allMessages 而非 visibleMessages：「隐藏历史」只是把旧轮
+  // 移出模型上下文，那些轮次的 token 与耗时是实实在在花掉的，统计口径必须包含它们。
+  const { allMessages } = usePersonalChat(session.id);
+
   return (
     <ComposerShell
       agent={session.agent}
@@ -108,6 +114,7 @@ export function PersonalComposer({
       useOwnSkills={session.useOwnSkills === true}
       running={running}
       className={className}
+      footer={<SessionStatsLine messages={allMessages} />}
       editing={editing}
       slashCommands={slashCommands}
       acceptComposerInsert={acceptComposerInsert}
