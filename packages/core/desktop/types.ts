@@ -1384,10 +1384,18 @@ export interface ContentMatchFile {
   lines: ContentMatchLine[];
 }
 
-// 内容搜索结果：命中文件列表 + 是否因限额截断。
+// 内容搜索结果：命中文件列表 + 是否因限额截断。与 apps/desktop/src/main/ipc/types.ts 镜像。
 export interface ContentSearchResult {
   files: ContentMatchFile[];
   truncated: boolean;
+  /** 命中文件总数(truncated 时 > files.length)。 */
+  totalFiles?: number;
+  /** 超限采样说明:入选顶层目录数 / 命中顶层目录总数。 */
+  sampled?: { shown: number; total: number };
+  /** 完整结果 spill 文件绝对路径(白名单内,可直接预览)。 */
+  spillPath?: string;
+  /** 检索失败分类 + 人读消息。 */
+  error?: { code: string; message: string };
 }
 
 // git 信息条:工作区 git 信息（分支 + ± 行数统计,含 untracked）。

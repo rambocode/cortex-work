@@ -1447,6 +1447,14 @@ export interface ContentMatchFile {
 export interface ContentSearchResult {
   files: ContentMatchFile[];
   truncated: boolean;
+  /** 命中文件总数(truncated 时 > files.length)。 */
+  totalFiles?: number;
+  /** 超限采样说明:入选顶层目录数 / 命中顶层目录总数(ripgrep 检索引擎的轮询采样)。 */
+  sampled?: { shown: number; total: number };
+  /** 完整结果 spill 文件绝对路径(落 Documents/cortex/.search-results,白名单内可预览)。 */
+  spillPath?: string;
+  /** 检索失败分类(INVALID_PATTERN/SEARCH_FAILED/OUTPUT_OVERFLOW/ABORTED)+ 人读消息。 */
+  error?: { code: string; message: string };
 }
 
 // ── git 分支操作（与 core/desktop/types.ts 镜像） ──────────────────────

@@ -6,8 +6,6 @@ import { promises as fsp } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { execFile } from "child_process";
 import type {
-  ContentMatchFile,
-  ContentMatchLine,
   ContentSearchResult,
   GitBranchesResult,
   GitDiffAllResult,
@@ -22,6 +20,21 @@ import type {
 import { getPersistedState } from "./store";
 import { expandTilde } from "../skills/locate";
 import { documentsCortexDir, noProjectSessionDir } from "../paths";
+import {
+  FsSearchError,
+  FILE_INDEX_MAX_PATHS,
+  SEARCH_MAX_FILES,
+  buildContentSearchArgs,
+  buildFileListArgs,
+  buildTreeFromPaths,
+  findEmptyDirs,
+  formatContentSpill,
+  parseContentMatches,
+  parseFileList,
+  runRg,
+  sampleAcrossTopLevel,
+  saveSearchSpill,
+} from "./fs-search";
 import { countAddedLines, parseNumstat, parseUntracked, sumStats, synthUntrackedDiff } from "./git-info";
 import { readImageOpenable } from "./image";
 import type { ImageReadResult } from "./types";
@@ -87,6 +100,8 @@ export async function assertOpenable(path: string): Promise<void> {
   throw new Error(`路径不在允许范围内: ${path}`);
 }
 
+// 提示词库树扫描(fs:scanPromptTree 专用,mdOnly)。全量文件树(fs:scanDirTree)已改走
+// ripgrep 引擎(fs-search.ts),不再用本函数。
 async function scanTree(
   dir: string,
   name: string,
@@ -170,55 +185,28 @@ const DIFF_ALL_SOFT_LIMIT = 1.5 * 1024 * 1024; // 拼接后总量软上限
 const FILE_INDEX_TTL_MS = 15_000;
 const fileIndexCache = new Map<string, { at: number; index: Map<string, string[]> }>();
 
+// basename 索引改走 ripgrep(fs-search):无 8 层深度限制,尊重 .gitignore,
+// 路径按 mtime 逆序 → resolveProjectFile 取 hits[0] 即「最近改过的那个」(mtime 契约)。
+// rg 失败(二进制缺失等)降级为空索引:exact-path 分支仍可用,basename 兜底失效但不崩。
 async function buildFileIndex(root: string): Promise<Map<string, string[]>> {
   const index = new Map<string, string[]>();
-  const budget = { left: MAX_NODES };
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > MAX_DEPTH || budget.left <= 0) return;
-    let entries;
-    try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (budget.left <= 0) break;
-      if (e.name.startsWith(".")) continue;
-      const full = join(dir, e.name);
-      if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name)) continue;
-        await walk(full, depth + 1);
-      } else if (e.isFile()) {
-        const arr = index.get(e.name);
-        if (arr) arr.push(full);
-        else index.set(e.name, [full]);
-        budget.left -= 1;
-      }
-    }
+  let paths: string[];
+  try {
+    const run = await runRg(buildFileListArgs(), root, "glob");
+    paths = parseFileList(run.stdout, FILE_INDEX_MAX_PATHS).paths;
+  } catch (err) {
+    console.warn("[fs] buildFileIndex ripgrep failed:", err instanceof Error ? err.message : err);
+    return index;
   }
-  await walk(root, 0);
+  for (const rel of paths) {
+    const name = rel.split(/[/\\]/).pop();
+    if (!name) continue;
+    const full = join(root, rel);
+    const arr = index.get(name);
+    if (arr) arr.push(full);
+    else index.set(name, [full]);
+  }
   return index;
-}
-
-// 内容搜索（右侧「文件」视图 ? 前缀）限额：命中文件 / 每文件命中行 / 单行展示字符。
-const SEARCH_MAX_FILES = 200;
-const SEARCH_MAX_LINES_PER_FILE = 5;
-const MATCH_LINE_MAX_CHARS = 400;
-
-// 逐行大小写不敏感子串匹配（非正则,避免 ReDoS）。导出供单测。
-export function matchLines(content: string, query: string, maxLines: number): ContentMatchLine[] {
-  const q = query.toLowerCase();
-  if (!q) return [];
-  const out: ContentMatchLine[] = [];
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (out.length >= maxLines) break;
-    const raw = lines[i];
-    if (raw.toLowerCase().includes(q)) {
-      out.push({ line: i + 1, text: raw.trimEnd().slice(0, MATCH_LINE_MAX_CHARS) });
-    }
-  }
-  return out;
 }
 
 async function getFileIndex(root: string, now: number): Promise<Map<string, string[]>> {
@@ -284,66 +272,57 @@ export function registerFsHandlers(): void {
     return scanTree(root, parts[parts.length - 1] || root, 0, { left: MAX_NODES });
   });
 
-  // 项目目录全量文件树（不限 md;用于右侧「文件」视图）。
+  // 项目目录全量文件树（不限 md;用于右侧「文件」视图/写作空间/design 列目录）。
+  // ripgrep 引擎:含隐藏文件、尊重 .gitignore、无深度限制;超 MAX_NODES 截断时因
+  // mtime 逆序,存活的是最近改动的文件。空目录经 findEmptyDirs 补回(rg 只列文件,
+  // 新建空文件夹必须立即可见)。
   ipcMain.handle("fs:scanDirTree", async (_e, root: string) => {
     await assertAllowed(root);
     const stat = await fsp.stat(root);
     if (!stat.isDirectory()) throw new Error(`不是目录: ${root}`);
     const parts = root.replace(/[/\\]+$/, "").split(/[/\\]/);
-    return scanTree(root, parts[parts.length - 1] || root, 0, { left: MAX_NODES }, false);
+    const rootName = parts[parts.length - 1] || root;
+    try {
+      const run = await runRg(buildFileListArgs(), root, "glob");
+      const { paths } = parseFileList(run.stdout, MAX_NODES);
+      const emptyDirs = await findEmptyDirs(root);
+      return buildTreeFromPaths(root, rootName, paths, emptyDirs) as PromptNode;
+    } catch (err) {
+      // rg 不可用(打包态二进制缺失等)时退回旧 JS 扫描:文件树是三个视图的骨架,
+      // 宁可降级(无 .gitignore 语义/限深 8 层)也不能整个白掉。
+      console.warn("[fs] scanDirTree ripgrep failed, falling back to JS scan:", err instanceof Error ? err.message : err);
+      return scanTree(root, rootName, 0, { left: MAX_NODES }, false);
+    }
   });
 
-  // 项目内文件内容搜索（右侧「文件」视图 ? 前缀）。遍历同 scanTree 约束
-  //（跳过 SKIP_DIRS / 隐藏文件,受 MAX_DEPTH / MAX_FILE_BYTES 限制）,逐行子串匹配。
-  // 命中文件数 / 遍历文件总数达上限时置 truncated。
+  // 项目内文件内容搜索（右侧「文件」视图 ? 前缀）。ripgrep 引擎:固定字符串大小写
+  // 不敏感匹配,每文件前 5 条命中行,文件按 mtime 逆序(最近改动在前)。
+  // 超 SEARCH_MAX_FILES 时:顶层目录轮询采样(每个顶层目录先各得一席,不再整页被一个
+  // 子树占满)+ 完整结果落 spill 文件供「查看完整结果」。检索失败回分类错误而非静默空结果。
   ipcMain.handle("fs:searchContent", async (_e, root: string, query: string): Promise<ContentSearchResult> => {
     await assertAllowed(root);
     const q = query.trim();
     if (!q) return { files: [], truncated: false };
-    const files: ContentMatchFile[] = [];
-    const budget = { left: MAX_NODES };
-    let truncated = false;
-    const walk = async (dir: string, depth: number): Promise<void> => {
-      if (depth > MAX_DEPTH || budget.left <= 0 || files.length >= SEARCH_MAX_FILES) return;
-      let entries;
-      try {
-        entries = await fsp.readdir(dir, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const e of entries) {
-        if (budget.left <= 0) {
-          truncated = true;
-          break;
-        }
-        if (files.length >= SEARCH_MAX_FILES) {
-          truncated = true;
-          break;
-        }
-        if (e.name.startsWith(".")) continue;
-        const full = join(dir, e.name);
-        if (e.isDirectory()) {
-          if (SKIP_DIRS.has(e.name)) continue;
-          await walk(full, depth + 1);
-        } else if (e.isFile()) {
-          budget.left -= 1;
-          try {
-            const stat = await fsp.stat(full);
-            if (!stat.isFile() || stat.size > MAX_FILE_BYTES) continue;
-            const buf = await fsp.readFile(full);
-            if (buf.subarray(0, 8000).includes(0)) continue; // 二进制:跳过
-            const lines = matchLines(buf.toString("utf8"), q, SEARCH_MAX_LINES_PER_FILE);
-            if (lines.length > 0) {
-              files.push({ path: full, rel: full.slice(root.length + 1), name: e.name, lines });
-            }
-          } catch {
-            /* 读取失败:跳过该文件 */
-          }
-        }
-      }
+    let run;
+    try {
+      run = await runRg(buildContentSearchArgs(q), root, "grep");
+    } catch (err) {
+      const code = err instanceof FsSearchError ? err.code : "SEARCH_FAILED";
+      const message = err instanceof Error ? err.message : String(err);
+      return { files: [], truncated: false, error: { code, message } };
+    }
+    if (run.noMatches) return { files: [], truncated: false };
+    const all = parseContentMatches(run.stdout, root);
+    if (all.length <= SEARCH_MAX_FILES) return { files: all, truncated: false, totalFiles: all.length };
+    const sample = sampleAcrossTopLevel(all, (f) => f.rel, SEARCH_MAX_FILES);
+    const spillPath = await saveSearchSpill("content-search", formatContentSpill(q, all));
+    return {
+      files: sample.items,
+      truncated: true,
+      totalFiles: all.length,
+      sampled: { shown: sample.shown, total: sample.total },
+      ...(spillPath !== undefined ? { spillPath } : {}),
     };
-    await walk(root, 0);
-    return { files, truncated };
   });
 
   // git 变更列表（最近变更视图）。非 git 仓库时回退按 mtime 的最近修改文件。

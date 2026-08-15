@@ -179,6 +179,9 @@ asarUnpack:
   # 1.13.x 在 darwin-arm64 上识别结果恒为空且不报错。
   - "**/node_modules/sherpa-onnx-node/**"
   - "**/node_modules/sherpa-onnx-darwin-*/**"
+  # 文件检索(fs-search):@vscode/ripgrep 平台子包内的 rg 二进制必须以真实文件落地才能
+  # execFile(asar 虚拟路径不可执行;fs-search.ts 解析到 asar 路径时会改写 .unpacked)。
+  - "**/node_modules/@vscode/ripgrep-*/**"
 mac:
   category: public.app-category.productivity
   icon: assets/cortex-neuron-icon.png

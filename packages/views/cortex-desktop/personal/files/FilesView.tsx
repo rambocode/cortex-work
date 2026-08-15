@@ -771,6 +771,9 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
             <div className="pw-empty-hint">{t("searchContentHint")}</div>
           ) : searching && !contentResult ? (
             <div className="pw-panel-empty">{t("searching")}</div>
+          ) : contentResult?.error ? (
+            // 检索引擎分类错误(超时/超量/失败):明确告知,不再伪装成「无匹配」。
+            <div className="pw-empty-hint">{t("searchFailed", { message: contentResult.error.message })}</div>
           ) : !contentResult || contentResult.files.length === 0 ? (
             <div className="pw-empty-hint">{t("noContentMatch", { keyword: contentKeyword })}</div>
           ) : (
@@ -795,7 +798,30 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
                   ))}
                 </button>
               ))}
-              {contentResult.truncated ? <div className="pw-empty-hint">{t("resultsTruncated")}</div> : null}
+              {contentResult.truncated ? (
+                // 超限截断:顶层目录采样说明 + 完整结果 spill 文件入口(文本预览打开)。
+                <div className="pw-empty-hint pw-search-footer">
+                  <span>
+                    {contentResult.sampled
+                      ? t("resultsSampled", {
+                          shown: contentResult.files.length,
+                          total: contentResult.totalFiles ?? contentResult.files.length,
+                          dirShown: contentResult.sampled.shown,
+                          dirTotal: contentResult.sampled.total,
+                        })
+                      : t("resultsTruncated")}
+                  </span>
+                  {contentResult.spillPath ? (
+                    <button
+                      type="button"
+                      className="pw-search-fullres"
+                      onClick={() => void openTextFile(contentResult.spillPath!, t("fullResultsName"))}
+                    >
+                      {t("resultsOpenFull")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )
         ) : !tree ? (

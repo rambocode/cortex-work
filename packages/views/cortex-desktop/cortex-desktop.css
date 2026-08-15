@@ -16029,3 +16029,20 @@ button.sb-row {
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.14);
   }
 }
+
+/* 文件视图内容搜索:截断/采样说明 + 完整结果入口(spill 文件文本预览)。 */
+.pw-search-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pw-search-fullres {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pw-search-fullres:hover { text-decoration: underline; }
