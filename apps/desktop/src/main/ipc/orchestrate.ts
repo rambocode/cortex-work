@@ -67,6 +67,7 @@ import {
 } from "./pi-session";
 import { createLogger } from "../log";
 import type { CliExitEvent, CliStartRequest, CliStreamEvent, PiOpenRequest, PiSessionEvent, PiUiRequest } from "./types";
+import { sendRunEvent } from "./run-events";
 
 const log = createLogger("orchestrate");
 
@@ -533,11 +534,9 @@ export function registerOrchestrateHandlers(): void {
     const controller = new AbortController();
     activeOrchestrations.set(runId, controller);
 
-    // 事件发送辅助（检查 sender 是否已销毁，防 IPC 异常）
+    // 事件发送统一走 sendRunEvent(isDestroyed 守卫在信封出口集中处理)
     const sendEvent = (ev: CliStreamEvent) => {
-      if (!sender.isDestroyed()) {
-        sender.send("cli:event", { runId, sessionId, event: ev });
-      }
+      sendRunEvent(sender, { v: 1, domain: "orchestrate", runId, sessionId, event: ev });
     };
     const sendExit = (exit: CliExitEvent) => {
       if (!sender.isDestroyed()) {

@@ -1319,27 +1319,28 @@ describe("命令转发", () => {
 });
 
 describe("事件回推与生命周期", () => {
-  it("普通事件 → sender.send('pi:event', {uiSessionId, event})", async () => {
+  // 信封归一 P0:pi:event 载荷字段 uiSessionId → sessionId(与 cli:event 信封对齐)。
+  it("普通事件 → sender.send('pi:event', {sessionId, event})", async () => {
     const { event } = await open();
     h.onEventRef.current!({ type: "text", delta: "你好" });
     expect(event.sender.send).toHaveBeenCalledWith("pi:event", {
-      uiSessionId: "u1",
+      sessionId: "u1",
       event: { type: "text", delta: "你好" },
     });
   });
 
-  it("并发多会话:事件按 uiSessionId 路由到各自 sender,互不串台", async () => {
+  it("并发多会话:事件按 sessionId 路由到各自 sender,互不串台", async () => {
     const e1 = fakeEvent();
     await h.handlers.get("pi:open")!(e1, { uiSessionId: "u1", cwd: "/p" });
     const e2 = fakeEvent();
     await h.handlers.get("pi:open")!(e2, { uiSessionId: "u2", cwd: "/p" });
     h.instances[0].onEvent({ type: "text", delta: "a" });
     h.instances[1].onEvent({ type: "text", delta: "b" });
-    expect(e1.sender.send).toHaveBeenCalledWith("pi:event", { uiSessionId: "u1", event: { type: "text", delta: "a" } });
-    expect(e2.sender.send).toHaveBeenCalledWith("pi:event", { uiSessionId: "u2", event: { type: "text", delta: "b" } });
-    // 互不串台:各 sender 只收到自己 uiSessionId 的事件
-    expect(e1.sender.send).not.toHaveBeenCalledWith("pi:event", expect.objectContaining({ uiSessionId: "u2" }));
-    expect(e2.sender.send).not.toHaveBeenCalledWith("pi:event", expect.objectContaining({ uiSessionId: "u1" }));
+    expect(e1.sender.send).toHaveBeenCalledWith("pi:event", { sessionId: "u1", event: { type: "text", delta: "a" } });
+    expect(e2.sender.send).toHaveBeenCalledWith("pi:event", { sessionId: "u2", event: { type: "text", delta: "b" } });
+    // 互不串台:各 sender 只收到自己 sessionId 的事件
+    expect(e1.sender.send).not.toHaveBeenCalledWith("pi:event", expect.objectContaining({ sessionId: "u2" }));
+    expect(e2.sender.send).not.toHaveBeenCalledWith("pi:event", expect.objectContaining({ sessionId: "u1" }));
   });
 
   it("同 id opening 期间占住 owner：并发重开被拒绝，owner 销毁后迟到 engine 立即 stop", async () => {
@@ -1443,7 +1444,7 @@ describe("事件回推与生命周期", () => {
 
     current.onEvent({ type: "text", delta: "new" });
     expect(event.sender.send).toHaveBeenCalledWith("pi:event", {
-      uiSessionId: "generation",
+      sessionId: "generation",
       event: { type: "text", delta: "new" },
     });
   });
@@ -1454,7 +1455,7 @@ describe("事件回推与生命周期", () => {
     h.onEventRef.current!({ type: "crashed", error: "退出码 1" });
     expect(piSessionCount()).toBe(0);
     expect(event.sender.send).toHaveBeenCalledWith("pi:event", {
-      uiSessionId: "u1",
+      sessionId: "u1",
       event: { type: "crashed", error: "退出码 1" },
     });
   });

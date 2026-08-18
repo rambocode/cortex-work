@@ -10,6 +10,7 @@ import { homedir, platform } from "os";
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "fs";
 import type { AgentKind, AgentSessionRequest, CliExitEvent, CliStartRequest, CliStreamEvent, McpServerConfig, McpSettings, ReasoningEffort, RoleConfig, TrimSessionRequest } from "./types";
 import { baseAgentKindOf, getAgentDef, listAgentProfiles, parseLineEvents, refreshLocalAgentProfiles } from "../agents";
+import { sendRunEvent } from "./run-events";
 import { agentSessionExists, trimAgentSession, trimSessionIntoCopy } from "./session-trim";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
 // pi 单发的 in-process 引擎(U5;引擎收敛后是 pi 单发的唯一路径,永不 spawn)。它伪装成
@@ -902,7 +903,7 @@ export function registerCliHandlers(): void {
 
     // 事件回显 sessionId:renderer 被 HMR/刷新重载丢失内存注册表后,仍能把事件归属到正确 session。
     const sendEvent = (ev: CliStreamEvent) => {
-      if (!sender.isDestroyed()) sender.send("cli:event", { runId: req.runId, sessionId: req.sessionId, event: ev });
+      sendRunEvent(sender, { v: 1, domain: "chat", runId: req.runId, sessionId: req.sessionId, event: ev });
     };
     const sendExit = (exit: CliExitEvent) => {
       if (!sender.isDestroyed()) sender.send("cli:exit", exit);
@@ -925,6 +926,9 @@ export function registerCliHandlers(): void {
         signal: controller.signal,
         abort: () => controller.abort(),
         pushEvent: (ev) => sendEvent(ev),
+        // 信封归一 P2:子会话完整过程走独立信封(见 delegate/server.ts 的双发说明)。
+        pushChildEvent: (childSessionId, callId, ev) =>
+          sendRunEvent(sender, { v: 1, domain: "chat", runId: callId, sessionId: childSessionId, event: ev }),
         bumpWatchdog: () => bumpRunWatchdog(req.runId),
         maxParallel: req.delegatePolicy?.maxParallel ?? 256,
         maxChildRuns: req.delegatePolicy?.maxChildRuns ?? 25,

@@ -68,8 +68,11 @@ export interface DelegateSessionState {
   signal: AbortSignal;
   // killAllDelegates / 主 agent 退出时取消所有在途子 agent（cli.ts 内部 = controller.abort()）。
   abort: () => void;
-  // 把子 agent 事件推渲染端（cli.ts 内部 = sender.send("cli:event", {runId, sessionId, event})，带 isDestroyed 守卫）。
+  // 把子 agent 事件推渲染端（cli.ts / pi-delegate.ts 经 sendRunEvent 发父会话信封）。
   pushEvent: (ev: CliStreamEvent) => void;
+  // 信封归一 P2(双发):子会话完整过程的独立信封(sessionId=childSessionId,runId=callId,
+  // 事件不带 roleId/subagentCallId 过滤标记)。未注入时(旧调用方)渲染端只有父流卡片语义。
+  pushChildEvent?: (childSessionId: string, callId: string, ev: CliStreamEvent) => void;
   // 喂主进程 inactivity 看门狗（cli.ts 的看门狗只看主 agent stdout，长子任务期间主 agent 静默会被误杀）。
   bumpWatchdog: () => void;
   // 运行策略由设置页投影；主进程注册时仍会归一，避免 renderer 伪造负数或超大值。
@@ -234,7 +237,25 @@ async function executeDelegateTool(
     subagentModel: role.model,
     subagentReadOnly: role.toolPolicy === "readOnly",
   });
-  // 子 agent 每个事件：转发渲染端（已带 roleId）+ 喂主进程看门狗（防长子任务误杀主 agent，R2）。
+  // 信封归一 P2(双发):子会话过程走独立信封,事件剥净父会话过滤标记(roleId/subagentCallId),
+  // 渲染端按信封 sessionId/runId 直接归属,不再从父流标记推断。init 保留 child 元数据字段
+  // (childSessionId/subagentTask 等),它们是子会话自己的语境,不是路由标记。
+  const pushChild = (ev: CliStreamEvent) => {
+    state.pushChildEvent?.(childSessionId, subagentCallId, { ...ev, roleId: undefined, subagentCallId: undefined });
+  };
+  pushChild({
+    type: "init",
+    sessionId: state.sessionId,
+    stage: "subagent",
+    stageLabel: role.label,
+    childSessionId,
+    subagentTask: taskText,
+    subagentTitle: taskTitle,
+    subagentAgentId: role.agent,
+    subagentModel: role.model,
+    subagentReadOnly: role.toolPolicy === "readOnly",
+  });
+  // 子 agent 每个事件：父流转发（已带 roleId）+ 子流双发 + 喂主进程看门狗（防长子任务误杀主 agent，R2）。
   const onEvent = (ev: CliStreamEvent) => {
     state.pushEvent({
       ...ev,
@@ -250,6 +271,15 @@ async function executeDelegateTool(
         subagentReadOnly: role.toolPolicy === "readOnly",
       } : {}),
     });
+    pushChild(ev.type === "init" ? {
+      ...ev,
+      childSessionId,
+      subagentTask: taskText,
+      subagentTitle: taskTitle,
+      subagentAgentId: role.agent,
+      subagentModel: ev.subagentModel ?? role.model,
+      subagentReadOnly: role.toolPolicy === "readOnly",
+    } : ev);
     state.bumpWatchdog();
   };
   try {
@@ -260,6 +290,7 @@ async function executeDelegateTool(
       // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
       // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
       const message = err instanceof Error ? err.message : String(err);
+      pushChild({ type: "result", ok: false, error: message });
       state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
       return errorResult(`协作者「${role.label}」执行失败：${message}`);
     }
@@ -280,6 +311,7 @@ async function executeDelegateTool(
       },
     });
     if (!result.ok) {
+      pushChild({ type: "result", ok: false, error: result.error ?? "未知错误" });
       state.pushEvent({
         type: "result",
         ok: false,
@@ -299,6 +331,8 @@ async function executeDelegateTool(
     }
     // 子进程的原始 result 在 cli.ts 内部收口，不直接转发；由 delegate host 在 tool_result
     // 返回主 Agent 前补发一次角色级完成帧，驱动会话卡片从“进行中”进入完成态。
+    // 子流 result 先于父流:渲染端先收尾子会话过程/归档,父卡片终态随后到达。
+    pushChild({ type: "result", ok: true, text: result.text });
     state.pushEvent({ type: "result", ok: true, text: result.text, roleId: role.id, subagentCallId });
     return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
   } finally {

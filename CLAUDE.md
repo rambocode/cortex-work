@@ -77,6 +77,7 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 - **`DesktopBridge`**（`core/desktop/bridge.ts`）是「个人工作区」桌面能力的接口契约。`core`/`views` **永不直接触碰** `window.desktopAPI` 或 Node API——只通过注入的 `desktopBridge` 调用（Web 端为 `null`）。
 - 预加载（`apps/desktop/src/preload/index.ts`）用 `contextBridge` 把 IPC 暴露为 `window.desktopAPI.personal`，其形状与 `DesktopBridge` 一致；`App.tsx` 把它注入 `CoreProvider`。
 - 主进程 IPC handler 统一在 `apps/desktop/src/main/ipc/register.ts` 注册（fs / store / cli / chat / timeline / push / llm / pty / usage / agent-projects / watch / update / editors / automation）。类型契约集中在 `main/ipc/types.ts`，并被 preload 与 `core/desktop/types.ts` 共用。
+- **运行事件信封（务必遵守）**：主进程发往渲染端的会话级流式事件（`cli:event`）一律经 `main/ipc/run-events.ts` 的 `sendRunEvent` 发出，载荷为 `RunEventEnvelope`（`v`/`domain`/`sessionId`/`runId`/`event`，三条不变量见 `main/ipc/types.ts` 注释）。新代码禁止直发 `sender.send("cli:event", ...)`；接收端不得从事件内容推断目标命名空间（信封 `sessionId` 是唯一真相）。低频「某数据变了」类通知走 `sync:invalidate` 映射表（见 `main/ipc/sync-invalidate.ts`），不再新开 `*:changed` channel。方案见 `docs/plans/2026-08-18-001-refactor-event-envelope-unification-plan.md`。
 
 ### Agent CLI 适配器
 

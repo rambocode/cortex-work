@@ -26,6 +26,26 @@ const baseSession: SessionMeta = {
   updatedAt: 1,
 };
 
+/**
+ * 模拟主进程的双发契约(信封归一 P2,capabilities/delegate/server.ts):
+ * - 父流信封:runId=父 runId,sessionId=父会话,事件带 roleId/subagentCallId 标记(卡片语义);
+ * - 子流信封:runId=callId,sessionId=childSessionId,事件剥净标记(子会话完整过程)。
+ * 流式事件父先子后;result 子先父后(渲染端先收尾子会话再收父卡片终态)。
+ */
+function makeDualEmitter(qc: QueryClient, parentRunId: string, callId: string, childSessionId: string) {
+  return (ev: CliStreamEvent) => {
+    const parentEv = { ...ev, roleId: "explore", subagentCallId: callId };
+    const childEv = { ...ev, roleId: undefined, subagentCallId: undefined };
+    if (ev.type === "result") {
+      __handleCliEventForTest(qc, callId, childEv, childSessionId);
+      __handleCliEventForTest(qc, parentRunId, parentEv, "s1");
+      return;
+    }
+    __handleCliEventForTest(qc, parentRunId, parentEv, "s1");
+    __handleCliEventForTest(qc, callId, childEv, childSessionId);
+  };
+}
+
 beforeEach(() => {
   __resetPersonalMessageRunsForTest();
   usePersonalStore.setState({
@@ -38,7 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetPersonalMessageRunsForTest();
-  __setBridgeForTest(undefined);
+  __setBridgeForTest(null);
   vi.useRealTimers();
 });
 
@@ -47,24 +67,22 @@ describe("子会话过程流(subagent-stream)", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();
     const runId = "delegate-child-stream";
-    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+    const emit = makeDualEmitter(qc, runId, "call-s", "child-s");
 
     emit({
       type: "init",
       sessionId: "s1",
-      roleId: "explore",
       stage: "subagent",
       stageLabel: "探索",
-      subagentCallId: "call-s",
       childSessionId: "child-s",
       subagentTask: "梳理模块结构",
       subagentAgentId: "pi",
     });
     // 子代理的思考与工具应实时折进 child-s 自己的过程流（side 页 Trajectory 数据源）。
-    emit({ type: "thinking", delta: "先看目录结构", roleId: "explore", subagentCallId: "call-s" });
-    emit({ type: "tool", name: "Read", detail: "pkg/a.ts", phase: "start", roleId: "explore", subagentCallId: "call-s", toolCallId: "t1" });
-    emit({ type: "tool", name: "Read", phase: "end", roleId: "explore", subagentCallId: "call-s", toolCallId: "t1" });
-    emit({ type: "text", delta: "结论：分三层。", roleId: "explore", subagentCallId: "call-s" });
+    emit({ type: "thinking", delta: "先看目录结构" });
+    emit({ type: "tool", name: "Read", detail: "pkg/a.ts", phase: "start", toolCallId: "t1" });
+    emit({ type: "tool", name: "Read", phase: "end", toolCallId: "t1" });
+    emit({ type: "text", delta: "结论：分三层。" });
 
     const childProcess = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-s")) ?? [];
     const childReasoning = childProcess.filter(
@@ -110,10 +128,8 @@ describe("子会话过程流(subagent-stream)", () => {
     emit({
       type: "todo",
       todos: [{ text: "扫目录", status: "completed" }, { text: "写结论", status: "in_progress" }],
-      roleId: "explore",
-      subagentCallId: "call-s",
     });
-    emit({ type: "result", ok: true, roleId: "explore", subagentCallId: "call-s" });
+    emit({ type: "result", ok: true });
 
     // result 收尾后子会话过程流与 todo 全部翻完成态（无 active 残留）。
     const settled = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-s")) ?? [];
@@ -130,23 +146,21 @@ describe("子会话过程流(subagent-stream)", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();
     const runId = "delegate-parallel-tools";
-    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+    const emit = makeDualEmitter(qc, runId, "call-p", "child-p");
 
     emit({
       type: "init",
       sessionId: "s1",
-      roleId: "explore",
       stage: "subagent",
       stageLabel: "探索",
-      subagentCallId: "call-p",
       childSessionId: "child-p",
       subagentTask: "并行探索",
       subagentAgentId: "pi",
     });
-    emit({ type: "tool", name: "Read", detail: "a.ts", phase: "start", roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-a" });
+    emit({ type: "tool", name: "Read", detail: "a.ts", phase: "start", toolCallId: "tool-a" });
     // B 开始时折叠会把 A 自动翻 check(同卡单 running 模型)——A 之后的失败标记不能因此被吞。
-    emit({ type: "tool", name: "Bash", detail: "long-job", phase: "start", roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-b" });
-    emit({ type: "tool", name: "Read", phase: "end", isError: true, roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-a" });
+    emit({ type: "tool", name: "Bash", detail: "long-job", phase: "start", toolCallId: "tool-b" });
+    emit({ type: "tool", name: "Read", phase: "end", isError: true, toolCallId: "tool-a" });
 
     const items = () =>
       ((qc.getQueryData<Message[]>(personalProcessKeys.detail("child-p")) ?? []).find(
@@ -166,7 +180,7 @@ describe("子会话过程流(subagent-stream)", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();
     const runId = "delegate-archive-anchor";
-    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+    const emit = makeDualEmitter(qc, runId, "call-arch", "child-arch");
     const saveProcessArchive = vi.fn(async () => {});
     __setBridgeForTest({
       saveProcessArchive,
@@ -178,19 +192,17 @@ describe("子会话过程流(subagent-stream)", () => {
     emit({
       type: "init",
       sessionId: "s1",
-      roleId: "explore",
       stage: "subagent",
       stageLabel: "探索",
-      subagentCallId: "call-arch",
       childSessionId: "child-arch",
       subagentTask: "长任务",
       subagentAgentId: "pi",
     });
-    emit({ type: "tool", name: "Read", detail: "big.ts", phase: "start", roleId: "explore", subagentCallId: "call-arch", toolCallId: "ta" });
-    emit({ type: "tool", name: "Read", phase: "end", output: "ok", roleId: "explore", subagentCallId: "call-arch", toolCallId: "ta" });
+    emit({ type: "tool", name: "Read", detail: "big.ts", phase: "start", toolCallId: "ta" });
+    emit({ type: "tool", name: "Read", phase: "end", output: "ok", toolCallId: "ta" });
     // 模拟 side 页未打开、chat query 被全局 gcTime 回收:此刻收尾,归档不得因读空缓存而失锚。
     qc.removeQueries({ queryKey: personalChatKeys.detail("child-arch"), exact: true });
-    emit({ type: "result", ok: true, text: "done", roleId: "explore", subagentCallId: "call-arch" });
+    emit({ type: "result", ok: true, text: "done" });
 
     await vi.waitFor(() => expect(saveProcessArchive).toHaveBeenCalled());
     const [sessionId, archives] = saveProcessArchive.mock.calls[0]! as unknown as [

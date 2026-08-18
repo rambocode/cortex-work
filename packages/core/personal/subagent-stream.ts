@@ -24,7 +24,7 @@ import {
   type ProcessCursor,
 } from "./messages";
 
-/** 子会话过程流的折叠状态:游标与登记表持在父 run 的 SubagentCardState 上(按 callId 隔离)。 */
+/** 子会话过程流的折叠状态(信封归一 P2 后由 childStreams 注册表按 childSessionId 持有)。 */
 export interface SubagentStreamState {
   childSessionId?: string;
   childAgent?: AgentKind;
@@ -34,6 +34,51 @@ export interface SubagentStreamState {
   // toolCallId → 该工具项在过程流里的精确位置。并行工具时 end 帧不能按「最后一个 running 项」
   // 反查(A 先结束会错翻/错标 ⚠️ 到 B),必须按 id 定位;缺 id 的旧适配器仍走 last-running 兜底。
   openToolItems?: Map<string, { logUid: string; index: number }>;
+}
+
+// ── 子会话流注册表(信封归一 P2) ──────────────────────────────────────────────
+//
+// 主进程对每个子代理调用双发信封:父流(卡片语义,带标记)+ 子流(sessionId=childSessionId,
+// runId=callId,事件已剥标记)。渲染端按注册表把子流信封直接路由到子会话 reducer,不再从父流
+// 标记推断归属。注册由父流 init 驱动;HMR/刷新丢表后按持久 SessionMeta(relation:"side")兜底重建。
+interface ChildStreamEntry {
+  callId: string;
+  state: SubagentStreamState;
+}
+
+const childStreams = new Map<string, ChildStreamEntry>();
+
+/** 登记一个子会话流(幂等:同 childSessionId 重复登记沿用已有折叠状态)。 */
+export function registerSubagentChildStream(
+  childSessionId: string,
+  callId: string,
+  agent: AgentKind | undefined,
+): ChildStreamEntry {
+  const existing = childStreams.get(childSessionId);
+  if (existing && existing.callId === callId) return existing;
+  const entry: ChildStreamEntry = {
+    callId,
+    state: {
+      childSessionId,
+      childAgent: agent,
+      processCursor: emptyProcessCursor(),
+    },
+  };
+  childStreams.set(childSessionId, entry);
+  return entry;
+}
+
+export function getSubagentChildStream(childSessionId: string): ChildStreamEntry | undefined {
+  return childStreams.get(childSessionId);
+}
+
+export function unregisterSubagentChildStream(childSessionId: string): void {
+  childStreams.delete(childSessionId);
+}
+
+/** 单测隔离:清空注册表(与 __resetPersonalMessageRunsForTest 一起调用)。 */
+export function __resetSubagentChildStreamsForTest(): void {
+  childStreams.clear();
 }
 
 /** 子会话思考流折叠:首个 delta 开 reasoning 块,后续累进同一块。 */

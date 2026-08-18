@@ -670,8 +670,9 @@ const personal = {
     ipcRenderer.invoke("pi:snapshotSession", uiSessionId, branchId),
   piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
   onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent; runId?: string }) =>
-      cb(payload.uiSessionId, payload.event, payload.runId);
+    // 信封归一 P0:主进程载荷字段已由 uiSessionId 改名 sessionId(与 cli:event 信封对齐)。
+    const listener = (_e: IpcRendererEvent, payload: { sessionId: string; event: PiSessionEvent; runId?: string }) =>
+      cb(payload.sessionId, payload.event, payload.runId);
     ipcRenderer.on("pi:event", listener);
     return () => ipcRenderer.removeListener("pi:event", listener);
   },
