@@ -775,10 +775,13 @@ const personal = {
     patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] },
   ): Promise<NoteMeta | null> => ipcRenderer.invoke("notes:update", id, patch),
   notesDelete: (id: string): Promise<void> => ipcRenderer.invoke("notes:delete", id),
-  onNotesChanged: (cb: (list: NoteMeta[]) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
-    ipcRenderer.on("notes:changed", listener);
-    return () => ipcRenderer.removeListener("notes:changed", listener);
+  // 信封归一 P1:tasks/task-resources/notes 等纯失效通知统一走 sync:invalidate 单通道。
+  // 新增失效域只扩 scope,不再新开 `*:changed` channel、不再加 preload 监听。
+  onSyncInvalidate: (cb: (scope: string, hint?: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { scope: string; hint?: string }) =>
+      cb(payload.scope, payload.hint);
+    ipcRenderer.on("sync:invalidate", listener);
+    return () => ipcRenderer.removeListener("sync:invalidate", listener);
   },
   // 消息中心（侧栏铃铛）。main 为 owner，渲染端**只读 + 标已读/清空**——写入是主进程
   // 埋点（recordNotification）的专属通道，故这里没有 add。
@@ -837,23 +840,12 @@ const personal = {
     patch: { name?: string; description?: string; stages?: string[] },
   ): Promise<StageTemplate | null> => ipcRenderer.invoke("tasks:updateStageTemplate", id, patch),
   stageTemplatesDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteStageTemplate", id),
-  // 资源变更轻量订阅：main 只发信号不塞快照，renderer invalidate 后重拉。
-  onTaskResourcesChanged: (cb: () => void): (() => void) => {
-    const listener = () => cb();
-    ipcRenderer.on("tasks:resources-changed", listener);
-    return () => ipcRenderer.removeListener("tasks:resources-changed", listener);
-  },
   // 任务附件（U13）：落盘（优先 srcPath 直拷，避免 50MB ArrayBuffer 过 IPC）返回引用 / 按 path 删除。
   taskDocSave: (
     taskId: string,
     file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer },
   ): Promise<TaskAttachment> => ipcRenderer.invoke("task-doc:save", taskId, file),
   taskDocDelete: (taskId: string, path: string): Promise<void> => ipcRenderer.invoke("task-doc:delete", taskId, path),
-  onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
-    ipcRenderer.on("tasks:changed", listener);
-    return () => ipcRenderer.removeListener("tasks:changed", listener);
-  },
   // 委派意图跨窗口中继（KTD10）。形状与 DesktopBridge 的 sendTaskDelegateIntent/onTaskDelegateIntent
   // 逐字对齐（手工比对，无 satisfies）。send：项目管理窗口发送；on：主窗口订阅 main 转发的意图。
   sendTaskDelegateIntent: (intent: TaskDelegateIntent): void =>

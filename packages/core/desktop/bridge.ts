@@ -626,7 +626,9 @@ export interface DesktopBridge {
   notesAdd?(input: NoteInput): Promise<NoteMeta>;
   notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
   notesDelete?(id: string): Promise<void>;
-  onNotesChanged?(cb: (list: NoteMeta[]) => void): () => void;
+  // 信封归一 P1:纯失效通知统一订阅(tasks/task-resources/notes)。scope→invalidate 映射表
+  // 见 core/personal/sync-invalidate.ts;新增失效域只扩 scope,不再新加 on*Changed 桥方法。
+  onSyncInvalidate?(cb: (scope: string, hint?: string) => void): () => void;
   // 消息中心（侧栏底部铃铛）：可选能力，web/旧壳无 → 铃铛整体隐藏。
   // main 为 owner；渲染端只读 + 标已读/清空，**写入没有对应桥方法**（见 ipc/notification-center.ts
   // 的 recordNotification 注释：消息是主进程事实的存档，渲染端不能伪造）。
@@ -672,14 +674,11 @@ export interface DesktopBridge {
   stageTemplatesAdd?(input: { name: string; description?: string; stages: string[] }): Promise<StageTemplate>;
   stageTemplatesUpdate?(id: string, patch: { name?: string; description?: string; stages?: string[] }): Promise<StageTemplate | null>;
   stageTemplatesDelete?(id: string): Promise<void>;
-  // 资源变更轻量订阅（成员/岗位/模板 CRUD 后 main 广播信号，renderer invalidate 重拉）。
-  onTaskResourcesChanged?(cb: () => void): () => void;
   // 任务附件（U13）：复用聊天文档附件闸门落盘（仅文档类型 pdf/docx/xlsx/pptx/csv/txt/md，图片延后），
   // 返回落盘引用（main 写回 TaskMeta.attachments 并广播 tasks:changed）；delete 按 path 删磁盘 + 清引用。
   // 可选能力（web/旧壳无 → TaskAttachments 降级隐藏「添加/移除」，仅只读列出既有附件）。
   taskDocSave?(taskId: string, file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer }): Promise<TaskAttachment>;
   taskDocDelete?(taskId: string, path: string): Promise<void>;
-  onTasksChanged?(cb: (list: TaskMeta[]) => void): () => void;
   // 委派意图跨窗口中继（KTD10）：sessions 是 renderer 本地 Zustand、不跨窗口，故「项目管理」
   // 独立窗口委派不能本地起会话——只发意图给 main。main 唤起主窗口并把意图转发过去。
   //  - sendTaskDelegateIntent：项目管理窗口 renderer 调用（发送端）。

@@ -6,7 +6,8 @@
 // electron,可单测）;本文件只负责注入 paths.notesStorePath + 注册 ipcMain.handle
 // + broadcast。免 assertAllowed / 免 SAFE_ID / 免 ensureMigrated。
 
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
+import { broadcastSyncInvalidate } from "./sync-invalidate";
 import { notesStorePath } from "../paths";
 import { NotesStore, newNoteId } from "./notes-store";
 import type { NoteInput, NoteMeta, NoteStatus } from "./types";
@@ -14,12 +15,9 @@ import type { NoteInput, NoteMeta, NoteStatus } from "./types";
 // 单例存储（注入主进程的路径解析）。
 const store = new NotesStore({ notesStorePath });
 
-// 推全量快照给所有存活窗口（窗口可能已关,getAllWindows() 返回 []，事件丢失不影响
-// 落盘,renderer 重开/重获焦点用 notesList 补拉）。仿 automation/events.ts。
-function broadcastNotesChanged(list: NoteMeta[]): void {
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send("notes:changed", list);
-  }
+// 信封归一 P1:笔记变更改发纯失效信号(渲染端本就只 invalidate 重拉,从不消费旧快照载荷)。
+function broadcastNotesChanged(_list: NoteMeta[]): void {
+  broadcastSyncInvalidate("notes");
 }
 
 // CRUD 后统一推一份全量快照。

@@ -1,6 +1,22 @@
 # 事件信封归一(Envelope Unification)改造方案
 
-> 状态:提案 · 2026-08-18
+> 状态:**P0/P1/P2 已落地**(2026-08-19,worktree-subagent-stream-fix 分支);P3 维持触发条件制。
+>
+> 落地与偏差记录:
+> - P0:`RunEventEnvelope` + `ipc/run-events.ts sendRunEvent` 唯一出口,6 个直发点收口;
+>   `pi:event` 载荷字段 `uiSessionId`→`sessionId` 对齐;约定入 CLAUDE.md。
+> - P2:delegate 链路父/子双信封双发(子流 sessionId=childSessionId、runId=callId、事件剥净
+>   标记;result 子先父后);渲染端 `maybeHandleSubagentChildEvent` 按注册表(HMR 后按持久
+>   side SessionMeta 兜底)直接路由,标记推断的子写入全部删除。原计划的 `envelope.v` 灰度
+>   flag 未做:P0/P2 同分支同 commit 落地,主进程与渲染端无跨版本窗口,保留 flag 只剩死代码。
+> - P1 **实测修正**:全仓盘点后,`*:changed` 通道分两种语义——纯失效信号(消费端忽略载荷只
+>   invalidate:tasks / tasks-resources / notes,已迁 `sync:invalidate` 单通道 + 映射表,
+>   删除三个旧 channel 与 preload/bridge 方法)与**数据推送**(消费端直接消费载荷:
+>   workflow / automation / roles / memory,原方案「几乎都是 invalidate」的假设对它们不成立,
+>   迁移=行为变更〔多一次重拉 IPC + 与乐观更新的竞态语义变化〕,本阶段不迁;要迁须先把消费端
+>   改为 invalidate+重拉,另立评估)。新增失效域一律走 `sync:invalidate`,禁止再开 `*:changed`。
+>
+> 原提案(2026-08-18)全文保留如下,作为设计依据。
 > 结论先行:**不引入全局事件总线**。Electron IPC 本身就是总线(channel = topic),
 > `CliStreamEvent` 已经是归一化事件 schema。缺的是**信封规范**——载荷形状、路由语义、
 > 生命周期三件事各通道各写各的。本方案分四个阶段小步收敛,每阶段独立可交付、可回退。
