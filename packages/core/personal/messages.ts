@@ -248,6 +248,11 @@ interface SubagentCardState {
   steps: number;
   childSessionId?: string;
   childAgent?: AgentKind;
+  // 子会话自己的过程流折叠状态（thinking/tool 折进 personalProcessKeys.detail(childSessionId)，
+  // 让 side 页像主会话一样实时渲染 Trajectory；主会话过程流不再复制这些事件——降噪）。
+  processCursor: ProcessCursor;
+  reasoningUid?: string;
+  reasoningText?: string;
 }
 
 interface RunState {
@@ -1357,6 +1362,118 @@ function finalizeSubagentChild(
   usePersonalStore.getState().updateSession(state.childSessionId, {});
 }
 
+// ── 子会话过程流折叠（问题修复：子代理页面实时渲染完整 Trajectory） ─────────────
+// 与主会话的 foldReasoning/foldToolIntoProcess 同构，但目标是 childSessionId 的过程流、
+// 游标持在 SubagentCardState 上。side 页复用 PersonalChatArea → usePersonalProcess(childId)，
+// 因此写进这条 key 的 reasoning/agentLog 会以主会话同款 Trajectory 形态流式呈现。
+
+/** 子会话思考流折叠：首个 delta 开 reasoning 块，后续累进同一块。 */
+function foldSubagentReasoning(qc: QueryClient, state: SubagentCardState, delta: string): void {
+  const childId = state.childSessionId;
+  if (!childId || !delta) return;
+  // 思考前先收尾打开的工具卡，保留「工具→再思考」的交错时间线（与主会话同规则）。
+  finalizeSubagentProcessLog(qc, state);
+  if (state.reasoningUid) {
+    const text = (state.reasoningText ?? "") + delta;
+    state.reasoningText = text;
+    const ruid = state.reasoningUid;
+    setProcessMessages(qc, childId, (prev) =>
+      prev.map((m) => (m.uid === ruid && m.kind === "reasoning" ? { ...m, text, active: true } : m)),
+    );
+    return;
+  }
+  const ruid = uid("sre");
+  state.reasoningUid = ruid;
+  state.reasoningText = delta;
+  setProcessMessages(qc, childId, (prev) => [
+    ...prev,
+    { kind: "reasoning", who: state.childAgent ?? "pi", time: realHHMM(), text: delta, active: true, uid: ruid },
+  ]);
+}
+
+/** 子会话思考块收尾（翻完成态）。 */
+function finalizeSubagentReasoning(qc: QueryClient, state: SubagentCardState): void {
+  if (!state.childSessionId || !state.reasoningUid) return;
+  const ruid = state.reasoningUid;
+  setProcessMessages(qc, state.childSessionId, (prev) => finalizeReasoning(prev, ruid));
+  state.reasoningUid = undefined;
+  state.reasoningText = undefined;
+}
+
+/** 子会话工具事件折叠：tool start 进 agentLog 卡（连续 tool 并入同卡）。 */
+function foldSubagentToolIntoProcess(qc: QueryClient, state: SubagentCardState, ev: CliStreamEvent): void {
+  const childId = state.childSessionId;
+  if (!childId) return;
+  finalizeSubagentReasoning(qc, state);
+  let nextCursor = state.processCursor;
+  setProcessMessages(qc, childId, (prev) => {
+    const folded = foldCliEvent(prev, ev, state.processCursor, {
+      agent: state.childAgent ?? "pi",
+      time: realHHMM(),
+      newUid: uid,
+    });
+    nextCursor = folded.cursor;
+    return folded.messages;
+  });
+  state.processCursor = nextCursor;
+}
+
+/** 子会话 tool-end：把当前 agentLog 卡里最后一个 running 项翻 check（出错前缀 ⚠️）。 */
+function finalizeSubagentLastToolItem(qc: QueryClient, state: SubagentCardState, isError: boolean): void {
+  const childId = state.childSessionId;
+  if (!childId || state.processCursor.lastKind !== "tool" || !state.processCursor.logUid) return;
+  const logUid = state.processCursor.logUid;
+  setProcessMessages(qc, childId, (prev) =>
+    prev.map((m) => {
+      if (m.uid !== logUid || m.kind !== "agentLog") return m;
+      const items = [...m.items];
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (it && it.ic === "running") {
+          const text = isError && typeof it.text === "string" ? `⚠️ ${it.text}` : it.text;
+          items[i] = { ...it, ic: "check", text };
+          break;
+        }
+      }
+      return { ...m, items };
+    }),
+  );
+}
+
+/** 子会话 agentLog 收尾：全部步骤打勾并清游标。 */
+function finalizeSubagentProcessLog(qc: QueryClient, state: SubagentCardState): void {
+  const childId = state.childSessionId;
+  if (!childId || state.processCursor.lastKind !== "tool" || !state.processCursor.logUid) return;
+  const logUid = state.processCursor.logUid;
+  setProcessMessages(qc, childId, (prev) => finalizeAgentLog(prev, logUid));
+  state.processCursor = emptyProcessCursor();
+}
+
+/** 子会话任务清单：todo 快照写进子会话自己的持久流（按 callId 原地覆盖），不进主会话。 */
+function foldSubagentTodo(
+  qc: QueryClient,
+  state: SubagentCardState,
+  callId: string,
+  todos: TodoListItem[],
+): void {
+  if (!state.childSessionId || !state.childAgent) return;
+  const agent = state.childAgent;
+  mutateSubagentChat(qc, state.childSessionId, (prev) => {
+    const idx = prev.findIndex((m) => m.kind === "todoList" && m.runId === callId);
+    if (idx >= 0) {
+      const cur = prev[idx] as Extract<Message, { kind: "todoList" }>;
+      if (todosEqual(cur.todos, todos) && cur.active) return prev;
+      const next = prev.slice();
+      next[idx] = { ...cur, todos, active: true };
+      return next;
+    }
+    return [
+      ...prev,
+      { kind: "todoList", who: agent, time: realHHMM(), runId: callId, todos, active: true, uid: uid("stodo") },
+    ];
+  });
+}
+
 function beginSubagentCard(
   qc: QueryClient,
   sessionId: string,
@@ -1395,6 +1512,7 @@ function beginSubagentCard(
     steps: 0,
     childSessionId: childSession?.id,
     childAgent: childSession?.agent,
+    processCursor: emptyProcessCursor(),
   });
   // 卡片位于持久流尾部，后续主 Agent 正文必须另起一块。
   run.cursor = { ...run.cursor, lastKind: "tool", textUid: undefined, segmentText: "" };
@@ -1469,7 +1587,14 @@ function finishSubagentCard(
     summary: state?.text || resultText || undefined,
     error: ok ? undefined : (error ?? "未知错误"),
   });
-  if (state) finalizeSubagentChild(qc, state, callId, ok, resultText, error);
+  if (state) {
+    // 先收尾子会话过程流仍 active 的思考块/工具卡，再写终态文本；最后把这轮过程归档落盘
+    //（复用主会话的 archiveRunProcess：锚点是子会话首条任务消息，重开 app 后 side 页仍可回看）。
+    finalizeSubagentReasoning(qc, state);
+    finalizeSubagentProcessLog(qc, state);
+    finalizeSubagentChild(qc, state, callId, ok, resultText, error);
+    if (state.childSessionId) archiveRunProcess(qc, state.childSessionId, callId);
+  }
   run.subagentCards?.delete(callId);
 }
 
@@ -1795,6 +1920,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       ]);
       return;
     }
+    // 委派子代理的思考只进**子会话自己的过程流**（side 页实时 Trajectory），不再复制进主会话
+    // 过程流——否则并行多子代理时主会话时间线被子代理过程灌爆（降噪，用户反馈问题 3）。
+    if (run.delegate && ev.roleId) {
+      const childState = run.subagentCards?.get(ev.subagentCallId ?? ev.roleId);
+      if (childState) foldSubagentReasoning(qc, childState, ev.delta);
+      return;
+    }
     // 思考/执行过程(codex reasoning + commentary、claude thinking)落**右侧运行过程流**(不进对话回复、
     // 不落盘),与 pi 的 reasoning 折叠同一通道。用户要求:过程在右侧,回复只留 final answer。
     // 阶段切换收尾:收到思考前先收尾打开的工具卡,使新思考块按时序追加到工具之后(think→tool→think
@@ -1808,6 +1940,13 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 任务清单快照(claude TodoWrite / codex update_plan):编排中间段(intent/subagent)的清单
     // 属于过程,不进聊天正文——与下方 text 的 stage 守卫同理;非编排 run 无 stage,正常折叠。
     if (ev.stage === "intent" || ev.stage === "subagent") return;
+    // 委派子代理的清单写进子会话自己的持久流,不落主会话正文（降噪 + side 页完整呈现）。
+    if (run.delegate && ev.roleId) {
+      const callId = ev.subagentCallId ?? ev.roleId;
+      const childState = run.subagentCards?.get(callId);
+      if (childState) foldSubagentTodo(qc, childState, callId, ev.todos);
+      return;
+    }
     // 清单更新是显式阶段边界:先收尾打开的思考块/工具卡,再原地覆盖(或追加)todo 卡。
     finalizeRunReasoning(qc, run);
     finalizeProcessAgentLog(qc, sessionId, run);
@@ -1816,14 +1955,22 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   }
 
   if (ev.type === "tool") {
-    if (run.delegate && ev.roleId && ev.phase !== "end") {
-      stepSubagentCard(
-        qc,
-        sessionId,
-        run,
-        ev.subagentCallId ?? ev.roleId,
-        [cleanToolName(ev.name), ev.detail].filter(Boolean).join(" · ").slice(0, 180),
-      );
+    if (run.delegate && ev.roleId) {
+      const childState = run.subagentCards?.get(ev.subagentCallId ?? ev.roleId);
+      if (ev.phase !== "end") {
+        stepSubagentCard(
+          qc,
+          sessionId,
+          run,
+          ev.subagentCallId ?? ev.roleId,
+          [cleanToolName(ev.name), ev.detail].filter(Boolean).join(" · ").slice(0, 180),
+        );
+        // 工具卡同时折进子会话自己的过程流,side 页实时看到与主会话同款的 agentLog 步骤。
+        if (childState) foldSubagentToolIntoProcess(qc, childState, ev);
+      } else if (childState) {
+        // 子代理的 end 帧只翻子会话卡片里对应 running 项,主会话不消费。
+        finalizeSubagentLastToolItem(qc, childState, !!ev.isError);
+      }
     }
     // phase:"end"(工具完成帧)只进上面的运行事件流,不进 agentLog 折叠——否则每个工具在过程
     // 面板出现两次(start+end 各折一条)。同时跳过 typing/变更文件/拦截检测等 start 专属副作用。
@@ -1864,9 +2011,15 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
       return;
     }
     if (run.delegate && ev.roleId) {
+      // 正文到达:先收尾子会话过程流里打开的思考块/工具卡（保证 side 页「过程→回答」时序）。
+      const childState = run.subagentCards?.get(ev.subagentCallId ?? ev.roleId);
+      if (childState) {
+        finalizeSubagentReasoning(qc, childState);
+        finalizeSubagentProcessLog(qc, childState);
+      }
+      // 摘要进父卡片、全文流进子会话 chat；**不再** foldReasoning 进主会话过程流——
+      // 并行多子代理时那会把主时间线灌爆且互相穿插（降噪，用户反馈问题 3）。
       appendSubagentSummary(qc, sessionId, run, ev.subagentCallId ?? ev.roleId, ev.delta);
-      finalizeProcessAgentLog(qc, sessionId, run);
-      foldReasoning(qc, run, ev.delta);
       return;
     }
     // 圆桌模式：文本折叠到当前活跃角色的独立游标，每个角色输出各自成独立消息块。

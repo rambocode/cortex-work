@@ -19,6 +19,15 @@ import { createLogger } from "../../log";
 
 const log = createLogger("mcp-host");
 
+// SSE 注释帧心跳间隔。须远小于 undici 默认 bodyTimeout(300s)——取 15s 留足余量,
+// 也顺带兼容把空闲阈值设得更激进的代理/客户端;流量可忽略(每帧十几字节)。
+let sseKeepaliveIntervalMs = 15_000;
+
+/** 仅供单测:把心跳间隔调小以便在毫秒级用例里观测注释帧。 */
+export function __setSseKeepaliveIntervalForTest(ms: number): void {
+  sseKeepaliveIntervalMs = ms;
+}
+
 export interface McpHostHandle {
   port: number;
   token: string;
@@ -95,7 +104,39 @@ export function createMcpHost(serverName: string): McpHost {
     // 无状态:每请求新建 server + transport(sessionIdGenerator: undefined)。
     const mcp = makeServer(registerTools, { sessionId });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    // ── SSE keepalive:长 tool call 的「5 分钟被取消」根因修复 ─────────────────────
+    // SSE 模式下响应头立即发回,但直到工具完成前流上没有任何字节。Electron/Node 的全局
+    // fetch(undici)默认 bodyTimeout=300_000ms:流空闲满 5 分钟即掐断连接 → 本端 res close
+    // → SDK abort 该请求的 handler signal → delegate 子 Agent 收到「已取消」。delegate /
+    // design-delegate / media-gen 等长工具(跑 10-30 分钟很常见)全都踩这条线。
+    // 对策:识别到 SSE 响应后每 15s 写一条 SSE 注释帧喂客户端的空闲计时器。注释帧(":" 开头)
+    // 是 SSE 协议合法内容,所有解析器(含 pi-mcp-inproc 的 parseSseForId)都会忽略;每次
+    // res.write 是完整帧,与 SDK 按事件为单位的写入交错不会撕裂事件框架。
+    // Hono node-server 用 writeHead(status, headers) 直写头(getHeader 读不到),故拦截
+    // writeHead 识别 content-type。
+    let sseKeepalive: ReturnType<typeof setInterval> | null = null;
+    const origWriteHead = res.writeHead.bind(res);
+    res.writeHead = ((statusCode: number, ...rest: unknown[]) => {
+      const headerArg = rest.find((arg) => typeof arg === "object" && arg !== null) as
+        | Record<string, unknown>
+        | undefined;
+      const contentType = headerArg
+        ? String(Object.entries(headerArg).find(([key]) => key.toLowerCase() === "content-type")?.[1] ?? "")
+        : "";
+      if (statusCode === 200 && contentType.includes("text/event-stream") && !sseKeepalive) {
+        sseKeepalive = setInterval(() => {
+          if (res.destroyed || res.writableEnded) return;
+          try {
+            res.write(": keepalive\n\n");
+          } catch {
+            /* 连接已断:close 回调统一清理 interval */
+          }
+        }, sseKeepaliveIntervalMs);
+      }
+      return origWriteHead(statusCode as never, ...(rest as never[]));
+    }) as typeof res.writeHead;
     res.on("close", () => {
+      if (sseKeepalive) clearInterval(sseKeepalive);
       void transport.close();
       void mcp.close();
     });

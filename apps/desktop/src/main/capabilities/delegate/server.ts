@@ -287,7 +287,15 @@ async function executeDelegateTool(
         roleId: role.id,
         subagentCallId,
       });
-      return errorResult(`协作者「${role.label}」执行失败：${result.error ?? "未知错误"}`);
+      // token 经济性：失败前的部分输出一并带回。主 Agent 可据此判断已完成多少、只补做缺口，
+      // 而不是把整个子任务从零重跑一遍（超时/取消的长任务往往已完成大半）。
+      const partial = result.text?.trim();
+      return errorResult(
+        `协作者「${role.label}」执行失败：${result.error ?? "未知错误"}` +
+          (partial
+            ? `\n\n[失败前的部分输出（截取末尾），可据此增量补做，避免整体重跑]\n${partial.slice(-4000)}`
+            : ""),
+      );
     }
     // 子进程的原始 result 在 cli.ts 内部收口，不直接转发；由 delegate host 在 tool_result
     // 返回主 Agent 前补发一次角色级完成帧，驱动会话卡片从“进行中”进入完成态。

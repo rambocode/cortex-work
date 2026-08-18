@@ -374,6 +374,60 @@ describe("personal message agent session helpers", () => {
     expect(card?.activity).toContain("ls");
   });
 
+  it("子代理 thinking/tool 流式折进子会话过程流，主会话过程流保持降噪", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const runId = "delegate-child-stream";
+    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+
+    emit({
+      type: "init",
+      sessionId: "s1",
+      roleId: "explore",
+      stage: "subagent",
+      stageLabel: "探索",
+      subagentCallId: "call-s",
+      childSessionId: "child-s",
+      subagentTask: "梳理模块结构",
+      subagentAgentId: "pi",
+    });
+    // 子代理的思考与工具应实时折进 child-s 自己的过程流（side 页 Trajectory 数据源）。
+    emit({ type: "thinking", delta: "先看目录结构", roleId: "explore", subagentCallId: "call-s" });
+    emit({ type: "tool", name: "Read", detail: "pkg/a.ts", phase: "start", roleId: "explore", subagentCallId: "call-s", toolCallId: "t1" });
+    emit({ type: "tool", name: "Read", phase: "end", roleId: "explore", subagentCallId: "call-s", toolCallId: "t1" });
+    emit({ type: "text", delta: "结论：分三层。", roleId: "explore", subagentCallId: "call-s" });
+
+    const childProcess = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-s")) ?? [];
+    const childReasoning = childProcess.filter(
+      (message): message is Extract<Message, { kind: "reasoning" }> => message.kind === "reasoning",
+    );
+    expect(childReasoning.map((message) => message.text)).toEqual(["先看目录结构"]);
+    const childLogs = childProcess.filter(
+      (message): message is Extract<Message, { kind: "agentLog" }> => message.kind === "agentLog",
+    );
+    expect(childLogs).toHaveLength(1);
+    const logItems = childLogs[0]!.items;
+    expect(String(logItems[logItems.length - 1]!.text)).toContain("pkg/a.ts");
+    // tool-end 帧把 running 项翻 check。
+    expect(logItems[logItems.length - 1]!.ic).toBe("check");
+
+    // 主会话过程流不复制子代理的思考/正文（降噪：并行多子代理不再灌爆主时间线）。
+    const mainProcess = qc.getQueryData<Message[]>(personalProcessKeys.detail("s1")) ?? [];
+    expect(mainProcess.some((message) => message.kind === "reasoning")).toBe(false);
+    expect(mainProcess.some((message) => message.kind === "agentLog")).toBe(false);
+
+    // 子会话 chat 仍旧流式收到正文；父卡片摘要同步更新。
+    expect(qc.getQueryData<Message[]>(personalChatKeys.detail("child-s"))).toEqual([
+      expect.objectContaining({ kind: "text", who: "me", text: "梳理模块结构" }),
+      expect.objectContaining({ kind: "text", text: "结论：分三层。" }),
+    ]);
+
+    // result 收尾后子会话过程流全部翻完成态（无 active 残留）。
+    emit({ type: "result", ok: true, roleId: "explore", subagentCallId: "call-s" });
+    const settled = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-s")) ?? [];
+    expect(settled.some((message) => message.kind === "reasoning" && message.active)).toBe(false);
+  });
+
   it("同一角色重复委派时按 callId 隔离卡片与流式过程段", () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();
