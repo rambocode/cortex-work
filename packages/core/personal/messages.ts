@@ -253,6 +253,9 @@ interface SubagentCardState {
   processCursor: ProcessCursor;
   reasoningUid?: string;
   reasoningText?: string;
+  // toolCallId → 该工具项在过程流里的精确位置。并行工具时 end 帧不能按「最后一个 running 项」
+  // 反查(A 先结束会错翻/错标 ⚠️ 到 B),必须按 id 定位;缺 id 的旧适配器仍走 last-running 兜底。
+  openToolItems?: Map<string, { logUid: string; index: number }>;
 }
 
 interface RunState {
@@ -1258,6 +1261,13 @@ function ensureSubagentSession(
     ev.subagentBaseAgent ?? (ev.subagentAgentId === "claude" || ev.subagentAgentId === "codex" || ev.subagentAgentId === "pi"
       ? ev.subagentAgentId
       : derived?.base ?? "claude");
+  // 后台保活(审阅修复 P1):side 页未打开时,子会话的 process/run-events query 没有任何
+  // observer,由 setQueryData 创建的条目会按全局默认 gcTime(10 分钟)被整条回收——长任务
+  // (>10min)中途早期的思考/工具折叠悄悄丢失,收尾归档只剩后半段甚至为空。显式把这两个
+  // key 的默认 gcTime 固定为 Infinity(与 usePersonalProcess/usePersonalRunEvents 挂载后的
+  // 语义一致);真正回收仍由 clearProcess/clearRunEvents 的会话删除出口闭环负责,不会泄漏。
+  qc.setQueryDefaults(personalProcessKeys.detail(ev.childSessionId), { gcTime: Infinity });
+  qc.setQueryDefaults(personalRunEventsKeys.detail(ev.childSessionId), { gcTime: Infinity });
   const child = existing ?? store.createSubagentSession({
     id: ev.childSessionId,
     parentSessionId,
@@ -1400,12 +1410,13 @@ function finalizeSubagentReasoning(qc: QueryClient, state: SubagentCardState): v
   state.reasoningText = undefined;
 }
 
-/** 子会话工具事件折叠：tool start 进 agentLog 卡（连续 tool 并入同卡）。 */
+/** 子会话工具事件折叠：tool start 进 agentLog 卡（连续 tool 并入同卡），并按 toolCallId 登记项位置。 */
 function foldSubagentToolIntoProcess(qc: QueryClient, state: SubagentCardState, ev: CliStreamEvent): void {
   const childId = state.childSessionId;
-  if (!childId) return;
+  if (!childId || ev.type !== "tool") return;
   finalizeSubagentReasoning(qc, state);
   let nextCursor = state.processCursor;
+  let openedIndex = -1;
   setProcessMessages(qc, childId, (prev) => {
     const folded = foldCliEvent(prev, ev, state.processCursor, {
       agent: state.childAgent ?? "pi",
@@ -1413,15 +1424,52 @@ function foldSubagentToolIntoProcess(qc: QueryClient, state: SubagentCardState, 
       newUid: uid,
     });
     nextCursor = folded.cursor;
+    // 新项恒追加在当前 agentLog 卡末尾;记下下标供 end 帧按 toolCallId 精确回填。
+    if (ev.toolCallId && folded.cursor.logUid) {
+      const logMsg = folded.messages.find(
+        (message) => message.uid === folded.cursor.logUid && message.kind === "agentLog",
+      );
+      if (logMsg && logMsg.kind === "agentLog") openedIndex = logMsg.items.length - 1;
+    }
     return folded.messages;
   });
   state.processCursor = nextCursor;
+  if (ev.toolCallId && openedIndex >= 0 && nextCursor.logUid) {
+    (state.openToolItems ??= new Map()).set(ev.toolCallId, { logUid: nextCursor.logUid, index: openedIndex });
+  }
 }
 
-/** 子会话 tool-end：把当前 agentLog 卡里最后一个 running 项翻 check（出错前缀 ⚠️）。 */
-function finalizeSubagentLastToolItem(qc: QueryClient, state: SubagentCardState, isError: boolean): void {
+/**
+ * 子会话 tool-end 收尾。带 toolCallId 时按登记位置精确翻 check/标 ⚠️(并行工具下不会
+ * 错标到别的项);缺 id 的旧适配器兜底翻最后一个 running 项(与主会话同款 best-effort)。
+ * 项已被后续折叠自动翻 check 时(foldCliEvent 并入新项会把既有项翻 check)按无事处理。
+ */
+function finalizeSubagentToolItem(
+  qc: QueryClient,
+  state: SubagentCardState,
+  toolCallId: string | undefined,
+  isError: boolean,
+): void {
   const childId = state.childSessionId;
-  if (!childId || state.processCursor.lastKind !== "tool" || !state.processCursor.logUid) return;
+  if (!childId) return;
+  const located = toolCallId ? state.openToolItems?.get(toolCallId) : undefined;
+  if (located && toolCallId) {
+    state.openToolItems?.delete(toolCallId);
+    setProcessMessages(qc, childId, (prev) =>
+      prev.map((m) => {
+        if (m.uid !== located.logUid || m.kind !== "agentLog") return m;
+        const items = [...m.items];
+        const it = items[located.index];
+        if (it && it.ic === "running") {
+          const text = isError && typeof it.text === "string" ? `⚠️ ${it.text}` : it.text;
+          items[located.index] = { ...it, ic: "check", text };
+        }
+        return { ...m, items };
+      }),
+    );
+    return;
+  }
+  if (state.processCursor.lastKind !== "tool" || !state.processCursor.logUid) return;
   const logUid = state.processCursor.logUid;
   setProcessMessages(qc, childId, (prev) =>
     prev.map((m) => {
@@ -1592,6 +1640,17 @@ function finishSubagentCard(
     //（复用主会话的 archiveRunProcess：锚点是子会话首条任务消息，重开 app 后 side 页仍可回看）。
     finalizeSubagentReasoning(qc, state);
     finalizeSubagentProcessLog(qc, state);
+    // 审阅修复 P2:子会话的 todo 卡也要关活跃态——父 finalizeRun 只扫父 session/runId,
+    // 不关这里的话,最后一份清单仍含未完成项时,已结束的 side 会话会一直显示转圈。
+    if (state.childSessionId && state.childAgent) {
+      mutateSubagentChat(qc, state.childSessionId, (prev) =>
+        prev.map((message) =>
+          message.kind === "todoList" && message.runId === callId && message.active
+            ? { ...message, active: false }
+            : message,
+        ),
+      );
+    }
     finalizeSubagentChild(qc, state, callId, ok, resultText, error);
     if (state.childSessionId) archiveRunProcess(qc, state.childSessionId, callId);
   }
@@ -1796,7 +1855,14 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   const existingChildState = ev.subagentCallId ? run.subagentCards?.get(ev.subagentCallId) : undefined;
   if (existingChildState?.childSessionId) {
     // 父详情按 callId 看委派过程；子会话同时拥有自己的事件命名空间，直接进入时不会回看整条父轮。
-    recordRunEvent(qc, existingChildState.childSessionId, runId, ev);
+    // 审阅修复 P2:子命名空间以 callId 为 run 标识、并剥掉父会话专用的过滤标记——
+    // collectRunInvocations/runTimeSpan 按 runId 配对且主动跳过带 roleId/subagentCallId 的
+    // 事件,保留父 runId + 标记会让子会话的实时时间线与归档永远配不到工具输入/输出与耗时。
+    recordRunEvent(qc, existingChildState.childSessionId, ev.subagentCallId!, {
+      ...ev,
+      roleId: undefined,
+      subagentCallId: undefined,
+    });
   }
 
   if (ev.type === "init") {
@@ -1822,7 +1888,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
           childState.childSessionId = childSession.id;
           childState.childAgent = childSession.agent;
         }
-        if (!alreadyStarted && childSession) recordRunEvent(qc, childSession.id, runId, ev);
+        // 同上(审阅修复 P2):子命名空间以 callId 为 run 标识并剥掉父会话过滤标记。
+        if (!alreadyStarted && childSession) {
+          recordRunEvent(qc, childSession.id, callId, { ...ev, roleId: undefined, subagentCallId: undefined });
+        }
         updateTypingMsg(qc, sessionId, run.typingUid, `${ev.stageLabel ?? "子 Agent"} 思考中…`);
         return;
       }
@@ -1968,8 +2037,8 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
         // 工具卡同时折进子会话自己的过程流,side 页实时看到与主会话同款的 agentLog 步骤。
         if (childState) foldSubagentToolIntoProcess(qc, childState, ev);
       } else if (childState) {
-        // 子代理的 end 帧只翻子会话卡片里对应 running 项,主会话不消费。
-        finalizeSubagentLastToolItem(qc, childState, !!ev.isError);
+        // 子代理的 end 帧只翻子会话卡片里对应项(按 toolCallId 精确定位),主会话不消费。
+        finalizeSubagentToolItem(qc, childState, ev.toolCallId, !!ev.isError);
       }
     }
     // phase:"end"(工具完成帧)只进上面的运行事件流,不进 agentLog 折叠——否则每个工具在过程

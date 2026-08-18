@@ -422,10 +422,76 @@ describe("personal message agent session helpers", () => {
       expect.objectContaining({ kind: "text", text: "结论：分三层。" }),
     ]);
 
-    // result 收尾后子会话过程流全部翻完成态（无 active 残留）。
+    // 审阅修复 P2:子命名空间的事件以 callId 为 run 标识、且不带父会话过滤标记——
+    // 否则 collectRunInvocations/runTimeSpan 永远配不到子会话的工具输入/输出与耗时。
+    const childEvents = qc.getQueryData<RunEvent[]>(personalRunEventsKeys.detail("child-s")) ?? [];
+    expect(childEvents.length).toBeGreaterThan(0);
+    for (const record of childEvents) {
+      expect(record.runId).toBe("call-s");
+      expect(record.ev.roleId).toBeUndefined();
+      expect(record.ev.subagentCallId).toBeUndefined();
+    }
+
+    // 审阅修复 P1:side 页未打开时子会话 process/run-events 不得按全局 10min gcTime 被回收。
+    expect(qc.getQueryDefaults(personalProcessKeys.detail("child-s")).gcTime).toBe(Infinity);
+    expect(qc.getQueryDefaults(personalRunEventsKeys.detail("child-s")).gcTime).toBe(Infinity);
+
+    // 审阅修复 P2:收尾时子会话 todo 卡关活跃态,不能让已结束的 side 会话一直转圈。
+    emit({
+      type: "todo",
+      todos: [{ text: "扫目录", status: "completed" }, { text: "写结论", status: "in_progress" }],
+      roleId: "explore",
+      subagentCallId: "call-s",
+    });
     emit({ type: "result", ok: true, roleId: "explore", subagentCallId: "call-s" });
+
+    // result 收尾后子会话过程流与 todo 全部翻完成态（无 active 残留）。
     const settled = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-s")) ?? [];
     expect(settled.some((message) => message.kind === "reasoning" && message.active)).toBe(false);
+    const settledChat = qc.getQueryData<Message[]>(personalChatKeys.detail("child-s")) ?? [];
+    const todoCard = settledChat.find(
+      (message): message is Extract<Message, { kind: "todoList" }> => message.kind === "todoList",
+    );
+    expect(todoCard).toBeDefined();
+    expect(todoCard?.active).toBe(false);
+  });
+
+  it("子代理并行工具:先结束的失败帧按 toolCallId 定位,不把 ⚠️ 错标到别的工具项", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const runId = "delegate-parallel-tools";
+    const emit = (event: CliStreamEvent) => __handleCliEventForTest(qc, runId, event, "s1");
+
+    emit({
+      type: "init",
+      sessionId: "s1",
+      roleId: "explore",
+      stage: "subagent",
+      stageLabel: "探索",
+      subagentCallId: "call-p",
+      childSessionId: "child-p",
+      subagentTask: "并行探索",
+      subagentAgentId: "pi",
+    });
+    emit({ type: "tool", name: "Read", detail: "a.ts", phase: "start", roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-a" });
+    emit({ type: "tool", name: "Bash", detail: "long-job", phase: "start", roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-b" });
+    // A 先失败结束:旧实现会反查「最后一个 running 项」,把 ⚠️ 错标到还在跑的 B 上。
+    emit({ type: "tool", name: "Read", phase: "end", isError: true, roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-a" });
+
+    const childProcess = qc.getQueryData<Message[]>(personalProcessKeys.detail("child-p")) ?? [];
+    const logs = childProcess.filter(
+      (message): message is Extract<Message, { kind: "agentLog" }> => message.kind === "agentLog",
+    );
+    expect(logs).toHaveLength(1);
+    const items = logs[0]!.items.map((item) => String(item.text));
+    expect(items.find((text) => text.includes("long-job"))).not.toContain("⚠️");
+
+    // B 正常结束:自己的项收尾,同样不产生 ⚠️。
+    emit({ type: "tool", name: "Bash", phase: "end", roleId: "explore", subagentCallId: "call-p", toolCallId: "tool-b" });
+    const after = (qc.getQueryData<Message[]>(personalProcessKeys.detail("child-p")) ?? []).filter(
+      (message): message is Extract<Message, { kind: "agentLog" }> => message.kind === "agentLog",
+    );
+    expect(after[0]!.items.every((item) => !String(item.text).includes("⚠️"))).toBe(true);
   });
 
   it("同一角色重复委派时按 callId 隔离卡片与流式过程段", () => {
