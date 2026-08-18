@@ -52,6 +52,7 @@ import {
   getSubagentChildStream,
   registerSubagentChildStream,
   unregisterSubagentChildStream,
+  type SubagentStreamState,
 } from "./subagent-stream";
 // 会话内前置检索（可选开关）：发送前联网抓一次资料，失败静默降级，见其文件头。
 import { retrieveChatEvidence } from "../research/chat-retrieval";
@@ -1547,12 +1548,19 @@ function maybeHandleSubagentChildEvent(
   sessionId: string,
 ): boolean {
   let entry = getSubagentChildStream(sessionId);
+  // 会话已被删除(父会话级联删)但注册表条目尚在:吞掉迟到子流并清条目,
+  // 不能继续往已删会话的 query key/磁盘写数据。
+  if (entry && !usePersonalStore.getState().sessions.some((x) => x.id === sessionId)) {
+    unregisterSubagentChildStream(sessionId);
+    return true;
+  }
   if (!entry) {
     // 兜底重建:注册表随 renderer 重载丢失,但 SessionMeta(relation:"side")持久;
-    // parentSubagentCallId 必须与信封 runId 一致才认领,防止把父会话流量误吞。
+    // parentSubagentCallId 必须**严格等于**信封 runId 才认领(审阅修复:缺字段的遗留 side
+    // 会话不得凭 relation 就吞掉发往它的任意 run,否则原生续接的正规 run 事件会整条被劫走)。
     const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionId);
     if (sess?.relation !== "side") return false;
-    if (sess.parentSubagentCallId && sess.parentSubagentCallId !== runId) return false;
+    if (sess.parentSubagentCallId !== runId) return false;
     entry = registerSubagentChildStream(sessionId, runId, sess.agent);
   }
   if (entry.callId !== runId) return false;
@@ -1578,30 +1586,71 @@ function maybeHandleSubagentChildEvent(
       foldSubagentTodo(qc, state, runId, ev.todos);
       return true;
     case "result": {
-      finalizeSubagentReasoning(qc, state);
-      finalizeSubagentProcessLog(qc, state);
-      // todo 卡关活跃态:父 finalizeRun 只扫父 session/runId,不关这里会让已结束的
-      // side 会话一直显示转圈。
-      if (state.childSessionId && state.childAgent) {
-        mutateSubagentChat(qc, state.childSessionId, (prev) =>
-          prev.map((message) =>
-            message.kind === "todoList" && message.runId === runId && message.active
-              ? { ...message, active: false }
-              : message,
-          ),
-        );
-      }
-      finalizeSubagentChild(qc, state, runId, ev.ok, ev.text, ev.error);
-      // 锚点显式传子会话首条任务消息 uid(确定性拼接),不依赖 chat cache 此刻是否在内存
-      // (GC/异步补载竞态下读空缓存会让归档失锚被渲染端跳过)。
-      archiveRunProcess(qc, sessionId, runId, `subagent-task-${runId}`);
-      unregisterSubagentChildStream(sessionId);
+      settleSubagentChildStream(qc, state, runId, ev.ok, ev.text, ev.error);
       return true;
     }
     // init 只记录(会话与任务消息由父流 init 经 ensureSubagentSession 创建);
     // 其余(usage/turn 等)同样只进事件流。
     default:
       return true;
+  }
+}
+
+/**
+ * 子会话流终局收尾(唯一实现,子流 result 与父 run 终局兜底共用):
+ * 过程流收尾 → todo 关活跃 → 终态文本 → 归档落盘 → 摘注册表。幂等:注册表已清则各步 no-op。
+ */
+function settleSubagentChildStream(
+  qc: QueryClient,
+  state: SubagentStreamState,
+  callId: string,
+  ok: boolean,
+  text?: string,
+  error?: string,
+): void {
+  const childId = state.childSessionId;
+  if (!childId) return;
+  finalizeSubagentReasoning(qc, state);
+  finalizeSubagentProcessLog(qc, state);
+  // todo 卡关活跃态:父 finalizeRun 只扫父 session/runId,不关这里会让已结束的
+  // side 会话一直显示转圈。
+  if (state.childAgent) {
+    mutateSubagentChat(qc, childId, (prev) =>
+      prev.map((message) =>
+        message.kind === "todoList" && message.runId === callId && message.active
+          ? { ...message, active: false }
+          : message,
+      ),
+    );
+  }
+  finalizeSubagentChild(qc, state, callId, ok, text, error);
+  // 锚点显式传子会话首条任务消息 uid(确定性拼接),不依赖 chat cache 此刻是否在内存
+  // (GC/异步补载竞态下读空缓存会让归档失锚被渲染端跳过)。
+  archiveRunProcess(qc, childId, callId, `subagent-task-${callId}`);
+  unregisterSubagentChildStream(childId);
+}
+
+/**
+ * 父 run 终局兜底(审阅修复):watchdog 杀 run / 进程异常退出 / 无 result 帧收尾时,
+ * 子流 result 信封永不到达——仍在途的子代理卡与子流在这里统一收尾,side 会话不能永久转圈、
+ * 注册表不能泄漏。正常路径(子/父 result 双帧)已把卡片与注册表清空,本函数天然 no-op。
+ */
+function reapRunSubagentStreams(qc: QueryClient, run: RunState, error?: string): void {
+  if (!run.subagentCards?.size) return;
+  const reason = error ?? "父回合已终止";
+  for (const [callId, card] of [...run.subagentCards]) {
+    const childId = card.childSessionId;
+    const entry = childId ? getSubagentChildStream(childId) : undefined;
+    if (childId && entry && entry.callId === callId) {
+      settleSubagentChildStream(qc, entry.state, callId, false, undefined, reason);
+    }
+    updateSubagentCard(qc, run.sessionId, run, callId, {
+      status: "failed",
+      finishedAt: Date.now(),
+      activity: "执行中止",
+      error: reason,
+    });
+    run.subagentCards.delete(callId);
   }
 }
 
@@ -1770,6 +1819,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
     // 让仍在跑的流继续渲染,而不是永远卡在「运行中」。
     if (!sessionIdHint) return;
     const sess = usePersonalStore.getState().sessions.find((x) => x.id === sessionIdHint);
+    // 审阅修复:store 里不存在的会话不得重建 run——已删除会话的迟到事件(含子流信封在
+    // 注册表/SessionMeta 双双消亡后的回落)会在这里伪造 phantom run,污染 runningBySession
+    // 与过程流 key。合法的 HMR 恢复场景里 SessionMeta 是持久的,必然查得到。
+    if (!sess) return;
     const artifactMatch = /^artifact:(design|slides):([^:]+):/.exec(runId);
     const recoveredArtifact = artifactMatch && sess
       ? [sess.activeArtifact, ...(sess.artifacts ?? [])]
@@ -2160,6 +2213,8 @@ function finalizeRun(
   stopRunTimers(run);
   runs.delete(runId);
   const { sessionId } = run;
+  // 终局兜底:仍在途的子代理卡/子流统一收尾(正常双帧路径已清空,此处幂等 no-op)。
+  reapRunSubagentStreams(qc, run, error ?? undefined);
   dropMsg(qc, sessionId, run.typingUid);
   usePersonalStore.getState().setRunning(sessionId, undefined);
   // 任务清单卡收尾:该 run 的 todoList 卡 active 置 false(run 结束,in_progress 项停转圈)。
@@ -2900,6 +2955,8 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
         `[personal:reap] force-reclaim run=${id} agent=${r.agent} phase=${r.phase} transport=${r.transport ?? "cli"}`,
       );
       stopRunTimers(r);
+      // 在途子代理卡/子流一并收尾(会话删除路径随后还会清缓存;幂等)。
+      reapRunSubagentStreams(qc, r, "会话已关闭");
       runs.delete(id);
     }
   }
@@ -2912,6 +2969,8 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   clearProcess(qc, sessionId);
   // 运行事件流随会话消亡整条回收(跨轮累积的数据只在此与 editResend 出口清)。
   clearRunEvents(qc, sessionId);
+  // 子会话流注册表条目随会话消亡摘除(信封归一 P2):迟到子流信封由入口的「会话已删」守卫吞掉。
+  unregisterSubagentChildStream(sessionId);
   // 过程归档缓存同步回收(磁盘文件由主进程 chat:delete 一并删)。
   discardProcessArchives(qc, sessionId);
 }

@@ -176,6 +176,35 @@ describe("子会话过程流(subagent-stream)", () => {
     expect(items().filter((text) => text.includes("⚠️"))).toHaveLength(1);
   });
 
+  it("会话删除后的迟到子流被吞掉,不产生 phantom run 也不复活已清缓存", () => {
+    usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
+    const qc = new QueryClient();
+    const emit = makeDualEmitter(qc, "delegate-late", "call-late", "child-late");
+
+    emit({
+      type: "init",
+      sessionId: "s1",
+      stage: "subagent",
+      stageLabel: "探索",
+      childSessionId: "child-late",
+      subagentTask: "会被中途删除",
+      subagentAgentId: "pi",
+    });
+    // 模拟父会话级联删除:side SessionMeta 移除 + 瞬态缓存清空(teardown 语义)。
+    usePersonalStore.setState({
+      sessions: usePersonalStore.getState().sessions.filter((s) => s.id === "s1"),
+    });
+    qc.removeQueries({ queryKey: personalProcessKeys.detail("child-late"), exact: true });
+
+    // 迟到子流:注册表条目尚在 → 第一帧被「会话已删」守卫吞掉并清条目;
+    // 后续帧注册表/SessionMeta 双双缺失 → 恢复路径守卫直接丢弃,不得伪造 phantom run。
+    __handleCliEventForTest(qc, "call-late", { type: "thinking", delta: "迟到思考" }, "child-late");
+    __handleCliEventForTest(qc, "call-late", { type: "thinking", delta: "再来一帧" }, "child-late");
+
+    expect(qc.getQueryData<Message[]>(personalProcessKeys.detail("child-late"))).toBeUndefined();
+    expect(usePersonalStore.getState().runningBySession["child-late"]).toBeUndefined();
+  });
+
   it("chat 缓存被 GC 后收尾归档仍带确定性锚点,重启回看不丢过程", async () => {
     usePersonalStore.setState({ sessions: [baseSession], runningBySession: {} });
     const qc = new QueryClient();

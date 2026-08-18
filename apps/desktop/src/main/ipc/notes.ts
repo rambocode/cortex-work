@@ -15,14 +15,9 @@ import type { NoteInput, NoteMeta, NoteStatus } from "./types";
 // 单例存储（注入主进程的路径解析）。
 const store = new NotesStore({ notesStorePath });
 
-// 信封归一 P1:笔记变更改发纯失效信号(渲染端本就只 invalidate 重拉,从不消费旧快照载荷)。
-function broadcastNotesChanged(_list: NoteMeta[]): void {
+// 信封归一 P1:CRUD 后发纯失效信号(渲染端本就只 invalidate 重拉;不再为广播白读全量快照)。
+function emitChanged(): void {
   broadcastSyncInvalidate("notes");
-}
-
-// CRUD 后统一推一份全量快照。
-async function emitChanged(): Promise<void> {
-  broadcastNotesChanged(await store.list());
 }
 
 export function registerNotesHandlers(): void {

@@ -12,11 +12,12 @@ import { useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { useDesktopBridge } from "../provider";
+import type { SyncInvalidateScope } from "../desktop/types";
 import { jobTypesKey, membersKey, stageTemplatesKey, tasksKeys } from "./tasks";
 import { notesKeys } from "./notes";
 
-/** scope → 失效动作。key 须与主进程 SyncInvalidateScope 一一对应(缺行=该域信号被静默丢弃)。 */
-const SYNC_INVALIDATE_ACTIONS: Record<string, (qc: QueryClient) => void> = {
+/** scope → 失效动作。satisfies 锚定联合类型:主进程加域、这里漏加行 → 编译期报错。 */
+const SYNC_INVALIDATE_ACTIONS = {
   tasks: (qc) => {
     qc.invalidateQueries({ queryKey: tasksKeys.all });
     qc.invalidateQueries({ queryKey: tasksKeys.projects });
@@ -29,13 +30,13 @@ const SYNC_INVALIDATE_ACTIONS: Record<string, (qc: QueryClient) => void> = {
   notes: (qc) => {
     qc.invalidateQueries({ queryKey: notesKeys.all });
   },
-};
+} satisfies Record<SyncInvalidateScope, (qc: QueryClient) => void>;
 
 /**
  * 订阅单个失效域(工作区/视图根部挂载一次)。同一 scope 多处挂载是幂等的:
  * invalidate 本身幂等,重复触发只多一次 no-op 检查。
  */
-export function useSyncScopeSubscription(scope: keyof typeof SYNC_INVALIDATE_ACTIONS & string): void {
+export function useSyncScopeSubscription(scope: SyncInvalidateScope): void {
   const bridge = useDesktopBridge();
   const qc = useQueryClient();
   useEffect(() => {

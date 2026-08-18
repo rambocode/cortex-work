@@ -20,6 +20,8 @@ import type {
 } from "./provider-catalog";
 import type {
   AgentKind,
+  RunEventEnvelope,
+  SyncInvalidateScope,
   ConversationArtifactCreateRequest,
   ConversationArtifactRef,
   ConversationArtifactResult,
@@ -525,7 +527,15 @@ export interface DesktopBridge {
   // 分支重新生成(claude/codex):复制会话记忆为新 id 并截断副本,源文件保留供旧分支续聊。
   // 失败返回 null(调用方降级为破坏式 trimAgentSession,旧分支转只读)。可选能力。
   trimSessionIntoCopy?(req: TrimSessionRequest): Promise<{ newSessionId: string } | null>;
-  onCliEvent(cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): () => void;
+  // 信封归一 P0:第四参透传信封元数据(v/domain),当前接收侧未消费,供将来按域分发/版本闸门。
+  onCliEvent(
+    cb: (
+      runId: string,
+      event: CliStreamEvent,
+      sessionId?: string,
+      meta?: Pick<RunEventEnvelope, "v" | "domain">,
+    ) => void,
+  ): () => void;
   onCliExit(cb: (exit: CliExitEvent) => void): () => void;
   // ws 传输心跳(U5,可选能力):codex app-server 长 MCP 工具静默期主进程定期推送,渲染端据此重置
   // 300s 静默看门狗(防误杀)。旧壳/web 端缺失时无此信号,行为退化为仅靠 cli:event 重置(不影响 spawn agent)。
@@ -627,8 +637,9 @@ export interface DesktopBridge {
   notesUpdate?(id: string, patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] }): Promise<NoteMeta | null>;
   notesDelete?(id: string): Promise<void>;
   // 信封归一 P1:纯失效通知统一订阅(tasks/task-resources/notes)。scope→invalidate 映射表
-  // 见 core/personal/sync-invalidate.ts;新增失效域只扩 scope,不再新加 on*Changed 桥方法。
-  onSyncInvalidate?(cb: (scope: string, hint?: string) => void): () => void;
+  // 见 core/personal/sync-invalidate.ts;新增失效域只扩 SyncInvalidateScope + 映射表一行,
+  // 不再新加 on*Changed 桥方法。回调 scope 收窄为联合类型:漂移在编译期暴露。
+  onSyncInvalidate?(cb: (scope: SyncInvalidateScope, hint?: string) => void): () => void;
   // 消息中心（侧栏底部铃铛）：可选能力，web/旧壳无 → 铃铛整体隐藏。
   // main 为 owner；渲染端只读 + 标已读/清空，**写入没有对应桥方法**（见 ipc/notification-center.ts
   // 的 recordNotification 注释：消息是主进程事实的存档，渲染端不能伪造）。

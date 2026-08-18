@@ -71,8 +71,9 @@ export interface DelegateSessionState {
   // 把子 agent 事件推渲染端（cli.ts / pi-delegate.ts 经 sendRunEvent 发父会话信封）。
   pushEvent: (ev: CliStreamEvent) => void;
   // 信封归一 P2(双发):子会话完整过程的独立信封(sessionId=childSessionId,runId=callId,
-  // 事件不带 roleId/subagentCallId 过滤标记)。未注入时(旧调用方)渲染端只有父流卡片语义。
-  pushChildEvent?: (childSessionId: string, callId: string, ev: CliStreamEvent) => void;
+  // 事件不带 roleId/subagentCallId 过滤标记)。**必填**(审阅修复):渲染端已删除父流兜底的
+  // 子会话写入,漏注入会静默产出永久空壳 side 会话——契约交给编译器把关。
+  pushChildEvent: (childSessionId: string, callId: string, ev: CliStreamEvent) => void;
   // 喂主进程 inactivity 看门狗（cli.ts 的看门狗只看主 agent stdout，长子任务期间主 agent 静默会被误杀）。
   bumpWatchdog: () => void;
   // 运行策略由设置页投影；主进程注册时仍会归一，避免 renderer 伪造负数或超大值。
@@ -241,11 +242,13 @@ async function executeDelegateTool(
   // 渲染端按信封 sessionId/runId 直接归属,不再从父流标记推断。init 保留 child 元数据字段
   // (childSessionId/subagentTask 等),它们是子会话自己的语境,不是路由标记。
   const pushChild = (ev: CliStreamEvent) => {
-    state.pushChildEvent?.(childSessionId, subagentCallId, { ...ev, roleId: undefined, subagentCallId: undefined });
+    state.pushChildEvent(childSessionId, subagentCallId, { ...ev, roleId: undefined, subagentCallId: undefined });
   };
+  // 子流恰好一条 init(合成帧):sessionId 用子会话自己的 id(信封不变量 2——事件里不携带
+  // 属于另一个命名空间的字段);原生 init 只进父流,不再双发,避免子会话事件流出现重复 init。
   pushChild({
     type: "init",
-    sessionId: state.sessionId,
+    sessionId: childSessionId,
     stage: "subagent",
     stageLabel: role.label,
     childSessionId,
@@ -255,7 +258,8 @@ async function executeDelegateTool(
     subagentModel: role.model,
     subagentReadOnly: role.toolPolicy === "readOnly",
   });
-  // 子 agent 每个事件：父流转发（已带 roleId）+ 子流双发 + 喂主进程看门狗（防长子任务误杀主 agent，R2）。
+  // 子 agent 每个事件：父流转发（已带 roleId）+ 子流双发（init 除外,见上）+ 喂主进程看门狗
+  //（防长子任务误杀主 agent，R2）。
   const onEvent = (ev: CliStreamEvent) => {
     state.pushEvent({
       ...ev,
@@ -271,15 +275,7 @@ async function executeDelegateTool(
         subagentReadOnly: role.toolPolicy === "readOnly",
       } : {}),
     });
-    pushChild(ev.type === "init" ? {
-      ...ev,
-      childSessionId,
-      subagentTask: taskText,
-      subagentTitle: taskTitle,
-      subagentAgentId: role.agent,
-      subagentModel: ev.subagentModel ?? role.model,
-      subagentReadOnly: role.toolPolicy === "readOnly",
-    } : ev);
+    if (ev.type !== "init") pushChild(ev);
     state.bumpWatchdog();
   };
   try {
