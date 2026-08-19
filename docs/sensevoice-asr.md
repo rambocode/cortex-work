@@ -48,7 +48,10 @@ flowchart LR
 - 崩溃恢复：当前句 PCM 只在主进程内存保留，sidecar 异常时最多重启并重放一次。
 - 空闲回收：完成后 60 秒没有任务则关闭进程；应用退出时显式发送 `SHUTDOWN`。
 - 构建：`prepare-sensevoice-sidecar.mjs` 固定 FunASR `runtime-llamacpp-v0.1.9` 语义来源和
-  llama.cpp `8086439a...`，支持 macOS arm64/x64、Windows x64，不支持 Linux。
+  llama.cpp `8086439a...`，支持 macOS arm64/x64、Windows x64，不支持 Linux。CMake 中间目录按
+  worktree 源路径隔离，最终二进制按「源码 + 上游提交 + target + 工具链」指纹存入用户级共享缓存；
+  新 worktree 会自动物化缓存产物，不重复编译。缓存根可用 `CORTEX_SENSEVOICE_CACHE_DIR` 覆盖，
+  `--force` 强制重建并刷新当前指纹的缓存。
 
 模型文件为 `sensevoice-small-q8.gguf`（约 242 MiB），存放于
 `<userData>/models/speech/sensevoice/sensevoice-small-q8/`，不进入安装包。原生 sidecar 位于

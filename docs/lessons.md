@@ -595,13 +595,22 @@ used to generate cache. Re-run cmake with a different source directory.
 个洞（cargo target、ccache、bun build 的中间目录……）。判据是：这份缓存里有没有记录绝对源路径。
 有，就必须按源路径分桶。
 
-**解法**（`apps/desktop/scripts/prepare-sensevoice-sidecar.mjs`）两层：
-① 目录名追加 `sourceRoot` 的 sha256 前 12 位 → `darwin-arm64-78037990fc38`，主仓库与各 worktree
-各占一份，互不干扰且各自保留增量编译收益（代价是每个 worktree 首次构建要完整编译一次，约 586M）；
-② 配置前读 `CMakeCache.txt` 的 `CMAKE_HOME_DIRECTORY`，与当前 `sourceRoot` 不一致就 `rmSync`
-整个目录重配。①已经覆盖绝大多数情况，②是给「同名 worktree 删掉后重建」和历史遗留旧命名缓存
-兜底——**这种缓存 CMake 修不了，只会报错中断，所以必须主动丢弃而不是指望它自愈**。
+**解法**（`apps/desktop/scripts/prepare-sensevoice-sidecar.mjs`）分成两个不能混用的缓存层：
+
+1. **CMake 中间目录仍按源路径隔离**：目录名追加 `sourceRoot` 的 sha256 前 12 位 →
+   `darwin-arm64-78037990fc38`，主仓库与各 worktree 的 `CMakeCache.txt` 永不混用；配置前仍复核
+   `CMAKE_HOME_DIRECTORY`，不一致就清理该精确目录后重配。这一层解决绝对源路径污染。
+2. **最终二进制按内容指纹共享**：产物发布到用户级缓存
+   `~/Library/Caches/ai.cortex.work/sensevoice-sidecar/<target>/<artifactKey>/`（Windows 使用
+   `%LOCALAPPDATA%/Cortex/Cache/...`）。`artifactKey` 包含源码摘要、固定上游提交、目标平台/架构和
+   工具链摘要，不含 worktree 路径；新 worktree 命中后只复制最终二进制与 `runner.json`，不再下载
+   或编译 llama.cpp。可用 `CORTEX_SENSEVOICE_CACHE_DIR` 覆盖缓存根。
+
+两层之间的边界不能打破：共享最终产物是安全的，共享记录了 `CMAKE_HOME_DIRECTORY` 的 build tree
+仍然不安全。共享产物发布使用单 fingerprint 目录锁与临时目录原子 rename；两个 worktree 同时
+启动时只有一个构建，另一个等待完整产物。源码、上游 commit、目标或工具链变化会自然切换缓存键；
+`--force` 仍强制重建。升级前 worktree 里已有的合法二进制会自动晋升进共享缓存，无需额外编译。
 
 **顺带**：旧命名的 `$TMPDIR/cortex-sensevoice-sidecar/darwin-arm64` 不会被新逻辑复用，是纯占地
-的死缓存（586M），可以直接 `rm -rf`。同理，`darwin-x64` 那份如果还在，第一次跑新逻辑也会完整
-重编一次，之后就稳定了。
+的死缓存（586M），可以删除。按源路径分桶的现行 CMake 中间目录仍可保留，供对应 worktree 在
+`--force` 或源码变化后做增量构建；日常新 worktree 启动只消费共享最终产物。
