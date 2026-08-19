@@ -95,6 +95,21 @@ let detectedAgents: Promise<Record<AgentKind, boolean>> | null = null;
 // 阈值排序非冲突 —— 正常情况下渲染端先触发,主进程看门狗只在渲染端失联(刷新/重载)时兜底回收进程,
 // 避免子进程残留。两者不会双杀同一活跃 run。默认值须 > 渲染端 RUN_STALL_TIMEOUT_MS(30 分钟),
 // 否则主进程会抢在渲染端前把长任务杀掉、破坏「渲染端先触发」不变量;放宽长任务阈值时须同步抬高本值。
+// codex 长驻进程守则(英文,注入 codex 会话的 appendSystemPrompt):codex 会在回合边界清理
+// 会话工具拉起的子进程,前台起服务必被下一轮连坐;要求后台化 + 立即返回。
+const CODEX_LONG_RUNNING_PROCESS_GUIDANCE = [
+  "<long_running_processes>",
+  "Your shell tool CANNOT keep foreground processes alive across turns: any command still running",
+  "when the turn ends is interrupted, and its child processes (including servers it spawned) are",
+  "cleaned up together with the process group when the next turn starts.",
+  "To start a dev server or any long-running service, detach it and return immediately, e.g.:",
+  "  nohup <cmd> > /tmp/<name>.log 2>&1 & disown",
+  "(or `setsid <cmd> ...`). Then verify readiness with a bounded probe such as",
+  "`curl --silent --max-time 2 <url>` and report the log path and PID.",
+  "Never leave a server running in the foreground of a tool call.",
+  "</long_running_processes>",
+].join("\n");
+
 const DEFAULT_CLI_INACTIVITY_TIMEOUT_MS = 40 * 60_000;
 const MAX_CLI_INACTIVITY_TIMEOUT_MS = 24 * 60 * 60_000;
 
@@ -1065,6 +1080,17 @@ export function registerCliHandlers(): void {
     }
 
     const inactivityMs = resolveCliInactivityTimeoutMs();
+
+    // codex 的 exec 工具没有后台任务语义:回合结束/下一轮 turn 启动时,上一轮仍在跑的命令
+    // 会连同其进程组一起被清理(codex 自身行为,用户实测:turn1 起的 dev server 在 turn2 被杀,
+    // codex 也自述「由会话工具拉起的子进程会在回合结束时清理」)。注入英文运行时守则,要求
+    // 长驻服务必须脱离进程组后台化、命令本身立即返回——同时治好「命令 in_progress 吊死回合」。
+    // 静态文本恒定追加,不破坏供应商 prompt 缓存前缀。
+    if (baseAgentKindOf(req.agent) === "codex") {
+      req.appendSystemPrompt = [req.appendSystemPrompt, CODEX_LONG_RUNNING_PROCESS_GUIDANCE]
+        .filter(Boolean)
+        .join("\n\n");
+    }
 
     // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──
     // ws 路径不调 buildArgs(那是 `codex exec` 的命令构造),直接把已算好的 mcpArgs 交给 server 管理器。

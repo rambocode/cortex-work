@@ -999,6 +999,14 @@ input, textarea { font: inherit; color: inherit; }
   max-width: 76%;
   justify-content: flex-end;
 }
+/* 关键:折叠限高时禁止 flex 子项收缩。content 是 column flex,max-height 约束下含
+   overflow 的子块(代码块等)会被压缩到刚好塞进 260px → scrollHeight 掉回阈值下 →
+   JS 判定"不需折叠"撤销限高 → 高度恢复 → 再判定"需折叠"……useLayoutEffect 同步振荡
+   直到 React Maximum update depth 熔断、整棵树白屏(实测崩溃点 userMessageCollapse)。
+   shrink:0 让 scrollHeight 不随折叠态变化,振荡源头消失。 */
+.pw-user-message-content > * {
+  flex-shrink: 0;
+}
 .pw-user-message-shell.is-collapsed .pw-user-message-content {
   max-height: 260px;
   overflow: hidden;

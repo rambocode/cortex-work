@@ -21,9 +21,15 @@ export function UserMessageContent({ children }: { children: ReactNode }) {
   const measure = useCallback(() => {
     const content = contentRef.current;
     if (!content) return;
-    const next = content.scrollHeight > USER_MESSAGE_COLLAPSED_HEIGHT + 1;
-    setCollapsible(next);
-    if (!next) setExpanded(false);
+    const height = content.scrollHeight;
+    // 滞回带:折叠判定与撤销用不同阈值。若用单一阈值,任何让 scrollHeight 随折叠态微变的
+    // 布局因素(历史事故:限高下 flex 压缩 overflow 子块)都会让本 layout effect 同步振荡,
+    // 触发 React "Maximum update depth exceeded" 白屏。已判定可折叠后,只有内容明显变矮
+    // 才撤销;两带不重叠,振荡在状态层被物理隔断(CSS 侧另有 flex-shrink:0 消振源)。
+    setCollapsible((prev) =>
+      prev ? height > USER_MESSAGE_COLLAPSED_HEIGHT - 40 : height > USER_MESSAGE_COLLAPSED_HEIGHT + 1,
+    );
+    if (height <= USER_MESSAGE_COLLAPSED_HEIGHT - 40) setExpanded(false);
   }, []);
 
   // 每次消息内容提交后立即测量，避免先完整展开一帧再折叠造成跳动。
