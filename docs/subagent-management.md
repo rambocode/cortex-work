@@ -13,7 +13,7 @@
 - **工作表面**：`shared`（基础）是通配场景，`code`、`write`、`design` 分别约束角色进入对应会话回合的委派目录。
 - **主会话**：保留原生会话上下文并负责最终回答；实质性任务在受益于专项能力、独立复核或并行工作流时主动委派，琐碎或紧密串行任务直接完成。
 - **子会话**：收到自包含任务，独立执行，不能继续递归委派。
-- **运行护栏**：`maxParallel` 控制并行槽位，满额后 FIFO 排队；`maxChildRuns` 限制一轮主会话可创建的子任务总数。
+- **运行护栏**：`maxParallel` 控制并行槽位，满额后 FIFO 排队；`maxChildRuns` 限制一轮主会话可创建的子任务总数；child 工具循环熔断器限制单个子任务内部的确定性重复失败，不影响父会话或其他 child。
 
 ## 流程
 
@@ -30,7 +30,8 @@ flowchart LR
   Q --> E
   E --> F[独立子会话]
   F -->|Cortex 父会话| R[短生命周期 Pi gateway RPC]
-  F --> G[roleId + callId + childSessionId 事件]
+  F --> O[child 工具循环熔断器]
+  O --> G[roleId + callId + childSessionId 事件]
   G --> H[会话子代理卡]
   G --> I[过程详情和 trace]
   G --> L[side SessionMeta + 独立 chat 文件]
@@ -52,6 +53,8 @@ flowchart LR
 - Claude/Codex 父会话仍由 `apps/desktop/src/main/ipc/cli.ts` 应用角色级 `agent`、`model`、`effort` 和 `systemPrompt` 覆盖。两条路径上的 `readOnly` 角色都会物理收窄到只读工具，不能继承主会话的写权限。
 - delegate host 为每一次调用分别生成 `subagentCallId` 和 `childSessionId`。前者隔离卡片与过程，后者标识持久化 side 会话；同一角色重复或并行委派不会互相混入。
 - delegate host 以 `maxParallel` 管理 FIFO 并行槽，以 `maxChildRuns` 管理本轮总任务数；不再硬编码“每个角色最多 3 次”。
+- `apps/desktop/src/main/capabilities/delegate/tool-loop-guard.ts` 在公共 `executeDelegateTool` 边界按 `toolCallId` 配对 child 工具 start/end。相同工具、完整参数和错误累计重复 3 次时熔断；最近 8 次已完成调用若前后四步完全相同且包含错误，也按无进展循环熔断。参数和输出只进入稳定哈希，trace 仅记录工具名、类型与次数，不泄露私有路径或凭据。
+- 每次 `subagentCallId` 都有独立的循环状态和 `AbortController`。熔断只取消当前 child，保留其失败前的部分文本并向父 Agent 返回结构化 tool error；父回合、并行 child 和之后新建的 child 不受影响。
 - Cortex 子会话的 `bash`、`write`、`edit` 等审批请求使用不透明 routed id 映射回真实 child request，并统一以父 `uiSessionId` 推到主工作区。用户允许、拒绝、停止父轮或关闭窗口时，响应只会回到原始 child；并行 child 即使产生相同原生 request id 也不会串台。
 - Slides 产物在 Pi session 准备工具前登记 `cortex-slides` 与 `cortex-design-delegate` 状态；逐页设计子任务同样经短生命周期 Pi gateway RPC 运行并继承父审批。产物根、cwd、索引与 run identity 都在主进程边界重新校验。
 - `packages/core/personal/messages.ts` 把带 `roleId`、`subagentCallId` 和 `childSessionId` 的事件折叠为持久化 `subagentCard`，同时把委派任务与子 Agent 回复写入子会话自己的 chat 文件。子进程的原生 `init.sessionId` 只写子会话 `agentSessionIds`，不会覆盖父会话续接槽。
@@ -64,6 +67,7 @@ flowchart LR
 - 子代理不继承主会话文本历史；主 Agent 必须把任务和必要材料写进 `task`，Repository Explorer 则使用 Kun 同款 `{ title, query }` 契约。
 - 仓库或项目探索优先调用只读 `explore_agent`。复杂探索必须按互不重叠的范围动态拆成多个并行调用，整项目分析先枚举产品定位、后端或核心实现、前端交互、测试与完成度等所有适用证据面；数量由实际问题决定，禁止固定次数、为减少调用次数合并独立证据面，或把整仓调查塞进一次调用。返回后主 Agent 只做窄范围补充检查并负责整合与最终验证。
 - 子代理没有 delegate 工具，避免递归资源放大。
+- 子代理不能无限重复已经确定失败的工具调用。相同调用与错误达到 3 次，或 8 次调用形成含错误的完整重复窗口时，当前 child 自动结束；父 Agent 应基于其部分结果改用其他证据或明确报告阻塞。
 - Cortex 主/子 Pi gateway 不可用时显式失败，不回退到无审批的 CLI / one-shot；父会话停止、关闭或 renderer 销毁会级联取消在途 child 并清理审批路由。
 - side 子会话只用于查看委派任务、子 Agent 输出和过程，不接受继续发送；后续需求需返回主对话，由主 Agent 结合完整上下文继续编排。
 - 普通会话默认提供已启用角色目录；模型按任务收益调用一个或多个，琐碎任务可以不调用。显式 `@角色` 仍优先并收窄为用户点名角色。

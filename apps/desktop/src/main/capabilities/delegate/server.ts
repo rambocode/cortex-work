@@ -25,6 +25,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
 import type { McpServerConfig, RoleConfig, CliStreamEvent } from "../../ipc/types";
 import { recordAgentTrace } from "../../ipc/agent-trace";
+import { ChildToolLoopGuard, type ChildToolLoopTrip } from "./tool-loop-guard";
 
 // 工具名安全化（与 pi-providers.safeId 同源逻辑，内联以解除 electron 依赖、便于单测）：
 // ask_<id> 须为合法 MCP 工具名（仅字母数字 - _）。
@@ -215,6 +216,12 @@ async function executeDelegateTool(
   state.childRunCount += 1;
   const acquired = await acquireDelegateSlot(state, signal);
   if (!acquired) return errorResult("已取消");
+  // 父回合/request signal 仍负责级联取消全部或本次请求；额外的 controller 只属于当前 child。
+  // 工具循环熔断时只 abort 这一个执行，不得把父会话或同批并行 child 一起终止。
+  const childController = new AbortController();
+  const childSignal = AbortSignal.any([signal, childController.signal]);
+  const toolLoopGuard = new ChildToolLoopGuard();
+  let toolLoopTrip: ChildToolLoopTrip | undefined;
   // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
   // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
   const subagentCallId = randomUUID();
@@ -261,6 +268,9 @@ async function executeDelegateTool(
   // 子 agent 每个事件：父流转发（已带 roleId）+ 子流双发（init 除外,见上）+ 喂主进程看门狗
   //（防长子任务误杀主 agent，R2）。
   const onEvent = (ev: CliStreamEvent) => {
+    // 熔断后底层进程/worker 可能仍冲刷少量迟到事件；它们不再属于有效执行过程，避免继续污染
+    // child 归档。触发熔断的那条 tool-end 会先正常写入，再设置 toolLoopTrip。
+    if (toolLoopTrip) return;
     state.pushEvent({
       ...ev,
       roleId: role.id,
@@ -277,18 +287,44 @@ async function executeDelegateTool(
     });
     if (ev.type !== "init") pushChild(ev);
     state.bumpWatchdog();
+
+    const trip = toolLoopGuard.observe(ev);
+    if (!trip) return;
+    toolLoopTrip = trip;
+    recordAgentTrace({
+      scope: "delegate",
+      phase: "watchdog",
+      summary: `子 Agent「${role.label}」工具循环熔断`,
+      runId: subagentCallId,
+      sessionId: childSessionId,
+      agent: role.agent,
+      // 工具参数和输出可能包含私有路径或凭据，只记录安全摘要；完整调用仍留在现有过程归档中。
+      data: {
+        kind: trip.kind,
+        toolName: trip.toolName,
+        repeatCount: trip.repeatCount,
+        parentRunId: state.runId,
+        parentSessionId: state.sessionId,
+      },
+    });
+    childController.abort(trip.message);
   };
   try {
     let result: SubAgentResult;
     try {
-      result = await state.runSubAgent(role, taskText, onEvent, childSessionId, signal);
+      result = await state.runSubAgent(role, taskText, onEvent, childSessionId, childSignal);
     } catch (err) {
       // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
       // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
-      const message = err instanceof Error ? err.message : String(err);
+      const message = toolLoopTrip?.message ?? (err instanceof Error ? err.message : String(err));
       pushChild({ type: "result", ok: false, error: message });
       state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
       return errorResult(`协作者「${role.label}」执行失败：${message}`);
+    }
+    // 某些 adapter 的 kill/abort 只负责请求停止，仍可能以 ok 或通用“已取消”结算；熔断原因是
+    // 更具体、可操作的权威终态，且保留失败前的 partial text 供父 Agent 增量接手。
+    if (toolLoopTrip) {
+      result = { ...result, ok: false, error: toolLoopTrip.message };
     }
     recordAgentTrace({
       scope: "delegate",

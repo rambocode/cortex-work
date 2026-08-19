@@ -346,6 +346,120 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     }
   });
 
+  it("同一失败工具调用反复出现时只终止当前 child，父会话和并行 child 继续运行", async () => {
+    await startDelegateHost();
+    const sid = "tool-loop-session";
+    const parentController = new AbortController();
+    const state = makeState(sid, () => parentController.abort());
+    state.roles = [{
+      id: "review",
+      label: "Reviewer",
+      agent: "pi",
+      systemPrompt: "",
+      createdAt: "",
+      updatedAt: "",
+    }];
+    state.signal = parentController.signal;
+    state.maxChildRuns = 2;
+    let failedAttempts = 0;
+    let finishHealthy: (() => void) | undefined;
+    let healthySignal: AbortSignal | undefined;
+    state.runSubAgent = vi.fn(async (_role, task, onEvent, _childSessionId, signal) => {
+      if (task === "正常任务") {
+        healthySignal = signal;
+        await new Promise<void>((resolve) => { finishHealthy = resolve; });
+        return { text: "正常完成", ok: true };
+      }
+
+      for (let index = 0; index < 4; index += 1) {
+        if (signal?.aborted) break;
+        failedAttempts += 1;
+        onEvent({
+          type: "tool",
+          name: "ls",
+          phase: "start",
+          toolCallId: `missing-${index}`,
+          input: { path: "/tmp/dxtun 代理" },
+        });
+        onEvent({
+          type: "tool",
+          name: "ls",
+          phase: "end",
+          toolCallId: `missing-${index}`,
+          output: "Path not found: /tmp/dxtun 代理",
+          isError: true,
+        });
+        onEvent({
+          type: "tool",
+          name: "ls",
+          phase: "start",
+          toolCallId: `valid-${index}`,
+          input: { path: "/tmp/dxtun代理" },
+        });
+        onEvent({
+          type: "tool",
+          name: "ls",
+          phase: "end",
+          toolCallId: `valid-${index}`,
+          output: "需求文档/",
+          isError: false,
+        });
+      }
+      return signal?.aborted
+        ? { text: "已找到正确目录", ok: false, error: "已取消" }
+        : { text: "不应执行到这里", ok: true };
+    });
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      // 先让健康 child 保持在途，再启动会熔断的 child，验证取消信号不会跨调用传播。
+      const healthyPromise = post(cfg, {
+        jsonrpc: "2.0",
+        id: 24,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "正常任务" } },
+      });
+      await vi.waitFor(() => expect(healthySignal).toBeDefined());
+
+      const looped = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 23,
+        method: "tools/call",
+        params: { name: "ask_review", arguments: { task: "循环任务" } },
+      });
+      expect(looped.body).toContain("相同参数和错误重复失败 3 次");
+      expect(looped.body).toContain("已找到正确目录");
+      expect(failedAttempts).toBe(3);
+      expect(parentController.signal.aborted).toBe(false);
+      expect(healthySignal?.aborted).toBe(false);
+
+      const guardTrace = agentTraceList().find((event) => event.phase === "watchdog");
+      expect(guardTrace).toMatchObject({
+        scope: "delegate",
+        runId: expect.any(String),
+        sessionId: expect.any(String),
+        data: expect.objectContaining({
+          kind: "repeated-failure",
+          toolName: "ls",
+          repeatCount: 3,
+          parentRunId: state.runId,
+          parentSessionId: sid,
+        }),
+      });
+      expect(JSON.stringify(guardTrace?.data)).not.toContain("dxtun");
+
+      finishHealthy?.();
+      const healthy = await healthyPromise;
+      expect(healthy.body).toContain("正常完成");
+      expect(state.runSubAgent).toHaveBeenCalledTimes(2);
+      expect(state.activeRuns).toBe(0);
+    } finally {
+      finishHealthy?.();
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
   it("子执行异常时返回 tool error，并向 renderer 发送失败完成帧", async () => {
     await startDelegateHost();
     const sid = "failure-session";
