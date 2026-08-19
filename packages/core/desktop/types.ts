@@ -1707,6 +1707,24 @@ export interface PiOpenResult {
   sessionFile?: string;
 }
 
+// ── 运行事件统一信封(信封归一方案 P0) ─────────────────────────────────────────
+// ⚠️ 跨进程契约:与 apps/desktop/src/main/ipc/types.ts 的 RunEventEnvelope 逐字镜像,
+// 改一处必须改两处——正是为了杜绝 pi:event 曾经 uiSessionId/sessionId 各写各的那类静默漂移。
+// 渲染端当前只消费 sessionId/runId/event;domain/v 经 onCliEvent 第四参透传,供将来
+// 接收侧按域分发与版本闸门使用(方案 P2 后续项)。
+export interface RunEventEnvelope {
+  v: 1;
+  domain: "chat" | "artifact" | "roundtable" | "orchestrate" | "workflow" | "automation";
+  sessionId: string;
+  runId: string;
+  event: CliStreamEvent;
+}
+
+// 失效通知域(信封归一方案 P1)。⚠️ 与 apps/desktop/src/main/ipc/sync-invalidate.ts 的
+// SyncInvalidateScope 逐字镜像;渲染端映射表以 satisfies 锚定本类型——主进程加域、
+// 渲染端漏加映射行时在编译期报错,而不是信号被静默丢弃。
+export type SyncInvalidateScope = "tasks" | "task-resources" | "notes";
+
 // pi RPC 会话的归一化事件（主进程 → 渲染层 pi:event），由 AgentSessionEvent 映射而来
 // （mapPiEvent）。比单发 CliStreamEvent 更细:区分 reasoning / 工具起止 / 轮结束 / 压缩 /
 // 重试 / 队列,并以 result.willRetry 表达自动重试。

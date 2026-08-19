@@ -43,6 +43,8 @@ const RIGHT_VIEW_TITLE: Record<string, string> = {
 
 // 导出供测试引用,调参不破坏断言。
 export const RP_MIN_WIDTH = 280;
+/// 右侧 rail 的占位宽:与 CSS 的 .pw-right-rail width(48px)/--rp-avail 同一个数,改一处必改两处。
+export const RP_RAIL_SAFE = 48;
 // 左侧内容(中栏)至少保留的宽度。拖拽上限至少保留拖拽开始时已经渲染出来的宽度,
 // 避免第一帧把面板夹小造成可见边界向右跳。
 // 488 = 中栏最小宽 440(CSS 的 --pw-center-min)+ 右侧 rail 48;与 CSS 各档
@@ -148,9 +150,13 @@ export function PersonalRightPanel({
       // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
       const reserved = reservedWidthForView(view);
       const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - reserved);
-      const max = startWidth > reservedMax
-        ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth)
-        : reservedMax;
+      // 硬上限与 CSS 的 --rp-avail(calc(100% - 48px),给右侧 rail 留位)同界:拖拽写入的
+      // 宽度不会被 CSS 再夹(无首帧跳变),也不可能把面板头部 X/右栏 rail 推出视口。
+      const hardMax = Math.max(RP_MIN_WIDTH, parentWidth - RP_RAIL_SAFE);
+      const max = Math.min(
+        hardMax,
+        startWidth > reservedMax ? Math.max(RP_MIN_WIDTH, startWidth, parentWidth) : reservedMax,
+      );
       // || 兜底:未布局时 rect 宽为 0（如测试环境）。只有实际水平移动后才会提交。
       let nextWidth = startWidth;
       let moved = false;

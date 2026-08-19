@@ -39,6 +39,7 @@ import {
   validateConversationArtifact,
 } from "./artifact-workspace";
 import { assertSpawnCwd, resolveSpawnCwd } from "./cli";
+import { sendRunEvent } from "./run-events";
 import { assertAllowed } from "./fs";
 import { getPersistedState } from "./store";
 import {
@@ -448,9 +449,14 @@ function registerPiArtifactGeneration(
     signal: controller.signal,
     abort: () => controller.abort(),
     pushEvent: (event) => {
-      if (sender.isDestroyed()) return;
       try {
-        sender.send("cli:event", { runId: designState.runId, sessionId: request.uiSessionId, event });
+        sendRunEvent(sender, {
+          v: 1,
+          domain: "artifact",
+          runId: designState.runId,
+          sessionId: request.uiSessionId,
+          event,
+        });
       } catch (error) {
         // WebContents 可在 isDestroyed 检查后销毁；事件丢弃即可，child 的取消由 destroyed 级联负责。
         log.warn(`Pi artifact delegate 事件转发失败(${request.uiSessionId}): ${String(error)}`);
@@ -588,9 +594,12 @@ export function createPiDelegateRuntime(
     signal: controller.signal,
     abort: () => controller.abort(),
     pushEvent: (event) => {
-      if (!sender.isDestroyed()) {
-        sender.send("cli:event", { runId: state.runId, sessionId: request.uiSessionId, event });
-      }
+      sendRunEvent(sender, { v: 1, domain: "chat", runId: state.runId, sessionId: request.uiSessionId, event });
+    },
+    // 信封归一 P2:子会话完整过程走独立信封(sessionId=childSessionId,runId=callId,事件已剥
+    // 父会话过滤标记),渲染端不再从父流的标记推断子归属。
+    pushChildEvent: (childSessionId, callId, event) => {
+      sendRunEvent(sender, { v: 1, domain: "chat", runId: callId, sessionId: childSessionId, event });
     },
     // Pi 主会话的 renderer 看门狗只更新时间、不因静默杀进程；child 自带硬超时，因此这里无需续租。
     bumpWatchdog: () => {},

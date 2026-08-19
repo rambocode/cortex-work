@@ -261,7 +261,8 @@ function emitEvent(uiSessionId: string, generation: symbol, ev: PiSessionEvent, 
     disposeSessionEntry(uiSessionId, entry, false);
   }
   if (entry && !entry.owner.isDestroyed()) {
-    entry.owner.send("pi:event", { uiSessionId, runId, event: ev });
+    // 信封归一 P0:载荷字段与 cli:event 信封对齐(sessionId,不再用漂移的 uiSessionId 命名)。
+    entry.owner.send("pi:event", { sessionId: uiSessionId, runId, event: ev });
   }
 }
 

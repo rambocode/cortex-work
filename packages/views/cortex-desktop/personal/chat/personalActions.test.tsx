@@ -641,7 +641,13 @@ describe("send 分叉", () => {
     const process = qc.getQueryData<Message[]>(personalProcessKeys.detail(claudeSession.id)) ?? [];
     expect(chat.some((message) => message.kind === "text" && message.text === "子 Agent 原始结果")).toBe(false);
     expect(chat.some((message) => message.kind === "text" && message.text === "主会话总结结果")).toBe(true);
-    expect(process.some((message) => message.kind === "reasoning" && message.text === "子 Agent 原始结果")).toBe(true);
+    // 降噪(信封归一 P2):子代理文本不再折进主会话过程流,只进父卡片摘要;
+    // 子会话完整过程由子流信封驱动(见 core 的 subagent-stream.test)。
+    expect(process.some((message) => message.kind === "reasoning" && message.text === "子 Agent 原始结果")).toBe(false);
+    const card = chat.find(
+      (message): message is Extract<Message, { kind: "subagentCard" }> => message.kind === "subagentCard",
+    );
+    expect(card?.summary).toContain("子 Agent 原始结果");
   });
 
   it("claude 会话思考强度经 startCli.effort 下发", async () => {

@@ -4,7 +4,8 @@
 // 存储核心在 tasks-store.ts（不依赖 electron，可单测）；本文件注入路径 + 绑 ipcMain + broadcast。
 // 单例 store 导出，供 tasks-migrate.ts（迁移）与 tasks-delegate-observer.ts（委派回写）共用。
 
-import { BrowserWindow, ipcMain, powerSaveBlocker } from "electron";
+import { ipcMain, powerSaveBlocker } from "electron";
+import { broadcastSyncInvalidate } from "./sync-invalidate";
 import { Cron } from "croner";
 import { pushNotification } from "../notification-window";
 import { recordNotification } from "./notification-center";
@@ -32,11 +33,10 @@ function logTaskDocError(op: string, err: unknown): void {
 // 单例存储（迁移/委派观察者与 handlers 共用同一实例）。
 export const tasksStore = new TasksStore({ tasksStorePath: tasksJsonPath });
 
-// 推全量快照给所有存活窗口（窗口可能已关，事件丢失不影响落盘，renderer 重获焦点补拉）。
-export function broadcastTasksChanged(list: TaskMeta[]): void {
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send("tasks:changed", list);
-  }
+// 信封归一 P1:任务变更改发纯失效信号(渲染端本就只 invalidate 重拉,从不消费旧快照载荷)。
+// 零参(审阅修复):调用方不必为了广播白读一次全量快照;需要快照的(提醒调度)自己取。
+export function broadcastTasksChanged(): void {
+  broadcastSyncInvalidate("tasks");
 }
 
 // ── 任务提醒（U11）：main 原生通知投递 + 调度器装配 ────────────────────────────────
@@ -91,8 +91,8 @@ export const tasksReminderScheduler = new TasksReminderScheduler({
     // 锁内条件写：提醒仍存在且 at 匹配才写 firedAt（防「删提醒瞬间触发」复活已删提醒）；写入才广播。
     void tasksStore
       .markReminderFired(task.id, rem.at, firedAt)
-      .then(async (wrote) => {
-        if (wrote) broadcastTasksChanged(await tasksStore.list());
+      .then((wrote) => {
+        if (wrote) broadcastTasksChanged();
       })
       .catch((err) => log.error("写 firedAt 失败:", err));
   },
@@ -107,17 +107,14 @@ export const tasksReminderScheduler = new TasksReminderScheduler({
 // 任务或项目变更后统一推一份任务全量快照（项目变更也可能改任务归属，故一并刷新），
 // 并重排提醒调度（新增/改动/删除 reminder 后重建 Cron；firedAt 已置的任务天然不再建，防环）。
 async function emitChanged(): Promise<void> {
-  const list = await tasksStore.list();
-  broadcastTasksChanged(list);
-  tasksReminderScheduler.sync(list);
+  broadcastTasksChanged();
+  // 提醒调度自己取快照(广播已是纯信号,不再为它读盘)。
+  tasksReminderScheduler.sync(await tasksStore.list());
 }
 
-// 资源（成员/岗位/模板）变更轻量广播：不塞快照，renderer 收到只 invalidate 重拉——
-// 三类资源低频且体量小，与 tasks:changed 的全量快照通道分流，跨窗口（工作台/主窗）同步一致。
+// 资源（成员/岗位/模板）变更轻量广播:走统一失效信号通道(信封归一 P1)。
 function broadcastResourcesChanged(): void {
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send("tasks:resources-changed");
-  }
+  broadcastSyncInvalidate("task-resources");
 }
 
 export function registerTasksHandlers(): void {

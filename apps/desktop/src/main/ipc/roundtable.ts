@@ -30,6 +30,7 @@ import { getAgentDef, parseLineEvents } from "../agents";
 import { CODEX_MCP_CLEAR } from "./mcp-config";
 import { recordAgentTrace } from "./agent-trace";
 import type { CliExitEvent, CliStartRequest, CliStreamEvent, RoleConfig, RoundtableStartRequest } from "./types";
+import { sendRunEvent } from "./run-events";
 
 // ── 常量 ──
 
@@ -313,9 +314,7 @@ export function registerRoundtableHandlers(): void {
     activeRoundtables.set(runId, controller);
 
     const sendEvent = (ev: CliStreamEvent) => {
-      if (!sender.isDestroyed()) {
-        sender.send("cli:event", { runId, sessionId, event: ev });
-      }
+      sendRunEvent(sender, { v: 1, domain: "roundtable", runId, sessionId, event: ev });
     };
     const sendExit = (exit: CliExitEvent) => {
       if (!sender.isDestroyed()) {

@@ -276,6 +276,8 @@ describe("personal message agent session helpers", () => {
       subagentModel: "gpt-5.4",
       subagentReadOnly: true,
     }, "s1");
+    // 信封归一 P2:主进程对每个子代理事件双发——父流带标记(卡片语义)+ 子流剥标记
+    // (sessionId=childSessionId,runId=callId,子会话完整过程)。测试按同一契约打入。
     __handleCliEventForTest(qc, runId, {
       type: "tool",
       name: "Read",
@@ -284,12 +286,23 @@ describe("personal message agent session helpers", () => {
       roleId: "code-reviewer",
       subagentCallId: "call-review-1",
     }, "s1");
+    __handleCliEventForTest(qc, "call-review-1", {
+      type: "tool",
+      name: "Read",
+      detail: "src/a.ts",
+      phase: "start",
+    }, "child-review-1");
     __handleCliEventForTest(qc, runId, {
       type: "text",
       delta: "发现一个阻断问题",
       roleId: "code-reviewer",
       subagentCallId: "call-review-1",
     }, "s1");
+    __handleCliEventForTest(qc, "call-review-1", {
+      type: "text",
+      delta: "发现一个阻断问题",
+    }, "child-review-1");
+    __handleCliEventForTest(qc, "call-review-1", { type: "result", ok: true }, "child-review-1");
     __handleCliEventForTest(qc, runId, {
       type: "result",
       ok: true,

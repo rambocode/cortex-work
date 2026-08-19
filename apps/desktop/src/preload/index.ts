@@ -40,6 +40,7 @@ import type {
   CliExitEvent,
   CliStartRequest,
   CliStreamEvent,
+  RunEventEnvelope,
   ContentSearchResult,
   DerivedAgentMeta,
   RoleConfig,
@@ -135,6 +136,7 @@ import type {
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
 import type { RoundtableStartRequest } from "../main/ipc/types";
+import type { SyncInvalidateScope } from "../main/ipc/sync-invalidate";
 // 写作检索(U4）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-retrieval-types.ts 镜像）。
 import type {
   WritingRetrievalRequest,
@@ -613,9 +615,25 @@ const personal = {
   // 分支重新生成:复制会话记忆为新 id 并截断副本(源文件保留,旧分支可续聊)。
   trimSessionIntoCopy: (req: TrimSessionRequest): Promise<{ newSessionId: string } | null> =>
     ipcRenderer.invoke("cli:trimSessionIntoCopy", req),
-  onCliEvent: (cb: (runId: string, event: CliStreamEvent, sessionId?: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, payload: { runId: string; sessionId?: string; event: CliStreamEvent }) =>
-      cb(payload.runId, payload.event, payload.sessionId);
+  // 信封归一 P0:载荷为 RunEventEnvelope(旧形状超集),v/domain 经第四参透传给接收侧。
+  onCliEvent: (
+    cb: (
+      runId: string,
+      event: CliStreamEvent,
+      sessionId?: string,
+      meta?: Pick<RunEventEnvelope, "v" | "domain">,
+    ) => void,
+  ): (() => void) => {
+    const listener = (
+      _e: IpcRendererEvent,
+      payload: { runId: string; sessionId?: string; event: CliStreamEvent } & Partial<Pick<RunEventEnvelope, "v" | "domain">>,
+    ) =>
+      cb(
+        payload.runId,
+        payload.event,
+        payload.sessionId,
+        payload.v !== undefined && payload.domain !== undefined ? { v: payload.v, domain: payload.domain } : undefined,
+      );
     ipcRenderer.on("cli:event", listener);
     return () => ipcRenderer.removeListener("cli:event", listener);
   },
@@ -675,8 +693,9 @@ const personal = {
     ipcRenderer.invoke("pi:snapshotSession", uiSessionId, branchId),
   piClose: (uiSessionId: string): Promise<void> => ipcRenderer.invoke("pi:close", uiSessionId),
   onPiEvent: (cb: (uiSessionId: string, event: PiSessionEvent, runId?: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, payload: { uiSessionId: string; event: PiSessionEvent; runId?: string }) =>
-      cb(payload.uiSessionId, payload.event, payload.runId);
+    // 信封归一 P0:主进程载荷字段已由 uiSessionId 改名 sessionId(与 cli:event 信封对齐)。
+    const listener = (_e: IpcRendererEvent, payload: { sessionId: string; event: PiSessionEvent; runId?: string }) =>
+      cb(payload.sessionId, payload.event, payload.runId);
     ipcRenderer.on("pi:event", listener);
     return () => ipcRenderer.removeListener("pi:event", listener);
   },
@@ -779,10 +798,13 @@ const personal = {
     patch: Partial<NoteInput> & { status?: NoteStatus; conversationIds?: string[]; docPaths?: string[] },
   ): Promise<NoteMeta | null> => ipcRenderer.invoke("notes:update", id, patch),
   notesDelete: (id: string): Promise<void> => ipcRenderer.invoke("notes:delete", id),
-  onNotesChanged: (cb: (list: NoteMeta[]) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, list: NoteMeta[]) => cb(list);
-    ipcRenderer.on("notes:changed", listener);
-    return () => ipcRenderer.removeListener("notes:changed", listener);
+  // 信封归一 P1:tasks/task-resources/notes 等纯失效通知统一走 sync:invalidate 单通道。
+  // 新增失效域只扩 scope,不再新开 `*:changed` channel、不再加 preload 监听。
+  onSyncInvalidate: (cb: (scope: SyncInvalidateScope, hint?: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { scope: SyncInvalidateScope; hint?: string }) =>
+      cb(payload.scope, payload.hint);
+    ipcRenderer.on("sync:invalidate", listener);
+    return () => ipcRenderer.removeListener("sync:invalidate", listener);
   },
   // 消息中心（侧栏铃铛）。main 为 owner，渲染端**只读 + 标已读/清空**——写入是主进程
   // 埋点（recordNotification）的专属通道，故这里没有 add。
@@ -841,23 +863,12 @@ const personal = {
     patch: { name?: string; description?: string; stages?: string[] },
   ): Promise<StageTemplate | null> => ipcRenderer.invoke("tasks:updateStageTemplate", id, patch),
   stageTemplatesDelete: (id: string): Promise<void> => ipcRenderer.invoke("tasks:deleteStageTemplate", id),
-  // 资源变更轻量订阅：main 只发信号不塞快照，renderer invalidate 后重拉。
-  onTaskResourcesChanged: (cb: () => void): (() => void) => {
-    const listener = () => cb();
-    ipcRenderer.on("tasks:resources-changed", listener);
-    return () => ipcRenderer.removeListener("tasks:resources-changed", listener);
-  },
   // 任务附件（U13）：落盘（优先 srcPath 直拷，避免 50MB ArrayBuffer 过 IPC）返回引用 / 按 path 删除。
   taskDocSave: (
     taskId: string,
     file: { name: string; mimeType: string; srcPath?: string; data?: ArrayBuffer },
   ): Promise<TaskAttachment> => ipcRenderer.invoke("task-doc:save", taskId, file),
   taskDocDelete: (taskId: string, path: string): Promise<void> => ipcRenderer.invoke("task-doc:delete", taskId, path),
-  onTasksChanged: (cb: (list: TaskMeta[]) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, list: TaskMeta[]) => cb(list);
-    ipcRenderer.on("tasks:changed", listener);
-    return () => ipcRenderer.removeListener("tasks:changed", listener);
-  },
   // 委派意图跨窗口中继（KTD10）。形状与 DesktopBridge 的 sendTaskDelegateIntent/onTaskDelegateIntent
   // 逐字对齐（手工比对，无 satisfies）。send：项目管理窗口发送；on：主窗口订阅 main 转发的意图。
   sendTaskDelegateIntent: (intent: TaskDelegateIntent): void =>

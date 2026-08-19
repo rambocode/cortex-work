@@ -3,12 +3,12 @@
 // 纯函数无 React/IO 依赖，便于表驱动单测（见 tasks.test.ts）。
 // 数据类型定义在 ../desktop/types（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。
 
-import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { ArchivedTask, Member, ProjectStage, StageTemplate, TaskInput, TaskMeta, TaskProject, TaskProjectKind, TaskProjectMode, TaskProjectStatus, TaskStatus } from "../desktop/types";
 import { buildTaskTree, type TaskTreeNode } from "./taskTree";
 import { useDesktopBridge } from "../provider";
+import { useSyncScopeSubscription } from "./sync-invalidate";
 
 // 可执行的状态集：仅这两态视为「可用/可执行」，defer 门控叠加其上。
 const ACTIONABLE: readonly TaskStatus[] = ["active", "in-progress"];
@@ -344,18 +344,10 @@ export function useArchivedTasks() {
   });
 }
 
-// tasks:changed 推全量快照，但这里只 invalidate（任务 + 项目两个 key），让 RQ 重拉权威值。
-// 工作区根部挂载一次；onTasksChanged 返回 removeListener，卸载即清。
+// 任务变更失效订阅(信封归一 P1:走 sync:invalidate 单通道,scope→key 映射见 sync-invalidate.ts)。
+// 工作区根部挂载一次;卸载即退订。
 export function useTasksChangeSubscription(): void {
-  const bridge = useDesktopBridge();
-  const qc = useQueryClient();
-  useEffect(() => {
-    if (!bridge?.onTasksChanged) return;
-    return bridge.onTasksChanged(() => {
-      qc.invalidateQueries({ queryKey: tasksKeys.all });
-      qc.invalidateQueries({ queryKey: tasksKeys.projects });
-    });
-  }, [bridge, qc]);
+  useSyncScopeSubscription("tasks");
 }
 
 // ── 团队成员 / 岗位标签 / 阶段模板 hooks（项目管理扩展，参照 IFocus）────────────────
@@ -471,17 +463,7 @@ export function useDeleteStageTemplate() {
   });
 }
 
-// tasks:resources-changed 轻量信号 → 三个资源 key 全部 invalidate（跨窗口同步）。
-// 与 useTasksChangeSubscription 并列挂在工作台/工作区根部。
+// 资源(成员/岗位/模板)失效订阅(信封归一 P1)。与 useTasksChangeSubscription 并列挂在根部。
 export function useTaskResourcesSubscription(): void {
-  const bridge = useDesktopBridge();
-  const qc = useQueryClient();
-  useEffect(() => {
-    if (!bridge?.onTaskResourcesChanged) return;
-    return bridge.onTaskResourcesChanged(() => {
-      qc.invalidateQueries({ queryKey: membersKey });
-      qc.invalidateQueries({ queryKey: jobTypesKey });
-      qc.invalidateQueries({ queryKey: stageTemplatesKey });
-    });
-  }, [bridge, qc]);
+  useSyncScopeSubscription("task-resources");
 }

@@ -9,12 +9,13 @@
 // 本文件的 hook —— 浮层直连 window.desktopAPI.personal.notesAdd / loadState,只复用
 // 本文件导出的纯函数 resolveDefaultNoteProject。
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { t } from "../i18n";
 import type { DesktopBridge } from "../desktop/bridge";
 import type { NoteInput, NoteMeta, NoteStatus, SkillMeta } from "../desktop/types";
 import { useDesktopBridge } from "../provider";
+import { useSyncScopeSubscription } from "./sync-invalidate";
 import { initialModelDraft, usePersonalStore } from "../store/personal";
 import { buildProjectSystemPrompt, usePersonalActions } from "./messages";
 import { dayKey } from "./date";
@@ -369,17 +370,9 @@ export function useDeleteNote() {
 }
 
 // ── 事件订阅（工作区根部挂载一次）──────────────────────────────────────────
-// notes:changed 推全量快照,但这里只 invalidate,不 setQueryData(list)、不写 Zustand,
-// 让 React Query 重新 notesList 拉权威值。onNotesChanged 返回 removeListener,卸载即清。
+// 笔记变更失效订阅(信封归一 P1:走 sync:invalidate 单通道,只 invalidate 让 RQ 重拉权威值)。
 export function useNotesChangeSubscription(): void {
-  const bridge = useDesktopBridge();
-  const qc = useQueryClient();
-  useEffect(() => {
-    if (!bridge?.onNotesChanged) return;
-    return bridge.onNotesChanged(() => {
-      qc.invalidateQueries({ queryKey: notesKeys.all });
-    });
-  }, [bridge, qc]);
+  useSyncScopeSubscription("notes");
 }
 
 // ── 深化编排（U8:建会话即发,首条防丢）──────────────────────────────────────

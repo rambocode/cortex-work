@@ -1196,6 +1196,27 @@ export interface PiOpenResult {
   sessionFile?: string;
 }
 
+// ── 运行事件统一信封（信封归一方案 P0,docs/plans/2026-08-18-001） ────────────────
+//
+// 主进程 → 渲染端所有「会话级流式事件」的唯一载荷形状,经 ipc/run-events.ts 的 sendRunEvent
+// 统一发出(新代码禁止绕过它直发 cli:event)。三条不变量:
+// 1. 单一目的地:一个信封只投递一个命名空间(sessionId);需要「父卡片 + 子过程」两个视图时
+//    由发送端显式双发两个信封,不发一个含糊信封让接收端拆。
+// 2. id 语义随命名空间:子会话命名空间的 runId 恒为 subagentCallId,且 event 不携带
+//    roleId/subagentCallId 等「给另一个命名空间看的」过滤标记。
+// 3. 生命周期归 owner:谁创建命名空间谁负责保活与出口清理;信封不管生命周期。
+export interface RunEventEnvelope {
+  /** 信封版本,便于灰度与将来演进。 */
+  v: 1;
+  /** 事件域:决定渲染端交给哪个 reducer。 */
+  domain: "chat" | "artifact" | "roundtable" | "orchestrate" | "workflow" | "automation";
+  /** 目标命名空间(= 渲染端 query key 的 sessionId)。发送端决定,接收端不得再推断。 */
+  sessionId: string;
+  /** run 标识。子会话命名空间内 = subagentCallId。 */
+  runId: string;
+  event: CliStreamEvent;
+}
+
 // pi RPC 会话的归一化事件（主进程 → 渲染层 pi:event）,由 AgentSessionEvent 映射而来
 // （mapPiEvent）。比单发 CliStreamEvent 更细:区分 reasoning / 工具起止 / 轮结束 / 压缩 /
 // 重试 / 队列,并以 result.willRetry 表达自动重试。

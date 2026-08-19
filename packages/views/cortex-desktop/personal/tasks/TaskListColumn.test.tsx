@@ -130,8 +130,9 @@ function liveTasksBridge(initial: TaskMeta[] = [], initialProjects: TaskProject[
       store.set(id, next);
       return next;
     },
-    onTasksChanged: (cb: () => void) => {
-      listener = cb;
+    // 信封归一 P1:失效通知统一走 onSyncInvalidate(scope 过滤在 hook 内)。
+    onSyncInvalidate: (cb: (scope: string) => void) => {
+      listener = () => cb("tasks");
       return () => {
         listener = null;
       };

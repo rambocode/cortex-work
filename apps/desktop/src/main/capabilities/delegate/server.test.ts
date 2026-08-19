@@ -22,6 +22,7 @@ function makeState(sessionId: string, abort: () => void = () => {}): DelegateSes
     signal: new AbortController().signal,
     abort,
     pushEvent: () => {},
+    pushChildEvent: () => {},
     bumpWatchdog: () => {},
     maxParallel: 256,
     maxChildRuns: 25,
@@ -174,6 +175,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       signal: new AbortController().signal,
       abort: () => {},
       pushEvent: () => {},
+      pushChildEvent: () => {},
       bumpWatchdog: () => {},
       maxParallel: 256,
       maxChildRuns: 25,
@@ -247,9 +249,14 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     await startDelegateHost();
     const sid = "context-session";
     const runSubAgent = vi.fn<DelegateSessionState["runSubAgent"]>(
-      async () => ({ text: "子 Agent 的分析结果", ok: true }),
+      async (_role, _task, onEvent) => {
+        // 模拟子 Agent 的一个流式事件,验证父/子双发契约。
+        onEvent({ type: "text", delta: "分析中" });
+        return { text: "子 Agent 的分析结果", ok: true };
+      },
     );
     const pushEvent = vi.fn();
+    const pushChildEvent = vi.fn();
     registerDelegateSession({
       sessionId: sid,
       runId: "main-run",
@@ -257,6 +264,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       signal: new AbortController().signal,
       abort: () => {},
       pushEvent,
+      pushChildEvent,
       bumpWatchdog: () => {},
       maxParallel: 256,
       maxChildRuns: 25,
@@ -301,6 +309,22 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         roleId: "codex",
         subagentCallId,
       }));
+      // 信封归一 P2(双发契约):子流以 (childSessionId, callId) 为地址,事件剥净父会话过滤标记。
+      expect(pushChildEvent).toHaveBeenCalledWith(
+        childSessionId,
+        subagentCallId,
+        expect.objectContaining({ type: "init", subagentTask: "结合必要材料完成子任务" }),
+      );
+      expect(pushChildEvent).toHaveBeenCalledWith(
+        childSessionId,
+        subagentCallId,
+        expect.objectContaining({ type: "text", delta: "分析中", roleId: undefined, subagentCallId: undefined }),
+      );
+      expect(pushChildEvent).toHaveBeenLastCalledWith(
+        childSessionId,
+        subagentCallId,
+        expect.objectContaining({ type: "result", ok: true, text: "子 Agent 的分析结果" }),
+      );
       expect(agentTraceList()).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -333,6 +357,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       signal: new AbortController().signal,
       abort: () => {},
       pushEvent,
+      pushChildEvent: () => {},
       bumpWatchdog: () => {},
       maxParallel: 256,
       maxChildRuns: 25,
