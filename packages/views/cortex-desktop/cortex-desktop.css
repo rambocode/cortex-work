@@ -4463,11 +4463,13 @@ button.sb-row {
 .pw-prompts:has(.pw-browser) .pw-rp-resizer { display: block; }
 /* 内嵌浏览器:默认宽度占应用 3/7(向左延展),可拖拽调宽(--rp-custom-width 优先),
    关闭浏览器视图回到 320px。
-   默认宽度限制在视口内;一旦拖拽写入 --rp-custom-width,不再用 CSS max-width 二次夹小,
-   避免 TS 已按当前几何算出的宽度被 CSS 再夹一次,造成第一帧向右跳。 */
+   历史教训(彻底修复):曾刻意「拖拽写入 --rp-custom-width 后不再二次夹小」以避免拖拽首帧
+   跳变——代价是大窗口拖宽的持久值在窄窗口溢出视口,面板头部 X 与整条右栏 rail 被推出屏外。
+   现统一用 --rp-avail 夹上限(TS 拖拽上限同步对齐同一界,拖拽中不会与 CSS 打架,无跳变);
+   min-width 必须一并夹:CSS 里 min-width 胜过 max-width,只夹 width 等于没夹。 */
 .pw-prompts:has(.pw-browser) {
-  width: var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px))));
-  min-width: min(360px, max(280px, calc(100vw - 250px)));
+  width: min(var(--rp-custom-width, min(calc(100vw * 3 / 7), max(280px, calc(100vw - 250px)))), var(--rp-avail));
+  min-width: min(360px, max(280px, calc(100vw - 250px)), var(--rp-avail));
 }
 /* 产物编辑器(演示文稿 / 设计稿):默认展宽,但必须给中栏(会话区)留出 660px——
    低于这个宽度消息气泡与输入框那一排控件会被挤成窄条(实机反馈)。
@@ -4475,14 +4477,14 @@ button.sb-row {
    288px 是左栏 .sidebar 的固定宽。窗口本身撑不下「288+660+编辑器」时由 max() 兜底:
    宁可让中栏低于 660,也不能把编辑器夹成不可用的窄缝。 */
 .pw-prompts:has(.pw-artifact-editor) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  width: min(var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px)))), var(--rp-avail));
+  min-width: min(var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px))), var(--rp-avail));
 }
 .pw-prompts:has(.pw-artifact-editor) .pw-rp-resizer { display: block; }
 /* 会话白板是宽内容面板：560px 起步、允许拖拽，并让画布根节点完整占满内容区。 */
 .pw-prompts:has(.pw-code-canvas) {
-  width: var(--rp-custom-width, min(62vw, max(560px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  width: min(var(--rp-custom-width, min(62vw, max(560px, calc(100vw - 288px - 660px)))), var(--rp-avail));
+  min-width: min(var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px))), var(--rp-avail));
 }
 .pw-prompts:has(.pw-code-canvas) .pw-rp-resizer { display: block; }
 .pw-code-canvas { min-height: 0; flex: 1; }
@@ -4491,23 +4493,23 @@ button.sb-row {
    两处必须一起改（PersonalRightPanel 的 RP_LEFT_RESERVED_ARTIFACT 判定也把 research
    算进同一档），否则会出现「拖拽上限按 660 算、默认宽度按 250 算」的错位。 */
 .pw-prompts:has(.pw-research-panel) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  width: min(var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px)))), var(--rp-avail));
+  min-width: min(var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px))), var(--rp-avail));
 }
 .pw-prompts:has(.pw-research-panel) .pw-rp-resizer { display: block; }
 /* 知识库文档预览：同上那条宽度公式。文档里表格很常见,320px 的窄栏会把每列压成一列一个字;
    中栏仍保 660px 以便边读边问。同样三处联动（本规则 + isWidePanel 判定 + RP_LEFT_RESERVED_ARTIFACT）。 */
 .pw-prompts:has(.pw-kbdoc) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  width: min(var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px)))), var(--rp-avail));
+  min-width: min(var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px))), var(--rp-avail));
 }
 .pw-prompts:has(.pw-kbdoc) .pw-rp-resizer { display: block; }
 /* pi 会话产物面板(rightView:"piArtifacts")：同上那条宽度公式。HTML 产物(图表/仪表盘)在
    320px 窄栏没有可用性;中栏保 660px 继续对话。缺这条规则的实机表现是「默认窄条只露一角、
    拖拽条不显示,只能靠放大键全屏遮中栏」——三处联动(本规则 + isWidePanel + RP_LEFT_RESERVED_ARTIFACT)。 */
 .pw-prompts:has(.pw-pa-panel) {
-  width: var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px))));
-  min-width: var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px)));
+  width: min(var(--rp-custom-width, min(62vw, max(480px, calc(100vw - 288px - 660px)))), var(--rp-avail));
+  min-width: min(var(--rp-custom-width, min(480px, calc(100vw - 288px - 280px))), var(--rp-avail));
 }
 .pw-prompts:has(.pw-pa-panel) .pw-rp-resizer { display: block; }
 
@@ -5618,7 +5620,13 @@ button.sb-row {
   min-height: 0;
   background: var(--pw-workspace-surface);
 }
-.pw-upper { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
+.pw-upper {
+  flex: 1; display: flex; min-height: 0; min-width: 0; position: relative;
+  /* 右栏面板的硬上限:任何持久化的 --rp-custom-width 都不得超过它——48px 给右侧 rail 留位,
+     否则大窗口拖宽、缩小窗口后面板头部(关闭 X)与整条 rail 会被推出视口(实机复发问题)。
+     % 在使用点(面板 width/min-width)按 .pw-upper 解析。 */
+  --rp-avail: calc(100% - 48px);
+}
 .pw-upper > .chat { flex: 1; min-height: 0; }
 /* 中栏列:顶部头(.pw-col-head)固定占首行；会话/页面占内容行。 */
 .pw-center-col {
