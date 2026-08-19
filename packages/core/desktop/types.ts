@@ -2113,6 +2113,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "grep",
   "find",
   "ls",
+  // 只改变当前会话 active schema 的只读控制面；执行层仍只能激活本白名单内工具。
+  "tool_search",
   // glob 文件发现(自定义工具,agents/pi-inproc/glob-tool.ts):纯只读,plan 档应可用。
   "glob",
   ...BROWSER_MCP_PLAN_TOOLS,

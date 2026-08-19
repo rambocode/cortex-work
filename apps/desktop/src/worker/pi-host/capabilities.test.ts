@@ -84,6 +84,23 @@ describe("buildWorkerDeps · 原生能力", () => {
     expect(businessExtensions(deps)).toHaveLength(0);
   });
 
+  it("普通父聊天按内部标记注入延迟工具目录，未标记的 child/artifact 保持 eager", async () => {
+    const eager = await buildWorkerDeps(BASE, ctx());
+    expect(businessExtensions(eager).map((extension) => extension.name)).not.toContain(
+      "cortex-deferred-tools",
+    );
+
+    const deferred = await buildWorkerDeps(
+      { ...BASE, deferNonCoreTools: true, askQuestionSentinel: "@@S@@" },
+      ctx(),
+    );
+    expect(businessExtensions(deferred).map((extension) => extension.name)).toContain(
+      "cortex-deferred-tools",
+    );
+    // 延迟只改变 active set，注册面一个工具都不能少。
+    expect(deferred.customTools?.map((tool) => tool.name)).toEqual(["askquestion", "todo_write"]);
+  });
+
   it("样例工具/命令按开关注册", async () => {
     const deps = await buildWorkerDeps(
       { ...BASE, enableSampleTools: true, enableSampleCommands: true },
@@ -214,6 +231,70 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
     expect(deps.customTools?.find((tool) => tool.name === "explore_agent")?.description).toBe(
       "from:cortex-delegate",
     );
+  });
+
+  it("required delegate 仍须接入成功，但 schema 延迟到 tool_search 后才激活", async () => {
+    mcpMocks.createMcpInProcTools.mockResolvedValue({
+      tools: [{ name: "explore_agent", description: "Delegate repository exploration" }],
+      connected: ["cortex-delegate"],
+      acceptedTools: { "cortex-delegate": ["ping", "explore_agent"] },
+      failed: [],
+      dispose: async () => {},
+    });
+    const deps = await buildWorkerDeps({
+      ...BASE,
+      deferNonCoreTools: true,
+      bridgeServers: [{ id: "cortex-delegate" } as never],
+      requiredBridgeServerIds: ["cortex-delegate"],
+    }, ctx());
+    const deferred = businessExtensions(deps).find(
+      (extension) => extension.name === "cortex-deferred-tools",
+    ) as unknown as { factory: (pi: unknown) => void };
+    const tools: Array<{ name: string; description: string; parameters: unknown }> = [
+      { name: "read", description: "Read", parameters: {} },
+      ...(deps.customTools ?? []).map((tool) => ({
+        name: tool.name,
+        description: tool.description ?? "",
+        parameters: tool.parameters ?? {},
+      })),
+    ];
+    let sessionStart: (() => void) | undefined;
+    let searchTool: { execute: (...args: unknown[]) => Promise<{ addedToolNames?: string[] }> } | undefined;
+    let active: string[] = [];
+    deferred.factory({
+      registerTool: (tool: {
+        name: string;
+        description: string;
+        parameters: unknown;
+        execute: (...args: unknown[]) => Promise<{ addedToolNames?: string[] }>;
+      }) => {
+        tools.push(tool);
+        if (tool.name === "tool_search") searchTool = tool;
+      },
+      on: (event: string, handler: () => void) => {
+        if (event === "session_start") sessionStart = handler;
+      },
+      getAllTools: () => tools,
+      getActiveTools: () => active,
+      setActiveTools: (names: string[]) => {
+        active = [...names];
+      },
+    });
+
+    sessionStart?.();
+
+    expect(active).toEqual(expect.arrayContaining(["tool_search", "read", "todo_write"]));
+    expect(active).not.toContain("explore_agent");
+
+    const result = await searchTool?.execute(
+      "call",
+      { query: "explore_agent" },
+      undefined,
+      undefined,
+      {},
+    );
+    expect(result?.addedToolNames).toEqual(["explore_agent"]);
+    expect(active).toContain("explore_agent");
   });
 
   it("MCP 桥整体失败 → 降级为无 MCP 工具，会话照常建（绝不阻断）", async () => {

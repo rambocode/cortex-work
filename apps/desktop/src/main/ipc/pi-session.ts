@@ -385,6 +385,7 @@ export async function preparePiOpenRequest(
   // 就能绕过 server allowlist 注入任意 MCP / in-process extension。
   delete prepared.bridgeServers;
   delete prepared.requiredBridgeServerIds;
+  delete prepared.deferNonCoreTools;
   delete prepared.inProcExtensionPaths;
   delete prepared.extraExtensionPaths;
   delete prepared.piExtensionPath;
@@ -402,6 +403,9 @@ export async function preparePiOpenRequest(
   // 会话文件与工具根同样按它推导,语义保留。见 cli.resolveSpawnCwd。
   prepared.cwd = resolveSpawnCwd(prepared.cwd);
   const isArtifact = prepared.artifactContext !== undefined;
+  // 延迟目录只属于普通父聊天：这里是 renderer/内部 child 共用的权威边界，调用方不能自行关闭
+  // 优化或把它带进 artifact/child。后两者工具面本就很小，继续 eager 可避免无意义搜索往返。
+  prepared.deferNonCoreTools = profile === "parent" && !isArtifact;
   if (profile === "child" && (isArtifact || prepared.delegateRoles?.length)) {
     throw new Error("Pi child 不得继承 artifact 或 delegate 能力");
   }

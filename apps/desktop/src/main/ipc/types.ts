@@ -1153,6 +1153,9 @@ export interface PiOpenRequest {
   // best-effort；这些 id 任一缺配置或接入失败时，worker 必须拒绝 open。
   // renderer 传入值会在 preparePiOpenRequest 入口删除，不能自行提升 optional server。
   requiredBridgeServerIds?: string[];
+  // 主进程内部填充：普通父聊天启用延迟工具目录。工具仍全部注册，但首轮只暴露核心工具与
+  // tool_search；artifact/child 保持既有 eager 工具集。renderer 传入值会在 prepare 边界删除。
+  deferNonCoreTools?: boolean;
   // 主进程内部填充（in-process 引擎专用）:磁盘上已安装的第三方 extension 目录（当前只有
   // pi-computer-use）。binary 路径走 extraExtensionPaths + `-e`；in-process 路径经
   // resourceLoaderOptions.additionalExtensionPaths 由 SDK 的 jiti 链路加载。
@@ -1574,6 +1577,8 @@ export const PI_PLAN_TOOL_WHITELIST = [
   "grep",
   "find",
   "ls",
+  // 延迟目录的只读控制面,与 core 镜像；只能激活本白名单内工具。
+  "tool_search",
   // glob 文件发现(自定义工具,agents/pi-inproc/glob-tool.ts):纯只读,plan 档应可用。与 core 镜像。
   "glob",
   "browser_navigate",

@@ -37,6 +37,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { collectBridgeServers, type BridgeServer } from "./pi-mcp-bridge";
+import { PI_BUILTIN_TOOL_NAMES, PI_TOOL_SEARCH_NAME } from "./pi-inproc/tools";
 import { createLogger } from "../log";
 import type { McpServerConfig } from "../ipc/types";
 
@@ -59,25 +60,19 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 const MCP_CLIENT_INFO = { name: "cortex-pi-inproc", version: "1.0.0" };
 
 /**
- * 保留工具名：pi 的内建工具集。
+ * 保留工具名：pi 的内建工具集 + Cortex 延迟工具目录入口。
  *
  * 为什么要防：`AgentSession._refreshToolRegistry()` 把 `customTools` **后置**写进
  * definitionRegistry，同名即**静默覆盖**内建工具。一个 MCP server 只要暴露个叫 `read` 的工具，
  * pi 的文件读取就被换掉了，而且没有任何报错。旧路径（extension `registerTool`）有同样的隐患，
  * 只是没人碰过；in-process 后爆炸半径落在主进程，不能继续赌。
  *
- * 这是本文件相对旧实现**刻意加强**的一处：命中即跳过并 warn（计划要求「旧实现没覆盖的，
- * 选择跳过并留痕」）。集成阶段可改传 `pi-inproc/tools.ts` 的 `PI_BUILTIN_TOOL_NAMES`；
- * 这里保留一份字面量是为了不跨 U 硬依赖尚未接线的模块。
+ * tool_search 同样必须保留：首轮只暴露小工具集后，它是发现其余工具的唯一入口；若被用户 MCP
+ * 静默覆盖，整个延迟目录都会失效。常量从 tools.ts 单源复用，避免注册名与保留名漂移。
  */
 export const PI_RESERVED_TOOL_NAMES: readonly string[] = [
-  "read",
-  "bash",
-  "edit",
-  "write",
-  "grep",
-  "find",
-  "ls",
+  ...PI_BUILTIN_TOOL_NAMES,
+  PI_TOOL_SEARCH_NAME,
 ];
 
 /** stderr 诊断尾巴的保留上限：够定位「server 启动即报错」，又不至于把主进程内存喂大。 */

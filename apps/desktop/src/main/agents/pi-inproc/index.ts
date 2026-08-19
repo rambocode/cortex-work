@@ -35,6 +35,7 @@ export {
   PI_BUILTIN_TOOL_NAMES,
   PI_CODING_TOOL_NAMES,
   PI_EXTRA_BUILTIN_TOOL_NAMES,
+  PI_TOOL_SEARCH_NAME,
   resolveToolWhitelist,
   type PiBuiltinToolName,
   type ResolvedToolWhitelist,

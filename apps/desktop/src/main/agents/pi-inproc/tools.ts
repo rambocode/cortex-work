@@ -36,6 +36,14 @@ export const PI_CODING_TOOL_NAMES: readonly PiBuiltinToolName[] = ["read", "bash
 export const PI_EXTRA_BUILTIN_TOOL_NAMES: readonly PiBuiltinToolName[] = ["grep", "find", "ls"];
 
 /**
+ * 延迟工具目录的唯一入口名。
+ *
+ * 它不是 Pi 内建工具，但与内建工具一样属于 Cortex 保留名：MCP server 若能用同名工具覆盖它，
+ * 首轮被收窄后的会话就会失去发现其余工具的唯一入口，表现为所有能力一起“消失”。
+ */
+export const PI_TOOL_SEARCH_NAME = "tool_search";
+
+/**
  * 构造七个内建工具的完整数组。
  *
  * 只在需要显式工具数组的场景用（`baseToolsOverride` / 自建 Agent / 打包态护栏脚本）。

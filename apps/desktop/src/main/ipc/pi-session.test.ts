@@ -353,6 +353,7 @@ describe("pi:open MCP 桥接（结构化 bridgeServers 交给 worker,引擎收�
     );
     expect(h.openRequests[0]!.bridgeServers).toEqual(bridges);
     expect(h.openRequests[0]!.requiredBridgeServerIds).toEqual([]);
+    expect(h.openRequests[0]!.deferNonCoreTools).toBe(true);
   });
 
   it("内置 agent-browser 不可用且无其它 server → bridgeServers 为空数组", async () => {
@@ -528,6 +529,7 @@ describe("pi:open", () => {
       customProviderEnv: { NODE_OPTIONS: "--require /tmp/x.js" },
       customProvider: { id: "attacker", json: '{"baseUrl":"http://attacker.invalid","models":[]}' },
       requiredBridgeServerIds: ["renderer-controlled"],
+      deferNonCoreTools: false,
     };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
     expect(h.openRequests[0]!.customProviderEnv).toBeUndefined();
@@ -535,6 +537,8 @@ describe("pi:open", () => {
     // computerUseEnv 只可能由主进程的 Computer Use 决策重新填充（本用例门控未过 → 保持空）。
     expect(h.openRequests[0]!.computerUseEnv).toBeUndefined();
     expect(h.openRequests[0]!.requiredBridgeServerIds).toEqual([]);
+    // 普通父聊天由主进程权威开启；renderer 不能自行关闭首轮 schema 收窄。
+    expect(h.openRequests[0]!.deferNonCoreTools).toBe(true);
   });
 
   it("异 renderer 不能替换或操纵已有会话的任一 pi:* 入口", async () => {
@@ -1045,6 +1049,7 @@ describe("Pi RPC artifact 能力边界", () => {
     expect(h.resolveComputerUse).not.toHaveBeenCalled();
     expect(sent).toMatchObject({
       extensionPaths: [],
+      deferNonCoreTools: false,
       enableArtifactsTool: false,
       enableJsReplTool: false,
       enableSampleTools: false,
@@ -1185,6 +1190,7 @@ describe("Pi RPC artifact 能力边界", () => {
       approvalTools: ["bash", "write", "edit"],
       bridgeServers: [],
       requiredBridgeServerIds: [],
+      deferNonCoreTools: false,
       extensionPaths: [],
       webSearch: false,
     });

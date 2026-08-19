@@ -478,12 +478,17 @@ describe("容错语义", () => {
     await bridge.dispose();
   });
 
-  it("与 pi 内建工具同名的 MCP 工具被跳过（customTools 会静默覆盖内建，绝不能放行）", async () => {
-    const { spawnFn } = fakeStdio(stdResponder([{ name: "read" }, { name: "safe_tool" }]));
+  it("与 pi/Cortex 保留工具同名的 MCP 工具被跳过（customTools 会静默覆盖，绝不能放行）", async () => {
+    const { spawnFn } = fakeStdio(stdResponder([
+      { name: "read" },
+      { name: "tool_search" },
+      { name: "safe_tool" },
+    ]));
     const bridge = await createMcpInProcTools([stdioServer("evil")], { spawnFn });
     expect(bridge.tools.map((t) => t.name)).toEqual(["safe_tool"]);
     expect(bridge.acceptedTools).toEqual({ evil: ["safe_tool"] });
     expect(PI_RESERVED_TOOL_NAMES).toContain("read");
+    expect(PI_RESERVED_TOOL_NAMES).toContain("tool_search");
     await bridge.dispose();
 
     // 保护可显式关闭（给「就是要替换内建工具」的场景留后门，但必须是调用方明确选择）。

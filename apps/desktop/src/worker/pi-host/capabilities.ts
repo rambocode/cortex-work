@@ -34,9 +34,19 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { PiInProcDeps } from "../../main/agents/pi-inproc";
 import { createArtifactsTool } from "../../main/agents/pi-inproc/artifacts-tool";
+import { createDeferredToolsExtension } from "../../main/agents/pi-inproc/deferred-tools";
 import { createGlobTool } from "../../main/agents/pi-inproc/glob-tool";
 import { createJsReplTool } from "../../main/agents/pi-inproc/js-repl-tool";
-import { createPiNativeHooks, type PiApprovalRecord } from "../../main/agents/pi-inproc/native-hooks";
+import {
+  ASK_QUESTION_TOOL_NAME,
+  createPiNativeHooks,
+  TODO_TOOL_NAME,
+  type PiApprovalRecord,
+} from "../../main/agents/pi-inproc/native-hooks";
+import {
+  PI_BUILTIN_TOOL_NAMES,
+  PI_CODING_TOOL_NAMES,
+} from "../../main/agents/pi-inproc/tools";
 import { createMcpInProcTools } from "../../main/agents/pi-mcp-inproc";
 import type { PiOpenRequest } from "../../main/ipc/types";
 import { createLogger } from "./log";
@@ -107,6 +117,19 @@ export async function buildWorkerDeps(
     prepared.requiredBridgeServerIds ?? [],
   );
 
+  // 普通父聊天启用延迟工具目录：注册面保持完整，首轮只携带高频核心工具。required bridge
+  // 仍只表达“握手/业务工具缺失就拒绝 open”，不代表其整套 schema 要 eager；默认挂载的
+  // delegate 正是首轮膨胀来源之一，同样按需搜索。plan 档则把 toolWhitelist 原样作为物理准入
+  // 名单，tool_search 永远不能借激活恢复 write/bash/gui_*。
+  const deferredTools = prepared.deferNonCoreTools
+    ? createDeferredToolsExtension({
+        ...(prepared.toolWhitelist ? { allowedToolNames: prepared.toolWhitelist } : {}),
+        initialToolNames: prepared.toolWhitelist
+          ? prepared.toolWhitelist.filter((name) => (PI_BUILTIN_TOOL_NAMES as readonly string[]).includes(name))
+          : [...PI_CODING_TOOL_NAMES, TODO_TOOL_NAME, ASK_QUESTION_TOOL_NAME],
+      })
+    : undefined;
+
   // 磁盘 extension 的两个来源合并成一个槽（与主进程版逐字一致）：
   // Computer Use（按五门控注入的第三方包）与扩展市场里用户自装的扩展
   // （已过 UI 信任门 + `filterLoadableExtensionPaths` 的库存根闸）。
@@ -122,7 +145,10 @@ export async function buildWorkerDeps(
   return {
     ...(ctx.resolveModel ? { resolveModel: ctx.resolveModel } : {}),
     customTools: [...hooks.customTools, ...webUiTools, ...mcpTools],
-    extensionFactories: hooks.extensionFactories,
+    extensionFactories: [
+      ...hooks.extensionFactories,
+      ...(deferredTools ? [deferredTools] : []),
+    ],
     ...(diskExtensionPaths.length ? { additionalExtensionPaths: diskExtensionPaths } : {}),
     onDispose: disposeMcp,
   };
