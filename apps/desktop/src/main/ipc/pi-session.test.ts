@@ -76,6 +76,7 @@ const h = vi.hoisted(() => {
   const delegateStates = new Map<string, DelegateSessionState>();
   const designStates = new Map<string, DesignDelegateSessionState>();
   const slidesStates = new Map<string, SlidesSessionState>();
+  const customProviders: Array<{ id: string; json: string }> = [];
   return {
     handlers,
     onEventRef,
@@ -88,6 +89,7 @@ const h = vi.hoisted(() => {
     delegateStates,
     designStates,
     slidesStates,
+    customProviders,
     ensureDelegateMcpServerConfig: vi.fn(async (_sessionId?: string): Promise<unknown> => null),
     registerDelegateSession: vi.fn((state: DelegateSessionState) => delegateStates.set(state.sessionId, state)),
     unregisterDelegateSession: vi.fn((sessionId: string, expectedState?: DelegateSessionState) => {
@@ -117,6 +119,7 @@ const h = vi.hoisted(() => {
     assertAllowed: vi.fn(async () => undefined),
     // 供应商解析:pi-session 只用它把 Catalog+prefs 的 endpoint 覆盖挂上 request.provider。
     resolvePiProviderInput: vi.fn(async (_id: string): Promise<unknown> => undefined),
+    assertCustomProviderReady: vi.fn(async () => undefined),
     assertSpawnCwd: vi.fn(),
     // cwd 归一(空串 → 当天无项目工作目录)。桩按「有值原样返回」实现,
     // 让既有用例断言的 cwd 不被改写;空值兜底本身由 cli.test.ts 覆盖。
@@ -204,6 +207,8 @@ vi.mock("./artifact-workspace", async (importOriginal) => {
 });
 vi.mock("./fs", () => ({ assertAllowed: h.assertAllowed }));
 vi.mock("../providers/pi-provider-input", () => ({ resolvePiProviderInput: h.resolvePiProviderInput }));
+vi.mock("../providers/pi-inproc-models", () => ({ assertCustomProviderReady: h.assertCustomProviderReady }));
+vi.mock("../providers/custom-providers", () => ({ listCustomProviders: async () => h.customProviders }));
 vi.mock("./cli", () => ({
   assertSpawnCwd: h.assertSpawnCwd,
   resolveSpawnCwd: h.resolveSpawnCwd,
@@ -280,6 +285,8 @@ beforeEach(() => {
   h.validateConversationArtifact.mockReset().mockImplementation(async (artifact) => artifact);
   h.assertAllowed.mockReset().mockResolvedValue(undefined);
   h.resolvePiProviderInput.mockReset().mockResolvedValue(undefined);
+  h.assertCustomProviderReady.mockReset().mockResolvedValue(undefined);
+  h.customProviders.length = 0;
   h.readImageBytes.mockClear();
   h.recordAgentTrace.mockClear();
   h.recordStreamDelta.mockClear();
@@ -424,12 +431,24 @@ describe("pi:open", () => {
     expect(h.openRequests[0]!.provider).toBe(provider);
   });
 
-  it("providerId 解析不出（自定义供应商）→ provider 留空,由 worker 侧模型解析响亮失败", async () => {
+  it("providerId 解析不出且没有自定义定义 → provider 保持为空，worker 侧响亮失败", async () => {
     h.resolvePiProviderInput.mockResolvedValue(undefined);
     await open({ uiSessionId: "u1", providerId: "my-custom" });
     expect(h.openRequests[0]!.provider).toBeUndefined();
     // providerId 原样透传给 worker。
     expect(h.openRequests[0]!.providerId).toBe("my-custom");
+  });
+
+  it("自定义 Provider → 只把主进程已保存定义交给 worker，renderer 伪造值被丢弃", async () => {
+    const stored = { id: "ollama", json: '{"baseUrl":"http://127.0.0.1:8000/v1","models":[]}' };
+    h.customProviders.push(stored);
+    await open({
+      uiSessionId: "u1",
+      providerId: "ollama",
+      customProvider: { id: "attacker", json: '{"baseUrl":"http://attacker.invalid","models":[]}' },
+    });
+    expect(h.assertCustomProviderReady).toHaveBeenCalledWith("ollama");
+    expect(h.openRequests[0]!.customProvider).toEqual(stored);
   });
 
   it("调用方自带 provider 被丢弃，仅按 providerId 在主进程重解", async () => {
@@ -507,10 +526,12 @@ describe("pi:open", () => {
       cwd: "/proj",
       computerUseEnv: { PATH: "/tmp/evil" },
       customProviderEnv: { NODE_OPTIONS: "--require /tmp/x.js" },
+      customProvider: { id: "attacker", json: '{"baseUrl":"http://attacker.invalid","models":[]}' },
       requiredBridgeServerIds: ["renderer-controlled"],
     };
     await h.handlers.get("pi:open")!(fakeEvent(), req);
     expect(h.openRequests[0]!.customProviderEnv).toBeUndefined();
+    expect(h.openRequests[0]!.customProvider).toBeUndefined();
     // computerUseEnv 只可能由主进程的 Computer Use 决策重新填充（本用例门控未过 → 保持空）。
     expect(h.openRequests[0]!.computerUseEnv).toBeUndefined();
     expect(h.openRequests[0]!.requiredBridgeServerIds).toEqual([]);

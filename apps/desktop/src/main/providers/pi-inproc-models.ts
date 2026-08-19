@@ -77,15 +77,13 @@ export class PiInprocProviderError extends Error {
 // ── Secret 引用位置的体检（纯函数） ───────────────────────────────────────────
 
 /**
- * `${secret:NAME}` 在本路径上**唯一**能被解析的位置：整段 Provider JSON 的顶层 `apiKey`。
- *
- * 为什么只有它：in-process 路径复用 `custom-provider-registry.buildProvider`，那里只对
- * `parsed.apiKey` 做 `resolveSecretRefs`（其余字段原样交给 pi-ai 的 `createProvider`）。
- * 而二进制路径是在 **JSON 文本层**整体替换成 `${CORTEX_PI_SECRET_<N>}`，再由 pi 的
- * `resolveConfigValueOrThrow` 对 `apiKey` 与 `headers` 做环境变量插值 —— 也就是说
- * **`headers` 里的引用在旧路径能用、在本路径不能用**。
+ * `${secret:NAME}` 可解析的位置：顶层 `apiKey`、Provider 级 Header 与模型级 Header。
+ * 三处都由共享的 custom-provider-builder 处理；其它任意字段没有 Secret 解析语义，继续响亮拒绝，
+ * 避免把 `${secret:X}` 字面量发给上游。
  */
-const SUPPORTED_SECRET_REF_PATH = "apiKey";
+function isSupportedSecretRefPath(path: string): boolean {
+  return path === "apiKey" || path.startsWith("headers.") || /^models\[\d+\]\.headers\./.test(path);
+}
 
 /**
  * 找出 JSON 里出现在「不受支持位置」的 `${secret:}` 引用，返回它们的路径（如
@@ -110,7 +108,7 @@ export function findUnsupportedSecretRefPaths(json: string): string[] {
 /** 深度遍历 JSON 值，把「含 Secret 引用且不在受支持位置」的字符串路径收集起来。 */
 function visitForSecretRefs(node: unknown, path: string, out: string[]): void {
   if (typeof node === "string") {
-    if (path !== SUPPORTED_SECRET_REF_PATH && collectSecretRefs(node).length > 0) {
+    if (!isSupportedSecretRefPath(path) && collectSecretRefs(node).length > 0) {
       out.push(path || "(root)");
     }
     return;

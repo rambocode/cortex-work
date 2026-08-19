@@ -43,7 +43,7 @@ import {
 } from "../../main/agents/pi-inproc";
 import type { PiOpenRequest, PiSessionEvent, PiUiRequest, PiUiResponsePayload } from "../../main/ipc/types";
 import { buildWorkerDeps, type WorkerCapabilityContext } from "./capabilities";
-import { createRpcCredentialStore, type CredentialRpc } from "./credentials";
+import { createRpcCredentialStore, requestNamedSecret, type CredentialRpc } from "./credentials";
 import { createLogger, setWorkerLogSink } from "./log";
 import { createWorkerModelResolver } from "./model";
 
@@ -271,7 +271,7 @@ export class PiHost {
       const ctx: WorkerCapabilityContext = {
         hasUiOutlet: () => hasUiOutlet,
         credentials,
-        resolveModel: createWorkerModelResolver(credentials),
+        resolveModel: createWorkerModelResolver(credentials, (name) => requestNamedSecret(this.credentialRpc, name)),
       };
       deps = this.trackDispose(await (this.options.buildDeps ?? buildWorkerDeps)(request, ctx), dispose);
       if (opening.cancelled || this.shuttingDown || this.opening.get(sessionId) !== opening) {

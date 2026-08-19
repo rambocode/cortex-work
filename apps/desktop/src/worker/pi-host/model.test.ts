@@ -19,6 +19,7 @@ interface FakeRuntime {
   providers: Array<{ id: string }>;
   models: Record<string, unknown[]>;
   registered: Array<{ id: string; config: { baseUrl?: string } }>;
+  nativeRegistered: unknown[];
 }
 
 function fakeRuntime(init: Partial<FakeRuntime> = {}) {
@@ -26,6 +27,7 @@ function fakeRuntime(init: Partial<FakeRuntime> = {}) {
     providers: init.providers ?? [{ id: "anthropic" }],
     models: init.models ?? { anthropic: [{ id: "claude-x", provider: "anthropic" }] },
     registered: [],
+    nativeRegistered: [],
   };
   const runtime = {
     getProviders: () => state.providers,
@@ -33,6 +35,11 @@ function fakeRuntime(init: Partial<FakeRuntime> = {}) {
     getModel: (providerId: string, modelId: string) =>
       (state.models[providerId] ?? []).find((m) => (m as { id: string }).id === modelId),
     registerProvider: (id: string, config: { baseUrl?: string }) => state.registered.push({ id, config }),
+    registerNativeProvider: (provider: { id: string; models?: unknown[]; getModels?: () => readonly unknown[] }) => {
+      state.nativeRegistered.push(provider);
+      state.providers = [...state.providers.filter((item) => item.id !== provider.id), { id: provider.id }];
+      state.models[provider.id] = [...(provider.getModels?.() ?? provider.models ?? [])];
+    },
   };
   return { runtime, state };
 }
@@ -48,6 +55,35 @@ function mockModule(runtime: unknown, createSpy = vi.fn()) {
 
 const CREDENTIALS = { read: vi.fn(), list: vi.fn(), modify: vi.fn(), delete: vi.fn() } as never;
 const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
+
+function omlxRequest(): PiOpenRequest {
+  return {
+    ...BASE,
+    providerId: "ollama",
+    model: "Qwen3.8-27B-oQ4e-mtp",
+    customProvider: {
+      id: "ollama",
+      json: JSON.stringify({
+        name: "本地 Ollama",
+        api: "openai-completions",
+        baseUrl: "http://127.0.0.1:8000/v1",
+        apiKey: "${secret:CUSTOM_OLLAMA_API_KEY}",
+        models: [
+          {
+            id: "Qwen3.8-27B-oQ4e-mtp",
+            name: "Qwen3.8-27B-oQ4e-mtp",
+            api: "openai-completions",
+            reasoning: true,
+            input: ["text", "image"],
+            contextWindow: 32_768,
+            maxTokens: 4_096,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          },
+        ],
+      }),
+    },
+  };
+}
 
 describe("createWorkerModelResolver", () => {
   it("注入 RPC 凭据仓、关闭建时联网刷新（KTD1 + 不让一次网络超时拖住开会话）", async () => {
@@ -67,6 +103,30 @@ describe("createWorkerModelResolver", () => {
     });
     expect(sel.model).toEqual({ id: "claude-x", provider: "anthropic" });
     expect(sel.modelRuntime).toBe(runtime);
+  });
+
+  it("pi:open 携带自定义 Provider 定义 → 注册后精确解析 oMLX 模型", async () => {
+    const { runtime } = fakeRuntime();
+    mockModule(runtime);
+    await expect(createWorkerModelResolver(CREDENTIALS)(omlxRequest())).resolves.toMatchObject({
+      model: { id: "Qwen3.8-27B-oQ4e-mtp", provider: "ollama" },
+    });
+  });
+
+  it("自定义 Provider 的 API key 只在认证时经命名 Secret RPC 读取", async () => {
+    const { runtime, state } = fakeRuntime();
+    mockModule(runtime);
+    const readNamedSecret = vi.fn(async (name: string) =>
+      name === "CUSTOM_OLLAMA_API_KEY" ? "local-key" : null,
+    );
+    await createWorkerModelResolver(CREDENTIALS, readNamedSecret)(omlxRequest());
+
+    expect(readNamedSecret).not.toHaveBeenCalled();
+    const provider = state.nativeRegistered[0] as {
+      auth: { apiKey: { resolve: () => Promise<unknown> } };
+    };
+    await expect(provider.auth.apiKey.resolve()).resolves.toMatchObject({ auth: { apiKey: "local-key" } });
+    expect(readNamedSecret).toHaveBeenCalledWith("CUSTOM_OLLAMA_API_KEY");
   });
 
   it("只有 providerId → 取该供应商第一个模型", async () => {

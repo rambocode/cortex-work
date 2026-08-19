@@ -21,7 +21,10 @@ import type { PiSessionEngine } from "../agents/pi-inproc";
 import { openPiGatewaySession } from "../agents/pi-gateway/client";
 import { readImageBytes } from "./image";
 import { chatBranchesDir, chatImagesRoot } from "../paths";
+import { safeId } from "../agents/pi-providers";
+import { assertCustomProviderReady } from "../providers/pi-inproc-models";
 import { resolvePiProviderInput } from "../providers/pi-provider-input";
+import { listCustomProviders } from "../providers/custom-providers";
 import { assertSpawnCwd, resolveSpawnCwd } from "./cli";
 import { resolveRgPath } from "./fs-search-core";
 import { getPersistedState } from "./store";
@@ -388,6 +391,9 @@ export async function preparePiOpenRequest(
   // provider 与上面的 bridge/env 同属主进程权威字段。无论请求来自 renderer 还是内部 child，
   // 都只能携带 providerId；endpoint 快照必须在本边界重新解析，不能沿用调用方塞入的对象。
   delete prepared.provider;
+  // 自定义 Provider 定义同样只能由主进程读取持久化状态后附加。虽然保存时已禁止明文 Secret，
+  // 仍不能信任 renderer 塞来的模型/API 配置，否则可绕过设置页校验向任意端点出站。
+  delete prepared.customProvider;
   // jsReplSentinel 同为主进程内部字段:renderer 若能预置它,就能伪造 method:"jsrepl" 的触发前缀。
   delete prepared.jsReplSentinel;
   // rgBinaryPath 同为主进程内部字段:renderer 若能预置,就能让 worker execFile 任意二进制。
@@ -427,11 +433,18 @@ export async function preparePiOpenRequest(
   // 这里只把「Catalog + provider-prefs」合成的 endpoint 覆盖挂上 prepared.provider——
   // worker 的 applyBaseUrlOverride 靠它登记 baseUrl 覆盖,漏掉即「设置里配好了自建网关,
   // 请求却发官方地址」的静默失败。
-  // 自定义 Provider 在此解析不出（resolvePiProviderInput 只认 Catalog）→ provider 留空,
-  // worker 侧 resolveModel 会以「供应商没有可用模型」响亮失败,绝不静默换模型。
+  // 自定义 Provider 不在 Catalog：主进程只把已校验的原始定义（仍是 Secret 引用）附到请求，
+  // worker 再用 credential RPC 按需取真值并注册进自己的 ModelRuntime。明文密钥不随 open 常驻。
   if (prepared.providerId) {
     const provider = await resolvePiProviderInput(prepared.providerId);
-    if (provider) prepared.provider = provider;
+    if (provider) {
+      prepared.provider = provider;
+    } else {
+      await assertCustomProviderReady(prepared.providerId);
+      const wanted = safeId(prepared.providerId);
+      const definition = (await listCustomProviders()).find((item) => safeId(item.id) === wanted);
+      if (definition) prepared.customProvider = { id: definition.id, json: definition.json };
+    }
   }
 
   const askQuestionSentinel =

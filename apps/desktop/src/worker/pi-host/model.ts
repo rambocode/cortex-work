@@ -9,11 +9,9 @@
 // 只是把「凭据从哪来」换成 KTD1 的 RPC 通道。除此之外的判定（选不到模型就响亮失败等）
 // 逐条对齐那个模块，措辞也照抄，保证两条路径给用户的文案一致。
 //
-// ── 当前范围（与 U3-providers 的接缝，见报告）────────────────────────────────────────
-// 本模块只做「内建 Provider + baseUrl 覆盖 + RPC 凭据」。**自定义 Provider 的注册表同步**
-// （`syncCustomProvidersInto`）需要主进程把自定义供应商定义随 open 参数发过来，协议/请求
-// 契约上目前还没有那个字段。所以 `PiHostDeps.resolveModel` 是可替换的注入点：
-// U3-providers 补上数据通道后，换掉这一个函数即可，host 与协议都不用动。
+// 自定义 Provider 的定义由主进程在 preparePiOpenRequest 边界从持久化状态读取后附到请求；
+// JSON 里仍只有 `${secret:...}` 引用。worker 复用主进程同一份 builder 注册模型，真值只在
+// builder 需要时经 credential RPC 读取，因此不会随 open 请求常驻或落盘。
 
 // 类型侧 import：编译期擦除，不会把纯 ESM 的 pi 包拖进 worker 的 CJS 产物（KTD4）。
 import type { CredentialStore } from "@earendil-works/pi-ai";
@@ -21,6 +19,8 @@ import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { PiInProcModelResolver, PiInProcModelSelection } from "../../main/agents/pi-inproc";
 import { loadPiCodingAgent } from "../../main/agents/pi-inproc/runtime";
 import type { PiOpenRequest } from "../../main/ipc/types";
+import { safeId } from "../../main/agents/pi-providers";
+import { buildCustomProvider } from "../../main/providers/custom-provider-builder";
 import { createLogger } from "./log";
 
 const log = createLogger("pi-host-model");
@@ -31,16 +31,20 @@ interface ModelRuntimeLike {
   getModels(providerId?: string): readonly unknown[];
   getModel(providerId: string, modelId: string): unknown;
   registerProvider(providerId: string, config: { baseUrl?: string }): void;
+  registerNativeProvider(provider: unknown): void;
 }
 
 /**
  * 建 worker 侧的模型解析器（喂给 `openPiInProcSession` 的 `deps.resolveModel`）。
  *
- * `ModelRuntime` 在**每个 worker 内缓存一份**：一个 worker = 一个会话（首版每会话一进程），
- * 但 `fork` / `switch_session` / `new_session` 会重跑会话工厂，届时会再取一次。
- * 缓存失败不保留（同 `pi-inproc-models` 的取舍）：装包/权限问题修好后无需重开会话即可恢复。
+ * `ModelRuntime` 在**每个 resolver 内缓存一份**。常驻 worker 每次 open 都新建 resolver，
+ * 因而会话之间的 Provider 注册互不污染；同一会话构造期间的重复解析则复用这份 runtime。
+ * 缓存失败不保留（同 `pi-inproc-models` 的取舍），修好装包/权限后重试即可恢复。
  */
-export function createWorkerModelResolver(credentials: CredentialStore): PiInProcModelResolver {
+export function createWorkerModelResolver(
+  credentials: CredentialStore,
+  readNamedSecret: (name: string) => Promise<string | null> = async () => null,
+): PiInProcModelResolver {
   let runtimePromise: Promise<ModelRuntimeLike> | null = null;
 
   const getRuntime = (): Promise<ModelRuntimeLike> => {
@@ -53,6 +57,7 @@ export function createWorkerModelResolver(credentials: CredentialStore): PiInPro
 
   return async (req: PiOpenRequest): Promise<PiInProcModelSelection> => {
     const runtime = await getRuntime();
+    await applyCustomProvider(runtime, req, readNamedSecret);
     applyBaseUrlOverride(runtime, req);
 
     const providerId = req.providerId?.trim();
@@ -72,6 +77,39 @@ export function createWorkerModelResolver(credentials: CredentialStore): PiInPro
     }
     return { modelRuntime: runtime, model };
   };
+}
+
+/** 把本次 open 对应的自定义定义同步进 worker 注册表；只传定义，不传任何 Secret 真值。 */
+async function applyCustomProvider(
+  runtime: ModelRuntimeLike,
+  req: PiOpenRequest,
+  readNamedSecret: (name: string) => Promise<string | null>,
+): Promise<void> {
+  const requestedId = req.providerId ? safeId(req.providerId) : "";
+  const definition = req.customProvider;
+  if (!definition) return;
+
+  const definitionId = safeId(definition.id);
+  if (!requestedId || definitionId !== requestedId) {
+    throw new Error(`自定义供应商定义与请求不匹配：${definitionId || "(empty)"}/${requestedId || "(empty)"}`);
+  }
+  const built = await buildCustomProvider(definition, {
+    readSecrets: async (names) => {
+      const entries = await Promise.all(
+        names.map(async (name) => [name, await readNamedSecret(name)] as const),
+      );
+      return Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry[1] !== null));
+    },
+    onMissingHeaderSecrets: (providerId, header, missing) => {
+      log.warn("自定义供应商 Header 引用的 Secret 缺失，该 Header 已丢弃", {
+        providerId,
+        header,
+        missing,
+      });
+    },
+  });
+  if (!built) throw new Error(`自定义供应商「${definition.id}」没有可注册的模型`);
+  runtime.registerNativeProvider(built.provider);
 }
 
 /**

@@ -1129,6 +1129,10 @@ export interface PiOpenRequest {
   providerFingerprint?: string;
   // 主进程内部填充（由 providerId 解析而来）。⚠️ 含明文 apiKey,不得回传 renderer。
   provider?: PiProviderInput;
+  // 主进程内部填充：当前自定义 Provider 的原始定义，供 pi-host worker 注册模型。
+  // JSON 只含 `${secret:NAME}` 引用，不含解密后的真值；worker 真正认证时经 credential RPC
+  // 回主进程按需取 Secret。renderer 传入值会在 preparePiOpenRequest 边界强制删除。
+  customProvider?: { id: string; json: string };
   // 主进程内部填充:生成的 provider extension 文件绝对路径（buildRpcArgs 读取）。
   piExtensionPath?: string;
   // 阶段3 深度定制开关（renderer 传）:启用「工具执行审批」/「自定义工具样例」/「斜杠命令样例」。

@@ -1,8 +1,8 @@
 // in-process 模型接入点的单测（迁移计划 U3-2 / R6）。
 //
 // 覆盖四条要紧的约束：
-//   1. `${secret:}` 只有写在顶层 apiKey 上才解析得了 —— 其余位置必须**响亮失败**，
-//      绝不能带着 `${secret:X}` 字面量去发请求（那只会得到一次莫名其妙的 401）。
+//   1. `${secret:}` 只允许写在 apiKey / Provider Header / 模型 Header 上；其它位置必须
+//      **响亮失败**，绝不能带着 `${secret:X}` 字面量去发请求。
 //   2. Secret 缺失的两种成因（没配过 / 配过但解不开）要分开报，与二进制路径措辞一致。
 //   3. 自定义供应商与 baseUrl 覆盖的同步差集：删掉定义要真的摘除，且**绝不能**用
 //      registerProvider 去覆盖一个刚 registerNativeProvider 进去的自定义供应商（会把它抹掉）。
@@ -127,17 +127,22 @@ describe("findUnsupportedSecretRefPaths", () => {
     expect(findUnsupportedSecretRefPaths(gatewayJson())).toEqual([]);
   });
 
-  it("provider 级 headers 里的引用会被指出（旧路径能用、本路径不能）", () => {
+  it("provider 级 headers 里的引用受支持", () => {
     const json = gatewayJson({ headers: { Authorization: "Bearer ${secret:TRACE}" } });
-    expect(findUnsupportedSecretRefPaths(json)).toEqual(["headers.Authorization"]);
+    expect(findUnsupportedSecretRefPaths(json)).toEqual([]);
   });
 
-  it("model 级 headers 里的引用带出数组下标，便于用户定位", () => {
+  it("model 级 headers 里的引用受支持", () => {
     const json = JSON.stringify({
       baseUrl: "https://gw.example/v1",
       models: [{ id: "a", headers: { "X-Trace": "${secret:T}" } }],
     });
-    expect(findUnsupportedSecretRefPaths(json)).toEqual(["models[0].headers.X-Trace"]);
+    expect(findUnsupportedSecretRefPaths(json)).toEqual([]);
+  });
+
+  it("没有解析语义的普通字段仍会被指出", () => {
+    const json = gatewayJson({ metadata: { token: "${secret:TRACE}" } });
+    expect(findUnsupportedSecretRefPaths(json)).toEqual(["metadata.token"]);
   });
 
   it("完全没有引用时返回空", () => {
@@ -187,12 +192,10 @@ describe("assertCustomProviderReady", () => {
     await expect(assertCustomProviderReady("corp-gateway")).resolves.toBeUndefined();
   });
 
-  it("引用写在 headers 里 → custom-provider-secret-unsupported-position（不静默发字面量）", async () => {
+  it("引用写在 headers 且 Secret 齐备时放行", async () => {
     state.definitions = [def("corp-gateway", gatewayJson({ headers: { "X-Trace": "${secret:TRACE}" } }))];
     state.secrets = { GW_KEY: "sk-real", TRACE: "t" };
-    await expect(assertCustomProviderReady("corp-gateway")).rejects.toMatchObject({
-      code: "custom-provider-secret-unsupported-position",
-    });
+    await expect(assertCustomProviderReady("corp-gateway")).resolves.toBeUndefined();
   });
 
   it("读自定义列表失败时放行（体检不该成为新的失败源）", async () => {

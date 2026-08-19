@@ -229,9 +229,9 @@ describe("syncCustomProvidersInto", () => {
   });
 
   // ── headers 里的 `${secret:}` 解析 ──────────────────────────────────────────
-  // 旧的二进制路径靠「`${secret:N}` → `${CORTEX_PI_SECRET_<N>}` 占位 + spawn env 注入」，
-  // 由 pi 子进程解出。in-process 后没有 spawn 与 env 这层，必须在构造 provider 时解，
-  // 否则 `${secret:X}` 字面量会原样发到上游，换来一次无从归因的 401。
+  // Header 没有 apiKey 那样的延迟认证钩子，必须由共享 builder 在注册 Provider 时解析；
+  // 主进程从 safeStorage 读，pi-host worker 经 credential RPC 读。若不在这里解，
+  // `${secret:X}` 字面量会原样发到上游，换来一次无从归因的 401。
   describe("headers 的 Secret 引用", () => {
     it("provider 级与 model 级 headers 都会被解析成真实值", async () => {
       state.secrets = { GW_KEY: "sk-real", TENANT: "acme-42" };
