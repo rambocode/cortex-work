@@ -32,8 +32,8 @@ export type OpenUiNormalizedScreen = {
 
 export type OpenUiNormalizationReport = {
   version: 1
-  kind: 'kun.openui.normalization'
-  source: 'kun-design-mode'
+  kind: 'cortex.openui.normalization'
+  source: 'cortex-design-mode'
   updatedAt: string
   screens: OpenUiNormalizedScreen[]
   tokens: OpenUiNormalizedToken[]
@@ -230,8 +230,8 @@ export function buildOpenUiNormalizationReport(
   const normalized = options.items.map((item) => normalizeOpenUiHtmlArtifact(item.artifact, item.html))
   return {
     version: 1,
-    kind: 'kun.openui.normalization',
-    source: 'kun-design-mode',
+    kind: 'cortex.openui.normalization',
+    source: 'cortex-design-mode',
     updatedAt: options.updatedAt ?? new Date().toISOString(),
     screens: normalized.map((item) => item.screen),
     tokens: normalized.flatMap((item) => item.tokens),

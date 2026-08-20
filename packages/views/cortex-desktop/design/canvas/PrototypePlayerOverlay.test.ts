@@ -89,7 +89,7 @@ describe('PrototypePlayerOverlay', () => {
   it('builds app viewport chrome CSS that hides native scrollbars', () => {
     const script = buildPrototypeViewportModeScript('app')
 
-    expect(script).toContain('data-kun-prototype-viewport="app"')
+    expect(script).toContain('data-cortex-prototype-viewport="app"')
     expect(script).toContain('scrollbar-width: none')
     expect(script).toContain('::-webkit-scrollbar')
     expect(script).toContain('width: 0')

@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import { useCanvasSelectionStore } from './canvas-selection-store'
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { createDefaultShape, type Rect, type ViewBox } from './canvas-types'
@@ -75,11 +75,11 @@ export async function pasteClipboardImageToCanvas(options: {
   workspaceRoot?: string
   imageDirectory?: string
 }): Promise<CanvasImageImportResult> {
-  if (typeof kunGuiPort()?.readClipboardImage !== 'function') {
+  if (typeof cortexGuiPort()?.readClipboardImage !== 'function') {
     return { ok: false, message: 'Clipboard image reading is unavailable.' }
   }
 
-  const image = await requireKunGui().readClipboardImage()
+  const image = await requireCortexGui().readClipboardImage()
   if (!image.ok) {
     return { ok: false, message: image.message }
   }
@@ -90,7 +90,7 @@ export async function pasteClipboardImageToCanvas(options: {
   // bomb the model or be passed verbatim into reference_image_paths.
   let persistedRelativePath: string | null = null
   const workspaceRoot = options.workspaceRoot?.trim()
-  if (workspaceRoot && typeof kunGuiPort()?.saveWorkspaceClipboardImage === 'function') {
+  if (workspaceRoot && typeof cortexGuiPort()?.saveWorkspaceClipboardImage === 'function') {
     try {
       // saveWorkspaceClipboardImage needs a currentFilePath to anchor its
       // markdownPath. We pass workspaceRoot itself; dirname(workspaceRoot) is
@@ -99,7 +99,7 @@ export async function pasteClipboardImageToCanvas(options: {
       // saved.path — if that fails, leave persistedRelativePath null so we
       // fall back to the data: URL (the snapshot safety-net drops it before
       // it reaches the AI).
-      const saved = await requireKunGui().saveWorkspaceClipboardImage({
+      const saved = await requireCortexGui().saveWorkspaceClipboardImage({
         workspaceRoot,
         currentFilePath: workspaceRoot,
         ...(options.imageDirectory ? { imageDirectory: options.imageDirectory } : {})
@@ -146,11 +146,11 @@ export async function importWorkspaceImageToCanvas(options: {
   if (!workspaceRoot) {
     return { ok: false, message: 'Workspace root is required.' }
   }
-  if (typeof kunGuiPort()?.pickWorkspaceImage !== 'function') {
+  if (typeof cortexGuiPort()?.pickWorkspaceImage !== 'function') {
     return { ok: false, message: 'Image picker is unavailable.' }
   }
 
-  const picked = await kunGuiPort()!
+  const picked = await cortexGuiPort()!
     .pickWorkspaceImage({
       workspaceRoot,
       ...(options.imageDirectory ? { imageDirectory: options.imageDirectory } : {})

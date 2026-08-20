@@ -130,6 +130,8 @@ function findRequestTag(source: string, request: DesignCodeChangeRequest): TagRa
   }
   if (request.domId) {
     return (
+      findAttributeTag(source, 'data-cortex-source-id', request.domId) ??
+      // data-kun-* 是改名前发出的标记，用户仓库里可能已经带着它，继续认。
       findAttributeTag(source, 'data-kun-source-id', request.domId) ??
       findAttributeTag(source, 'data-dom-id', request.domId) ??
       findAttributeTag(source, 'id', request.domId)

@@ -178,7 +178,7 @@
   "designCanvasEmptyTitle": "先生成一个设计稿",
   "designCanvasGenerating": "设计中……智能体完成后画布会自动更新。",
   "designCanvasLoading": "加载中…",
-  "designCanvasPlaceholder": "在底部描述你想要的界面，Kun 会生成一个可预览、可迭代、可交给代码实现的 HTML 原型。",
+  "designCanvasPlaceholder": "在底部描述你想要的界面，Cortex 会生成一个可预览、可迭代、可交给代码实现的 HTML 原型。",
   "designCanvasReload": "重新加载",
   "designCanvasTitle": "未命名画布",
   "designCanvasUnavailable": "实时预览仅在桌面应用中可用。",

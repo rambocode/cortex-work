@@ -32,7 +32,7 @@ function DirectionPreview({ workspaceRoot, artifact }: DirectionPreviewProps) {
     workspaceRoot,
     relativePath: artifact?.kind === 'html' ? artifact.relativePath : undefined,
     enabled: Boolean(workspaceRoot && artifact?.kind === 'html'),
-    partition: `kun-direction-compare-${partitionId || 'empty'}`
+    partition: `cortex-direction-compare-${partitionId || 'empty'}`
   })
 
   return (

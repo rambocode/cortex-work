@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from '../compat/cortex-gui-port'
 import {
   canvasDocumentKey,
   canvasDocPath,
@@ -12,8 +12,8 @@ import { createRunningAppFrameShape } from './running-app-frame'
 
 describe('canvas-persistence round-trip', () => {
   it('builds a stable document key from workspace and canvas path', () => {
-    expect(canvasDocumentKey('/workspace', 'code-thread-1', '.kun-canvas')).toBe(
-      `/workspace\0${canvasDocPath('code-thread-1', '.kun-canvas')}`
+    expect(canvasDocumentKey('/workspace', 'code-thread-1', '.cortex-canvas')).toBe(
+      `/workspace\0${canvasDocPath('code-thread-1', '.cortex-canvas')}`
     )
   })
 
@@ -223,19 +223,19 @@ describe('persistCanvasDocument debounce', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
-    setKunGuiPort(null)
+    setCortexGuiPort(null)
   })
 
   it('does not let one canvas save cancel another canvas save', () => {
     vi.useFakeTimers()
     const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
 
     const designDoc = createEmptyDocument()
     const codeDoc = createEmptyDocument()
 
     persistCanvasDocument('/workspace', 'design-board', designDoc)
-    persistCanvasDocument('/workspace', 'code-thread-1', codeDoc, '.kun-canvas')
+    persistCanvasDocument('/workspace', 'code-thread-1', codeDoc, '.cortex-canvas')
     vi.advanceTimersByTime(600)
 
     expect(writeWorkspaceFile).toHaveBeenCalledTimes(2)
@@ -245,7 +245,7 @@ describe('persistCanvasDocument debounce', () => {
       content: serializeCanvasDocument(designDoc)
     })
     expect(writeWorkspaceFile).toHaveBeenCalledWith({
-      path: canvasDocPath('code-thread-1', '.kun-canvas'),
+      path: canvasDocPath('code-thread-1', '.cortex-canvas'),
       workspaceRoot: '/workspace',
       content: serializeCanvasDocument(codeDoc)
     })
@@ -254,7 +254,7 @@ describe('persistCanvasDocument debounce', () => {
   it('keeps debouncing repeated saves for the same canvas', () => {
     vi.useFakeTimers()
     const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
 
     const firstDoc = createEmptyDocument()
     const latestDoc = createEmptyDocument()
@@ -264,13 +264,13 @@ describe('persistCanvasDocument debounce', () => {
     latestDoc.objects[rect.id] = { ...rect, parentId: latestDoc.rootId }
     latestDoc.objects[latestDoc.rootId] = { ...root, children: [rect.id] }
 
-    persistCanvasDocument('/workspace', 'code-thread-1', firstDoc, '.kun-canvas')
-    persistCanvasDocument('/workspace', 'code-thread-1', latestDoc, '.kun-canvas')
+    persistCanvasDocument('/workspace', 'code-thread-1', firstDoc, '.cortex-canvas')
+    persistCanvasDocument('/workspace', 'code-thread-1', latestDoc, '.cortex-canvas')
     vi.advanceTimersByTime(600)
 
     expect(writeWorkspaceFile).toHaveBeenCalledTimes(1)
     expect(writeWorkspaceFile).toHaveBeenCalledWith({
-      path: canvasDocPath('code-thread-1', '.kun-canvas'),
+      path: canvasDocPath('code-thread-1', '.cortex-canvas'),
       workspaceRoot: '/workspace',
       content: serializeCanvasDocument(latestDoc)
     })

@@ -1,10 +1,10 @@
 // 设计工作台的平台装配层：把 cortex 的 DesktopBridge 适配成 design 树所需的
-// 注入式端口（kunGuiPort 文件系统能力 + browserStorage UI 态持久化）。
+// 注入式端口（cortexGuiPort 文件系统能力 + browserStorage UI 态持久化）。
 // 宿主（DesignWorkspaceView 挂载时）调用 installDesignPlatform() 一次性装配；
 // web 端 bridge 为 null 时不装配，design 树各调用点经可选链自然降级。
 import type { DesktopBridge } from "../../desktop/bridge";
 import { setDesignStorage, type BrowserStorageLike } from "../compat/browser-storage";
-import { setKunGuiPort, type KunGuiPort } from "../compat/kun-gui-port";
+import { setCortexGuiPort, type CortexGuiPort } from "../compat/cortex-gui-port";
 import type {
   WorkspaceDirectoryTarget,
   WorkspaceEntry,
@@ -96,9 +96,9 @@ async function probeFileExists(bridge: DesktopBridge, abs: string): Promise<bool
   }
 }
 
-// 把 DesktopBridge 装配成 KunGuiPort。剪贴板/图片挑选三项 cortex 暂无对等桥接，
+// 把 DesktopBridge 装配成 CortexGuiPort。剪贴板/图片挑选三项 cortex 暂无对等桥接，
 // 返回 ok:false 让画布图片导入路径优雅降级（后续需要时再补 IPC）。
-export function createBridgeKunGuiPort(bridge: DesktopBridge): KunGuiPort {
+export function createBridgeCortexGuiPort(bridge: DesktopBridge): CortexGuiPort {
   return {
     // homeDir/platform 未知：expandHomeForMatch 等会降级为不展开（设计根默认走绝对路径，无影响）。
     readWorkspaceFile: async (options: WorkspaceFileTarget) => {
@@ -249,7 +249,7 @@ export function installDesignPlatform(
 ): void {
   if (!bridge) return;
   if (installedFor !== bridge) {
-    setKunGuiPort(createBridgeKunGuiPort(bridge));
+    setCortexGuiPort(createBridgeCortexGuiPort(bridge));
     installedFor = bridge;
   }
   if (storage !== undefined) setDesignStorage(storage ?? null);

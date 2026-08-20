@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '@cortex-work/core/design/compat/cortex-gui-port'
 import { useMemo, useState, type ReactElement } from 'react'
 import { CheckCircle2, FileText, Loader2, PackageCheck, Save, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -81,7 +81,7 @@ export function DesignContractPanel({ workspaceRoot, document, onSeedPrompt }: P
 
   const exportContract = async (): Promise<void> => {
     if (!model.canExport || exportState.status === 'exporting') return
-    if (typeof kunGuiPort()?.writeWorkspaceFile !== 'function') {
+    if (typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') {
       setExportState({ status: 'error', message: t('designContractUnavailable') })
       return
     }
@@ -101,7 +101,7 @@ export function DesignContractPanel({ workspaceRoot, document, onSeedPrompt }: P
         designContext: workspaceState.designContext,
         artifacts: latestDocument.artifacts
       })
-      await requireKunGui().writeWorkspaceFile({
+      await requireCortexGui().writeWorkspaceFile({
         path: model.path,
         workspaceRoot,
         content

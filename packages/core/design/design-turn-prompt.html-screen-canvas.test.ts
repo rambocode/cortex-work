@@ -16,7 +16,7 @@ describe("design turn prompt HTML, screen, and canvas guidance", () => {
     it('builds a parallel page fanout prompt with one delegate_task per artifact', () => {
       const prompt = buildParallelDesignPagesPrompt({
         workspaceRoot: '/workspace',
-        projectBrief: 'IKUN community site',
+        projectBrief: 'NOVA community site',
         jobs: [
           {
             artifactId: 'landing',

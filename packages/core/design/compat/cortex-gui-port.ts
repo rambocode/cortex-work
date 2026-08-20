@@ -1,6 +1,6 @@
-// window.kunGui 的注入式端口：core 禁止直接触碰 window 全局与平台 API，
-// design 树内所有原 window.kunGui.* 调用已被 codemod 改写为经此端口。
-// 宿主（views/app 壳）在挂载设计工作台前调用 setKunGuiPort() 注入
+// window.cortexGui 的注入式端口：core 禁止直接触碰 window 全局与平台 API，
+// design 树内所有原 window.cortexGui.* 调用已被 codemod 改写为经此端口。
+// 宿主（views/app 壳）在挂载设计工作台前调用 setCortexGuiPort() 注入
 // DesktopBridge 适配实现（批2/批7 提供）；web 端不注入 → 功能自动降级。
 import type {
   ClipboardImageReadResult,
@@ -26,8 +26,8 @@ import type {
   WorkspaceImageReadResult,
 } from "./workspace-file";
 
-// design 树实际消费的 kunGui 能力子集（签名与 Kun kun-gui-api 保持一致）。
-export interface KunGuiPort {
+// design 树实际消费的 cortexGui 能力子集（签名与 Kun cortex-gui-api 保持一致）。
+export interface CortexGuiPort {
   homeDir?: string;
   // 运行平台标识("darwin"/"win32"/"linux");路径默认值推导用,未注入时按非 linux 处理。
   platform?: string;
@@ -58,22 +58,22 @@ export interface KunGuiPort {
   onWorkspaceFileChanged?: (handler: (payload: WorkspaceFileChangePayload) => void) => () => void;
 }
 
-let installed: KunGuiPort | null = null;
+let installed: CortexGuiPort | null = null;
 
 // 宿主注入实现；传 null 卸载（测试用）。
-export function setKunGuiPort(port: KunGuiPort | null): void {
+export function setCortexGuiPort(port: CortexGuiPort | null): void {
   installed = port;
 }
 
-// 可选获取：对应原 window.kunGui?.xxx 调用（未注入时返回 undefined，调用点自然短路）。
-export function kunGuiPort(): KunGuiPort | undefined {
+// 可选获取：对应原 window.cortexGui?.xxx 调用（未注入时返回 undefined，调用点自然短路）。
+export function cortexGuiPort(): CortexGuiPort | undefined {
   return installed ?? undefined;
 }
 
-// 必选获取：对应原 window.kunGui.xxx 调用（Kun 里未注入会直接 TypeError，此处显式抛错更可诊断）。
-export function requireKunGui(): KunGuiPort {
+// 必选获取：对应原 window.cortexGui.xxx 调用（Kun 里未注入会直接 TypeError，此处显式抛错更可诊断）。
+export function requireCortexGui(): CortexGuiPort {
   if (!installed) {
-    throw new Error("design kunGuiPort 未注入：请先经 setKunGuiPort() 安装桌面桥接实现");
+    throw new Error("design cortexGuiPort 未注入：请先经 setCortexGuiPort() 安装桌面桥接实现");
   }
   return installed;
 }

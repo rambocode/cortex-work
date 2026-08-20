@@ -15,7 +15,7 @@
  *   POST /webhook/<token>/<path>
  *       <token> = workflow.nodes[webhookTrigger].config.webhookToken
  *       <path>  = workflow.nodes[webhookTrigger].config.path（不含前导 /）
- *   POST /hook-run（Kun 兼容端点；stub，未来可接工作流内部回调）
+ *   POST /hook-run（兼容端点；stub，未来可接工作流内部回调）
  *
  * Body：JSON 解析（解析失败时以 text 字段包装原始文本）。
  * Body 大小上限：1MB（防止大 payload 压垮主进程）。
@@ -311,7 +311,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   // ── Kun 兼容端点（stub）───────────────────────────────────────────────────
   if (url.startsWith('/hook-run')) {
     // P2 Fix-12：/hook-run 未实现，返回 501 Not Implemented（原返回 200 且无鉴权，会误导调用方）。
-    err(res, 501, '/hook-run 端点尚未实现（Kun 兼容端点，待后续版本接线）')
+    err(res, 501, '/hook-run 端点尚未实现（兼容端点，待后续版本接线）')
     return
   }
 

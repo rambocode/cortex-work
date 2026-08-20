@@ -33,7 +33,7 @@ function createWatchApi(result: WorkspaceFileWatchResult | Promise<WorkspaceFile
 }
 
 describe('design preview file helpers', () => {
-  it('recognizes only Kun preview skeleton content', () => {
+  it('recognizes only Cortex preview skeleton content', () => {
     expect(isDesignPreviewSkeleton(buildDesignPreviewSkeleton('.cortex-design/new/v1.html'))).toBe(true)
     expect(isDesignPreviewSkeleton('<!doctype html><html><body><h1>Real page</h1></body></html>')).toBe(false)
   })

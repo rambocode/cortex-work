@@ -8,7 +8,11 @@ import type { CanvasFilePort } from './canvas-file-port'
 
 /** Workspace subdir for code-mode canvases. Kept out of `.cortex-design` so design
  * mode's artifact lister (which enumerates `.cortex-design/*`) never sees them. */
-export const CODE_CANVAS_DIR = '.kun-canvas'
+export const CODE_CANVAS_DIR = '.cortex-canvas'
+
+/** 品牌改名前用的目录名。老工作区里的画布文档仍落在这里，读取路径必须回退，
+ *  否则用户升级后已有的代码画布会整片消失（只在读侧兜底，写始终用新目录）。 */
+export const LEGACY_CODE_CANVAS_DIR = '.kun-canvas'
 
 export function codeCanvasArtifactId(threadId: string): string {
   return `code-${threadId}`

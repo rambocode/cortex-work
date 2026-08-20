@@ -134,8 +134,8 @@ describe('CanvasViewport surface behavior', () => {
   })
 
   it('allows code canvases to override the design-system persistence directory', () => {
-    expect(resolveCanvasDesignSystemBaseDir('.kun-canvas', '.kun-canvas/code-thread-1')).toBe(
-      '.kun-canvas/code-thread-1'
+    expect(resolveCanvasDesignSystemBaseDir('.cortex-canvas', '.cortex-canvas/code-thread-1')).toBe(
+      '.cortex-canvas/code-thread-1'
     )
     expect(resolveCanvasDesignSystemBaseDir('.cortex-design/doc-1', undefined)).toBe('.cortex-design/doc-1')
   })

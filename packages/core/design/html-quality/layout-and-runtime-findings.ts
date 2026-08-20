@@ -239,7 +239,7 @@ export function summarizeDesignHtmlQualityStatus(
     return {
       kind: 'checking',
       label: 'Quality check',
-      title: 'Kun is checking the rendered design for layout and accessibility issues.',
+      title: 'Cortex is checking the rendered design for layout and accessibility issues.',
       count: 0
     }
   }

@@ -83,7 +83,7 @@ describe('design-system-template', () => {
       {
         op: 'design-system-template',
         operation: 'create',
-        name: 'IKUN World',
+        name: 'NOVA World',
         seedColor: '#D4AF37',
         mode: 'dark',
         template: 'game'
@@ -100,7 +100,7 @@ describe('design-system-template', () => {
       { path: 'label', kind: 'text', label: 'Label' }
     ])
     const shapes = Object.values(useCanvasShapeStore.getState().document.objects)
-    expect(shapes.some((shape) => shape.name.includes('IKUN World Style Kit'))).toBe(true)
+    expect(shapes.some((shape) => shape.name.includes('NOVA World Style Kit'))).toBe(true)
     expect(shapes.some((shape) => shape.tokenBindings?.fill === 'brand/primary')).toBe(true)
   })
 
@@ -142,7 +142,7 @@ describe('design-system-template', () => {
       {
         op: 'design-system-template',
         operation: 'create',
-        name: 'IKUN World',
+        name: 'NOVA World',
         seedColor: '#D4AF37',
         mode: 'both',
         x: 120,
@@ -155,8 +155,8 @@ describe('design-system-template', () => {
     expect(useDesignSystemStore.getState().getToken('dark/brand/primary')?.value).toBe('#D4AF37')
     expect(useDesignSystemStore.getState().getToken('light/brand/primary')?.value).toBe('#D4AF37')
     const shapes = Object.values(useCanvasShapeStore.getState().document.objects)
-    expect(shapes.some((shape) => shape.name.includes('IKUN World Dark Style Kit'))).toBe(true)
-    expect(shapes.some((shape) => shape.name.includes('IKUN World Light Style Kit'))).toBe(true)
+    expect(shapes.some((shape) => shape.name.includes('NOVA World Dark Style Kit'))).toBe(true)
+    expect(shapes.some((shape) => shape.name.includes('NOVA World Light Style Kit'))).toBe(true)
     expect(shapes.some((shape) => shape.tokenBindings?.fill === 'dark/brand/primary')).toBe(true)
     expect(shapes.some((shape) => shape.tokenBindings?.fill === 'light/brand/primary')).toBe(true)
   })

@@ -48,8 +48,8 @@ export type DesignModeSurfaceCounts = {
 
 export type DesignModeSurfaceManifest = {
   version: 1
-  kind: 'kun.design.mode-surface'
-  source: 'kun-design-mode'
+  kind: 'cortex.design.mode-surface'
+  source: 'cortex-design-mode'
   document: { id: string; title: string } | null
   counts: DesignModeSurfaceCounts
   surfaces: DesignModeSurface[]
@@ -266,8 +266,8 @@ export function buildDesignModeSurfaceManifest(
   ]
   const manifest = {
     version: 1,
-    kind: 'kun.design.mode-surface',
-    source: 'kun-design-mode',
+    kind: 'cortex.design.mode-surface',
+    source: 'cortex-design-mode',
     document: options.document ? { id: options.document.id, title: options.document.title } : null,
     counts,
     surfaces,

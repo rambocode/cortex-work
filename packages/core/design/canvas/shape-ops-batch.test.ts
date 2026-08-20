@@ -285,12 +285,12 @@ describe('AI image holder fill ops', () => {
         parentId: frame.id,
         shape: {
           type: 'image',
-          name: 'iKun Logo',
+          name: 'Cortex Logo',
           x: 132,
           y: 149,
           width: 430,
           height: 430,
-          imageUrl: '.deepseekgui-images/ikun-logo.png'
+          imageUrl: '.deepseekgui-images/nova-logo.png'
         }
       }
     ])
@@ -302,12 +302,12 @@ describe('AI image holder fill ops', () => {
     expect(shape).toMatchObject({
       id: frame.id,
       type: 'image',
-      name: 'iKun Logo',
+      name: 'Cortex Logo',
       x: 100,
       y: 120,
       width: 586,
       height: 643,
-      imageUrl: '.deepseekgui-images/ikun-logo.png',
+      imageUrl: '.deepseekgui-images/nova-logo.png',
       aiImageHolder: false
     })
     expect(shape.children).toEqual([])

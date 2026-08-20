@@ -1,4 +1,4 @@
-import { kunGuiPort } from '../compat/kun-gui-port'
+import { cortexGuiPort } from '../compat/cortex-gui-port'
 import { findDesignBoardArtifact } from '../design-board'
 import { useDesignWorkspaceStore } from '../design-workspace-store'
 import { useCanvasSelectionStore } from './canvas-selection-store'
@@ -62,7 +62,7 @@ export function isCodeCanvasDocumentKey(documentKey: string | null | undefined):
 }
 
 function defaultSaveWorkspaceImageBytes(): SaveWorkspaceImageBytes | undefined {
-  return kunGuiPort()?.saveWorkspaceImageBytes
+  return cortexGuiPort()?.saveWorkspaceImageBytes
 }
 
 function defaultSetDesignFileError(message: string): void {

@@ -3,13 +3,13 @@ import {
   isAbsoluteLocalImagePath,
   loadWorkspaceImageDataUrl
 } from './canvas-image-source'
-import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from '../compat/cortex-gui-port'
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   // 源码已改走注入式端口，清理注入避免用例间串桩。
-  setKunGuiPort(null)
+  setCortexGuiPort(null)
 })
 
 describe('canvas image source loading', () => {
@@ -18,7 +18,7 @@ describe('canvas image source loading', () => {
     const readWorkspaceImage = vi.fn()
       .mockResolvedValueOnce({ ok: false, message: 'File not found' })
       .mockResolvedValueOnce({ ok: true, dataUrl, path: '/ws/img/flaky.png', mimeType: 'image/png', size: 2 })
-    setKunGuiPort({ readWorkspaceImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readWorkspaceImage } as unknown as CortexGuiPort)
 
     await expect(loadWorkspaceImageDataUrl('/ws', 'img/flaky-retry.png')).resolves.toBeNull()
     await expect(loadWorkspaceImageDataUrl('/ws', 'img/flaky-retry.png')).resolves.toBe(dataUrl)
@@ -26,7 +26,7 @@ describe('canvas image source loading', () => {
   })
 
   it('reads absolute local image paths without applying the canvas workspace boundary', async () => {
-    const absolutePath = '/Users/zxy/.kun/default_workspace/.deepseekgui-images/generated.png'
+    const absolutePath = '/Users/zxy/.cortex-desktop/design-workspace/.deepseekgui-images/generated.png'
     const readWorkspaceImage = vi.fn(async () => ({
       ok: true,
       dataUrl: 'data:image/png;base64,ok',
@@ -34,9 +34,9 @@ describe('canvas image source loading', () => {
       mimeType: 'image/png',
       size: 2
     }))
-    setKunGuiPort({ readWorkspaceImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readWorkspaceImage } as unknown as CortexGuiPort)
 
-    await expect(loadWorkspaceImageDataUrl('/Users/zxy/.kun/design-workspace', absolutePath))
+    await expect(loadWorkspaceImageDataUrl('/Users/zxy/.cortex-desktop/design-workspace', absolutePath))
       .resolves.toBe('data:image/png;base64,ok')
     expect(isAbsoluteLocalImagePath(absolutePath)).toBe(true)
     expect(readWorkspaceImage).toHaveBeenCalledWith({ path: absolutePath })

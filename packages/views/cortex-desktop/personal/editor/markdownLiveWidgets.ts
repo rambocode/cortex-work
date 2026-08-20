@@ -3,7 +3,7 @@
 //   - 删除 InfographicPendingWidget / HtmlEmbedWidget(Kun infographic / html-embed 能力)。
 //   - CodeBlockWidget 去 shiki:只用内联的 renderFallbackCodeHtml(纯转义 + .line 结构),
 //     与 MarkdownView 的「无语法高亮、仅 CSS」风格一致(计划 KTD2)。
-//   - ImageWidget 去 window.kunGui.readWorkspaceImage:只直接渲染传入的 src(远程/data URI),
+//   - ImageWidget 去 window.cortexGui.readWorkspaceImage:只直接渲染传入的 src(远程/data URI),
 //     本地路径解析交由调用方降级(计划 KTD6)。
 // 类名沿用 cm-write-md-*(已由 cm-write- 命名空间隔离,样式见 cortex-desktop.css)。
 
@@ -160,7 +160,7 @@ export class TaskCheckboxWidget extends WidgetType {
 }
 
 // 仅渲染远程/data URI 图片(src 由调用方判定);本地路径在 markdownLivePreview 侧已被
-// 降级为不生成本 widget,故此处无 kunGui / workspace 解析。
+// 降级为不生成本 widget,故此处无 cortexGui / workspace 解析。
 export class ImageWidget extends WidgetType {
   constructor(
     private src: string,

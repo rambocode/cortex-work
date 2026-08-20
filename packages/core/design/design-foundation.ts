@@ -108,7 +108,7 @@ export function buildDesignSpecPrompt(options: {
     Math.max(DESIGN_PAGES_MIN, options.maxPages ?? DESIGN_PAGES_MAX)
   )
   const lines = [
-    'Kun is asking you to LAY THE FOUNDATION for a multi-page design before any screen is built.',
+    'Cortex is asking you to LAY THE FOUNDATION for a multi-page design before any screen is built.',
     `Workspace: ${options.workspaceRoot}`,
     `Design brief file (already created — fill it in): ${options.designMdPath}`,
     ...formatFoundationTargetLines(options.designContext, 'spec'),
@@ -174,7 +174,7 @@ export function buildDesignSystemBoardPrompt(options: {
   designContext?: DesignContext
 }): string {
   const lines = [
-    'Kun is asking you to design the VISUAL DESIGN SYSTEM for this product — the style guide every page will follow.',
+    'Cortex is asking you to design the VISUAL DESIGN SYSTEM for this product — the style guide every page will follow.',
     `Workspace: ${options.workspaceRoot}`,
     ...(options.designMdPath ? [`Design brief to honor: ${options.designMdPath} (read it first).`] : []),
     `Reserved style-guide file: ${options.artifactRelativePath}`,
@@ -217,7 +217,7 @@ export function buildDesignLogoPrompt(options: {
   designContext?: DesignContext
 }): string {
   const lines = [
-    'Kun is asking you to design the BRAND LOGO for this product.',
+    'Cortex is asking you to design the BRAND LOGO for this product.',
     `Workspace: ${options.workspaceRoot}`,
     ...(options.designMdPath ? [`Design brief to honor: ${options.designMdPath}.`] : []),
     ...(options.designSystemMdPath

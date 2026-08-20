@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from './compat/cortex-gui-port'
 import { useDesignWorkspaceStore } from './design-workspace-store'
 import type { DesignArtifact, DesignDocument } from './design-types'
 
@@ -35,7 +35,7 @@ describe('design workspace HTML artifact duplication', () => {
 
   beforeEach(() => {
     writeWorkspaceFile.mockClear()
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
     const canvas = artifact('canvas', 'canvas')
     const screen = artifact('screen', 'html')
     const doc: DesignDocument = {
@@ -62,7 +62,7 @@ describe('design workspace HTML artifact duplication', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-    setKunGuiPort(null)
+    setCortexGuiPort(null)
   })
 
   it('duplicates a board-hidden HTML artifact as a visible board screen', async () => {
@@ -94,7 +94,7 @@ describe('design workspace HTML artifact duplication', () => {
         ? { ok: true as const, content: '# Hidden screen notes' }
         : { ok: true as const, content: '<html><body>Hidden</body></html>' }
     )
-    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile, readWorkspaceFile } as unknown as CortexGuiPort)
     useDesignWorkspaceStore.setState({
       documents: [doc],
       activeDocumentId: 'doc',
@@ -155,7 +155,7 @@ describe('design workspace HTML artifact duplication', () => {
         ? { ok: false as const, error: 'missing' }
         : { ok: true as const, content: '<html><body>No notes</body></html>' }
     )
-    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile, readWorkspaceFile } as unknown as CortexGuiPort)
     useDesignWorkspaceStore.setState({
       documents: [doc],
       activeDocumentId: 'doc',

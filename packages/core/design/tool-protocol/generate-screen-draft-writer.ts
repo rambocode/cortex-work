@@ -1,4 +1,4 @@
-import { kunGuiPort } from '../compat/kun-gui-port'
+import { cortexGuiPort } from '../compat/cortex-gui-port'
 import type { WorkspaceFileWritePayload, WorkspaceFileWriteResult } from '../compat/workspace-file'
 import type { CanvasShape } from '../canvas/canvas-types'
 import type { DesignContext } from '../design-context'
@@ -35,7 +35,7 @@ type QueueScreenDraftWriteOptions = {
 }
 
 function currentDraftWriteApi(api?: DraftWriteApi): DraftWriteApi | undefined {
-  return api ?? (typeof window !== 'undefined' ? kunGuiPort() : undefined)
+  return api ?? (typeof window !== 'undefined' ? cortexGuiPort() : undefined)
 }
 
 function writeWorkspaceTextFile(

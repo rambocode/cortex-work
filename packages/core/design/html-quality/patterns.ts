@@ -29,7 +29,7 @@ export const FLUID_MEDIA_RULE_RE =
 export const VISUAL_MEDIA_TAG_RE =
   /<(?:img|picture|video|iframe|canvas)\b/i
 
-export const PROTOTYPE_NAV_HASH_PREFIX = 'kun-proto-nav='
+export const PROTOTYPE_NAV_HASH_PREFIX = 'cortex-proto-nav='
 
 export const SPACING_DECLARATION_RE =
   /\b(?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)?\s*:\s*([^;{}]+)/gi

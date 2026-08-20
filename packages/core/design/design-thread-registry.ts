@@ -1,5 +1,5 @@
 import type { NormalizedThread } from './compat/agent-types'
-import { browserStorage, type BrowserStorageLike } from './compat/browser-storage'
+import { browserStorage, readWithLegacyBrandKey, type BrowserStorageLike } from './compat/browser-storage'
 import { normalizeWorkspaceRoot } from './compat/workspace-path'
 
 /**
@@ -13,8 +13,8 @@ import { normalizeWorkspaceRoot } from './compat/workspace-path'
 export const DESIGN_ASSISTANT_THREAD_TITLE = 'Design Assistant'
 const MAX_DESIGN_THREAD_IDS_PER_WORKSPACE = 20
 const MAX_DESIGN_REGISTRY_WORKSPACES = 80
-const DESIGN_THREAD_REGISTRY_KEY = 'kun.design.threadRegistry.v1'
-const LEGACY_DESIGN_ASSISTANT_THREAD_REGISTRY_KEY = 'kun.design-assistant.threadRegistry.v1'
+const DESIGN_THREAD_REGISTRY_KEY = 'cortex.design.threadRegistry.v1'
+const LEGACY_DESIGN_ASSISTANT_THREAD_REGISTRY_KEY = 'cortex.design-assistant.threadRegistry.v1'
 
 export type DesignThreadWorkspaceRecord = {
   activeThreadId: string
@@ -135,7 +135,11 @@ export function readDesignThreadRegistry(
 ): DesignThreadRegistry {
   if (!storage) return emptyDesignThreadRegistry()
   try {
-    const raw = storage.getItem(DESIGN_THREAD_REGISTRY_KEY)
+    const raw = readWithLegacyBrandKey(
+      DESIGN_THREAD_REGISTRY_KEY,
+      (key) => storage.getItem(key),
+      (key, value) => storage.setItem(key, value)
+    )
     const registry = normalizeDesignThreadRegistry(raw ? JSON.parse(raw) : null)
     return mergeLegacyDesignAssistantThreads(registry, readLegacyDesignAssistantRegistry(storage))
   } catch {
@@ -182,7 +186,11 @@ function mergeLegacyDesignAssistantThreads(
 
 function readLegacyDesignAssistantRegistry(storage: BrowserStorageLike): unknown {
   try {
-    const raw = storage.getItem(LEGACY_DESIGN_ASSISTANT_THREAD_REGISTRY_KEY)
+    const raw = readWithLegacyBrandKey(
+      LEGACY_DESIGN_ASSISTANT_THREAD_REGISTRY_KEY,
+      (key) => storage.getItem(key),
+      (key, value) => storage.setItem(key, value)
+    )
     return raw ? JSON.parse(raw) : null
   } catch {
     return null

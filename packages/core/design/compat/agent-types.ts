@@ -8,7 +8,7 @@ import type {
   CoreRuntimeInfoJson,
   CoreRuntimeSkillJson,
   CoreRuntimeToolDiagnosticsJson
-} from './kun-contract'
+} from './cortex-contract'
 import type { ApprovalPolicy, SandboxMode } from './app-settings'
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
@@ -448,7 +448,7 @@ export type ThreadEventSink = {
 }
 
 export interface AgentProvider {
-  readonly id: 'kun'
+  readonly id: 'cortex'
   readonly displayName: string
   getCapabilities(): {
     interrupt: boolean
@@ -507,7 +507,7 @@ export interface AgentProvider {
   getToolDiagnostics?(): Promise<CoreRuntimeToolDiagnosticsJson>
   getMcpOAuthDiagnostics?(): Promise<CoreMcpOAuthDiagnosticJson[]>
   clearMcpOAuthCredentials?(serverId?: string): Promise<string[]>
-  authorizeMcpOAuthCredentials?(serverId: string): Promise<import('./kun-contract').CoreMcpOAuthAuthorizeResponseJson>
+  authorizeMcpOAuthCredentials?(serverId: string): Promise<import('./cortex-contract').CoreMcpOAuthAuthorizeResponseJson>
   listSkills?(): Promise<CoreRuntimeSkillJson[]>
   uploadAttachment?(input: {
     name: string

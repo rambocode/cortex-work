@@ -406,7 +406,7 @@ describe("prototype-player selection, state, and links", () => {
       ])
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v2.html#kun-proto-nav=..%2Fthreads%2Fv1.html',
+          'file:///workspace/.cortex-design/doc/home/v2.html#cortex-proto-nav=..%2Fthreads%2Fv1.html',
           'file:///workspace/.cortex-design/doc/home/v2.html',
           links
         )?.targetArtifactId
@@ -447,7 +447,7 @@ describe("prototype-player selection, state, and links", () => {
   
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=..%2Fsignup%2Fv1.html',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=..%2Fsignup%2Fv1.html',
           currentFileUrl,
           links
         )?.targetArtifactId
@@ -469,21 +469,21 @@ describe("prototype-player selection, state, and links", () => {
   
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=.cortex-design%2Fdoc%2Fsignup%2Fv1.html',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=.cortex-design%2Fdoc%2Fsignup%2Fv1.html',
           currentFileUrl,
           links
         )?.targetArtifactId
       ).toBe('signup')
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=%2Fsignup%2Fv1.html%3Ffrom%3Dhome',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=%2Fsignup%2Fv1.html%3Ffrom%3Dhome',
           currentFileUrl,
           links
         )?.targetArtifactId
       ).toBe('signup')
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=signup%2Fv1.html',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=signup%2Fv1.html',
           currentFileUrl,
           links
         )?.targetArtifactId
@@ -497,14 +497,14 @@ describe("prototype-player selection, state, and links", () => {
   
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=Signup',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=Signup',
           currentFileUrl,
           links
         )?.targetArtifactId
       ).toBe('signup')
       expect(
         resolvePrototypeNavigationTarget(
-          'file:///workspace/.cortex-design/doc/home/v1.html#kun-proto-nav=%20%20signup%20%20',
+          'file:///workspace/.cortex-design/doc/home/v1.html#cortex-proto-nav=%20%20signup%20%20',
           currentFileUrl,
           links
         )?.targetArtifactId

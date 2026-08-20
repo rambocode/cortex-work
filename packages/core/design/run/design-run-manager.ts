@@ -488,7 +488,7 @@ export function installDesignRuntime(bridge: DesktopBridge | null | undefined): 
   installDesignAssistantSessionPersistence(bridge);
   setDesignAssistantSessionRunCanceller(cancelDesignRunsForDocument);
 
-  // 平台端口:文件系统(kunGuiPort)+ UI 态存储(designUi 分片)。
+  // 平台端口:文件系统(cortexGuiPort)+ UI 态存储(designUi 分片)。
   installDesignPlatform(bridge, designUiStorage);
 
   // runtime 端口:设置读取直连 personal store 的 designSettings 分片;SSE 无对等物(no-op),

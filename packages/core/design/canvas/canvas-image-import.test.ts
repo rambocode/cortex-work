@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from '../compat/cortex-gui-port'
 import { useCanvasSelectionStore } from './canvas-selection-store'
 import {
   computeImportedImagePlacement,
@@ -17,11 +17,11 @@ beforeEach(() => {
   useCanvasSelectionStore.getState().clearSelection()
   useCanvasViewportStore.getState().setVbox({ x: -500, y: -300, width: 1000, height: 600 })
   useCanvasViewportStore.getState().setActiveTool('hand')
-  setKunGuiPort({ pickWorkspaceImage: vi.fn() } as unknown as KunGuiPort)
+  setCortexGuiPort({ pickWorkspaceImage: vi.fn() } as unknown as CortexGuiPort)
 })
 
 afterEach(() => {
-  setKunGuiPort(null)
+  setCortexGuiPort(null)
 })
 
 describe('computeImportedImagePlacement', () => {
@@ -60,7 +60,7 @@ describe('importWorkspaceImageToCanvas', () => {
       height: 800,
       createdAt: '2026-06-22T00:00:00.000Z'
     })
-    setKunGuiPort({ pickWorkspaceImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ pickWorkspaceImage } as unknown as CortexGuiPort)
 
     const result = await importWorkspaceImageToCanvas({
       workspaceRoot: '/workspace',
@@ -86,9 +86,9 @@ describe('importWorkspaceImageToCanvas', () => {
   })
 
   it('does not mutate the canvas when the picker is canceled', async () => {
-    setKunGuiPort({
+    setCortexGuiPort({
       pickWorkspaceImage: vi.fn().mockResolvedValue({ ok: false, canceled: true })
-    } as unknown as KunGuiPort)
+    } as unknown as CortexGuiPort)
 
     const result = await importWorkspaceImageToCanvas({
       workspaceRoot: '/workspace',
@@ -113,7 +113,7 @@ describe('pasteClipboardImageToCanvas', () => {
       width: 800,
       height: 600
     })
-    setKunGuiPort({ readClipboardImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readClipboardImage } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: -500, y: -300, width: 1000, height: 600 }
@@ -136,12 +136,12 @@ describe('pasteClipboardImageToCanvas', () => {
   })
 
   it('returns failure when clipboard has no image', async () => {
-    setKunGuiPort({
+    setCortexGuiPort({
       readClipboardImage: vi.fn().mockResolvedValue({
         ok: false,
         message: 'Clipboard does not currently contain an image.'
       })
-    } as unknown as KunGuiPort)
+    } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }
@@ -168,7 +168,7 @@ describe('pasteClipboardImageToCanvas', () => {
       markdownPath: '.deepseekgui-images/img-y.png',
       createdAt: '2026-06-23T00:00:00.000Z'
     })
-    setKunGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 },
@@ -208,7 +208,7 @@ describe('pasteClipboardImageToCanvas', () => {
       markdownPath: 'ws/.deepseekgui-images/img-z.png',
       createdAt: '2026-06-23T00:00:00.000Z'
     })
-    setKunGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readClipboardImage, saveWorkspaceClipboardImage } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 },
@@ -233,7 +233,7 @@ describe('pasteClipboardImageToCanvas', () => {
       width: 800,
       height: 600
     })
-    setKunGuiPort({ readClipboardImage } as unknown as KunGuiPort)
+    setCortexGuiPort({ readClipboardImage } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }
@@ -246,7 +246,7 @@ describe('pasteClipboardImageToCanvas', () => {
   })
 
   it('falls back to default name when clipboard image has no name', async () => {
-    setKunGuiPort({
+    setCortexGuiPort({
       readClipboardImage: vi.fn().mockResolvedValue({
         ok: true,
         name: '',
@@ -255,7 +255,7 @@ describe('pasteClipboardImageToCanvas', () => {
         dataBase64: 'AAAA',
         byteSize: 3
       })
-    } as unknown as KunGuiPort)
+    } as unknown as CortexGuiPort)
 
     const result = await pasteClipboardImageToCanvas({
       vbox: { x: 0, y: 0, width: 800, height: 600 }

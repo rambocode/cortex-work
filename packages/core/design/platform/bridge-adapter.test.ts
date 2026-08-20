@@ -3,7 +3,7 @@
 // bento deck 主进程异步补建场景靠它自愈),真正越权才是 'local html not authorized' 硬错。
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopBridge } from '../../desktop/bridge'
-import { createBridgeKunGuiPort } from './bridge-adapter'
+import { createBridgeCortexGuiPort } from './bridge-adapter'
 
 function makeBridge(overrides: Partial<DesktopBridge>): DesktopBridge {
   return {
@@ -14,7 +14,7 @@ function makeBridge(overrides: Partial<DesktopBridge>): DesktopBridge {
 
 describe('authorizeWritePrototype', () => {
   it('授权成功 → ok + fileUrl', async () => {
-    const port = createBridgeKunGuiPort(
+    const port = createBridgeCortexGuiPort(
       makeBridge({ browserResolveLocalHtml: vi.fn(async () => 'file:///ws/a.html') } as Partial<DesktopBridge>)
     )
     const res = await port.authorizeWritePrototype({ path: '/ws/a.html', workspaceRoot: '/ws' })
@@ -23,7 +23,7 @@ describe('authorizeWritePrototype', () => {
   })
 
   it('未授权且文件不存在(statFile 抛)→ prototype file not found(可重试哨兵)', async () => {
-    const port = createBridgeKunGuiPort(
+    const port = createBridgeCortexGuiPort(
       makeBridge({
         browserResolveLocalHtml: vi.fn(async () => null),
         statFile: vi.fn(async () => {
@@ -37,7 +37,7 @@ describe('authorizeWritePrototype', () => {
   })
 
   it('未授权但文件存在(越权根)→ local html not authorized 硬错', async () => {
-    const port = createBridgeKunGuiPort(
+    const port = createBridgeCortexGuiPort(
       makeBridge({
         browserResolveLocalHtml: vi.fn(async () => null),
         statFile: vi.fn(async () => ({ size: 1, mtimeMs: 1 }))
@@ -52,7 +52,7 @@ describe('authorizeWritePrototype', () => {
     const readFile = vi.fn(async () => {
       throw new Error('ENOENT')
     })
-    const port = createBridgeKunGuiPort(
+    const port = createBridgeCortexGuiPort(
       makeBridge({ browserResolveLocalHtml: vi.fn(async () => null), readFile } as Partial<DesktopBridge>)
     )
     const res = await port.authorizeWritePrototype({ path: '/ws/missing.html', workspaceRoot: '/ws' })

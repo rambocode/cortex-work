@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultDesignSettings, type AppSettingsV1 } from './compat/app-settings'
 import { rendererRuntimeClient } from './compat/runtime-client'
-import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from './compat/cortex-gui-port'
 import { setDesignStorage } from './compat/browser-storage'
 import { useDesignWorkspaceStore } from './design-workspace-store'
 import { buildHtmlSiblingManifest } from './design-pages'
@@ -66,7 +66,7 @@ describe('design workspace store', () => {
 
   beforeEach(() => {
     writeWorkspaceFile.mockClear()
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
     const canvas = artifact('canvas', 'canvas')
     const screen = artifact('screen', 'html')
     const doc: DesignDocument = {
@@ -94,8 +94,8 @@ describe('design workspace store', () => {
     rendererRuntimeClient.invalidateSettings()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-    // 清理注入式端口，避免用例间串桩（源码已由 window.kunGui/localStorage 改走端口）。
-    setKunGuiPort(null)
+    // 清理注入式端口，避免用例间串桩（源码已由 window.cortexGui/localStorage 改走端口）。
+    setCortexGuiPort(null)
     setDesignStorage(null)
   })
 
@@ -377,22 +377,22 @@ describe('design workspace store', () => {
 
   it('persists the design target from both quick toggle and context updates', () => {
     const { storage } = stubLocalStorage()
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
 
     useDesignWorkspaceStore.getState().setDesignTarget('app')
 
     expect(useDesignWorkspaceStore.getState().designContext.designTarget).toBe('app')
-    expect(storage.get('kun.design.target.v1')).toBe('app')
+    expect(storage.get('cortex.design.target.v1')).toBe('app')
 
     useDesignWorkspaceStore.getState().updateDesignContext({ designTarget: 'web' })
 
     expect(useDesignWorkspaceStore.getState().designContext.designTarget).toBe('web')
-    expect(storage.get('kun.design.target.v1')).toBe('web')
+    expect(storage.get('cortex.design.target.v1')).toBe('web')
 
     useDesignWorkspaceStore.getState().updateDesignContext({ designTarget: 'tablet' as never })
 
     expect(useDesignWorkspaceStore.getState().designContext.designTarget).toBe('web')
-    expect(storage.get('kun.design.target.v1')).toBe('web')
+    expect(storage.get('cortex.design.target.v1')).toBe('web')
   })
 
   it('setVersionSummary no-ops on empty text or unknown ids', () => {
@@ -528,7 +528,7 @@ describe('design workspace store', () => {
       path: request.path,
       createdAt
     }))
-    setKunGuiPort({ writeWorkspaceFile, createWorkspaceDirectory } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile, createWorkspaceDirectory } as unknown as CortexGuiPort)
 
     const id = useDesignWorkspaceStore.getState().createDocument('Second')
     await Promise.resolve()
@@ -540,7 +540,7 @@ describe('design workspace store', () => {
 
   it('opens the canvas assistant by default unless the user collapsed it', async () => {
     const { storage, localStorage } = stubLocalStorage()
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
 
     vi.resetModules()
     // vi.resetModules() 会重置注入式 browserStorage 的模块级状态（旧世界靠 localStorage
@@ -551,7 +551,7 @@ describe('design workspace store', () => {
     expect(freshStore.getState().canvasAssistantOpen).toBe(true)
 
     freshStore.getState().setCanvasAssistantOpen(false)
-    expect(storage.get('kun.design.canvasAssistantOpen.v1')).toBe('0')
+    expect(storage.get('cortex.design.canvasAssistantOpen.v1')).toBe('0')
 
     vi.resetModules()
     ;(await import('./compat/browser-storage')).setDesignStorage(localStorage)
@@ -562,22 +562,22 @@ describe('design workspace store', () => {
 
   it('toggles the canvas assistant open state and persists the collapsed mirror key', () => {
     const { storage } = stubLocalStorage()
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
     useDesignWorkspaceStore.setState({ canvasAssistantOpen: true, aiRailCollapsed: false })
 
     useDesignWorkspaceStore.getState().toggleCanvasAssistantOpen()
 
     expect(useDesignWorkspaceStore.getState().canvasAssistantOpen).toBe(false)
     expect(useDesignWorkspaceStore.getState().aiRailCollapsed).toBe(true)
-    expect(storage.get('kun.design.canvasAssistantOpen.v1')).toBe('0')
-    expect(storage.get('kun.design.aiRailCollapsed.v1')).toBe('1')
+    expect(storage.get('cortex.design.canvasAssistantOpen.v1')).toBe('0')
+    expect(storage.get('cortex.design.aiRailCollapsed.v1')).toBe('1')
 
     useDesignWorkspaceStore.getState().toggleCanvasAssistantOpen()
 
     expect(useDesignWorkspaceStore.getState().canvasAssistantOpen).toBe(true)
     expect(useDesignWorkspaceStore.getState().aiRailCollapsed).toBe(false)
-    expect(storage.get('kun.design.canvasAssistantOpen.v1')).toBe('1')
-    expect(storage.get('kun.design.aiRailCollapsed.v1')).toBe('0')
+    expect(storage.get('cortex.design.canvasAssistantOpen.v1')).toBe('1')
+    expect(storage.get('cortex.design.aiRailCollapsed.v1')).toBe('0')
   })
 
   it('new 画布 nest under the active 设计稿 directory', () => {
@@ -626,7 +626,7 @@ describe('design workspace store', () => {
       }
       return { ok: true as const, entries: [] as Array<{ name: string; type: 'file' | 'directory' }> }
     })
-    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as CortexGuiPort)
 
     await useDesignWorkspaceStore.getState().rehydrateArtifacts()
 
@@ -672,7 +672,7 @@ describe('design workspace store', () => {
     vi.spyOn(rendererRuntimeClient, 'getSettings').mockResolvedValue(
       settingsWithDesign({ defaultWorkspaceRoot: '/workspace' })
     )
-    setKunGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile, readWorkspaceFile, listWorkspaceDirectory } as unknown as CortexGuiPort)
     useDesignWorkspaceStore.setState({
       workspaceRoot: '',
       documents: [],
@@ -728,11 +728,11 @@ describe('design workspace store', () => {
       ok: true as const,
       entries: [] as Array<{ name: string; type: 'file' | 'directory' }>
     }))
-    setKunGuiPort({
+    setCortexGuiPort({
       writeWorkspaceFile,
       readWorkspaceFile,
       listWorkspaceDirectory
-    } as unknown as KunGuiPort)
+    } as unknown as CortexGuiPort)
     useDesignWorkspaceStore.getState().resetWorkspace()
     useDesignWorkspaceStore.getState().setWorkspaceRoot('/workspace-a')
 

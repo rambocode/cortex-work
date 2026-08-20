@@ -1,4 +1,4 @@
-import { kunGuiPort } from '../compat/kun-gui-port'
+import { cortexGuiPort } from '../compat/cortex-gui-port'
 import { defaultPreviewNodeSizeForDesignTarget, normalizeDesignTarget } from '../design-context'
 import {
   artifactDesignMdPath,
@@ -167,13 +167,13 @@ export async function duplicateHtmlArtifact(
     !source ||
     source.kind !== 'html' ||
     !workspaceRoot ||
-    typeof kunGuiPort()?.readWorkspaceFile !== 'function' ||
-    typeof kunGuiPort()?.writeWorkspaceFile !== 'function'
+    typeof cortexGuiPort()?.readWorkspaceFile !== 'function' ||
+    typeof cortexGuiPort()?.writeWorkspaceFile !== 'function'
   ) {
     return
   }
 
-  const read = await kunGuiPort()!
+  const read = await cortexGuiPort()!
     .readWorkspaceFile({ path: source.relativePath, workspaceRoot })
     .catch(() => null)
   if (!read || !read.ok) return
@@ -183,17 +183,17 @@ export async function duplicateHtmlArtifact(
   const copyId = createDesignArtifactId()
   const relativePath = `${artifactDirPath(docId, copyId)}/v1.html`
   const designMdPath = artifactDesignMdPath(docId, copyId)
-  const write = await kunGuiPort()!
+  const write = await cortexGuiPort()!
     .writeWorkspaceFile({ path: relativePath, workspaceRoot, content: read.content })
     .catch(() => null)
   if (!write || !write.ok) return
 
   const sourceDesignMdPath = source.designMdPath ?? artifactDesignMdPathOf(source.relativePath)
-  const designNotes = await kunGuiPort()!
+  const designNotes = await cortexGuiPort()!
     .readWorkspaceFile({ path: sourceDesignMdPath, workspaceRoot })
     .catch(() => null)
   if (designNotes?.ok) {
-    await kunGuiPort()!
+    await cortexGuiPort()!
       .writeWorkspaceFile({ path: designMdPath, workspaceRoot, content: designNotes.content })
       .catch(() => null)
   }

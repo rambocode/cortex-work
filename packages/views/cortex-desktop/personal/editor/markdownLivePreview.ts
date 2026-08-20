@@ -3,7 +3,7 @@
 // 剥离 Kun 特有耦合(计划 KTD6):
 //   - 删除 infographic / html-embed 分支与对应 import。
 //   - 图片仅内联 http(s): / data: URI;本地相对路径返回 null → 退化为普通 markdown 文本
-//     (不再依赖 markdown-image / @shared/write-markdown-resource / window.kunGui)。
+//     (不再依赖 markdown-image / @shared/write-markdown-resource / window.cortexGui)。
 //   - 去掉 markdownImageContextFacet 与 writeMarkdownLivePreviewExtensions 的 filePath/workspaceRoot 参数。
 // 代码块/表格 widget 见 ./markdownLiveWidgets。
 

@@ -178,7 +178,7 @@
   "designCanvasEmptyTitle": "Generate a design draft first",
   "designCanvasGenerating": "Designing… the canvas updates when the agent finishes.",
   "designCanvasLoading": "Loading…",
-  "designCanvasPlaceholder": "Describe the UI at the bottom; Kun will generate an HTML prototype you can preview, iterate, and hand to code.",
+  "designCanvasPlaceholder": "Describe the UI at the bottom; Cortex will generate an HTML prototype you can preview, iterate, and hand to code.",
   "designCanvasReload": "Reload",
   "designCanvasTitle": "Untitled canvas",
   "designCanvasUnavailable": "Live preview is only available in the desktop app.",

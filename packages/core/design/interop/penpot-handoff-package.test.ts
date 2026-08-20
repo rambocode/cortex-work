@@ -96,7 +96,7 @@ describe('penpot handoff package', () => {
 
     expect(pkg).toMatchObject({
       version: 1,
-      kind: 'kun.penpot.handoff',
+      kind: 'cortex.penpot.handoff',
       document: { id: 'doc', title: 'Ops app', artifactCount: 1 },
       graph: {
         projectId: 'doc',
@@ -146,6 +146,6 @@ describe('penpot handoff package', () => {
     )
 
     expect(content.endsWith('\n')).toBe(true)
-    expect(JSON.parse(content)).toMatchObject({ kind: 'kun.penpot.handoff' })
+    expect(JSON.parse(content)).toMatchObject({ kind: 'cortex.penpot.handoff' })
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from '../compat/cortex-gui-port'
 import {
   designSystemPath,
   parseDesignSystem,
@@ -73,13 +73,13 @@ describe('design-system-persistence', () => {
     afterEach(() => {
       vi.useRealTimers()
       vi.unstubAllGlobals()
-      setKunGuiPort(null)
+      setCortexGuiPort(null)
     })
 
     it('does not let one design-system file cancel another design-system save', () => {
       vi.useFakeTimers()
       const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-      setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+      setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
       const designSystem: DesignSystem = {
         tokens: {
           'brand/primary': { name: 'brand/primary', kind: 'color', value: '#3b82d8' }
@@ -94,7 +94,7 @@ describe('design-system-persistence', () => {
       }
 
       persistDesignSystem('/workspace', designSystem, '.cortex-design/doc-1')
-      persistDesignSystem('/workspace', codeSystem, '.kun-canvas/code-thread-1')
+      persistDesignSystem('/workspace', codeSystem, '.cortex-canvas/code-thread-1')
       vi.advanceTimersByTime(600)
 
       expect(writeWorkspaceFile).toHaveBeenCalledTimes(2)
@@ -104,7 +104,7 @@ describe('design-system-persistence', () => {
         content: serializeDesignSystem(designSystem)
       })
       expect(writeWorkspaceFile).toHaveBeenCalledWith({
-        path: designSystemPath('.kun-canvas/code-thread-1'),
+        path: designSystemPath('.cortex-canvas/code-thread-1'),
         workspaceRoot: '/workspace',
         content: serializeDesignSystem(codeSystem)
       })
@@ -113,7 +113,7 @@ describe('design-system-persistence', () => {
     it('keeps debouncing repeated saves for the same design-system file', () => {
       vi.useFakeTimers()
       const writeWorkspaceFile = vi.fn(async () => ({ ok: true as const }))
-      setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+      setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
       const firstSystem = createEmptyDesignSystem()
       const latestSystem: DesignSystem = {
         tokens: {
@@ -122,13 +122,13 @@ describe('design-system-persistence', () => {
         components: {}
       }
 
-      persistDesignSystem('/workspace', firstSystem, '.kun-canvas/code-thread-1')
-      persistDesignSystem('/workspace', latestSystem, '.kun-canvas/code-thread-1')
+      persistDesignSystem('/workspace', firstSystem, '.cortex-canvas/code-thread-1')
+      persistDesignSystem('/workspace', latestSystem, '.cortex-canvas/code-thread-1')
       vi.advanceTimersByTime(600)
 
       expect(writeWorkspaceFile).toHaveBeenCalledTimes(1)
       expect(writeWorkspaceFile).toHaveBeenCalledWith({
-        path: designSystemPath('.kun-canvas/code-thread-1'),
+        path: designSystemPath('.cortex-canvas/code-thread-1'),
         workspaceRoot: '/workspace',
         content: serializeDesignSystem(latestSystem)
       })

@@ -1103,7 +1103,7 @@ export function PersonalChatArea({
             ? buildConversationArtifactPrompt(artifact)
             : undefined;
           // 白板意图优先于当前绑定的设计产物：明确“画架构图/白板”应作用于会话级
-          // `.kun-canvas/code-<sessionId>`，不能误发到另一个 artifact workspace。
+          // `.cortex-canvas/code-<sessionId>`，不能误发到另一个 artifact workspace。
           const whiteboardAppend = artifactDispatch.handledSkill
             ? undefined
             : await buildWhiteboardAppend(text);

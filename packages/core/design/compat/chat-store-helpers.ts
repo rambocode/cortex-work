@@ -1,5 +1,5 @@
 // Kun store/chat-store-helpers 的裁剪版：design 树仅消费 providerIdForComposerModel。
-import type { ModelProviderModelGroup } from "./kun-gui-api";
+import type { ModelProviderModelGroup } from "./cortex-gui-api";
 
 function modelGroupHasModel(group: ModelProviderModelGroup, modelId: string): boolean {
   return group.modelIds.includes(modelId);

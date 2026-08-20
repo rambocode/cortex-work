@@ -313,7 +313,7 @@ describe('generated image canvas fallback helpers', () => {
         summary: 'generate',
         status: 'success',
         meta: {
-          toolName: 'mcp__kun__generate_image',
+          toolName: 'mcp__cortex__generate_image',
           generatedFiles: [{ relativePath: '.deepseekgui-images/new.png' }]
         }
       }
@@ -333,13 +333,13 @@ describe('generated image canvas fallback helpers', () => {
           toolName: 'generate_image',
           generatedFiles: [{
             relativePath: '.deepseekgui-images/new.png',
-            absolutePath: '/Users/zxy/.kun/default_workspace/.deepseekgui-images/new.png'
+            absolutePath: '/Users/zxy/.cortex-desktop/design-workspace/.deepseekgui-images/new.png'
           }]
         }
       }
     ]
 
-    expect(latestGeneratedImageUrlForTurn(blocks)).toBe('/Users/zxy/.kun/default_workspace/.deepseekgui-images/new.png')
+    expect(latestGeneratedImageUrlForTurn(blocks)).toBe('/Users/zxy/.cortex-desktop/design-workspace/.deepseekgui-images/new.png')
     expect(
       rewriteGeneratedImageUrlsForTurn(
         {
@@ -357,7 +357,7 @@ describe('generated image canvas fallback helpers', () => {
       ops: [{
         op: 'update',
         id: 'shape-1',
-        patch: { imageUrl: '/Users/zxy/.kun/default_workspace/.deepseekgui-images/new.png' }
+        patch: { imageUrl: '/Users/zxy/.cortex-desktop/design-workspace/.deepseekgui-images/new.png' }
       }]
     })
   })

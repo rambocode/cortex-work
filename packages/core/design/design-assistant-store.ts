@@ -5,6 +5,7 @@ import { rendererRuntimeClient } from './compat/runtime-client'
 import { type OpError } from './canvas/shape-ops'
 import { applyShapeOpsFromText } from './canvas/apply-shape-ops'
 import { focusViewportOnIds } from './canvas/canvas-focus'
+import { readWithLegacyBrandKey } from './compat/browser-storage'
 
 export type DesignMessageBlock =
   | { kind: 'user'; id: string; text: string; createdAt: string }
@@ -36,11 +37,15 @@ type DesignAssistantState = {
   markAiAffected: (ids: string[]) => void
 }
 
-const DESIGN_THREAD_KEY = 'kun.design-assistant.threadRegistry.v1'
+const DESIGN_THREAD_KEY = 'cortex.design-assistant.threadRegistry.v1'
 
 function readDesignAssistantThreadId(workspaceRoot: string): string | null {
   try {
-    const raw = localStorage.getItem(DESIGN_THREAD_KEY)
+    const raw = readWithLegacyBrandKey(
+      DESIGN_THREAD_KEY,
+      (key) => localStorage.getItem(key),
+      (key, value) => localStorage.setItem(key, value)
+    )
     if (!raw) return null
     const map = JSON.parse(raw) as Record<string, string>
     return map[workspaceRoot] ?? null
@@ -51,7 +56,11 @@ function readDesignAssistantThreadId(workspaceRoot: string): string | null {
 
 function writeDesignAssistantThreadId(workspaceRoot: string, threadId: string): void {
   try {
-    const raw = localStorage.getItem(DESIGN_THREAD_KEY)
+    const raw = readWithLegacyBrandKey(
+      DESIGN_THREAD_KEY,
+      (key) => localStorage.getItem(key),
+      (key, value) => localStorage.setItem(key, value)
+    )
     const map = raw ? (JSON.parse(raw) as Record<string, string>) : {}
     map[workspaceRoot] = threadId
     localStorage.setItem(DESIGN_THREAD_KEY, JSON.stringify(map))

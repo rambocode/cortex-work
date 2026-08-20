@@ -11,8 +11,9 @@ import { createDrawTool } from '@cortex-work/core/design/canvas/tools/draw-tool'
 import type { CanvasToolHandler } from '@cortex-work/core/design/canvas/tools/tool-types'
 import type { CanvasDocument, CanvasTool, Rect, ViewBox } from '@cortex-work/core/design/canvas/canvas-types'
 import { isHtmlFrame, shapeBounds, shapeGeometry } from '@cortex-work/core/design/canvas/canvas-types'
+import { readWithLegacyBrandKey } from '@cortex-work/core/design/compat/browser-storage'
 
-const CANVAS_VIEWPORT_STORAGE_PREFIX = 'kun.design.canvasViewport'
+const CANVAS_VIEWPORT_STORAGE_PREFIX = 'cortex.design.canvasViewport'
 const IMAGE_ANNOTATION_ACTION_WIDTH = 112
 const IMAGE_ANNOTATION_ACTION_HEIGHT = 30
 const IMAGE_ANNOTATION_ACTION_GAP = 10
@@ -176,7 +177,13 @@ function isViewBox(value: unknown): value is ViewBox {
 export function readStoredCanvasViewport(key: string): ViewBox | null {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null
-    const raw = window.localStorage.getItem(key)
+    // 品牌改名前的键前缀是 kun.*；读不到新键时回退一次并就地迁移，
+    // 否则老用户升级后每张画布的视口都会跳回默认位置。
+    const raw = readWithLegacyBrandKey(
+      key,
+      (k) => window.localStorage.getItem(k),
+      (k, value) => window.localStorage.setItem(k, value)
+    )
     if (!raw) return null
     const parsed = JSON.parse(raw)
     return isViewBox(parsed) ? parsed : null

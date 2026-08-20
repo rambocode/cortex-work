@@ -307,10 +307,10 @@ describe('HtmlFrameOverlay native webview scaling', () => {
   })
 
   it('uses a stable isolated partition per frame so file:// zoom does not leak', () => {
-    expect(htmlFrameWebviewPartition('Screen 1')).toBe('kun-proto-frame-screen-1')
-    expect(htmlFrameWebviewPartition('Screen 2')).toBe('kun-proto-frame-screen-2')
-    expect(htmlFrameWebviewPartition('Screen 1')).toBe('kun-proto-frame-screen-1')
-    expect(htmlFrameWebviewPartition('')).toBe('kun-proto-frame-frame')
+    expect(htmlFrameWebviewPartition('Screen 1')).toBe('cortex-proto-frame-screen-1')
+    expect(htmlFrameWebviewPartition('Screen 2')).toBe('cortex-proto-frame-screen-2')
+    expect(htmlFrameWebviewPartition('Screen 1')).toBe('cortex-proto-frame-screen-1')
+    expect(htmlFrameWebviewPartition('')).toBe('cortex-proto-frame-frame')
   })
 })
 

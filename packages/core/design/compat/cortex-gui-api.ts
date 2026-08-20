@@ -1,4 +1,4 @@
-// Kun @shared/kun-gui-api 的 compat 垫层：design 树只消费极小的类型子集。
+// Kun @shared/cortex-gui-api 的 compat 垫层：design 树只消费极小的类型子集。
 // ModelProviderModelProfileV1 采用宽松结构版（design 树只透传不构造）。
 export type ModelProviderModelProfileV1 = Record<string, unknown>;
 

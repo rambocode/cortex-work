@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import type { CanvasAgentNote, CanvasDocument, CanvasRunningAppFrame, CanvasShape, Point } from './canvas-types'
 import { ROOT_SHAPE_ID } from './canvas-types'
 import { normalizeRunningAppUrl } from './running-app-frame'
@@ -7,6 +7,11 @@ import type { DesignCodeBinding, DesignCodeBindingTarget } from '../code-binding
 import type { CanvasFilePort } from './canvas-file-port'
 
 const DESIGN_DIR = '.cortex-design'
+
+// 代码画布目录（与 code-canvas.ts 的 CODE_CANVAS_DIR 同值）。此处只用字面量而不
+// 反向 import code-canvas，因为 code-canvas 已经依赖本模块，import 会成环。
+const CODE_CANVAS_DIR = '.cortex-canvas'
+const LEGACY_CODE_CANVAS_DIR = '.kun-canvas'
 
 export function canvasDocPath(artifactId: string, baseDir: string = DESIGN_DIR): string {
   return `${baseDir}/${artifactId}/canvas.json`
@@ -341,7 +346,7 @@ export function persistCanvasDocument(
   filePort?: CanvasFilePort
 ): void {
   if (!workspaceRoot) return
-  if (!filePort && typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
+  if (!filePort && typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return
 
   const key = canvasSaveKey(workspaceRoot, artifactId, baseDir)
   const existingTimer = _saveTimers.get(key)
@@ -354,9 +359,24 @@ export function persistCanvasDocument(
       void filePort.writeText(workspaceRoot, path, content).catch(() => false)
       return
     }
-    void kunGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
+    void cortexGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
   }, 600)
   _saveTimers.set(key, timer)
+}
+
+async function readCanvasDocumentAt(
+  workspaceRoot: string,
+  relativePath: string,
+  filePort?: CanvasFilePort
+): Promise<CanvasDocument | null> {
+  if (filePort) {
+    const content = await filePort.readText(workspaceRoot, relativePath)
+    return content == null ? null : parseCanvasDocument(content)
+  }
+  if (typeof cortexGuiPort()?.readWorkspaceFile !== 'function') return null
+  const result = await requireCortexGui().readWorkspaceFile({ path: relativePath, workspaceRoot })
+  if (!result || !result.ok) return null
+  return parseCanvasDocument(result.content)
 }
 
 export async function loadCanvasDocument(
@@ -367,17 +387,16 @@ export async function loadCanvasDocument(
 ): Promise<CanvasDocument | null> {
   if (!workspaceRoot) return null
   try {
-    if (filePort) {
-      const content = await filePort.readText(workspaceRoot, canvasDocPath(artifactId, baseDir))
-      return content == null ? null : parseCanvasDocument(content)
-    }
-    if (typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
-    const result = await requireKunGui().readWorkspaceFile({
-      path: canvasDocPath(artifactId, baseDir),
-      workspaceRoot
-    })
-    if (!result || !result.ok) return null
-    return parseCanvasDocument(result.content)
+    const doc = await readCanvasDocumentAt(workspaceRoot, canvasDocPath(artifactId, baseDir), filePort)
+    if (doc) return doc
+    // 代码画布目录在品牌改名时从 .cortex-canvas 改成 .cortex-canvas。老工作区里
+    // 文档还在旧目录，新目录读空时再试一次旧目录，避免升级即"画布丢了"。
+    if (baseDir !== CODE_CANVAS_DIR) return null
+    return await readCanvasDocumentAt(
+      workspaceRoot,
+      canvasDocPath(artifactId, LEGACY_CODE_CANVAS_DIR),
+      filePort
+    )
   } catch {
     return null
   }

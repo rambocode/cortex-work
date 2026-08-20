@@ -6,7 +6,7 @@
  * and recovered by scanning each 设计稿 dir on rehydrate. Presence of this file
  * also marks "the legacy → nested migration has run" (see the store).
  */
-import { kunGuiPort, requireKunGui } from './compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from './compat/cortex-gui-port'
 import type { DesignDocument, DesignDocumentKind } from './design-types'
 
 const DESIGN_DIR = '.cortex-design'
@@ -21,9 +21,9 @@ export function documentDirPath(docId: string): string {
 
 /** Best-effort creation of the physical `.cortex-design/<docId>/` directory. */
 export async function ensureDocumentDir(workspaceRoot: string, docId: string): Promise<void> {
-  if (!workspaceRoot || !docId || typeof kunGuiPort()?.createWorkspaceDirectory !== 'function') return
-  await requireKunGui().createWorkspaceDirectory({ path: DESIGN_DIR, workspaceRoot }).catch(() => null)
-  await requireKunGui().createWorkspaceDirectory({ path: documentDirPath(docId), workspaceRoot }).catch(() => null)
+  if (!workspaceRoot || !docId || typeof cortexGuiPort()?.createWorkspaceDirectory !== 'function') return
+  await requireCortexGui().createWorkspaceDirectory({ path: DESIGN_DIR, workspaceRoot }).catch(() => null)
+  await requireCortexGui().createWorkspaceDirectory({ path: documentDirPath(docId), workspaceRoot }).catch(() => null)
 }
 
 /** Persisted per-设计稿 metadata (no artifacts — those live on disk by nesting). */
@@ -123,8 +123,8 @@ export function parseDocumentsIndex(raw: string): DesignDocumentsIndex | null {
 let _saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function writeDocumentsIndex(workspaceRoot: string, content: string): Promise<void> {
-  if (typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return Promise.resolve()
-  return kunGuiPort()!
+  if (typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return Promise.resolve()
+  return cortexGuiPort()!
     .writeWorkspaceFile({ path: documentsIndexPath(), workspaceRoot, content })
     .then(() => undefined)
     .catch(() => undefined)
@@ -136,7 +136,7 @@ export function persistDocumentsIndex(
   documents: readonly DesignDocument[],
   activeDocumentId: string | null
 ): void {
-  if (!workspaceRoot || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
+  if (!workspaceRoot || typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return
   const content = serializeDocumentsIndex(documents, activeDocumentId)
   if (_saveTimer) clearTimeout(_saveTimer)
   _saveTimer = setTimeout(() => {
@@ -156,7 +156,7 @@ export function flushDocumentsIndex(
   documents: readonly DesignDocument[],
   activeDocumentId: string | null
 ): Promise<void> {
-  if (!workspaceRoot || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return Promise.resolve()
+  if (!workspaceRoot || typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return Promise.resolve()
   if (_saveTimer) {
     clearTimeout(_saveTimer)
     _saveTimer = null
@@ -166,8 +166,8 @@ export function flushDocumentsIndex(
 
 /** Fire-and-forget delete of a 设计稿's whole on-disk dir (and all its 画布). */
 export function deleteDocumentDir(workspaceRoot: string, docId: string): Promise<void> {
-  if (!workspaceRoot || typeof kunGuiPort()?.deleteWorkspaceEntry !== 'function') return Promise.resolve()
-  return kunGuiPort()!
+  if (!workspaceRoot || typeof cortexGuiPort()?.deleteWorkspaceEntry !== 'function') return Promise.resolve()
+  return cortexGuiPort()!
     .deleteWorkspaceEntry({ path: documentDirPath(docId), workspaceRoot })
     .then(() => undefined)
     .catch(() => undefined)

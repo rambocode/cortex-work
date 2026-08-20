@@ -70,7 +70,7 @@ function installHtmlFrame(): string {
 
 beforeEach(() => {
   vi.stubGlobal('window', {
-    kunGui: {
+    cortexGui: {
       writeWorkspaceFile: vi.fn(async () => ({ ok: true as const }))
     }
   })

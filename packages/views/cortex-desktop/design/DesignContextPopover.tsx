@@ -1,4 +1,4 @@
-import { kunGuiPort } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort } from '@cortex-work/core/design/compat/cortex-gui-port'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { FileInput, Settings2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -101,13 +101,13 @@ export function DesignContextPopover({
 
   const importDesignMd = (): void => {
     if (importing) return
-    if (!workspaceRoot || typeof kunGuiPort()?.readWorkspaceFile !== 'function') {
+    if (!workspaceRoot || typeof cortexGuiPort()?.readWorkspaceFile !== 'function') {
       setFileError(t('designImportDesignMdUnavailable'))
       return
     }
     setImporting(true)
     setFileError(null)
-    void kunGuiPort()!
+    void cortexGuiPort()!
       .readWorkspaceFile({ path: STITCH_DESIGN_MD_PATH, workspaceRoot })
       .then((res) => {
         if (!res.ok) {

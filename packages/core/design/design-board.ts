@@ -1,4 +1,4 @@
-import { kunGuiPort } from './compat/kun-gui-port'
+import { cortexGuiPort } from './compat/cortex-gui-port'
 import {
   createEmptyDocument,
   createHtmlFrameShape,
@@ -554,8 +554,8 @@ export async function ensureDesignBoardArtifact(
     versions: [{ id: `${artifactId}-v1`, relativePath, createdAt, summary: '' }]
   }
 
-  if (typeof kunGuiPort()?.writeWorkspaceFile === 'function') {
-    const write = await kunGuiPort()!
+  if (typeof cortexGuiPort()?.writeWorkspaceFile === 'function') {
+    const write = await cortexGuiPort()!
       .writeWorkspaceFile({
         path: relativePath,
         workspaceRoot: trimmedRoot,

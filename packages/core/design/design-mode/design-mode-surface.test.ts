@@ -128,7 +128,7 @@ describe('design mode surface manifest', () => {
 
     expect(manifest).toMatchObject({
       version: 1,
-      kind: 'kun.design.mode-surface',
+      kind: 'cortex.design.mode-surface',
       document: { id: 'doc', title: 'Ops app' },
       counts: {
         screenCount: 1,
@@ -143,7 +143,7 @@ describe('design mode surface manifest', () => {
       },
       recommendedSurfaceId: 'handoff',
       workflow: {
-        kind: 'kun.design.mode-workflow',
+        kind: 'cortex.design.mode-workflow',
         recommendedStepId: 'repair-review-notes'
       }
     })

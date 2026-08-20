@@ -25,7 +25,7 @@ export type DesignModeWorkflowStep = {
 
 export type DesignModeWorkflowPlan = {
   version: 1
-  kind: 'kun.design.mode-workflow'
+  kind: 'cortex.design.mode-workflow'
   recommendedStepId: string | null
   steps: DesignModeWorkflowStep[]
 }
@@ -259,7 +259,7 @@ export function buildDesignModeWorkflowPlan(manifest: ManifestSnapshot): DesignM
   ])
   return {
     version: 1,
-    kind: 'kun.design.mode-workflow',
+    kind: 'cortex.design.mode-workflow',
     recommendedStepId: selectRecommendedStep(steps),
     steps
   }

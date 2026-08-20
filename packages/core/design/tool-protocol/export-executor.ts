@@ -31,7 +31,7 @@ export function executeDesignExportInvocation(invocation: DesignToolInvocation):
   }
 
   const state = readDesignToolState()
-  const title = maybeString(record?.title) ?? state.document?.title ?? 'Kun design project'
+  const title = maybeString(record?.title) ?? state.document?.title ?? 'Cortex design project'
   const updatedAt = new Date().toISOString()
   const designSystemMdPath = '.cortex-design/DESIGN_SYSTEM.md'
   const projectBriefPath = maybeString(record?.projectBriefPath)

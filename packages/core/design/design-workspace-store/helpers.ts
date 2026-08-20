@@ -1,4 +1,4 @@
-import { kunGuiPort } from '../compat/kun-gui-port'
+import { cortexGuiPort } from '../compat/cortex-gui-port'
 import { i18n } from '../../i18n'
 import { readBrowserStorageItem } from '../compat/browser-storage'
 import {
@@ -18,19 +18,19 @@ import type { DesignWorkspaceState } from '../design-workspace-store-types'
 
 const DESIGN_DIR = '.cortex-design'
 
-export const CANVAS_VIEW_KEY = 'kun.design.canvasView.v1'
-export const VIEWPORT_KEY = 'kun.design.viewport.v1'
-export const AI_RAIL_COLLAPSED_KEY = 'kun.design.aiRailCollapsed.v1'
-export const CANVAS_ASSISTANT_OPEN_KEY = 'kun.design.canvasAssistantOpen.v1'
-export const CANVAS_INSPECTOR_PINNED_KEY = 'kun.design.canvasInspectorPinned.v1'
-export const ASSISTANT_MODEL_KEY = 'kun.design.assistantModel.v1'
-export const ASSISTANT_PROVIDER_KEY = 'kun.design.assistantProvider.v1'
-export const MULTI_PAGE_MODE_KEY = 'kun.design.multiPageMode.v1'
-export const DESIGN_TARGET_KEY = 'kun.design.target.v1'
+export const CANVAS_VIEW_KEY = 'cortex.design.canvasView.v1'
+export const VIEWPORT_KEY = 'cortex.design.viewport.v1'
+export const AI_RAIL_COLLAPSED_KEY = 'cortex.design.aiRailCollapsed.v1'
+export const CANVAS_ASSISTANT_OPEN_KEY = 'cortex.design.canvasAssistantOpen.v1'
+export const CANVAS_INSPECTOR_PINNED_KEY = 'cortex.design.canvasInspectorPinned.v1'
+export const ASSISTANT_MODEL_KEY = 'cortex.design.assistantModel.v1'
+export const ASSISTANT_PROVIDER_KEY = 'cortex.design.assistantProvider.v1'
+export const MULTI_PAGE_MODE_KEY = 'cortex.design.multiPageMode.v1'
+export const DESIGN_TARGET_KEY = 'cortex.design.target.v1'
 
 export function builtinDesignWorkspaceRoot(): string {
-  const homeDir = typeof window !== 'undefined' ? (kunGuiPort()?.homeDir ?? '') : ''
-  return homeDir ? `${homeDir}/.kun/design-workspace` : ''
+  const homeDir = typeof window !== 'undefined' ? (cortexGuiPort()?.homeDir ?? '') : ''
+  return homeDir ? `${homeDir}/.cortex-desktop/design-workspace` : ''
 }
 
 export function defaultDocumentTitle(): string {
@@ -101,7 +101,7 @@ async function loadArtifactDir(
   artifactDir: string,
   artifactId: string
 ): Promise<DesignArtifact | null> {
-  const api = kunGuiPort()
+  const api = cortexGuiPort()
   if (!api || typeof api.readWorkspaceFile !== 'function' || typeof api.listWorkspaceDirectory !== 'function') {
     return null
   }
@@ -117,7 +117,7 @@ async function loadArtifactDir(
 
 /** Load every 画布 in a 设计稿 dir (`.cortex-design/<docId>/<artifactId>/`). */
 async function loadArtifactsForDoc(workspaceRoot: string, docId: string): Promise<DesignArtifact[]> {
-  const api = kunGuiPort()
+  const api = cortexGuiPort()
   if (!api || typeof api.listWorkspaceDirectory !== 'function') return []
   const sub = await api.listWorkspaceDirectory({ path: `${DESIGN_DIR}/${docId}`, workspaceRoot }).catch(() => null)
   if (!sub || !sub.ok) return []
@@ -153,7 +153,7 @@ async function moveArtifactIntoDoc(
   entries: { name: string; type: string }[],
   docId: string
 ): Promise<DesignArtifact> {
-  const api = kunGuiPort()
+  const api = cortexGuiPort()
   const oldPrefix = `${DESIGN_DIR}/${artifact.id}/`
   if (
     !api ||
@@ -194,7 +194,7 @@ async function migrateLegacyToDefaultDoc(
   workspaceRoot: string,
   topDirs: { name: string; type: string }[]
 ): Promise<DesignDocument | null> {
-  const api = kunGuiPort()
+  const api = cortexGuiPort()
   if (!api || typeof api.listWorkspaceDirectory !== 'function' || typeof api.readWorkspaceFile !== 'function') {
     return null
   }
@@ -290,7 +290,7 @@ export async function rehydrateDesignWorkspaceArtifacts({
 }: RehydrateDesignWorkspaceArtifactsOptions): Promise<void> {
   const { workspaceRoot } = get()
   const isCurrentWorkspace = (): boolean => get().workspaceRoot === workspaceRoot
-  const api = kunGuiPort()
+  const api = cortexGuiPort()
   if (
     !workspaceRoot ||
     !api ||

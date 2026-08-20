@@ -240,7 +240,7 @@ function buildAgentContractSection(): string[] {
 }
 
 function buildGraph(options: BuildDesignProjectContractMarkdownOptions): DesignGraph {
-  const projectId = options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'kun-design'
+  const projectId = options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'cortex-design'
   return buildDesignGraphFromCanvasDocument(options.canvasDocument, {
     projectId,
     artifacts: [...(options.artifacts ?? options.document?.artifacts ?? [])],
@@ -263,7 +263,7 @@ export function summarizeDesignProjectContract(
   })
   return {
     path: STITCH_DESIGN_MD_PATH,
-    title: options.document?.title ?? 'Kun design project',
+    title: options.document?.title ?? 'Cortex design project',
     artifactCount: artifacts.length,
     screenCount: artifacts.filter((artifact) => artifact.kind === 'html').length,
     objectCount: Object.keys(graph.objects).length,

@@ -1,4 +1,4 @@
-import { kunGuiPort } from './compat/kun-gui-port'
+import { cortexGuiPort } from './compat/cortex-gui-port'
 import type {
   WorkspaceFileChangePayload,
   WorkspaceFileReadResult,
@@ -49,7 +49,10 @@ export type StartDesignHtmlPreviewWatchOptions = {
 const DEFAULT_REVISION_DEBOUNCE_MS = 200
 
 const SKELETON_TITLE = '<title>Generating design preview</title>'
-const SKELETON_MARKER = 'Kun is preparing a live preview'
+const SKELETON_MARKER = 'Cortex is preparing a live preview'
+// 旧版本(品牌名为 Kun)已把骨架文件写进用户工作区。升级后若只认新标记，
+// 那些旧骨架会被当成「真实 HTML」挂载到画布上，所以旧标记必须继续识别。
+const LEGACY_SKELETON_MARKERS = ['Kun is preparing a live preview']
 const HTML_CODE_FENCE_RE = /^```/
 const HTML_SHELL_OPEN_RE = /<!doctype\s+html\b|<html[\s>]|<body[\s>]/i
 const HTML_SHELL_CLOSE_RE = /<\/html\s*>|<\/body\s*>/i
@@ -152,7 +155,8 @@ const SKELETON_STYLE = `
 `
 
 export function isDesignPreviewSkeleton(content: string): boolean {
-  return content.includes(SKELETON_TITLE) && content.includes(SKELETON_MARKER)
+  if (!content.includes(SKELETON_TITLE)) return false
+  return content.includes(SKELETON_MARKER) || LEGACY_SKELETON_MARKERS.some((marker) => content.includes(marker))
 }
 
 export type DesignPreviewRenderState = 'skeleton' | 'renderable' | 'transient'
@@ -178,14 +182,14 @@ export function designPreviewRenderState(
 }
 
 function currentPrepareApi(api?: DesignPreviewPrepareApi): DesignPreviewPrepareApi | undefined {
-  return api ?? (typeof window !== 'undefined' ? kunGuiPort() : undefined)
+  return api ?? (typeof window !== 'undefined' ? cortexGuiPort() : undefined)
 }
 
 function currentWatchApi(api?: DesignPreviewWatchApi): DesignPreviewWatchApi | undefined {
-  // 本仓 compat 的 KunGuiPort 尚未声明 watch/unwatch/onChange 三个方法（Kun 的 window.kunGui
+  // 本仓 compat 的 CortexGuiPort 尚未声明 watch/unwatch/onChange 三个方法（Kun 的 window.cortexGui
   // 原本具备）。此处按 Kun 原契约断言，运行时仍回退到注入的桥接实现；待 compat 补齐这三个
   // 方法后可移除该断言。
-  return api ?? (typeof window !== 'undefined' ? (kunGuiPort() as unknown as DesignPreviewWatchApi | undefined) : undefined)
+  return api ?? (typeof window !== 'undefined' ? (cortexGuiPort() as unknown as DesignPreviewWatchApi | undefined) : undefined)
 }
 
 export function buildDesignPreviewSkeleton(relativePath: string): string {
@@ -203,7 +207,7 @@ export function buildDesignPreviewSkeleton(relativePath: string): string {
   <main aria-live="polite">
     <div class="mark" aria-hidden="true"><div class="pulse"></div></div>
     <h1>Generating design...</h1>
-    <p>Kun is preparing a live preview for <code>${safePath}</code>. The canvas will refresh as the HTML file changes.</p>
+    <p>Cortex is preparing a live preview for <code>${safePath}</code>. The canvas will refresh as the HTML file changes.</p>
   </main>
 </body>
 </html>

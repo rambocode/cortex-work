@@ -147,7 +147,7 @@ describe("prototype-player form submitter capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -194,7 +194,7 @@ describe("prototype-player form submitter capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,

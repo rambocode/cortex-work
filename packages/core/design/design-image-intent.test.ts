@@ -3,7 +3,7 @@ import { looksLikeStandaloneImageAssetPrompt } from './design-image-intent'
 
 describe('looksLikeStandaloneImageAssetPrompt', () => {
   it('keeps logo/icon/illustration requests on the image asset lane', () => {
-    expect(looksLikeStandaloneImageAssetPrompt('设计一个 IKUN 品牌 logo，金色金属质感')).toBe(true)
+    expect(looksLikeStandaloneImageAssetPrompt('设计一个 NOVA 品牌 logo，金色金属质感')).toBe(true)
     expect(looksLikeStandaloneImageAssetPrompt('Generate a mascot sticker for the app')).toBe(true)
     expect(looksLikeStandaloneImageAssetPrompt('做一个天气应用图标')).toBe(true)
   })

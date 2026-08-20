@@ -19,7 +19,7 @@ import type { AttachmentReference, NormalizedThread, RuntimeConnectionStatus, Ch
 import { getProvider } from '@cortex-work/core/design/compat/agent-registry'
 import type { QueuedUserMessage } from '@cortex-work/core/design/compat/chat-store-types'
 import { threadSnapshotLooksRunning } from '@cortex-work/core/design/compat/chat-store-runtime-helpers'
-import type { ModelProviderModelGroup } from '@cortex-work/core/design/compat/kun-gui-api'
+import type { ModelProviderModelGroup } from '@cortex-work/core/design/compat/cortex-gui-api'
 import { DESIGN_ASSISTANT_THREAD_TITLE } from '@cortex-work/core/design/design-thread-registry'
 import { useDesignWorkspaceStore } from '@cortex-work/core/design/design-workspace-store'
 import { defaultFrameSizeForDesignTarget } from '@cortex-work/core/design/design-context'

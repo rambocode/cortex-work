@@ -1,4 +1,4 @@
-import { kunGuiPort } from './compat/kun-gui-port'
+import { cortexGuiPort } from './compat/cortex-gui-port'
 import type { WorkspaceFileWritePayload, WorkspaceFileWriteResult } from './compat/workspace-file'
 import type { SendMessageOverrides } from './compat/chat-store-types'
 import { canImplementDesignArtifact } from './design-artifact-actions'
@@ -116,7 +116,7 @@ export function canPrepareImplementDesignTurn(
 }
 
 function currentWriteApi(api?: DesignCodeRoundtripWriteApi): DesignCodeRoundtripWriteApi | undefined {
-  return api ?? (typeof window !== 'undefined' ? kunGuiPort() : undefined)
+  return api ?? (typeof window !== 'undefined' ? cortexGuiPort() : undefined)
 }
 
 async function publishDesignSystemForImplementation(options: {

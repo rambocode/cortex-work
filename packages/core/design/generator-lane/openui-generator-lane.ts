@@ -163,7 +163,7 @@ export function buildOpenUiGeneratorLaneModel(
         toolCallLine: toolCallLine(normalizeSeed),
         prompt: actionPrompt(
           context,
-          "Normalize this generated HTML/prototype work into Kun's Design Graph and Design System. Extract recurring tokens, components, states, prototype links, and any code-binding opportunities. Reduce one-off hardcoded styling, keep screen frames linked to their DESIGN.md notes, and report what should move toward code or Penpot.",
+          "Normalize this generated HTML/prototype work into Cortex's Design Graph and Design System. Extract recurring tokens, components, states, prototype links, and any code-binding opportunities. Reduce one-off hardcoded styling, keep screen frames linked to their DESIGN.md notes, and report what should move toward code or Penpot.",
           normalizeSeed
         ),
       }, screenCount > 0 ? undefined : 'designGeneratorLaneNeedsScreen')

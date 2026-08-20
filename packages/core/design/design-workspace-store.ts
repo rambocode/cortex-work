@@ -1,4 +1,4 @@
-import { kunGuiPort } from './compat/kun-gui-port'
+import { cortexGuiPort } from './compat/cortex-gui-port'
 import { create } from 'zustand'
 import { rendererRuntimeClient } from './compat/runtime-client'
 import { readBrowserStorageItem, writeBrowserStorageItem } from './compat/browser-storage'
@@ -600,11 +600,11 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
 
     refreshDesignSystemHash: async () => {
       const { workspaceRoot } = get()
-      if (!workspaceRoot || typeof kunGuiPort()?.readWorkspaceFile !== 'function') {
+      if (!workspaceRoot || typeof cortexGuiPort()?.readWorkspaceFile !== 'function') {
         set({ designSystemHash: '' })
         return
       }
-      const res = await kunGuiPort()!
+      const res = await cortexGuiPort()!
         .readWorkspaceFile({ path: '.cortex-design/DESIGN_SYSTEM.md', workspaceRoot })
         .catch(() => null)
       set((state) =>

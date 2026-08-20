@@ -42,8 +42,8 @@ export type PenpotHandoffAsset = {
 
 export type PenpotHandoffPackage = {
   version: 1
-  kind: 'kun.penpot.handoff'
-  source: 'kun-design-mode'
+  kind: 'cortex.penpot.handoff'
+  source: 'cortex-design-mode'
   updatedAt: string
   document: {
     id: string
@@ -102,7 +102,7 @@ function buildFrames(options: BuildPenpotHandoffPackageOptions): PenpotHandoffFr
   const artifacts = options.artifacts ?? options.document?.artifacts ?? []
   const artifactsById = artifactMap(artifacts)
   const graph = buildDesignGraphFromCanvasDocument(options.canvasDocument, {
-    projectId: options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'kun-design',
+    projectId: options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'cortex-design',
     artifacts: [...artifacts],
     designSystem: options.designSystem,
     updatedAt: options.updatedAt
@@ -144,19 +144,19 @@ function buildAssets(options: BuildPenpotHandoffPackageOptions): PenpotHandoffAs
 export function buildPenpotHandoffPackage(options: BuildPenpotHandoffPackageOptions): PenpotHandoffPackage {
   const artifacts = options.artifacts ?? options.document?.artifacts ?? []
   const graph = buildDesignGraphFromCanvasDocument(options.canvasDocument, {
-    projectId: options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'kun-design',
+    projectId: options.document?.id ?? options.canvasDocument.graph?.projectId ?? 'cortex-design',
     artifacts: [...artifacts],
     designSystem: options.designSystem,
     updatedAt: options.updatedAt
   })
   return {
     version: 1,
-    kind: 'kun.penpot.handoff',
-    source: 'kun-design-mode',
+    kind: 'cortex.penpot.handoff',
+    source: 'cortex-design-mode',
     updatedAt: options.updatedAt ?? new Date().toISOString(),
     document: {
-      id: options.document?.id ?? 'kun-design',
-      title: options.document?.title ?? 'Kun design project',
+      id: options.document?.id ?? 'cortex-design',
+      title: options.document?.title ?? 'Cortex design project',
       artifactCount: artifacts.length
     },
     graph: {

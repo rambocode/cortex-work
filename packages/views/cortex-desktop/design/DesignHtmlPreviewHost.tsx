@@ -1,4 +1,4 @@
-import { kunGuiPort } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort } from '@cortex-work/core/design/compat/cortex-gui-port'
 import {
   useCallback,
   useEffect,
@@ -234,13 +234,13 @@ export function useDesignHtmlPreview({
 
     const path = relativePath?.trim()
     if (!enabled || !workspaceRoot || !path) return
-    if (typeof kunGuiPort()?.authorizeWritePrototype !== 'function') {
+    if (typeof cortexGuiPort()?.authorizeWritePrototype !== 'function') {
       reportError('Prototype preview is unavailable.')
       return
     }
 
     const tryAuthorize = (): void => {
-      void kunGuiPort()!
+      void cortexGuiPort()!
         .authorizeWritePrototype({ path, workspaceRoot })
         .then((res) => {
           if (cancelled) return

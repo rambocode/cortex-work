@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '@cortex-work/core/design/compat/cortex-gui-port'
 import { useCallback, useEffect, useRef } from 'react'
 import type { AttachmentReference } from '@cortex-work/core/design/compat/agent-types'
 import { getProvider } from '@cortex-work/core/design/compat/agent-registry'
@@ -69,8 +69,8 @@ export function useCanvasImageAutoAttachment(
       try {
         let imageData = parseCanvasImageDataUrl(candidate.imageUrl)
         if (!imageData) {
-          if (typeof kunGuiPort()?.readWorkspaceImage !== 'function') return
-          const result = await requireKunGui().readWorkspaceImage({
+          if (typeof cortexGuiPort()?.readWorkspaceImage !== 'function') return
+          const result = await requireCortexGui().readWorkspaceImage({
             path: candidate.imageUrl,
             workspaceRoot: dynamicRef.current.workspaceRoot
           })

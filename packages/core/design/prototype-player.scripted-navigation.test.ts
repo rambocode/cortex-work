@@ -146,7 +146,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Signup')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Signup')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -193,7 +193,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Details')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Details')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -240,7 +240,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Details')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Details')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -260,14 +260,14 @@ describe("prototype-player scripted navigation capture", () => {
         buildPrototypeNavigationCaptureScript(links),
         currentFileUrl,
         ({ fakeWindow }) => {
-          const originalOpen = (fakeWindow as { __kunPrototypeOriginalOpen?: ReturnType<typeof vi.fn> }).__kunPrototypeOriginalOpen
+          const originalOpen = (fakeWindow as { __cortexPrototypeOriginalOpen?: ReturnType<typeof vi.fn> }).__cortexPrototypeOriginalOpen
           const open = fakeWindow.open as unknown as (url?: string, target?: string, features?: string) => unknown
           const result = open('Checkout', '_blank')
   
           expect(result).toBeNull()
           expect(originalOpen).toBeDefined()
           expect(originalOpen).not.toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -313,7 +313,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -355,7 +355,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toMatch(/^kun-proto-back=/)
+          expect(fakeWindow.location.hash).toMatch(/^cortex-proto-back=/)
         }
       )
     })
@@ -390,7 +390,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toMatch(/^kun-proto-back=steps%3D2%26t%3D/)
+          expect(fakeWindow.location.hash).toMatch(/^cortex-proto-back=steps%3D2%26t%3D/)
         }
       )
     })
@@ -429,7 +429,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=%2Fcheckout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=%2Fcheckout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -470,7 +470,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,
@@ -511,7 +511,7 @@ describe("prototype-player scripted navigation capture", () => {
   
           expect(event.preventDefault).toHaveBeenCalled()
           expect(event.stopPropagation).toHaveBeenCalled()
-          expect(fakeWindow.location.hash).toBe('kun-proto-nav=Checkout')
+          expect(fakeWindow.location.hash).toBe('cortex-proto-nav=Checkout')
           expect(
             resolvePrototypeNavigationTarget(
               `${currentFileUrl}#${fakeWindow.location.hash}`,

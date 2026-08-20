@@ -57,15 +57,15 @@ describe("PersonalWhiteboardPanel", () => {
     await waitFor(() => expect(captured.props?.filePort).toBeDefined());
     await captured.props!.filePort!.writeText(
       "/workspace",
-      ".kun-canvas/code-session-1/canvas.json",
+      ".cortex-canvas/code-session-1/canvas.json",
       "{}",
     );
     await captured.props!.filePort!.readText(
       "/workspace",
-      ".kun-canvas/code-session-1/canvas.json",
+      ".cortex-canvas/code-session-1/canvas.json",
     );
-    expect(writeFile).toHaveBeenCalledWith("/workspace/.kun-canvas/code-session-1/canvas.json", "{}");
-    expect(bridge.readFile).toHaveBeenCalledWith("/workspace/.kun-canvas/code-session-1/canvas.json");
+    expect(writeFile).toHaveBeenCalledWith("/workspace/.cortex-canvas/code-session-1/canvas.json", "{}");
+    expect(bridge.readFile).toHaveBeenCalledWith("/workspace/.cortex-canvas/code-session-1/canvas.json");
   });
 
   it("旧无项目会话缺少目录时补建并回写白板工作区", async () => {

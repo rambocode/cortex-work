@@ -4,11 +4,15 @@
  * artifacts/screens — alongside each artifact's `canvas.json`. Mirrors
  * canvas-persistence (debounced save, lenient load).
  */
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import type { ComponentDef, DesignSystem, DesignToken, DesignTokenKind } from './design-system-types'
 import type { CanvasFilePort } from './canvas-file-port'
 
 const DESIGN_DIR = '.cortex-design'
+
+// 与 code-canvas.ts 的 CODE_CANVAS_DIR 同值；此处用字面量避免与 canvas 模块成环。
+const CODE_CANVAS_DIR = '.cortex-canvas'
+const LEGACY_CODE_CANVAS_DIR = '.kun-canvas'
 
 export function designSystemPath(baseDir: string = DESIGN_DIR): string {
   return `${baseDir}/design-system.json`
@@ -97,7 +101,7 @@ export function persistDesignSystem(
   filePort?: CanvasFilePort
 ): void {
   if (!workspaceRoot) return
-  if (!filePort && typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
+  if (!filePort && typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return
   const key = designSystemSaveKey(workspaceRoot, baseDir)
   const existingTimer = _saveTimers.get(key)
   if (existingTimer) clearTimeout(existingTimer)
@@ -109,9 +113,24 @@ export function persistDesignSystem(
       void filePort.writeText(workspaceRoot, path, content).catch(() => false)
       return
     }
-    void kunGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
+    void cortexGuiPort()!.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => undefined)
   }, 600)
   _saveTimers.set(key, timer)
+}
+
+async function readDesignSystemAt(
+  workspaceRoot: string,
+  relativePath: string,
+  filePort?: CanvasFilePort
+): Promise<DesignSystem | null> {
+  if (filePort) {
+    const content = await filePort.readText(workspaceRoot, relativePath)
+    return content == null ? null : parseDesignSystem(content)
+  }
+  if (typeof cortexGuiPort()?.readWorkspaceFile !== 'function') return null
+  const result = await requireCortexGui().readWorkspaceFile({ path: relativePath, workspaceRoot })
+  if (!result || !result.ok) return null
+  return parseDesignSystem(result.content)
 }
 
 export async function loadDesignSystem(
@@ -121,17 +140,13 @@ export async function loadDesignSystem(
 ): Promise<DesignSystem | null> {
   if (!workspaceRoot) return null
   try {
-    if (filePort) {
-      const content = await filePort.readText(workspaceRoot, designSystemPath(baseDir))
-      return content == null ? null : parseDesignSystem(content)
-    }
-    if (typeof kunGuiPort()?.readWorkspaceFile !== 'function') return null
-    const result = await requireKunGui().readWorkspaceFile({
-      path: designSystemPath(baseDir),
-      workspaceRoot
-    })
-    if (!result || !result.ok) return null
-    return parseDesignSystem(result.content)
+    const system = await readDesignSystemAt(workspaceRoot, designSystemPath(baseDir), filePort)
+    if (system) return system
+    // 与 loadCanvasDocument 同因：代码画布目录改名后，老工作区的 design-system.json
+    // 仍在 .cortex-canvas 下，新目录读空时回退一次旧目录（写侧始终用新目录）。
+    if (!baseDir || !baseDir.startsWith(`${CODE_CANVAS_DIR}/`)) return null
+    const legacyBaseDir = `${LEGACY_CODE_CANVAS_DIR}${baseDir.slice(CODE_CANVAS_DIR.length)}`
+    return await readDesignSystemAt(workspaceRoot, designSystemPath(legacyBaseDir), filePort)
   } catch {
     return null
   }

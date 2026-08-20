@@ -1,4 +1,4 @@
-import { kunGuiPort } from '../compat/kun-gui-port'
+import { cortexGuiPort } from '../compat/cortex-gui-port'
 import type {
   WorkspaceFileReadResult,
   WorkspaceFileTarget,
@@ -33,7 +33,7 @@ export type PrepareDesignTurnFilesOptions = {
 }
 
 function currentSetupApi(api?: DesignTurnSetupApi): DesignTurnSetupApi | undefined {
-  return api ?? (typeof window !== 'undefined' ? kunGuiPort() : undefined)
+  return api ?? (typeof window !== 'undefined' ? cortexGuiPort() : undefined)
 }
 
 function selectedContextForNotes(target: ResolvedDesignTurnTarget) {

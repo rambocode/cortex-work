@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import type { OpError } from '../canvas/shape-ops'
 import type { CanvasDocument, CanvasShape } from '../canvas/canvas-types'
 import type { CanvasSnapshot } from '../canvas/canvas-snapshot'
@@ -96,8 +96,8 @@ function buildScreenManifest(options: BuildDesignTurnPromptPayloadOptions): Scre
 }
 
 async function readWorkspaceText(workspaceRoot: string, path: string): Promise<string> {
-  if (typeof window === 'undefined' || typeof kunGuiPort()?.readWorkspaceFile !== 'function') return ''
-  const result = await requireKunGui().readWorkspaceFile({ path, workspaceRoot }).catch(() => null)
+  if (typeof window === 'undefined' || typeof cortexGuiPort()?.readWorkspaceFile !== 'function') return ''
+  const result = await requireCortexGui().readWorkspaceFile({ path, workspaceRoot }).catch(() => null)
   return result?.ok ? result.content : ''
 }
 

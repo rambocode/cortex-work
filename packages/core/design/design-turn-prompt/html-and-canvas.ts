@@ -30,8 +30,8 @@ export function buildScreenTurnPrompt(options: ScreenTurnOptions): string {
     : `\`${options.artifactRelativePath}\``
   const lines = [
     options.basePath
-      ? `Kun is asking you to ITERATE on an existing screen design: "${options.screenName}".`
-      : `Kun is asking you to design a new screen: "${options.screenName}".`,
+      ? `Cortex is asking you to ITERATE on an existing screen design: "${options.screenName}".`
+      : `Cortex is asking you to design a new screen: "${options.screenName}".`,
     `Workspace: ${options.workspaceRoot}`,
     ...formatDesignTargetFrameLines(options.designContext),
     ...(typeof options.screenWidth === 'number' && typeof options.screenHeight === 'number'
@@ -313,7 +313,7 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
       : [
           codeCanvasMode
             ? 'Cortex is asking you to operate the Code sidebar whiteboard with the dedicated canvas tools.'
-            : 'Kun is asking you to operate the design canvas with the dedicated design tools.'
+            : 'Cortex is asking you to operate the design canvas with the dedicated design tools.'
         ]),
     `Workspace: ${options.workspaceRoot}`,
     ...formatCanvasTargetFrameLines(options.designContext, options.canvasSurface ?? 'design'),

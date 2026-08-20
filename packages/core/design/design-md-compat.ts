@@ -136,7 +136,7 @@ function formatScreens(
 }
 
 export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOptions): string {
-  const title = clean(options.title) || 'Kun design project'
+  const title = clean(options.title) || 'Cortex design project'
   const updatedAt = options.updatedAt ?? new Date().toISOString()
   const contextLines = formatDesignContextLines(options.designContext).filter((line) => line.trim())
   const preset = options.designContext?.designSystemPreset
@@ -145,14 +145,14 @@ export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOpti
   return [
     `# DESIGN.md: ${title}`,
     '',
-    'Portable project design guide for Kun, Stitch-style workflows, and code agents.',
+    'Portable project design guide for Cortex, Stitch-style workflows, and code agents.',
     '',
     '## Source',
     '',
     `- Updated: ${updatedAt}`,
     `- Project brief: ${code(options.projectBriefPath)}`,
     `- Shared token file: ${code(options.designSystemMdPath)}`,
-    '- Origin: Kun design mode',
+    '- Origin: Cortex design mode',
     '',
     '## Product Brief',
     '',

@@ -101,7 +101,7 @@ describe('openui html normalizer', () => {
 
     expect(report).toMatchObject({
       version: 1,
-      kind: 'kun.openui.normalization',
+      kind: 'cortex.openui.normalization',
       screens: [{ artifactId: 'empty', title: 'Empty' }]
     })
     expect(report.tokens).toEqual([])
@@ -121,6 +121,6 @@ describe('openui html normalizer', () => {
     )
 
     expect(content.endsWith('\n')).toBe(true)
-    expect(JSON.parse(content)).toMatchObject({ kind: 'kun.openui.normalization' })
+    expect(JSON.parse(content)).toMatchObject({ kind: 'cortex.openui.normalization' })
   })
 })

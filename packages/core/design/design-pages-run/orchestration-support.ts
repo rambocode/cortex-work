@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import { useChatStore } from "../compat/chat-store"
 import { collectAssistantTextForTurn } from "../compat/chat-store-runtime-helpers"
 import type { ChatBlock, ToolBlock } from "../compat/agent-types"
@@ -173,10 +173,10 @@ export async function writeWorkspaceTextFile(
   path: string,
   content: string
 ): Promise<boolean> {
-  if (typeof window === 'undefined' || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') {
+  if (typeof window === 'undefined' || typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') {
     return false
   }
-  const res = await requireKunGui().writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => null)
+  const res = await requireCortexGui().writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => null)
   return Boolean(res && res.ok)
 }
 

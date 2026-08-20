@@ -41,8 +41,8 @@ describe('design tool protocol', () => {
 
     expect(manifest).toMatchObject({
       version: 1,
-      kind: 'kun.design.tool-protocol',
-      source: 'kun-design-mode'
+      kind: 'cortex.design.tool-protocol',
+      source: 'cortex-design-mode'
     })
     expect(manifest.tools.map((tool) => tool.id)).toEqual([
       'design.plan',
@@ -365,7 +365,7 @@ describe('design tool protocol', () => {
 
     const template = executeDesignToolInvocation({
       toolId: 'design.system',
-      input: { action: 'template', name: 'Kun Kit', seedColor: '#D4AF37', template: 'saas' }
+      input: { action: 'template', name: 'Cortex Kit', seedColor: '#D4AF37', template: 'saas' }
     })
     expect(template).toMatchObject({ ok: true, status: 'applied' })
     expect((template.output as { after: { tokenCount: number; componentCount: number } }).after).toMatchObject({

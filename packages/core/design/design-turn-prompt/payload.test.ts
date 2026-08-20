@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from '../compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from '../compat/cortex-gui-port'
 import {
   createDefaultShape,
   createEmptyDocument,
@@ -84,7 +84,7 @@ const tokensByArtifact: Record<string, DerivedTokens> = {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  setKunGuiPort(null)
+  setCortexGuiPort(null)
 })
 
 describe('design turn prompt payload', () => {
@@ -177,7 +177,7 @@ describe('design turn prompt payload', () => {
     }))
     // 源码 readDesignHtmlQualityFindings 仍以 `typeof window !== 'undefined'` 作为浏览器环境判据；node 环境补占位 window。
     vi.stubGlobal('window', {})
-    setKunGuiPort({ readWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ readWorkspaceFile } as unknown as CortexGuiPort)
 
     const findings = await readDesignHtmlQualityFindings({
       workspaceRoot: '/workspace',

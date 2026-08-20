@@ -74,8 +74,8 @@ export function buildPrototypeViewportModeScript(target: DesignTarget): string {
 (() => {
   try {
     const target = ${JSON.stringify(target)};
-    const styleId = '__kunPrototypeViewportModeStyle';
-    document.documentElement.dataset.kunPrototypeViewport = target;
+    const styleId = '__cortexPrototypeViewportModeStyle';
+    document.documentElement.dataset.cortexPrototypeViewport = target;
     let style = document.getElementById(styleId);
     if (!style) {
       style = document.createElement('style');
@@ -83,14 +83,14 @@ export function buildPrototypeViewportModeScript(target: DesignTarget): string {
       document.head.appendChild(style);
     }
     style.textContent = \`
-html[data-kun-prototype-viewport="app"],
-html[data-kun-prototype-viewport="app"] body {
+html[data-cortex-prototype-viewport="app"],
+html[data-cortex-prototype-viewport="app"] body {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
-html[data-kun-prototype-viewport="app"]::-webkit-scrollbar,
-html[data-kun-prototype-viewport="app"] body::-webkit-scrollbar,
-html[data-kun-prototype-viewport="app"] *::-webkit-scrollbar {
+html[data-cortex-prototype-viewport="app"]::-webkit-scrollbar,
+html[data-cortex-prototype-viewport="app"] body::-webkit-scrollbar,
+html[data-cortex-prototype-viewport="app"] *::-webkit-scrollbar {
   width: 0 !important;
   height: 0 !important;
   background: transparent !important;
@@ -161,7 +161,7 @@ function PrototypePlayerOverlayInner({
     workspaceRoot,
     relativePath: currentArtifactPath,
     enabled: Boolean(open && workspaceRoot && currentArtifact),
-    partition: 'kun-proto'
+    partition: 'cortex-proto'
   })
 
   useEffect(() => {

@@ -73,7 +73,7 @@ function baseOptions() {
 
 describe('image annotation dispatch', () => {
   it('detects code-canvas document keys', () => {
-    expect(isCodeCanvasDocumentKey(`workspace\0.kun-canvas/code-thread/canvas.json`)).toBe(true)
+    expect(isCodeCanvasDocumentKey(`workspace\0.cortex-canvas/code-thread/canvas.json`)).toBe(true)
     expect(isCodeCanvasDocumentKey('workspace/.cortex-design/doc/canvas.json')).toBe(false)
   })
 
@@ -116,7 +116,7 @@ describe('image annotation dispatch', () => {
 
     const status = await applyImageAnnotationResult({
       ...options,
-      currentDocumentKey: `workspace\0.kun-canvas/code-thread/canvas.json`,
+      currentDocumentKey: `workspace\0.cortex-canvas/code-thread/canvas.json`,
       getCanvasShapeState: () => canvasState,
       getDesignState: () => designState
     })

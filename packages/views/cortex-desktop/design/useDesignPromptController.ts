@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AttachmentReference } from '@cortex-work/core/design/compat/agent-types'
-import type { ModelProviderModelGroup } from '@cortex-work/core/design/compat/kun-gui-api'
+import type { ModelProviderModelGroup } from '@cortex-work/core/design/compat/cortex-gui-api'
 import type { DesignPendingImage } from '@cortex-work/core/design/compat/chat-store-types'
 import { providerIdForComposerModel } from '@cortex-work/core/design/compat/chat-store-helpers'
 import type { ComposerAttachmentScope } from './compat/workbench-composer-attachments'

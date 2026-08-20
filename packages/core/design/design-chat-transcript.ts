@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from './compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from './compat/cortex-gui-port'
 import type { ChatBlock } from './compat/agent-types'
 import { getProvider } from './compat/agent-registry'
 import {
@@ -138,9 +138,9 @@ export async function hydrateDesignChatMetaForDoc(input: {
   docId: string
 }): Promise<boolean> {
   const metaPath = designChatMetaPath(input.docId)
-  if (!metaPath || typeof kunGuiPort()?.readWorkspaceFile !== 'function') return false
+  if (!metaPath || typeof cortexGuiPort()?.readWorkspaceFile !== 'function') return false
   try {
-    const read = await requireKunGui().readWorkspaceFile({
+    const read = await requireCortexGui().readWorkspaceFile({
       workspaceRoot: input.workspaceRoot,
       path: metaPath
     })
@@ -185,15 +185,15 @@ export async function persistDesignChatMetaForDoc(input: {
   const record = recordForDesignDoc(input.workspaceRoot, input.docId)
   if (!metaPath || !record) return false
   if (
-    typeof kunGuiPort()?.writeWorkspaceFile !== 'function' ||
-    typeof kunGuiPort()?.readWorkspaceFile !== 'function'
+    typeof cortexGuiPort()?.writeWorkspaceFile !== 'function' ||
+    typeof cortexGuiPort()?.readWorkspaceFile !== 'function'
   ) {
     return false
   }
 
   let previous: DesignChatMeta | null = null
   try {
-    const existing = await requireKunGui().readWorkspaceFile({
+    const existing = await requireCortexGui().readWorkspaceFile({
       workspaceRoot: input.workspaceRoot,
       path: metaPath
     })
@@ -215,7 +215,7 @@ export async function persistDesignChatMetaForDoc(input: {
   }
 
   try {
-    const written = await requireKunGui().writeWorkspaceFile({
+    const written = await requireCortexGui().writeWorkspaceFile({
       workspaceRoot: input.workspaceRoot,
       path: metaPath,
       content: `${JSON.stringify(meta, null, 2)}\n`
@@ -232,11 +232,11 @@ export async function writeDesignChatTranscriptForThread(input: {
   threadId: string
   blocks: ChatBlock[]
 }): Promise<boolean> {
-  if (typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return false
+  if (typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return false
   const transcriptPath = designChatTranscriptRelativePath(input.docId, input.threadId)
   if (!transcriptPath) return false
   try {
-    const written = await requireKunGui().writeWorkspaceFile({
+    const written = await requireCortexGui().writeWorkspaceFile({
       workspaceRoot: input.workspaceRoot,
       path: transcriptPath,
       content: serializeDesignChatTranscript(input.blocks, {

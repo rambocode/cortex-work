@@ -6,7 +6,7 @@
  * falling back to reconstructing from the on-disk files when a sidecar is
  * missing (artifacts created before this existed, or hand-authored dirs).
  */
-import { kunGuiPort } from './compat/kun-gui-port'
+import { cortexGuiPort } from './compat/cortex-gui-port'
 import type { WorkspaceEntry } from './compat/workspace-file'
 import {
   defaultDesignArtifactNode,
@@ -240,8 +240,8 @@ export function reconstructArtifact(artifactDir: string, entries: WorkspaceEntry
 
 /** Fire-and-forget write of an artifact's meta.json sidecar (alongside its files). */
 export function persistArtifactMeta(workspaceRoot: string, artifact: DesignArtifact): void {
-  if (!workspaceRoot || typeof kunGuiPort()?.writeWorkspaceFile !== 'function') return
-  void kunGuiPort()!
+  if (!workspaceRoot || typeof cortexGuiPort()?.writeWorkspaceFile !== 'function') return
+  void cortexGuiPort()!
     .writeWorkspaceFile({
       path: artifactMetaPathOf(artifact.relativePath),
       workspaceRoot,
@@ -252,8 +252,8 @@ export function persistArtifactMeta(workspaceRoot: string, artifact: DesignArtif
 
 /** Fire-and-forget delete of an artifact's whole on-disk dir (keeps disk in sync with the list). */
 export function deleteArtifactDir(workspaceRoot: string, relativePath: string): void {
-  if (!workspaceRoot || typeof kunGuiPort()?.deleteWorkspaceEntry !== 'function') return
-  void kunGuiPort()!
+  if (!workspaceRoot || typeof cortexGuiPort()?.deleteWorkspaceEntry !== 'function') return
+  void cortexGuiPort()!
     .deleteWorkspaceEntry({ path: artifactDirOf(relativePath), workspaceRoot })
     .catch(() => undefined)
 }

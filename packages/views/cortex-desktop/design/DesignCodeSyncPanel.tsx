@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '@cortex-work/core/design/compat/cortex-gui-port'
 import { useMemo, useState, type ReactElement } from 'react'
 import { Cable, CheckCircle2, Code2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -84,8 +84,8 @@ export function DesignCodeSyncPanel({ workspaceRoot, onSeedPrompt, canvasDocumen
   const applyLatest = async (): Promise<void> => {
     if (!model.canApply || applyState.status === 'applying') return
     if (
-      typeof kunGuiPort()?.readWorkspaceFile !== 'function' ||
-      typeof kunGuiPort()?.writeWorkspaceFile !== 'function'
+      typeof cortexGuiPort()?.readWorkspaceFile !== 'function' ||
+      typeof cortexGuiPort()?.writeWorkspaceFile !== 'function'
     ) {
       setApplyState({ status: 'error', message: t('designCodeSyncUnavailable') })
       return
@@ -97,8 +97,8 @@ export function DesignCodeSyncPanel({ workspaceRoot, onSeedPrompt, canvasDocumen
         workspaceRoot,
         document: useCanvasShapeStore.getState().document,
         adapter: {
-          readWorkspaceFile: requireKunGui().readWorkspaceFile,
-          writeWorkspaceFile: requireKunGui().writeWorkspaceFile
+          readWorkspaceFile: requireCortexGui().readWorkspaceFile,
+          writeWorkspaceFile: requireCortexGui().writeWorkspaceFile
         }
       })
     } catch (error) {

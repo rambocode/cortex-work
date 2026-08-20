@@ -32,9 +32,9 @@ describe('designSpecPath', () => {
 
 describe('buildDesignSpecStub', () => {
   it('is a markdown brief that embeds the raw brief text', () => {
-    const stub = buildDesignSpecStub('A fan site for IKUN')
+    const stub = buildDesignSpecStub('A fan site for NOVA')
     expect(stub).toContain('# Design brief')
-    expect(stub).toContain('A fan site for IKUN')
+    expect(stub).toContain('A fan site for NOVA')
     expect(stub).toContain('Information architecture')
     expect(stub).toContain('State & responsiveness plan')
     expect(stub).toContain('Implementation notes')
@@ -43,7 +43,7 @@ describe('buildDesignSpecStub', () => {
 
 describe('buildDesignSpecPrompt', () => {
   const prompt = buildDesignSpecPrompt({
-    brief: 'An IKUN fan hub',
+    brief: 'An NOVA fan hub',
     workspaceRoot: '/ws',
     designMdPath: '.cortex-design/doc/design.md',
     existingPages: [{ name: 'Home', htmlPath: '.cortex-design/doc/home/v1.html', summary: 'landing' }]
@@ -89,7 +89,7 @@ describe('buildDesignSpecPrompt', () => {
 
 describe('buildDesignSystemBoardPrompt', () => {
   const prompt = buildDesignSystemBoardPrompt({
-    brief: 'An IKUN fan hub',
+    brief: 'An NOVA fan hub',
     workspaceRoot: '/ws',
     artifactRelativePath: '.cortex-design/doc/sys/v1.html',
     designSystemMdPath: DESIGN_SYSTEM_MD_PATH,
@@ -132,7 +132,7 @@ describe('buildDesignSystemBoardPrompt', () => {
 
 describe('buildDesignLogoPrompt', () => {
   const prompt = buildDesignLogoPrompt({
-    brief: 'An IKUN fan hub',
+    brief: 'An NOVA fan hub',
     workspaceRoot: '/ws',
     artifactRelativePath: '.cortex-design/doc/logo/v1.html',
     designSystemMdPath: DESIGN_SYSTEM_MD_PATH,

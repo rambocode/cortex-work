@@ -311,7 +311,7 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
   });
 });
 
-describe("个人会话 Kun 过程时间线", () => {
+describe("个人会话过程时间线", () => {
   afterEach(() => {
     cleanup();
     usePersonalStore.setState({ runningBySession: {} });

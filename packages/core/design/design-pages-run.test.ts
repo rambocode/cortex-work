@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKunGuiPort, type KunGuiPort } from './compat/kun-gui-port'
+import { setCortexGuiPort, type CortexGuiPort } from './compat/cortex-gui-port'
 import { useChatStore } from './compat/chat-store'
 import { useDesignWorkspaceStore } from './design-workspace-store'
 import { runDesignPages } from './design-pages-run'
@@ -40,9 +40,9 @@ describe('runDesignPages parallel fanout', () => {
 
   beforeEach(() => {
     // 源码 writeWorkspaceTextFile 仍以 `typeof window !== 'undefined'` 作为“浏览器环境”判据；
-    // node 测试环境无 window，需给一个占位 window（kunGui 能力仍由注入端口提供，不放在 window 上）。
+    // node 测试环境无 window，需给一个占位 window（cortexGui 能力仍由注入端口提供，不放在 window 上）。
     vi.stubGlobal('window', {})
-    setKunGuiPort({ writeWorkspaceFile } as unknown as KunGuiPort)
+    setCortexGuiPort({ writeWorkspaceFile } as unknown as CortexGuiPort)
     writeWorkspaceFile.mockClear()
     useChatStore.setState({
       blocks: [],
@@ -73,7 +73,7 @@ describe('runDesignPages parallel fanout', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-    setKunGuiPort(null)
+    setCortexGuiPort(null)
   })
 
   it('pre-creates all pages and sends one fanout turn for page generation', async () => {
@@ -83,7 +83,7 @@ describe('runDesignPages parallel fanout', () => {
           {
             kind: 'assistant',
             id: 'assistant_plan',
-            text: '```pages\n[{"title":"Landing","brief":"Landing page","userGoal":"Decide whether to join the IKUN community","dataExamples":["8,421 active members","June watch party","VIP tier $12"],"states":["loading featured posts","empty events"],"primaryAction":"Join community","linksTo":["Community"]},{"title":"Community","brief":"Community feed","userGoal":"Browse member stories and post an update","dataExamples":["Mina Chen","3 new replies","Shanghai fan club"],"states":["empty feed","posting disabled"],"primaryAction":"Post update","linksTo":["Landing"]}]\n```',
+            text: '```pages\n[{"title":"Landing","brief":"Landing page","userGoal":"Decide whether to join the NOVA community","dataExamples":["8,421 active members","June watch party","VIP tier $12"],"states":["loading featured posts","empty events"],"primaryAction":"Join community","linksTo":["Community"]},{"title":"Community","brief":"Community feed","userGoal":"Browse member stories and post an update","dataExamples":["Mina Chen","3 new replies","Shanghai fan club"],"states":["empty feed","posting disabled"],"primaryAction":"Post update","linksTo":["Landing"]}]\n```',
             createdAt
           }
         ])
@@ -110,7 +110,7 @@ describe('runDesignPages parallel fanout', () => {
     })
 
     await runDesignPages({
-      brief: 'IKUN community',
+      brief: 'NOVA community',
       workspaceRoot: '/workspace',
       sendMessage,
       foundation: false
@@ -120,7 +120,7 @@ describe('runDesignPages parallel fanout', () => {
     const fanoutPrompt = String(sendMessage.mock.calls[1]?.[0] ?? '')
     expect(fanoutPrompt).toContain('fan out a multi-page design build')
     expect(fanoutPrompt).toContain('delegate_task')
-    expect(fanoutPrompt).toContain('User goal for this page: Decide whether to join the IKUN community')
+    expect(fanoutPrompt).toContain('User goal for this page: Decide whether to join the NOVA community')
     expect(fanoutPrompt).toContain('Required realistic content/data to visibly include:')
     expect(fanoutPrompt).toContain('8,421 active members')
     expect(fanoutPrompt).toContain('Key UI states to represent or document in the screen:')
@@ -135,7 +135,7 @@ describe('runDesignPages parallel fanout', () => {
     expect(useDesignWorkspaceStore.getState().artifacts).toHaveLength(2)
     const artifacts = useDesignWorkspaceStore.getState().artifacts
     expect(new Set(artifacts.map((artifact) => artifact.direction?.id))).toHaveLength(1)
-    expect(artifacts.every((artifact) => artifact.direction?.name === 'IKUN community')).toBe(true)
+    expect(artifacts.every((artifact) => artifact.direction?.name === 'NOVA community')).toBe(true)
     expect(useDesignWorkspaceStore.getState().pagesRun).toBeNull()
     // 运行结束后页面内容已落盘，并行进度只用于运行中 overlay，必须随 run 一起清空。
     expect(useDesignWorkspaceStore.getState().parallelPageStates).toEqual({})
@@ -149,7 +149,7 @@ describe('runDesignPages parallel fanout', () => {
       return payload?.path === '.cortex-design/DESIGN.md'
     })?.[0] as { content?: string } | undefined
     expect(projectDesignMdWrite?.content).toContain('# DESIGN.md: Doc')
-    expect(projectDesignMdWrite?.content).toContain('IKUN community')
+    expect(projectDesignMdWrite?.content).toContain('NOVA community')
     expect(projectDesignMdWrite?.content).toContain('Join community')
     expect(projectDesignMdWrite?.content).toContain('../')
   })

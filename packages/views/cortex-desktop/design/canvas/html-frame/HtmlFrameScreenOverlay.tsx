@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '@cortex-work/core/design/compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '@cortex-work/core/design/compat/cortex-gui-port'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Brush, Check, X } from 'lucide-react'
 import type { CanvasShape } from '@cortex-work/core/design/canvas/canvas-types'
@@ -217,8 +217,8 @@ function ScreenOverlayInner({
       return
     }
     if (
-      typeof kunGuiPort()?.readWorkspaceFile !== 'function' ||
-      typeof kunGuiPort()?.writeWorkspaceFile !== 'function'
+      typeof cortexGuiPort()?.readWorkspaceFile !== 'function' ||
+      typeof cortexGuiPort()?.writeWorkspaceFile !== 'function'
     ) {
       setElementTextStatus({ kind: 'error', message: 'Workspace file editing is unavailable.' })
       return
@@ -226,7 +226,7 @@ function ScreenOverlayInner({
 
     setElementTextStatus({ kind: 'saving' })
     void (async () => {
-      const read = await requireKunGui().readWorkspaceFile({
+      const read = await requireCortexGui().readWorkspaceFile({
         path: artifact.relativePath,
         workspaceRoot
       })
@@ -238,7 +238,7 @@ function ScreenOverlayInner({
 
       if (replaced.content !== read.content) {
         setArtifactPreviewStatus(artifact.id, 'pending')
-        const write = await requireKunGui().writeWorkspaceFile({
+        const write = await requireCortexGui().writeWorkspaceFile({
           path: artifact.relativePath,
           workspaceRoot,
           content: replaced.content

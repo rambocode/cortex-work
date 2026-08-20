@@ -11,7 +11,7 @@ import { artifact, installDesignDocument } from './design-board.test-helpers'
 describe('design board screen frame creation', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {
-      kunGui: {
+      cortexGui: {
         writeWorkspaceFile: vi.fn(async () => ({ ok: true as const }))
       }
     })

@@ -10,7 +10,7 @@ import { artifact } from './design-board.test-helpers'
 
 beforeEach(() => {
   vi.stubGlobal('window', {
-    kunGui: {
+    cortexGui: {
       writeWorkspaceFile: vi.fn(async () => ({ ok: true as const }))
     }
   })

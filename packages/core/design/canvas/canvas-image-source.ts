@@ -1,4 +1,4 @@
-import { kunGuiPort, requireKunGui } from '../compat/kun-gui-port'
+import { cortexGuiPort, requireCortexGui } from '../compat/cortex-gui-port'
 import { useEffect, useState } from 'react'
 import {
   useCanvasWorkspaceFilePort,
@@ -31,8 +31,8 @@ async function readImageDataUrl(
   filePort?: CanvasFilePort
 ): Promise<string | null> {
   if (filePort?.readImageDataUrl) return filePort.readImageDataUrl(workspaceRoot, path)
-  if (typeof kunGuiPort()?.readWorkspaceImage !== 'function') return null
-  const result = await requireKunGui().readWorkspaceImage({
+  if (typeof cortexGuiPort()?.readWorkspaceImage !== 'function') return null
+  const result = await requireCortexGui().readWorkspaceImage({
     path,
     ...(workspaceRoot ? { workspaceRoot } : {})
   })
@@ -48,7 +48,7 @@ async function resolveWorkspaceImage(
   const hit = cache.get(key)
   if (hit) return hit
   const trimmedPath = path.trim()
-  const canReadImage = Boolean(filePort?.readImageDataUrl) || typeof kunGuiPort()?.readWorkspaceImage === 'function'
+  const canReadImage = Boolean(filePort?.readImageDataUrl) || typeof cortexGuiPort()?.readWorkspaceImage === 'function'
   if (!trimmedPath || !canReadImage) return null
   try {
     const dataUrl = isAbsoluteLocalImagePath(trimmedPath)

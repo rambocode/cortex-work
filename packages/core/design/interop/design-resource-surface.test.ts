@@ -129,20 +129,20 @@ describe('design resource surface', () => {
 
     expect(surface).toMatchObject({
       version: 1,
-      kind: 'kun.design.resources',
+      kind: 'cortex.design.resources',
       document: { id: 'doc', title: 'Ops app' },
       counts: { board: 1, frame: 2, asset: 1, token: 1, component: 1, direction: 1, tool: 1, mode: 1 }
     })
     expect(surface.resources.map((resource) => resource.uri)).toEqual([
-      'kun-design://documents/doc/boards/main',
-      'kun-design://documents/doc/frames/frame_home',
-      'kun-design://documents/doc/frames/frame_live',
-      'kun-design://documents/doc/assets/asset_logo',
-      'kun-design://documents/doc/tokens/brand%2Fprimary',
-      'kun-design://documents/doc/components/card',
-      'kun-design://documents/doc/directions/dir_1',
-      'kun-design://documents/doc/modes/design-mode-surface',
-      'kun-design://documents/doc/tools/design-tool-protocol'
+      'cortex-design://documents/doc/boards/main',
+      'cortex-design://documents/doc/frames/frame_home',
+      'cortex-design://documents/doc/frames/frame_live',
+      'cortex-design://documents/doc/assets/asset_logo',
+      'cortex-design://documents/doc/tokens/brand%2Fprimary',
+      'cortex-design://documents/doc/components/card',
+      'cortex-design://documents/doc/directions/dir_1',
+      'cortex-design://documents/doc/modes/design-mode-surface',
+      'cortex-design://documents/doc/tools/design-tool-protocol'
     ])
 
     const board = JSON.parse(surface.resources[0]!.text)
@@ -206,15 +206,15 @@ describe('design resource surface', () => {
       }
     ])
     expect(modeSurface).toMatchObject({
-      kind: 'kun.design.mode-surface',
+      kind: 'cortex.design.mode-surface',
       recommendedSurfaceId: 'whiteboard',
       counts: { screenCount: 1, directionCount: 1, activeBindingCount: 1 },
       workflow: {
-        kind: 'kun.design.mode-workflow',
+        kind: 'cortex.design.mode-workflow',
         recommendedStepId: 'critique-current-direction'
       }
     })
-    expect(toolProtocol.kind).toBe('kun.design.tool-protocol')
+    expect(toolProtocol.kind).toBe('cortex.design.tool-protocol')
     expect(toolProtocol.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'design.plan' }),
       expect.objectContaining({ id: 'design.ops' })
@@ -232,6 +232,6 @@ describe('design resource surface', () => {
     )
 
     expect(content.endsWith('\n')).toBe(true)
-    expect(JSON.parse(content)).toMatchObject({ kind: 'kun.design.resources' })
+    expect(JSON.parse(content)).toMatchObject({ kind: 'cortex.design.resources' })
   })
 })

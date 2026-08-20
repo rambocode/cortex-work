@@ -36,7 +36,7 @@ describe('DesignImageAnnotationOverlay', () => {
     expect(resolveImageAnnotationOverlayModel({
       route: 'chat',
       activeSddDraft: false,
-      canvasDocumentKey: `workspace\0.kun-canvas/code-thread/canvas.json`,
+      canvasDocumentKey: `workspace\0.cortex-canvas/code-thread/canvas.json`,
       canvasDocument: imageDocument(),
       annotatingShapeId: 'image_1',
       activeCodeCanvasWorkspace: '/code',
@@ -60,7 +60,7 @@ describe('DesignImageAnnotationOverlay', () => {
     expect(resolveImageAnnotationOverlayModel({
       route: 'chat',
       activeSddDraft: true,
-      canvasDocumentKey: `workspace\0.kun-canvas/code-thread/canvas.json`,
+      canvasDocumentKey: `workspace\0.cortex-canvas/code-thread/canvas.json`,
       canvasDocument: document,
       annotatingShapeId: 'image_1',
       activeCodeCanvasWorkspace: '/code'
