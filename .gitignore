@@ -49,3 +49,8 @@ apps/desktop/dist.bak-*/
 # 旧产物——2026-08-06 实测 git add -A 会把 77MB 二进制扫进提交，故保留忽略条目作防护）
 apps/desktop/resources/pi/
 apps/desktop/.pi-build-cache/
+
+# CodeGraph 本地索引(.codegraph/codegraph.db 单机就 150MB+，另有 daemon 的 pid/socket/日志)。
+# 是否建索引由各人自己决定,产物纯属本机状态,整目录不入库——连 CodeGraph 自带的
+# .codegraph/.gitignore 也一起忽略,避免只为一个忽略文件在 git status 里常驻一条 untracked。
+.codegraph/
