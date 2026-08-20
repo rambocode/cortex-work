@@ -4139,10 +4139,19 @@ button.sb-row {
   font-weight: 600;
   line-height: 1;
 }
+/* 侧栏底部浮层（消息列表 / 用户菜单）向右溢出时的层级修正。
+   侧栏自身 position+z-index:1 会自建层叠上下文,内部再高的 z-index 也出不去这一层;
+   而中栏落地页输入框 .pw-landing-composer 同样是 z-index:1 且 DOM 更靠后,平级比较时
+   后者胜出 → 溢出的消息面板被输入框整块盖住(实测)。只在浮层打开期间把整条侧栏提层,
+   关闭立即还原,避免常态下改变侧栏与中栏其它浮层的相对层级。 */
+.body:has(.pw-main) > .sidebar:has(.pw-sb-msgs),
+.body:has(.pw-main) > .sidebar:has(.pw-sb-user-menu) {
+  z-index: 30;
+}
 /* 列表 popover：贴侧栏底部向上弹，**向右展开**盖到主区上。
    不能向左（right:0）——侧栏只有 270px 宽且紧贴窗口左缘，288px 的面板会有一截被窗口
-   边缘直接切掉（实测左侧约 30px 不可见）。侧栏自带 position+z-index 层叠层级，
-   向右溢出能正常盖在中栏之上。 */
+   边缘直接切掉（实测左侧约 30px 不可见）。向右溢出要盖住中栏，还需上面那条侧栏提层规则
+   配合（本元素的 z-index 只在侧栏自建的层叠上下文内有效）。 */
 .pw-sb-msgs {
   position: absolute;
   bottom: calc(100% + 6px);
