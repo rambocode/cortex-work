@@ -16,6 +16,9 @@
 4. 有历史指针时先 `piOpen` 建 live session，再 `piSwitchSession(history.jsonl)`；恢复成功后继续沿用
    历史路径，不能把 `piOpen` 产生的新空文件写回 `SessionMeta`。
 5. 首轮真正没有历史指针时才持久化新文件。预热失败保持静默，正式发送仍按原错误路径向用户报告。
+6. 历史会话的“编辑重发”不是普通发送：必须先关闭可能错误的温会话，从持久 JSONL 恢复后，
+   再用原消息定位 `entryId` 并执行 `fork`。只有编辑第一条消息时才允许 fresh；已有前文却无法
+   定位编辑点时停止发送并保留 UI/JSONL，不能清空 `piSessionFile` 静默降级。
 
 ## 流程
 
@@ -39,3 +42,5 @@ flowchart LR
 - `packages/core/personal/pi-session.ts`：`ensurePiSession()` 负责 open、switch、getState 校准和 live handle。
 - `packages/core/personal/messages.test.ts`：模拟调用方持有旧对象、store 已有历史路径的真实竞态；预热和
   正式发送都必须调用 `piSwitchSession(history.jsonl)`，且不得被 fresh JSONL 覆盖。
+- `packages/views/cortex-desktop/personal/chat/PersonalChatArea.test.tsx`：覆盖冷历史会话的编辑重发，
+  断言严格按 `switchSession → getForkMessages → fork → prompt` 执行并保留历史指针。

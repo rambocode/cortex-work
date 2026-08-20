@@ -252,7 +252,7 @@
     "docSaveFailed": "⚠️ Failed to save document: {{error}}",
     "startTimeout": "⚠️ Startup timed out: no response from {{name}} within {{secs}}s, this call has been stopped. Please check whether the CLI is working, then hover over the previous message and click \"Edit and resend\" to retry.",
     "stallTimeout": "⚠️ Response timed out: no new output for {{secs}}s, this call has been stopped. You can hover over the previous message and click \"Edit and resend\" to retry.",
-    "piForkFailed": "⚠️ Could not locate the edit point on the pi side; resent with the original context (pi still remembers the content before the edit).",
+    "piForkFailed": "Could not safely locate the edit point in the historical session, so nothing was sent. Retry, or send the revised content as a new message.",
     "switchModelFailed": "⚠️ Failed to switch model, rolled back to the original model.",
     "switchThinkingFailed": "⚠️ Failed to switch thinking strength, rolled back."
   },

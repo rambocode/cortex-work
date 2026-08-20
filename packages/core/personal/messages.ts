@@ -3256,8 +3256,14 @@ function withLatestPiResumePointers(session: SessionMeta): SessionMeta {
   // 切换配置时一次已经开始的发送在中途改变执行语义。
   return {
     ...session,
-    piSessionFile: current.piSessionFile,
-    artifactSessionIds: current.artifactSessionIds,
+    // store 中字段缺失可能只是调用方刚拿到更新快照、订阅尚未追上；只有 own-property 才代表
+    // 权威态明确提供（包括显式 undefined 清空）。否则保留调用方已有指针。
+    piSessionFile: Object.prototype.hasOwnProperty.call(current, "piSessionFile")
+      ? current.piSessionFile
+      : session.piSessionFile,
+    artifactSessionIds: Object.prototype.hasOwnProperty.call(current, "artifactSessionIds")
+      ? current.artifactSessionIds
+      : session.artifactSessionIds,
   };
 }
 
@@ -4870,27 +4876,49 @@ export function usePersonalActions(): PersonalActions {
       const originalFiles = editedMsg?.kind === "text" ? editedMsg.files : undefined;
 
       // pi:在 pi 侧 fork 到分支点（替代 trimAgentSession 截断会话文件）,再以新文本重发。
-      // 映射失败/会话未开 → best-effort 退化:只截断 UI + 重发;不再把降级细节写进聊天正文。
+      // 冷历史会话必须先恢复持久 JSONL；有前文却无法 fork 时停止发送，绝不能清空历史指针后
+      // fresh 重发——那会让「编辑最后一问」表现成完全不知道此前对话。
       if (session.agent === "pi") {
         // 防御性:editResend 因 :1525 running 守卫在待答期不可达,但万一卡已 resolve 仍有残留,fork 前清掉,
         // 避免旧轮卡串入新轮（覆盖「卡已 resolve、新一轮未起」的窗口）。
         usePersonalStore.getState().clearPiUiForSession(session.id);
+        const artifact = artifactDispatch?.artifact;
+        let sendSession = withLatestPiResumePointers(session);
+        // 普通聊天的历史指针存在时，编辑前强制按该文件重建一个干净 live session。即使内存里
+        // 恰好有同 id 的预热句柄，也可能是此前 fresh 打开的错误上下文；先关再恢复最确定。
+        if (truncated.length > 0 && !artifact && sendSession.piSessionFile) {
+          await closePiSession(bridge, session.id);
+          usePersonalStore.getState().setPiRuntime(session.id, undefined);
+          await prewarmPiSession(qc, bridge, sendSession, projectPath);
+          sendSession = withLatestPiResumePointers(sendSession);
+        }
         const forked = await forkPiAtEditedMessage(bridge, session.id, prev, msgUid).catch(() => false);
+        // 第一条用户消息之前没有上下文，fork 不可用时 fresh 重发是正确语义；只要截断点前仍有
+        // 真实消息，就必须保留 UI 与 JSONL，不允许把一次定位失败升级成整段历史丢失。
+        if (!forked && truncated.length > 0) {
+          appendMsg(qc, session.id, {
+            kind: "text",
+            who: "pi",
+            time: realHHMM(),
+            text: t("chat:core.piForkFailed"),
+            uid: uid("err"),
+          });
+          flushChat(qc, session.id);
+          return;
+        }
         // truncated 已过 sanitizeForSave，旧的报错提示（含历史 piForkFailed）已被剥离，无需再单独清理。
         qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
         // 截断掉的那些轮,其过程归档已失去锚点消息 → 一并修剪,免得挂到错误的位置上。
         pruneProcessArchives(qc, session.id);
         flushChat(qc, session.id);
-        let sendSession = session;
         if (!forked) {
           await closePiSession(bridge, session.id);
           usePersonalStore.getState().setPiRuntime(session.id, undefined);
-          const artifact = artifactDispatch?.artifact;
           const patch = artifact
-            ? clearArtifactSessionPatch(session, artifactResumeKey(session, artifact))
+            ? clearArtifactSessionPatch(sendSession, artifactResumeKey(sendSession, artifact))
             : { piSessionFile: undefined };
           usePersonalStore.getState().updateSession(session.id, patch);
-          sendSession = { ...session, ...patch };
+          sendSession = { ...sendSession, ...patch };
         }
         await send(
           sendSession,

@@ -957,6 +957,89 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     expect((b.startCli as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
   });
 
+  it("Pi 历史会话冷启动后编辑重发：先恢复 JSONL 再 fork，不能清空历史指针 fresh 重发", async () => {
+    const sessionId = "s-history-edit";
+    const historyFile = "/sessions/history.jsonl";
+    const piSession: SessionMeta = {
+      id: sessionId,
+      projectId: "p1",
+      title: "历史会话",
+      agent: "pi",
+      piSessionFile: historyFile,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    const stale: Message[] = [
+      { kind: "text", who: "me", time: "10:00", uid: "u1", text: "这个项目文件数多少" },
+      { kind: "text", who: "pi", time: "10:01", uid: "a1", text: "近 2 万个文件（含依赖）" },
+      { kind: "text", who: "me", time: "10:02", uid: "u2", text: "不含 node_modules 和构建产物" },
+      { kind: "text", who: "pi", time: "10:03", uid: "a2", text: "旧回答" },
+    ];
+    const qc = new QueryClient();
+    qc.setQueryData(personalChatKeys.detail(sessionId), stale);
+    usePersonalStore.setState({
+      homeOpen: false,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
+      sessions: [piSession],
+      activeProjectId: "p1",
+      activeSessionId: sessionId,
+      agentsAvailable: { claude: true, codex: true, pi: true },
+      roles: [],
+      runningBySession: {},
+      piRuntimeBySession: {},
+    });
+    const piSwitchSession = vi.fn(async () => undefined);
+    const piGetForkMessages = vi.fn(async () => ({
+      messages: [
+        { entryId: "entry-u1", text: "这个项目文件数多少" },
+        { entryId: "entry-u2", text: "不含 node_modules 和构建产物" },
+      ],
+    }));
+    const piFork = vi.fn(async () => undefined);
+    const piPrompt = vi.fn(async () => undefined);
+    const b = {
+      loadChat: async () => stale,
+      saveChat: vi.fn(async () => undefined),
+      piSkillsList: vi.fn(async () => []),
+      piOpen: vi.fn(async () => ({
+        uiSessionId: sessionId,
+        sessionId: "pi-fresh",
+        sessionFile: "/sessions/fresh.jsonl",
+      })),
+      piSwitchSession,
+      piGetState: vi.fn(async () => ({ sessionId: "pi-history", sessionFile: historyFile })),
+      piGetForkMessages,
+      piFork,
+      piPrompt,
+      onPiEvent: vi.fn(() => () => undefined),
+      onPiUiRequest: vi.fn(() => () => undefined),
+      onPiUiCancel: vi.fn(() => () => undefined),
+      piUiResponse: vi.fn(async () => undefined),
+      piAbort: vi.fn(async () => undefined),
+      piClose: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge;
+
+    let editResendFn: ReturnType<typeof usePersonalActions>["editResend"] | undefined;
+    render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={b} queryClient={qc}>
+        <PersonalChatArea onToast={() => {}} />
+        <EditResendProbe onReady={(fn) => (editResendFn = fn)} />
+      </CoreProvider>,
+    );
+    await screen.findByText("旧回答");
+
+    await act(async () => {
+      await editResendFn!(piSession, "/code/alpha", "u2", "不含依赖和构建产物", []);
+    });
+
+    expect(piSwitchSession).toHaveBeenCalledWith(sessionId, historyFile);
+    expect(piGetForkMessages).toHaveBeenCalledWith(sessionId);
+    expect(piFork).toHaveBeenCalledWith(sessionId, "entry-u2");
+    expect(piPrompt).toHaveBeenCalledOnce();
+    expect(usePersonalStore.getState().sessions[0]?.piSessionFile).toBe(historyFile);
+    usePersonalStore.getState().setRunning(sessionId, undefined);
+  });
+
   it("Pi 编辑重发 fork 失败时不再显示定位告警,并清理旧告警", async () => {
     const qc = new QueryClient();
     const piSession: SessionMeta = {

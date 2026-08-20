@@ -236,7 +236,7 @@ export default interface Resources {
       "piEmptyReply": "⚠️ 模型本轮未生成最终答复，请重试。",
       "piExited": "⚠️ pi 会话已退出{{detail}}。下次发送将自动重启并恢复上下文。",
       "piExitedDetail": "：{{error}}",
-      "piForkFailed": "⚠️ 未能在 pi 侧定位编辑点,已带原有上下文重发（pi 仍记得被编辑前的内容）。",
+      "piForkFailed": "无法安全定位历史会话中的编辑点，本次未发送。请重试，或将修改后的内容作为新消息发送。",
       "piReplyTruncated": "⚠️ 回复因上下文或输出上限被截断。已保留当前内容。",
       "piStartFailed": "⚠️ pi 会话启动失败：{{message}}",
       "processExit": "进程退出码 {{code}}",
