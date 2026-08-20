@@ -37,6 +37,7 @@ import {
   buildAttachmentSystemPrompt,
   buildTurnPromptText,
   buildGlobalAppend,
+  buildPiRecentConversationContext,
   buildSingleSendSkillInjection,
   piEntryMatchesText,
   clearAgentSessionPatch,
@@ -1141,6 +1142,26 @@ describe("buildTurnPromptText 附件块并入 prompt 文本（续轮留存）", 
 
   it("纯附件无文本（如纯图发送）→ 仅附件块", () => {
     expect(buildTurnPromptText("", '<skill name="a">x</skill>')).toBe('<skill name="a">x</skill>');
+  });
+});
+
+describe("buildPiRecentConversationContext 历史会话最近一轮上下文", () => {
+  it("只取最近一个完整问答，忽略更早历史和尾部未回答用户消息", () => {
+    const messages: Message[] = [
+      { kind: "text", who: "me", time: "10:00", uid: "u-old", text: "更早的问题" },
+      { kind: "text", who: "pi", time: "10:01", uid: "a-old", text: "更早的回答" },
+      { kind: "text", who: "me", time: "10:02", uid: "u-last", text: "这个项目文件数多少" },
+      { kind: "text", who: "pi", time: "10:03", uid: "a-last", text: "近 2 万个文件（含依赖）" },
+      { kind: "turnUsage", who: "pi", time: "10:03", uid: "usage", runId: "r1" },
+      { kind: "text", who: "me", time: "10:04", uid: "u-current", text: "不含依赖和构建产物" },
+    ];
+
+    const context = buildPiRecentConversationContext(messages);
+    expect(context).toContain("这个项目文件数多少");
+    expect(context).toContain("近 2 万个文件（含依赖）");
+    expect(context).not.toContain("更早的问题");
+    expect(context).not.toContain("更早的回答");
+    expect(context).not.toContain("不含依赖和构建产物");
   });
 });
 

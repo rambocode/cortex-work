@@ -979,7 +979,7 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
     expect((b.startCli as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
   });
 
-  it("Pi 历史会话冷启动后编辑重发：先恢复 JSONL 再 fork，不能清空历史指针 fresh 重发", async () => {
+  it("Pi 历史会话编辑重发只带最近一个完整问答，不恢复整段 JSONL", async () => {
     const sessionId = "s-history-edit";
     const historyFile = "/sessions/history.jsonl";
     const piSession: SessionMeta = {
@@ -1018,7 +1018,7 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       ],
     }));
     const piFork = vi.fn(async () => undefined);
-    const piPrompt = vi.fn(async () => undefined);
+    const piPrompt = vi.fn(async (_sessionId: string, _message: string) => undefined);
     const b = {
       loadChat: async () => stale,
       saveChat: vi.fn(async () => undefined),
@@ -1054,11 +1054,16 @@ describe("PersonalChatArea editResend 截断后中栏不闪回旧 agentLog（U5�
       await editResendFn!(piSession, "/code/alpha", "u2", "不含依赖和构建产物", []);
     });
 
-    expect(piSwitchSession).toHaveBeenCalledWith(sessionId, historyFile);
-    expect(piGetForkMessages).toHaveBeenCalledWith(sessionId);
-    expect(piFork).toHaveBeenCalledWith(sessionId, "entry-u2");
+    expect(piSwitchSession).not.toHaveBeenCalled();
+    expect(piGetForkMessages).not.toHaveBeenCalled();
+    expect(piFork).not.toHaveBeenCalled();
     expect(piPrompt).toHaveBeenCalledOnce();
-    expect(usePersonalStore.getState().sessions[0]?.piSessionFile).toBe(historyFile);
+    const prompt = (piPrompt.mock.calls[0]?.[1] as string) ?? "";
+    expect(prompt).toContain("这个项目文件数多少");
+    expect(prompt).toContain("近 2 万个文件（含依赖）");
+    expect(prompt).toContain("不含依赖和构建产物");
+    expect(prompt).not.toContain("不含 node_modules 和构建产物");
+    expect(usePersonalStore.getState().sessions[0]?.piSessionFile).toBe("/sessions/fresh.jsonl");
     usePersonalStore.getState().setRunning(sessionId, undefined);
   });
 

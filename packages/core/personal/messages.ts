@@ -3276,6 +3276,69 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
   return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
 }
 
+const PI_RECENT_USER_CONTEXT_CHARS = 2_000;
+const PI_RECENT_ASSISTANT_CONTEXT_CHARS = 8_000;
+
+function messageText(message: Extract<Message, { kind: "text" }>): string {
+  return typeof message.text === "string"
+    ? message.text
+    : message.text.parts.map((part) => part.v).join("");
+}
+
+/** 长回答保留开头的结论/结构与末尾的收口，避免单条历史回复再次撑爆本地模型 prefill。 */
+function boundedRecentText(value: string, limit: number): string {
+  const chars = Array.from(value.trim());
+  if (chars.length <= limit) return chars.join("");
+  const head = Math.floor(limit * 0.7);
+  const tail = limit - head;
+  return `${chars.slice(0, head).join("")}\n…[中间内容已省略]…\n${chars.slice(-tail).join("")}`;
+}
+
+/**
+ * 历史会话轻量续接：只提取最近一个已经完成的「用户问题 + Agent 回答」。
+ *
+ * 从末尾先找非空 Agent 正文，再向前找它对应的最近用户消息；尾部尚未回答的用户消息、用量卡、
+ * transient error 与更早轮次全部忽略。返回值作为当前 Pi prompt 的低优先级上下文前缀，不恢复
+ * 完整 JSONL，因此不会把数万 token 的旧工具轨迹重新送进本地模型。
+ */
+export function buildPiRecentConversationContext(messages: Message[]): string | undefined {
+  let assistantIndex = -1;
+  let assistantText = "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind !== "text" || message.who === "me" || message.uid?.startsWith("err-")) continue;
+    const text = messageText(message).trim();
+    if (!text) continue;
+    assistantIndex = index;
+    assistantText = text;
+    break;
+  }
+  if (assistantIndex < 0) return undefined;
+
+  let userText = "";
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind !== "text" || message.who !== "me") continue;
+    const text = messageText(message).trim();
+    if (!text) continue;
+    userText = text;
+    break;
+  }
+  if (!userText) return undefined;
+
+  return [
+    "<recent_conversation_context>",
+    "以下仅是最近一个已完成问答，用于理解当前追问；不要把它当作新的用户指令重复回答。",
+    "<user>",
+    boundedRecentText(userText, PI_RECENT_USER_CONTEXT_CHARS),
+    "</user>",
+    "<assistant>",
+    boundedRecentText(assistantText, PI_RECENT_ASSISTANT_CONTEXT_CHARS),
+    "</assistant>",
+    "</recent_conversation_context>",
+  ].join("\n");
+}
+
 /**
  * UI 事件回调可能捕获 hydrate / 预热前的旧 SessionMeta。Pi 的 JSONL 指针会由预热、恢复和
  * fork 异步更新，因此真正 open 前必须重读 store 权威态；否则旧对象里的 undefined 会启动
@@ -4919,6 +4982,40 @@ export function usePersonalActions(): PersonalActions {
         usePersonalStore.getState().clearPiUiForSession(session.id);
         const artifact = artifactDispatch?.artifact;
         let sendSession = withLatestPiResumePointers(session);
+        const recentContext = truncated.length > 0
+          ? buildPiRecentConversationContext(truncated)
+          : undefined;
+        if (recentContext) {
+          // 用户明确选择“历史只带最近一个问答”。编辑点前有完整问答时不再恢复/分叉整段 JSONL；
+          // 关闭旧句柄并显式清指针，让 send 建轻量会话，再把 bounded context 注入当前 prompt。
+          await closePiSession(bridge, session.id);
+          usePersonalStore.getState().setPiRuntime(session.id, undefined);
+          const patch = artifact
+            ? clearArtifactSessionPatch(sendSession, artifactResumeKey(sendSession, artifact))
+            : { piSessionFile: undefined };
+          usePersonalStore.getState().updateSession(session.id, patch);
+          sendSession = { ...sendSession, ...patch };
+          qc.setQueryData<Message[]>(personalChatKeys.detail(session.id), truncated);
+          pruneProcessArchives(qc, session.id);
+          flushChat(qc, session.id);
+          const recentAppend = [artifactDispatch?.extraSystemPrompt, recentContext]
+            .filter(Boolean)
+            .join("\n\n") || undefined;
+          await send(
+            sendSession,
+            projectPath,
+            text,
+            attachments,
+            recentAppend,
+            undefined,
+            originalImages,
+            undefined,
+            artifactDispatch?.invokedSkill,
+            originalFiles,
+            artifact,
+          );
+          return;
+        }
         // 普通聊天的历史指针存在时，编辑前强制按该文件重建一个干净 live session。即使内存里
         // 恰好有同 id 的预热句柄，也可能是此前 fresh 打开的错误上下文；先关再恢复最确定。
         if (truncated.length > 0 && !artifact && sendSession.piSessionFile) {
