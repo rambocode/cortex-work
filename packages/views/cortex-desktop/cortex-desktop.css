@@ -4384,6 +4384,22 @@ button.sb-row {
 .pw-session-act { width: auto; padding: 3px; }
 .pw-session-act.is-danger, .pw-session-act.is-danger svg { color: var(--red); }
 .pw-session-act.is-danger:hover { background: var(--red-soft); }
+/* 会话运行状态徽标:置于标题左侧 26px 缩进空白区(定位锚是 .pw-session-row)。
+   三态:confirm(等确认,琥珀,急促脉冲+光环,提示需要行动) > running(主色,呼吸) > ok/fail(绿/红,静态)。
+   绝对定位避开右侧 hover 操作按钮与时间显隐逻辑;pw-traj-pulse keyframes 复用轨迹面板既有定义。 */
+.pw-session-status {
+  position: absolute; left: 19px; top: 50%; transform: translateY(-50%);
+  width: 6px; height: 6px; border-radius: 50%;
+  pointer-events: none;
+}
+.pw-session-status.is-running { background: var(--accent); animation: pw-traj-pulse 1.2s ease-in-out infinite; }
+.pw-session-status.is-confirm {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent);
+  animation: pw-traj-pulse 0.8s ease-in-out infinite;
+}
+.pw-session-status.is-ok { background: var(--green); }
+.pw-session-status.is-fail { background: var(--red); }
 .pw-empty-hint { padding: 4px 8px 8px 34px; font-size: 11.5px; color: var(--text-4); }
 
 /* 「展开显示 / 折叠显示」按钮:分组内会话超 5 条时的显隐切换。缩进对齐会话行标题(26px),

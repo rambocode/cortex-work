@@ -51,6 +51,40 @@ function SessionRow({
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const archived = session.archivedAt != null;
 
+  // 会话运行状态徽标三态派生:等待确认 > 正在运行 > 已结束(仅非活跃行)。
+  // 三个 selector 均返回布尔/store 内稳定引用——96+ 会话时避免整 map/数组订阅引发全列表重渲。
+  // 「等确认」谓词与 PiToolConfirmDialog(confirm)/AskQuestionCard(askquestion)一致,
+  // jsrepl/select/input 等不弹 UI 的 method 天然排除;delegate 子会话审批已映射到父会话 uiSessionId。
+  const awaitingConfirm = usePersonalStore((s) =>
+    s.piUiPending.some(
+      (p) =>
+        p.uiSessionId === session.id &&
+        (p.request.method === "confirm" || p.request.method === "askquestion"),
+    ),
+  );
+  const running = usePersonalStore((s) => Boolean(s.runningBySession[session.id]));
+  const outcome = usePersonalStore((s) => s.runOutcomeBySession[session.id]);
+  // 读侧 !active 与写侧 markRunOutcome 的 active 守卫、setActiveSession 清除构成三道保险。
+  const status = awaitingConfirm
+    ? ("confirm" as const)
+    : running
+      ? ("running" as const)
+      : !active && outcome
+        ? outcome.ok
+          ? ("ok" as const)
+          : ("fail" as const)
+        : null;
+  const statusLabel =
+    status === "confirm"
+      ? "等待确认"
+      : status === "running"
+        ? "正在运行"
+        : status === "ok"
+          ? `已完成 · ${relTime(outcome?.endedAt ?? Date.now())}`
+          : status === "fail"
+            ? `已失败 · ${relTime(outcome?.endedAt ?? Date.now())}`
+            : undefined;
+
   const commitRename = () => {
     if (renameDraft === null) return;
     renameSession(session.id, renameDraft);
@@ -123,6 +157,15 @@ function SessionRow({
             event.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
           }}
         >
+          {status ? (
+            // 状态点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
+            <span
+              className={`pw-session-status is-${status}`}
+              data-status={status}
+              title={statusLabel}
+              aria-label={statusLabel}
+            />
+          ) : null}
           <span className="pw-session-title">{session.title}</span>
           <span className="pw-session-time">{relTime(session.updatedAt)}</span>
         </button>

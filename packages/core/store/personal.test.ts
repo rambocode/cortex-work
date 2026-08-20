@@ -1916,3 +1916,61 @@ describe("toPersistedState 白名单", () => {
     });
   });
 });
+
+describe("会话运行终局徽标（runOutcomeBySession,看过即清）", () => {
+  const sessA: SessionMeta = { id: "sa", title: "A", agent: "pi", createdAt: 1, updatedAt: 1 };
+
+  // 每例独立铺底,防跨用例瞬态污染。
+  function reset(activeSessionId?: string) {
+    usePersonalStore.setState({
+      sessions: [sessA],
+      activeSessionId,
+      runOutcomeBySession: {},
+      runningBySession: {},
+    });
+  }
+
+  it("markRunOutcome 对非 active 会话写入终局", () => {
+    reset(undefined);
+    usePersonalStore.getState().markRunOutcome("sa", true);
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toMatchObject({ ok: true });
+  });
+
+  it("markRunOutcome 对 active 会话 no-op（用户正看着,不打徽标）", () => {
+    reset("sa");
+    usePersonalStore.getState().markRunOutcome("sa", false);
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toBeUndefined();
+  });
+
+  it("setActiveSession 清除该会话终局（看过即清）,不动其它会话", () => {
+    reset(undefined);
+    const store = usePersonalStore.getState();
+    store.markRunOutcome("sa", true);
+    store.markRunOutcome("sb", false);
+    usePersonalStore.getState().setActiveSession("sa");
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toBeUndefined();
+    expect(usePersonalStore.getState().runOutcomeBySession.sb).toMatchObject({ ok: false });
+  });
+
+  it("setRunning 带 runId（新一轮开始）清终局;清 runId（收尾）不动终局", () => {
+    reset(undefined);
+    usePersonalStore.getState().markRunOutcome("sa", false);
+    usePersonalStore.getState().setRunning("sa", "run-2");
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toBeUndefined();
+
+    usePersonalStore.getState().markRunOutcome("sa", true);
+    usePersonalStore.getState().setRunning("sa", undefined);
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toMatchObject({ ok: true });
+  });
+
+  it("clearRunOutcome 清除;对无值会话保持原引用（no-op 不触发订阅）", () => {
+    reset(undefined);
+    usePersonalStore.getState().markRunOutcome("sa", true);
+    usePersonalStore.getState().clearRunOutcome("sa");
+    expect(usePersonalStore.getState().runOutcomeBySession.sa).toBeUndefined();
+
+    const before = usePersonalStore.getState().runOutcomeBySession;
+    usePersonalStore.getState().clearRunOutcome("nope");
+    expect(usePersonalStore.getState().runOutcomeBySession).toBe(before);
+  });
+});
