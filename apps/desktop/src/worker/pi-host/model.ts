@@ -60,10 +60,17 @@ export function createWorkerModelResolver(
     await applyCustomProvider(runtime, req, readNamedSecret);
     applyBaseUrlOverride(runtime, req);
 
-    const providerId = req.providerId?.trim();
+    const rawProviderId = req.providerId?.trim();
     // 没有 providerId 时**不猜模型**（与 `providers/default-model.ts` 的「两段必须成套」同源），
     // 但仍然要把 modelRuntime 交出去——它承载的是整个注册表与凭据通道，不只是被选中的那一个。
-    if (!providerId) return { modelRuntime: runtime };
+    if (!rawProviderId) return { modelRuntime: runtime };
+
+    // 查找 id 与注册口径对齐：注册侧（applyCustomProvider / custom-provider-builder）一律用
+    // `safeId`，这里若拿原样 id（可能含大写、点号）去查，自定义供应商会被误报「模型不存在」。
+    // 精确优先、safeId 兜底，与主进程 pi-runtime.ts 的 resolveKnownProviderId 同口径。
+    const providerId = runtime.getProviders().some((p) => p.id === rawProviderId)
+      ? rawProviderId
+      : safeId(rawProviderId);
 
     const model = req.model ? runtime.getModel(providerId, req.model) : runtime.getModels(providerId)[0];
     if (!model) {
@@ -71,12 +78,36 @@ export function createWorkerModelResolver(
       // 换成一个用户从没选过的供应商——用户以为在用选定模型、实际不是。宁可开会话失败。
       throw new Error(
         req.model
-          ? `模型不存在：${providerId}/${req.model}。请在「设置 → 模型服务」中检查该供应商与模型是否仍存在。`
-          : `供应商「${providerId}」没有可用模型，无法启动会话。请在「设置 → 模型服务」中检查其配置。`,
+          ? `模型不存在：${rawProviderId}/${req.model}。请在「设置 → 模型服务」中检查该供应商与模型是否仍存在。`
+          : `供应商「${rawProviderId}」没有可用模型，无法启动会话。请在「设置 → 模型服务」中检查其配置。`,
       );
     }
+    // 连接测试 resolve 步 detail 在聊天路径上的对应物：报错「执行出错：400 …」时，
+    // 凭这条日志才能知道请求实际用的 provider/model/端点。baseUrl 只记 host（脱敏，
+    // 用户会整段日志贴进 issue，path/query 可能带网关 token）。
+    log.info("会话模型已解析", {
+      providerId,
+      modelId: modelDescriptor(model).id,
+      api: modelDescriptor(model).api,
+      baseUrlHost: hostOf(modelDescriptor(model).baseUrl),
+    });
     return { modelRuntime: runtime, model };
   };
+}
+
+/** 模型对象的日志视图收窄：`ModelRuntimeLike` 刻意用 unknown 承载 pi 模型，读字段前先窄化。 */
+function modelDescriptor(model: unknown): { id?: string; api?: string; baseUrl?: string } {
+  return (model ?? {}) as { id?: string; api?: string; baseUrl?: string };
+}
+
+/** 取 baseUrl 的 host 部分做脱敏日志；畸形 URL 不能让日志代码把开会话流程炸掉。 */
+function hostOf(baseUrl: string | undefined): string {
+  if (!baseUrl) return "";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl.slice(0, 40);
+  }
 }
 
 /** 把本次 open 对应的自定义定义同步进 worker 注册表；只传定义，不传任何 Secret 真值。 */

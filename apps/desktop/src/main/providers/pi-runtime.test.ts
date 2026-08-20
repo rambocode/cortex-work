@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   /** 记录 completeSimple 实际收到的模型（用于断言 baseUrl 覆盖已生效）。 */
   lastModel: undefined as { id: string; baseUrl: string } | undefined,
   stopReason: "end_turn" as string,
+  /** 注册表里存在的供应商 id（注册侧一律 safeId 后的键，见 custom-provider-builder）。 */
+  providers: ["acme"] as string[],
 }));
 
 vi.mock("./prefs", () => ({ getBaseUrlOverride: (id: string) => state.overrides[id] }));
@@ -19,14 +21,20 @@ vi.mock("./custom-provider-registry", () => ({ syncCustomProvidersInto: async ()
 vi.mock("../log", () => ({ createLogger: () => ({ error: () => undefined, warn: () => undefined }) }));
 
 // pi-ai 是纯 ESM 且经变量 specifier 动态 import（见 pi-runtime 文件头）；这里按同一路径拦截。
+// 注册表只认 state.providers 里的 id：getModel 对未注册 id 返回 undefined，
+// 这样才能真正断言「精确优先、safeId 归一兜底」的两步语义（见 resolveKnownProviderId）。
 vi.mock("@earendil-works/pi-ai/providers/all", () => ({
   builtinModels: () => ({
-    getModel: (providerId: string, modelId: string) => ({
-      id: modelId,
-      provider: providerId,
-      api: "openai-completions",
-      baseUrl: "https://official.example/v1",
-    }),
+    getProviders: () => state.providers.map((id) => ({ id })),
+    getModel: (providerId: string, modelId: string) =>
+      state.providers.includes(providerId)
+        ? {
+            id: modelId,
+            provider: providerId,
+            api: "openai-completions",
+            baseUrl: "https://official.example/v1",
+          }
+        : undefined,
     getModels: () => [],
     checkAuth: async () => ({ type: "api-key", source: "ACME_API_KEY" }),
     completeSimple: async (model: { id: string; baseUrl: string }) => {
@@ -48,6 +56,7 @@ beforeEach(() => {
   state.overrides = {};
   state.lastModel = undefined;
   state.stopReason = "end_turn";
+  state.providers = ["acme"];
   // 传 null 会连带清掉缓存的 models promise，保证各用例互不串。
   setPiAuthRuntimeForTests(null);
 });
@@ -100,5 +109,21 @@ describe("probe 的端点解析", () => {
     expect(state.lastModel?.baseUrl).toBe("https://my-gw.example/v1");
     // resolve 步的 detail 也要如实报出生效端点，这是面板上「发去哪儿」的唯一凭据。
     expect(steps.find((s) => s.id === "resolve" && s.state === "ok")?.detail).toContain("https://my-gw.example/v1");
+  });
+});
+
+describe("probe 的供应商 id 归一（精确优先、safeId 兜底）", () => {
+  it("大写/含点号 id 查不到精确项时按 safeId 归一（注册侧从来就是 safeId 键）", async () => {
+    state.providers = ["my-provider"];
+    await expect(getPiAuthRuntime().probe("My.Provider", "m-1")).resolves.toEqual({ modelId: "m-1" });
+  });
+
+  it("精确命中的 id 不被归一改写（保护内建 id）", async () => {
+    state.providers = ["My.Exact"];
+    await expect(getPiAuthRuntime().probe("My.Exact", "m-1")).resolves.toEqual({ modelId: "m-1" });
+  });
+
+  it("归一后仍查不到 → 仍以原样 id 响亮报错（错误文案面向用户输入）", async () => {
+    await expect(getPiAuthRuntime().probe("No.Such", "m-1")).rejects.toThrow("模型不存在：No.Such/m-1");
   });
 });

@@ -129,6 +129,32 @@ describe("createWorkerModelResolver", () => {
     expect(readNamedSecret).toHaveBeenCalledWith("CUSTOM_OLLAMA_API_KEY");
   });
 
+  it("大写/含点号的自定义供应商 id → 查找按 safeId 归一兜底（注册侧从来就是 safeId 键）", async () => {
+    const { runtime } = fakeRuntime();
+    mockModule(runtime);
+    const req = omlxRequest();
+    await expect(
+      createWorkerModelResolver(CREDENTIALS)({
+        ...req,
+        providerId: "My.Ollama",
+        customProvider: { id: "My.Ollama", json: req.customProvider!.json },
+      }),
+    ).resolves.toMatchObject({
+      // safeId("My.Ollama") === "my-ollama"：注册与查找两侧同口径，才不会误报「模型不存在」。
+      model: { id: "Qwen3.8-27B-oQ4e-mtp", provider: "my-ollama" },
+    });
+  });
+
+  it("精确命中的 id 不被归一改写（保护内建 id）", async () => {
+    const { runtime } = fakeRuntime({
+      providers: [{ id: "My.Exact" }],
+      models: { "My.Exact": [{ id: "m1", provider: "My.Exact" }] },
+    });
+    mockModule(runtime);
+    const sel = await createWorkerModelResolver(CREDENTIALS)({ ...BASE, providerId: "My.Exact", model: "m1" });
+    expect(sel.model).toEqual({ id: "m1", provider: "My.Exact" });
+  });
+
   it("只有 providerId → 取该供应商第一个模型", async () => {
     const { runtime } = fakeRuntime();
     mockModule(runtime);

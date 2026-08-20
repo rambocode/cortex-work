@@ -28,6 +28,7 @@ import type {
 
 import type { ProviderConnectionTestStep } from "./contract";
 import { createLogger } from "../log";
+import { safeId } from "../agents/pi-providers";
 import { createSafeStorageCredentialStore } from "./credentials";
 import { syncCustomProvidersInto } from "./custom-provider-registry";
 import { getBaseUrlOverride } from "./prefs";
@@ -157,6 +158,21 @@ async function runStep<T>(
   }
 }
 
+/**
+ * 供应商 id 解析：**精确优先、safeId 归一兜底**。
+ *
+ * 注册侧（custom-provider-registry / custom-provider-builder / pi-inproc-models）一律以
+ * `safeId(id)` 为键，而 probe / Gateway 收到的是渲染端原样传来的 id（可能含大写、点号）。
+ * 两边口径不一致时，含大写 id 的自定义供应商会被误报「模型不存在」。
+ * 刻意不做全局无脑 safeId：先精确命中（保护内建 id 不被归一改写），查不到再归一兜底。
+ * 渲染端的同算法实现是 customProviderRules.ts 的 `slugifyProviderId`。
+ */
+function resolveKnownProviderId(models: MutableModels, providerId: string): string {
+  const id = providerId.trim();
+  if (models.getProviders().some((p) => p.id === id)) return id;
+  return safeId(id);
+}
+
 /** 响应步的摘要：停止原因 + token 用量 + 文本预览（截断，避免把整段回答塞进步骤条）。 */
 function describeResponse(message: AssistantMessage): string {
   const text = assistantText(message).replace(/\s+/g, " ").trim();
@@ -196,13 +212,16 @@ function createRealRuntime(): PiAuthRuntime {
 
       const models = await runStep(onStep, "runtime", getModels);
 
+      // 归一后的 id 贯穿 resolve / auth 两步：用原样 id 查 checkAuth 会对自定义供应商误报「未检测到凭据」。
+      const resolvedProviderId = resolveKnownProviderId(models, providerId);
+
       const model = await runStep(
         onStep,
         "resolve",
         async () => {
           const found: Model<Api> | undefined = modelId
-            ? models.getModel(providerId, modelId)
-            : models.getModels(providerId)[0];
+            ? models.getModel(resolvedProviderId, modelId)
+            : models.getModels(resolvedProviderId)[0];
           if (!found) {
             throw new Error(modelId ? `模型不存在：${providerId}/${modelId}` : `该 Provider 没有可用模型：${providerId}`);
           }
@@ -213,7 +232,7 @@ function createRealRuntime(): PiAuthRuntime {
 
       // 凭据只报「类型 + 来源标签」——明文永不出金库,更不进步骤流。
       // 查不到凭据不当失败处理:免认证的本地端点本来就没有,真不行会由 request 步如实报错。
-      await runStep(onStep, "auth", () => models.checkAuth(providerId), {
+      await runStep(onStep, "auth", () => models.checkAuth(resolvedProviderId), {
         describe: (check) => (check ? `${check.type}${check.source ? ` · ${check.source}` : ""}` : "未检测到凭据"),
       });
 
@@ -293,10 +312,16 @@ function createRealGatewayRuntime(): PiGatewayRuntime {
     // 同样贴 baseUrl 覆盖（见 withBaseUrlOverride）：否则 Reply / Research / 日报 / Writing
     // 会绕开用户配的自建网关去打官方端点，而连接测试与 CLI 会话都是走覆盖的——三条路必须一致。
     getModel: async (providerId, modelId) => {
-      const model = (await getModels()).getModel(providerId, modelId);
+      // 与 probe 同口径归一 id（见 resolveKnownProviderId）：Reply / Research / 日报 / Writing
+      // 引用含大写的自定义供应商时才查得到模型。
+      const models = await getModels();
+      const model = models.getModel(resolveKnownProviderId(models, providerId), modelId);
       return model ? withBaseUrlOverride(model) : undefined;
     },
-    isAuthenticated: async (providerId) => Boolean(await (await getModels()).checkAuth(providerId)),
+    isAuthenticated: async (providerId) => {
+      const models = await getModels();
+      return Boolean(await models.checkAuth(resolveKnownProviderId(models, providerId)));
+    },
     completeSimple: async (model, context, options) => (await getModels()).completeSimple(model, context, options),
     streamSimple: async (model, context, options) => (await getModels()).streamSimple(model, context, options),
   };

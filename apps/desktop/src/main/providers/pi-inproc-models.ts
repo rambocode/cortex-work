@@ -475,5 +475,23 @@ export async function resolvePiInprocModel(request: PiInprocModelRequest): Promi
         : `供应商「${request.providerId}」没有可用模型，无法启动会话。请在「设置 → 模型服务」中检查其配置。`,
     );
   }
+  // 连接测试 resolve 步 detail 在 in-proc 会话/Model Gateway 路径上的对应物（与 worker/pi-host/model.ts
+  // 同字段名，便于 grep）：排障时凭它确认请求实际用的 provider/model/端点。baseUrl 只记 host 脱敏。
+  log.info("会话模型已解析", {
+    providerId,
+    modelId: model.id,
+    api: model.api,
+    baseUrlHost: baseUrlHostOf(model.baseUrl),
+  });
   return { modelRuntime, model };
+}
+
+/** 取 baseUrl 的 host 做脱敏日志；畸形 URL 不能让日志代码影响开会话流程。 */
+function baseUrlHostOf(baseUrl: string | undefined): string {
+  if (!baseUrl) return "";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl.slice(0, 40);
+  }
 }
