@@ -24,7 +24,8 @@ export type ProcessActivityRow =
   | {
       kind: "reasoning";
       key: string;
-      label: string;
+      /** 完整思考正文；200 字预览与展开只属于渲染层，归档数据不能在这里被截断。 */
+      text: string;
       status: "running" | "done";
     }
   | {
@@ -36,9 +37,18 @@ export type ProcessActivityRow =
       status: "running" | "done" | "failed";
     }
   | {
-      kind: "command" | "tool";
+      kind: "file";
       key: string;
+      action: "modify" | "delete";
       label: string;
+      callId?: string;
+      status: "running" | "done" | "failed";
+      durationMs?: number;
+    }
+  | {
+      kind: "command";
+      key: string;
+      action: "execute";
       callId?: string;
       status: "running" | "done" | "failed";
       durationMs?: number;
@@ -171,6 +181,16 @@ export function toolEntryTarget(entry: Extract<ProcessEntry, { kind: "tool" }>):
 const COMMAND_TOOLS = new Set(["bash", "shell", "command", "exec", "run_command"]);
 const HIDDEN_ACTIVITY_TOOLS = new Set(["tool_search", "toolsearch"]);
 const TODO_TOOLS = new Set(["todo_write", "todowrite"]);
+const MODIFY_FILE_TOOLS = new Set([
+  "edit",
+  "write",
+  "apply_patch",
+  "edit_file",
+  "write_file",
+  "replace_file",
+  "patch_file",
+]);
+const DELETE_FILE_TOOLS = new Set(["delete", "remove", "unlink", "delete_file", "remove_file", "unlink_file"]);
 
 /** tool invocation 的稳定 callId；历史归档兼容旧格式时只能由 key 反推。 */
 function callIdOf(entry: Extract<ProcessEntry, { kind: "tool" }>): string | undefined {
@@ -178,15 +198,13 @@ function callIdOf(entry: Extract<ProcessEntry, { kind: "tool" }>): string | unde
   return key?.startsWith("tool-") ? key.slice("tool-".length) : undefined;
 }
 
-/** 仅在 cwd 之内相对化，防止把工作区外的真实位置伪装成项目文件。 */
-function displayPath(path: string, cwd: string | undefined): string {
-  if (!cwd || !path.startsWith(`${cwd}/`)) return path;
-  return path.slice(cwd.length + 1) || path;
-}
-
-/** 命令正文在台账中只能是一行；完整原文仍留在过程详情，不在这里改写。 */
-function compactCommand(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+/**
+ * 聊天流只显示文件名，绝不暴露工作区路径；POSIX 与 Windows 分隔符都在这里统一处理。
+ * 目标为空或只含分隔符时保留原值，避免伪造一个不存在的文件名。
+ */
+function displayFileName(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || path;
 }
 
 /** 过程摘要兼容 RichText；活动台账只需要无样式的可读文字，链接/代码样式由完整面板保留。 */
@@ -212,7 +230,6 @@ function entryDuration(entry: Extract<ProcessEntry, { kind: "tool" }>): number |
  */
 export function buildProcessPresentation(
   stages: ProcessStage[],
-  options: { cwd?: string } = {},
 ): ProcessPresentation {
   const summary: ProcessPresentation["summary"] = {
     steps: 0,
@@ -226,15 +243,20 @@ export function buildProcessPresentation(
 
   const presentationStages = stages.map((stage) => {
     const rows: ProcessActivityRow[] = [];
+    // 展示标签只留 basename，但计数仍按真实目标去重；否则 `src/a.ts` 与 `test/a.ts` 会被误算成
+    // 同一个文件。该集合不进入返回值，工作区路径不会泄露到聊天流的展示模型。
+    const readTargetsByRow = new Map<string, Set<string>>();
     for (const entry of stage.entries) {
       if (entry.kind === "reasoning") {
         const status = entry.message.active ? "running" : "done";
+        const text = plainText(entry.message.text).trim();
         const previous = rows.at(-1);
         // reasoning 是流式增量；同一段只保留一条最新状态，不能随着 token 增长堆出列表。
         if (previous?.kind === "reasoning") {
           previous.status = status;
+          previous.text = text || previous.text;
         } else {
-          rows.push({ kind: "reasoning", key: entry.key, label: "thinking", status });
+          rows.push({ kind: "reasoning", key: entry.key, text, status });
         }
         summary.steps += 1;
         summary.running ||= status === "running";
@@ -248,13 +270,17 @@ export function buildProcessPresentation(
       const target = toolEntryTarget(entry);
       const isRead = isReadTool(entry.item.toolName ?? entry.invocation?.name);
 
-      if (isRead && status !== "failed") {
-        const path = target ? displayPath(target, options.cwd) : plainText(entry.item.text);
+      if (isRead) {
+        const path = target ? displayFileName(target) : plainText(entry.item.text);
+        const identity = target ?? entry.key;
         const previous = rows.at(-1);
-        if (previous?.kind === "read-group" && previous.status !== "failed") {
+        if (status !== "failed" && previous?.kind === "read-group" && previous.status !== "failed") {
           if (!previous.labels.includes(path)) previous.labels.push(path);
           if (callId && !previous.callIds.includes(callId)) previous.callIds.push(callId);
-          previous.count = previous.labels.length;
+          const identities = readTargetsByRow.get(previous.key) ?? new Set<string>();
+          identities.add(identity);
+          readTargetsByRow.set(previous.key, identities);
+          previous.count = identities.size;
           previous.status = status;
         } else {
           rows.push({
@@ -265,31 +291,32 @@ export function buildProcessPresentation(
             callIds: callId ? [callId] : [],
             status,
           });
+          if (status !== "failed") readTargetsByRow.set(entry.key, new Set([identity]));
         }
-        successfulReadTargets.add(path);
+        if (status !== "failed") successfulReadTargets.add(target ?? path);
         summary.steps += 1;
+        if (status === "failed") summary.failed += 1;
         summary.running ||= status === "running";
         continue;
       }
 
       const command = COMMAND_TOOLS.has(name);
-      const label = command
-        ? compactCommand(inputTarget(entry.invocation?.input) ?? target ?? plainText(entry.item.text))
-        : target
-          ? `${entry.invocation?.name ?? entry.item.toolName ?? "tool"} · ${displayPath(target, options.cwd)}`
-          : plainText(entry.item.text);
-      const row: ProcessActivityRow = {
-        kind: command ? "command" : "tool",
+      const fileAction = MODIFY_FILE_TOOLS.has(name) ? "modify" : DELETE_FILE_TOOLS.has(name) ? "delete" : undefined;
+      const common = {
         key: entry.key,
-        label,
         ...(callId ? { callId } : {}),
         status,
         ...(entryDuration(entry) !== undefined ? { durationMs: entryDuration(entry) } : {}),
       };
+      // 文件动作只有拿到明确目标时才显示文件名；参数缺失时宁可降级成「执行命令」，不能把
+      // agentLog 的自由文本误当成文件名。完整名称、参数和输出仍保留在过程面板。
+      const row: ProcessActivityRow = fileAction && target
+        ? { kind: "file", action: fileAction, label: displayFileName(target), ...common }
+        : { kind: "command", action: "execute", ...common };
 
       // todo_write 的每个调用都是整表快照，连续快照只以最新状态替换前一个活动行。
       const previous = rows.at(-1);
-      if (TODO_TOOLS.has(name) && previous?.kind === "tool" && previous.key.startsWith("todo-")) {
+      if (TODO_TOOLS.has(name) && previous?.kind === "command" && previous.key.startsWith("todo-")) {
         rows[rows.length - 1] = { ...row, key: `todo-${entry.key}` };
       } else {
         rows.push(TODO_TOOLS.has(name) ? { ...row, key: `todo-${entry.key}` } : row);

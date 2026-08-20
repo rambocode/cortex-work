@@ -1,4 +1,5 @@
-// 个人会话内联工作过程：聊天流只呈现紧凑活动台账；原始 input/output/reasoning 永远留在完整过程面板。
+// 个人会话内联工作过程：聊天流呈现紧凑活动台账与最多 200 字的思考正文；原始工具
+// input/output 和完整思考仍留在当前数据模型中，可由行内展开或完整过程面板查看。
 //
 // 两个数据源，同一套渲染：
 //  - 当前轮：瞬态过程流(messages) + 瞬态原始事件(usePersonalRunEvents)，逐 token 实时更新；
@@ -32,7 +33,16 @@ function ProcessSpinner() {
   return <span className="pw-conversation-process-spinner" aria-hidden="true" />;
 }
 
-/** 轻量活动行；点击始终进入完整过程面板，聊天流绝不回退渲染终端/input/output。 */
+const REASONING_PREVIEW_CHARS = 200;
+
+/** 按 Unicode code point 截断，避免把 emoji/扩展字符从代理对中间切开。 */
+function reasoningPreview(text: string): { text: string; truncated: boolean } {
+  const characters = Array.from(text);
+  if (characters.length <= REASONING_PREVIEW_CHARS) return { text, truncated: false };
+  return { text: `${characters.slice(0, REASONING_PREVIEW_CHARS).join("")}…`, truncated: true };
+}
+
+/** 思考行在原位展开；工具行进入完整过程面板，聊天流绝不渲染原始 input/output。 */
 function ActivityRow({
   row,
   sessionId,
@@ -45,22 +55,32 @@ function ActivityRow({
   onOpen: (target: ProcessPanelTarget) => void;
 }) {
   const { t } = useTranslation("chat");
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const failed = row.status === "failed";
   const running = row.status === "running";
   const readableLabels = row.kind === "read-group" ? row.labels.slice(0, 3) : [];
+  const reasoning = row.kind === "reasoning" ? reasoningPreview(row.text) : undefined;
   const label =
     row.kind === "reasoning"
-      ? t(running ? "processInline.thinkingNow" : "processInline.thinking")
+      ? reasoningExpanded
+        ? row.text
+        : reasoning?.text || t(running ? "processInline.thinkingNow" : "processInline.thinking")
       : row.kind === "read-group"
         ? t(
             row.count > readableLabels.length ? "processInline.readFilesMore" : "processInline.readFiles",
             { files: readableLabels.join("、"), count: row.count },
           )
-        : row.label;
+        : row.kind === "file"
+          ? t(row.action === "modify" ? "processInline.modifyFile" : "processInline.deleteFile", { file: row.label })
+          : t("processInline.executeCommand");
   const duration = "durationMs" in row && row.durationMs !== undefined ? formatDuration(row.durationMs) : undefined;
   const toolCallId = row.kind === "read-group" ? row.callIds[0] : "callId" in row ? row.callId : undefined;
 
   const open = () => {
+    if (row.kind === "reasoning") {
+      if (reasoning?.truncated) setReasoningExpanded((value) => !value);
+      return;
+    }
     if (!sessionId) return;
     onOpen({
       sessionId,
@@ -77,13 +97,19 @@ function ActivityRow({
       data-kind={row.kind}
       data-active={running}
       data-error={failed}
+      data-expanded={row.kind === "reasoning" ? reasoningExpanded : undefined}
+      aria-expanded={row.kind === "reasoning" && reasoning?.truncated ? reasoningExpanded : undefined}
       onClick={open}
-      disabled={!sessionId}
+      disabled={row.kind === "reasoning" ? !reasoning?.truncated : !sessionId}
     >
       <span className="pw-conversation-process-item-state" aria-hidden="true">
-        {running ? <ProcessSpinner /> : failed ? <Icon.XCircle size={12} /> : row.kind === "read-group" ? <Icon.File size={12} /> : <Icon.Check size={12} />}
+        {running ? <ProcessSpinner /> : failed ? <Icon.XCircle size={12} /> : row.kind === "read-group" || row.kind === "file" ? <Icon.File size={12} /> : <Icon.Check size={12} />}
       </span>
-      <span className={running ? "pw-conversation-process-live" : "pw-conversation-process-activity-label"}>{label}</span>
+      <span
+        className={row.kind === "reasoning" ? "pw-conversation-process-reasoning-text" : running ? "pw-conversation-process-live" : "pw-conversation-process-activity-label"}
+      >
+        {label}
+      </span>
       {duration ? <span className="pw-conversation-process-item-time">{duration}</span> : null}
       {failed ? <span className="pw-conversation-process-error-summary">{t("processInline.errorDetails")}</span> : null}
     </button>
@@ -118,11 +144,7 @@ export function ConversationProcessTimeline({
   );
   const entries = useMemo(() => buildProcessEntries(sourceMessages, invocations), [sourceMessages, invocations]);
   const stages = useMemo(() => groupProcessStages(entries), [entries]);
-  const cwd = usePersonalStore((state) => {
-    const projectId = state.sessions.find((session) => session.id === sessionId)?.projectId;
-    return state.projects.find((project) => project.id === projectId)?.path;
-  });
-  const presentation = useMemo(() => buildProcessPresentation(stages, { cwd }), [cwd, stages]);
+  const presentation = useMemo(() => buildProcessPresentation(stages), [stages]);
   const span = useMemo(
     () => (archive ? { startedAt: archive.startedAt, endedAt: archive.endedAt } : currentRunTimeSpan(liveEvents)),
     [archive, liveEvents],

@@ -53,6 +53,13 @@ import { createLogger } from "./log";
 
 const log = createLogger("pi-host-capabilities");
 
+/**
+ * 系统提示会直接要求主 Agent 先调用 Repository Explorer；若它仍被延迟，模型按提示调用时
+ * Pi 只会返回 `Tool explore_agent not found`。这里只常驻这一项强制工具，不把整套 delegate
+ * schema 拉回首轮，保留其余协作者经 tool_search 按需激活的 token 优势。
+ */
+const DIRECT_PROMPT_TOOL_NAMES = ["explore_agent"] as const;
+
 export interface WorkerCapabilityContext {
   /**
    * 本会话是否真有一条能走到用户眼前的 UI 出口（安全红线 3）。
@@ -121,14 +128,19 @@ export async function buildWorkerDeps(
 
   // 普通父聊天启用延迟工具目录：注册面保持完整，首轮只携带高频核心工具。required bridge
   // 仍只表达“握手/业务工具缺失就拒绝 open”，不代表其整套 schema 要 eager；默认挂载的
-  // delegate 正是首轮膨胀来源之一，同样按需搜索。plan 档则把 toolWhitelist 原样作为物理准入
-  // 名单，tool_search 永远不能借激活恢复 write/bash/gui_*。
+  // delegate 正是首轮膨胀来源之一，除系统提示强制要求首先调用的 explore_agent 外仍按需搜索。
+  // plan 档则把 toolWhitelist 原样作为物理准入名单，tool_search 永远不能借激活恢复
+  // write/bash/gui_*。
   const deferredTools = prepared.deferNonCoreTools
     ? createDeferredToolsExtension({
         ...(prepared.toolWhitelist ? { allowedToolNames: prepared.toolWhitelist } : {}),
         initialToolNames: prepared.toolWhitelist
-          ? prepared.toolWhitelist.filter((name) => (PI_BUILTIN_TOOL_NAMES as readonly string[]).includes(name))
-          : [...PI_CODING_TOOL_NAMES, TODO_TOOL_NAME, ASK_QUESTION_TOOL_NAME],
+          ? prepared.toolWhitelist.filter(
+              (name) =>
+                (PI_BUILTIN_TOOL_NAMES as readonly string[]).includes(name) ||
+                (DIRECT_PROMPT_TOOL_NAMES as readonly string[]).includes(name),
+            )
+          : [...PI_CODING_TOOL_NAMES, TODO_TOOL_NAME, ASK_QUESTION_TOOL_NAME, ...DIRECT_PROMPT_TOOL_NAMES],
       })
     : undefined;
 

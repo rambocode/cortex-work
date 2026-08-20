@@ -240,7 +240,7 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
     );
   });
 
-  it("required delegate 仍须接入成功，但 schema 延迟到 tool_search 后才激活", async () => {
+  it("required delegate 接入后让系统提示直接要求使用的 explore_agent 首轮可调用", async () => {
     mcpMocks.createMcpInProcTools.mockResolvedValue({
       tools: [{ name: "explore_agent", description: "Delegate repository exploration" }],
       connected: ["cortex-delegate"],
@@ -266,7 +266,6 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
       })),
     ];
     let sessionStart: (() => void) | undefined;
-    let searchTool: { execute: (...args: unknown[]) => Promise<{ addedToolNames?: string[] }> } | undefined;
     let active: string[] = [];
     deferred.factory({
       registerTool: (tool: {
@@ -276,7 +275,6 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
         execute: (...args: unknown[]) => Promise<{ addedToolNames?: string[] }>;
       }) => {
         tools.push(tool);
-        if (tool.name === "tool_search") searchTool = tool;
       },
       on: (event: string, handler: () => void) => {
         if (event === "session_start") sessionStart = handler;
@@ -291,16 +289,6 @@ describe("buildWorkerDeps · 磁盘 extension 与 MCP", () => {
     sessionStart?.();
 
     expect(active).toEqual(expect.arrayContaining(["tool_search", "read", "todo_write"]));
-    expect(active).not.toContain("explore_agent");
-
-    const result = await searchTool?.execute(
-      "call",
-      { query: "explore_agent" },
-      undefined,
-      undefined,
-      {},
-    );
-    expect(result?.addedToolNames).toEqual(["explore_agent"]);
     expect(active).toContain("explore_agent");
   });
 

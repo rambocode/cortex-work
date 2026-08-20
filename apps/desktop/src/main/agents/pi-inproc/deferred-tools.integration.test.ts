@@ -57,6 +57,27 @@ describe("deferred tools · Pi agent loop", () => {
       parameters: params({ url: { type: "string", description: "Destination URL" } }),
       execute: browserExecute,
     };
+    const exploreExecute = vi.fn(async (_toolCallId: string, _input: unknown) => ({
+      content: [{ type: "text" as const, text: "repository explored" }],
+      details: undefined,
+    }));
+    const exploreTool: ToolDefinition = {
+      name: "explore_agent",
+      label: "Repository Explorer",
+      description: "Delegate one bounded read-only repository investigation.",
+      parameters: params({
+        title: { type: "string" },
+        objective: { type: "string" },
+        target: {
+          type: "object",
+          properties: { rootPath: { type: "string" }, kind: { type: "string" } },
+        },
+        inScope: { type: "array", items: { type: "string" } },
+        outOfScope: { type: "array", items: { type: "string" } },
+        deliverable: { type: "string" },
+      }),
+      execute: exploreExecute,
+    };
     const nativeTools = createPiNativeHooks({
       hasUiOutlet: () => true,
       askQuestionSentinel: "@@CORTEX_TEST_ASKQ@@",
@@ -99,6 +120,17 @@ describe("deferred tools · Pi agent loop", () => {
     faux.setResponses([
       (context) => {
         capture(context);
+        return fauxAssistantMessage(fauxToolCall("explore_agent", {
+          title: "Locate browser capability",
+          objective: "Find the relevant browser tool.",
+          target: { rootPath: cwd, kind: "repository" },
+          inScope: ["tool catalog"],
+          outOfScope: ["edits"],
+          deliverable: "tool name",
+        }), { stopReason: "toolUse" });
+      },
+      (context) => {
+        capture(context);
         return fauxAssistantMessage(fauxToolCall("tool_search", { query: "browser" }), {
           stopReason: "toolUse",
         });
@@ -129,7 +161,7 @@ describe("deferred tools · Pi agent loop", () => {
         noSkills: true,
         extensionFactories: [
           createDeferredToolsExtension({
-            initialToolNames: ["read", "bash", "edit", "write", "todo_write", "askquestion"],
+            initialToolNames: ["read", "bash", "edit", "write", "todo_write", "askquestion", "explore_agent"],
           }),
         ],
       },
@@ -139,7 +171,7 @@ describe("deferred tools · Pi agent loop", () => {
       sessionManager: SessionManager.inMemory(cwd),
       model: faux.getModel(),
       thinkingLevel: "off",
-      customTools: [...nativeTools, browserTool, ...deferredCatalog],
+      customTools: [...nativeTools, exploreTool, browserTool, ...deferredCatalog],
     });
 
     try {
@@ -148,7 +180,7 @@ describe("deferred tools · Pi agent loop", () => {
       await session.bindExtensions({ mode: "rpc" });
       await session.prompt("Open example.com in the browser.");
 
-      expect(snapshots).toHaveLength(3);
+      expect(snapshots).toHaveLength(4);
       expect(snapshots[0]!.tools).toEqual([
         "tool_search",
         "read",
@@ -157,6 +189,7 @@ describe("deferred tools · Pi agent loop", () => {
         "write",
         "todo_write",
         "askquestion",
+        "explore_agent",
       ]);
       expect(snapshots[1]!.tools).toEqual([
         "tool_search",
@@ -166,14 +199,27 @@ describe("deferred tools · Pi agent loop", () => {
         "write",
         "todo_write",
         "askquestion",
+        "explore_agent",
+      ]);
+      expect(snapshots[2]!.tools).toEqual([
+        "tool_search",
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "todo_write",
+        "askquestion",
+        "explore_agent",
         "browser_navigate",
       ]);
-      expect(snapshots[1]!.added).toContainEqual(["browser_navigate"]);
+      expect(snapshots[2]!.added).toContainEqual(["browser_navigate"]);
+      expect(exploreExecute).toHaveBeenCalledOnce();
+      expect(exploreExecute.mock.calls[0]?.[1]).toMatchObject({ target: { rootPath: cwd } });
       expect(browserExecute).toHaveBeenCalledOnce();
       expect(browserExecute.mock.calls[0]?.[1]).toMatchObject({ url: "https://example.com" });
 
       const fullCatalogBytes = Buffer.byteLength(
-        JSON.stringify([...nativeTools, browserTool, ...deferredCatalog].map(({ name, description, parameters }) => ({
+        JSON.stringify([...nativeTools, exploreTool, browserTool, ...deferredCatalog].map(({ name, description, parameters }) => ({
           name,
           description,
           parameters,

@@ -14842,10 +14842,19 @@ button.sb-row {
   white-space: nowrap;
 }
 .pw-conversation-process-activity[data-kind="command"] .pw-conversation-process-activity-label {
-  font-family: var(--mono);
+  color: var(--pcm-text-3);
 }
-.pw-conversation-process-activity[data-kind="reasoning"] .pw-conversation-process-activity-label {
+.pw-conversation-process-activity[data-kind="reasoning"] {
+  align-items: flex-start;
+}
+.pw-conversation-process-reasoning-text {
+  min-width: 0;
+  flex: 1 1 auto;
   color: var(--pcm-thinking);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
 }
 .pw-conversation-process-activity > .pw-conversation-process-live {
   min-width: 0;

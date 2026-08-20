@@ -182,25 +182,25 @@ describe("buildProcessPresentation", () => {
         toolEvent({ ts: 8, phase: "end", name: "Read", toolCallId: "missing", isError: true }),
       ]),
     );
-    const presentation = buildProcessPresentation(groupProcessStages(entries), { cwd: "/repo" });
+    const presentation = buildProcessPresentation(groupProcessStages(entries));
     expect(presentation.stages[0]?.rows).toMatchObject([
       { kind: "read-group", labels: ["a.ts", "b.ts"], count: 2, callIds: ["a1", "a2", "b1"] },
-      { kind: "tool", status: "failed" },
+      { kind: "read-group", labels: ["missing.ts"], status: "failed" },
     ]);
     expect(presentation.summary).toMatchObject({ files: 2, failed: 1 });
   });
 
-  it("reasoning 流式增量只形成一个稳定活动行，tool_search 不进入聊天流", () => {
+  it("reasoning 流式增量只形成一个稳定活动行，并携带最新完整内容", () => {
     const messages: Message[] = [
       { kind: "reasoning", who: "pi", time: "10:00", uid: "r1", text: "first", active: false },
       { kind: "reasoning", who: "pi", time: "10:00", uid: "r2", text: "second", active: true },
       log([{ text: "discover", toolName: "tool_search", ic: "check" }]),
     ];
     const rows = buildProcessPresentation(groupProcessStages(buildProcessEntries(messages, []))).stages[0]?.rows;
-    expect(rows).toEqual([{ kind: "reasoning", key: "r1", label: "thinking", status: "running" }]);
+    expect(rows).toEqual([{ kind: "reasoning", key: "r1", text: "second", status: "running" }]);
   });
 
-  it("命令保持顺序、将多行正文压成单行，且不重建既有 key", () => {
+  it("命令保持顺序，但聊天流只显示统一动作名称，不暴露命令正文", () => {
     const entries = buildProcessEntries(
       [log([{ text: "first", toolName: "Bash", ic: "check" }, { text: "second", toolName: "Bash", ic: "check" }])],
       buildCurrentRunToolInvocations([
@@ -212,8 +212,39 @@ describe("buildProcessPresentation", () => {
     );
     const rows = buildProcessPresentation(groupProcessStages(entries)).stages[0]?.rows;
     expect(rows).toMatchObject([
-      { kind: "command", key: "tool-one", label: "git status", callId: "one" },
-      { kind: "command", key: "tool-two", label: "pnpm typecheck", callId: "two" },
+      { kind: "command", key: "tool-one", action: "execute", callId: "one" },
+      { kind: "command", key: "tool-two", action: "execute", callId: "two" },
     ]);
+    expect(rows?.some((row) => "label" in row && /git status|pnpm typecheck/.test(row.label))).toBe(false);
+  });
+
+  it("读取、修改、删除只保留文件名，其它工具统一投影为执行命令", () => {
+    const entries = buildProcessEntries(
+      [log([
+        { text: "Read source", toolName: "Read", ic: "check" },
+        { text: "Edit source", toolName: "Edit", ic: "check" },
+        { text: "Delete old", toolName: "delete_file", ic: "check" },
+        { text: "Search code", toolName: "Grep", ic: "check" },
+      ])],
+      buildCurrentRunToolInvocations([
+        toolEvent({ ts: 1, name: "Read", toolCallId: "read", input: { file_path: "/repo/src/chat.tsx" } }),
+        toolEvent({ ts: 2, phase: "end", name: "Read", toolCallId: "read" }),
+        toolEvent({ ts: 3, name: "Edit", toolCallId: "edit", input: { file_path: "/repo/src/chat.tsx" } }),
+        toolEvent({ ts: 4, phase: "end", name: "Edit", toolCallId: "edit" }),
+        toolEvent({ ts: 5, name: "delete_file", toolCallId: "delete", input: { path: "/repo/old/chat-old.ts" } }),
+        toolEvent({ ts: 6, phase: "end", name: "delete_file", toolCallId: "delete" }),
+        toolEvent({ ts: 7, name: "Grep", toolCallId: "grep", input: { pattern: "private-pattern" } }),
+        toolEvent({ ts: 8, phase: "end", name: "Grep", toolCallId: "grep" }),
+      ]),
+    );
+    const rows = buildProcessPresentation(groupProcessStages(entries)).stages[0]?.rows;
+    expect(rows).toMatchObject([
+      { kind: "read-group", labels: ["chat.tsx"] },
+      { kind: "file", action: "modify", label: "chat.tsx" },
+      { kind: "file", action: "delete", label: "chat-old.ts" },
+      { kind: "command", action: "execute" },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain("/repo/");
+    expect(JSON.stringify(rows)).not.toContain("private-pattern");
   });
 });

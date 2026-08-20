@@ -432,11 +432,11 @@ describe("个人会话 Kun 过程时间线", () => {
 
     fireEvent.click(process);
     expect(process).toHaveAttribute("aria-expanded", "true");
-    expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
-    const readRow = view.getByRole("button", { name: /读取 src\/chat\.tsx/ });
+    expect(view.getByText("先定位消息渲染入口")).toBeInTheDocument();
+    const readRow = view.getByRole("button", { name: /读取 chat\.tsx/ });
     expect(view.queryByText(/old-turn/)).not.toBeInTheDocument();
     expect(view.queryByText(/transient-only-command/)).not.toBeInTheDocument();
-    expect(view.getByText("Grep · process")).toBeInTheDocument();
+    expect(view.getByRole("button", { name: /执行命令/ })).toBeInTheDocument();
     fireEvent.click(readRow);
     expect(usePersonalStore.getState().processPanelOpenReq).toMatchObject({
       sessionId: "session-1",
@@ -447,6 +447,49 @@ describe("个人会话 Kun 过程时间线", () => {
 
     fireEvent.click(view.getByRole("button", { name: "查看完整过程" }));
     expect(usePersonalStore.getState().processPanelOpenReq?.sessionId).toBe("session-1");
+  });
+
+  it("思考内容默认最多显示 200 字，点击后在原位显示全文", () => {
+    const qc = new QueryClient();
+    const fullThought = `${"思".repeat(205)}结论`;
+    const preview = `${"思".repeat(200)}…`;
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{
+            headerStatus: { dot: "online", text: "" },
+            metaRow: [],
+            messages: [
+              { kind: "text", who: "me", time: "10:00", uid: "user-thought", text: "分析" },
+              { kind: "text", who: "pi", time: "10:01", uid: "answer-thought", text: "完成" },
+            ],
+          }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          processMessages={[
+            {
+              kind: "reasoning",
+              who: "pi",
+              time: "10:01",
+              uid: "reasoning-long",
+              text: fullThought,
+              active: false,
+              completed: true,
+            },
+          ]}
+          sessionId="session-thought"
+        />
+      </CoreProvider>,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /已处理/ }));
+    const reasoning = view.getByRole("button", { name: preview });
+    expect(view.queryByText(fullThought)).not.toBeInTheDocument();
+    fireEvent.click(reasoning);
+    expect(view.getByText(fullThought)).toBeInTheDocument();
+    expect(reasoning).toHaveAttribute("aria-expanded", "true");
   });
 
   it("失败轮结束后显示处理失败并默认展开错误动作", () => {
@@ -497,7 +540,7 @@ describe("个人会话 Kun 过程时间线", () => {
 
     const process = view.getByRole("button", { name: /处理失败.*运行了 1 条命令/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
-    expect(view.getByRole("button", { name: /pnpm typecheck.*查看完整错误/ })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: /执行命令.*查看完整错误/ })).toBeInTheDocument();
   });
 
   it("运行中的过程默认展开，并取代重复的 typing 活动行", () => {
@@ -533,8 +576,7 @@ describe("个人会话 Kun 过程时间线", () => {
 
     const process = view.getByRole("button", { name: /处理中/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
-    expect(view.queryByText("正在检查事件归组")).not.toBeInTheDocument();
-    expect(view.getByRole("button", { name: /思考中…/ })).toBeInTheDocument();
+    expect(view.getByText("正在检查事件归组")).toBeInTheDocument();
     expect(view.queryByRole("status", { name: "Cortex 正在思考…" })).not.toBeInTheDocument();
 
     view.rerender(
@@ -761,7 +803,8 @@ describe("历史轮过程归档（重开会话后仍可回看）", () => {
   it("归档轮展开后保持紧凑活动行，不内联渲染快照正文", () => {
     const view = renderWithArchive();
     fireEvent.click(view.getByRole("button", { name: /已处理 8\.8s/ }));
-    expect(view.getByRole("button", { name: /ls/ })).toBeInTheDocument();
+    expect(view.getAllByRole("button", { name: /执行命令/ })).toHaveLength(2);
+    expect(view.queryByText(/\bls\b/)).not.toBeInTheDocument();
     expect(view.queryByText(/a\.ts/)).not.toBeInTheDocument();
     // 历史轮没有瞬态原始事件，「查看完整过程」入口不给（点开只会是空面板）。
     expect(view.queryByRole("button", { name: /完整过程/ })).not.toBeInTheDocument();

@@ -19,7 +19,7 @@
 ## 核心规则
 
 1. 普通父聊天启用延迟加载；artifact 与 child 会话的工具面本来就小，保持 eager。
-2. 默认首轮 active 集为 `read`、`bash`、`edit`、`write`、`todo_write`、`askquestion` 与 `tool_search`。不存在的名字会被忽略；默认挂载的 delegate、agent-browser、automation 等都延迟加载。
+2. 默认首轮 active 集为 `read`、`bash`、`edit`、`write`、`todo_write`、`askquestion`、`tool_search` 与 `explore_agent`。不存在的名字会被忽略。系统提示会明确要求代码探索先调用 `explore_agent`，因此这一项必须首轮可用；其余 delegate、agent-browser、automation 等仍延迟加载。
 3. plan 模式以原 `toolWhitelist` 为物理准入名单。`tool_search` 可以出现，但只能激活白名单内工具，不能恢复 `write`、`bash` 或 `gui_*`。
 4. 工具审批仍在 extension-level `tool_call` hook 执行。延迟激活只改变 schema 何时发给模型，不改变审批、MCP 调用、超时、取消或资源回收。
 5. MCP 工具不得占用 `tool_search`。该名字与 Pi 内建工具一样进入保留名集合，否则恶意或误配置的 MCP 可以覆盖唯一发现入口。
@@ -33,7 +33,7 @@ flowchart TD
   A[preparePiOpenRequest] --> B[收集并验证全部 MCP / extension]
   B --> C[worker 注册完整工具目录]
   C --> D[session_start 收窄 active tools]
-  D --> E[首个 provider request\n核心 schema + tool_search]
+  D --> E[首个 provider request\n核心 schema + tool_search + explore_agent]
   E -->|现有工具足够| I[直接调用工具]
   E -->|缺少能力| F[模型调用 tool_search]
   F --> G[搜索 name / description / parameter schema]
@@ -47,7 +47,7 @@ flowchart TD
 ## 关键实现
 
 - `apps/desktop/src/main/ipc/pi-session.ts`：在主进程权威边界设置 `deferNonCoreTools`，并删除 renderer 伪造值。
-- `apps/desktop/src/worker/pi-host/capabilities.ts`：组装首轮常驻名单，required bridge 继续 fail-loud 但工具 schema 可延迟，plan 白名单原样下传。
+- `apps/desktop/src/worker/pi-host/capabilities.ts`：组装首轮常驻名单；`explore_agent` 因系统提示直接要求调用而常驻，其余 required bridge 工具继续延迟，plan 白名单原样下传。
 - `apps/desktop/src/main/agents/pi-inproc/deferred-tools.ts`：延迟目录深模块，负责搜索、排序、激活、并发语义与 `addedToolNames`。
 - `apps/desktop/src/main/agents/pi-inproc/tool-context.ts`：context hook 的深模块，负责模型上下文估算、工具结果投影、会话级全文临时文件和退出/过期清理。
 - `apps/desktop/src/main/agents/pi-inproc/native-hooks.ts`：只在 gateway 长驻会话注册投影 extension，并记录无正文的 projection report。
@@ -70,7 +70,7 @@ flowchart TD
 - 大型已注册目录不会进入首轮 context，首轮 schema 大小与 deferred 工具数量无关。
 - 真实 Pi agent loop 首次只看到核心工具；`tool_search` 后的下一次 provider request 出现新增完整 schema，并能在同一回合执行该工具。
 - plan 白名单同时约束初始 active 集和搜索结果。
-- required delegate 必须接入成功，但其 schema 首轮不发送；`tool_search` 后仍可在同一回合调用。
+- required delegate 必须接入成功；`explore_agent` 首轮直接可调用，其余协作者仍可经 `tool_search` 在同一回合激活。
 - renderer 不能关闭普通父聊天的优化，也不能给 artifact / child 强行开启。
 - 结果投影发生时不记录命令、路径或正文；临时全文不进入 Git、用户文档目录或应用日志。
 - 投影后仍超预算时，context extension 抛出受控 `PI_CONTEXT_BLOCKED`；仓内最小 pnpm patch 在
