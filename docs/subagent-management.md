@@ -13,7 +13,8 @@
 - **工作表面**：`shared`（基础）是通配场景，`code`、`write`、`design` 分别约束角色进入对应会话回合的委派目录。
 - **主会话**：保留原生会话上下文并负责最终回答；实质性任务在受益于专项能力、独立复核或并行工作流时主动委派，琐碎或紧密串行任务直接完成。
 - **子会话**：收到自包含任务，独立执行，不能继续递归委派。
-- **运行护栏**：`maxParallel` 控制并行槽位，满额后 FIFO 排队；`maxChildRuns` 限制一轮主会话可创建的子任务总数；child 工具循环熔断器限制单个子任务内部的确定性重复失败，不影响父会话或其他 child。
+- **委派合同**：每次调用必须显式提供 `title`、`objective`、`target`、`inScope`、`outOfScope`、`constraints`、`context`、`deliverable`、`doneWhen` 和 `blockedWhen`。子 Agent 只依据这份合同执行，不从父会话猜测缺失信息。
+- **运行护栏**：`maxParallel` 控制并行槽位，满额后 FIFO 排队；`maxChildRuns` 限制一轮主会话可创建的子任务总数；每份委派合同另外强制限制当前 child 的工具调用次数和执行时长；child 工具循环熔断器限制确定性重复失败。以上限制都只终止当前 child，不影响父会话或其他 child。
 
 ## 流程
 
@@ -28,7 +29,9 @@ flowchart LR
   D -->|Claude / Codex| Q[cli:start + delegateRoles]
   P --> E[explore_agent / ask_role MCP tools]
   Q --> E
-  E --> F[独立子会话]
+  E --> V[校验委派合同和目标]
+  V -->|有效| F[独立子会话]
+  V -->|无效| X[返回主 Agent 修正]
   F -->|Cortex 父会话| R[短生命周期 Pi gateway RPC]
   F --> O[child 工具循环熔断器]
   O --> G[roleId + callId + childSessionId 事件]
@@ -48,6 +51,10 @@ flowchart LR
 - 场景切换会写入角色的 `surfaces`；发送边界依据普通代码会话、写作 skill 或设计/Slides 产物选择场景，`buildConfiguredSubagentRoles` 只注入当前场景可用的角色。
 - “自动模型角色”中的标题生成会直接配置 `oneshotCli`，代码审查会作为 `code-reviewer` 的目录默认模型；单角色显式覆盖优先。上下文压缩由 Pi 长驻会话运行时管理，当前版本没有独立会话摘要任务，因此这两项明确显示只读状态，不保存伪配置。
 - `packages/core/personal/delegate-orchestration.ts` 将当前场景的内置角色与自定义角色解析为 `RoleConfig[]`；关闭“使用现有代理”时保留原匿名角色行为。
+- `apps/desktop/src/main/capabilities/delegate/contract.ts` 是委派合同的单一真源：统一定义 MCP schema、目标文件系统校验、规范 child prompt 和单 child 预算守卫。`explore_agent` 与所有 `ask_*` 只注册角色信息，不再各自拼自由文本任务。
+- 合同的访问模式不由主模型填写，而是从角色 `toolPolicy` 派生并在运行时强制执行；这样只读角色无法通过参数把自己提升为可写。文件系统合同提供 `target.rootPath` 时，CLI 与 Pi child 都把它设为真实 `cwd`，保证 prompt、相对路径和进程目录只有一个真相。
+- Repository Explorer 的 `target.rootPath` 必须是绝对、存在、可读且非空的目录；`target.paths` 经规范化后必须仍位于该根目录内。校验失败直接把结构化错误返回主 Agent，不创建 child、不消耗子任务配额，也不允许向父目录或用户主目录扩散搜索。
+- 合同中的 `constraints.maxToolCalls` 与 `constraints.maxDurationMinutes` 是硬限制。公共 delegate host 在每个 tool start 计数并启动独立定时器，超过限制只中止本次 `subagentCallId`；trace 只记录限制类型、阈值和计数，不记录可能含私有数据的合同正文。
 - Cortex（`pi`）主会话无论是否启用自动委派、是否进入 Design/Slides 产物都只走长驻 Pi gateway RPC，不再切到无 UI 的 `startCli` / one-shot。角色目录、产物 cwd/身份和本轮并发上限属于 open 冷配置；变化时由 `extensionFingerprint` 串行关闭旧世代并重开。普通聊天与每个产物分别持有 Pi JSONL 恢复槽，切换工作区不会串上下文。
 - `apps/desktop/src/main/ipc/pi-session.ts` 给 Cortex 主会话注入 delegate MCP，`apps/desktop/src/main/ipc/pi-delegate.ts` 负责每次委派的短生命周期 Pi gateway RPC 子会话。角色配置中的 Claude/Codex 运行时在 Cortex 父会话下归一为 Pi，保留角色 persona、工具策略和展示信息，模型改为继承父 Pi 会话。Pi 角色自己的 model/effort 覆盖仍可使用。
 - Claude/Codex 父会话仍由 `apps/desktop/src/main/ipc/cli.ts` 应用角色级 `agent`、`model`、`effort` 和 `systemPrompt` 覆盖。两条路径上的 `readOnly` 角色都会物理收窄到只读工具，不能继承主会话的写权限。
@@ -64,8 +71,9 @@ flowchart LR
 
 ## 边界
 
-- 子代理不继承主会话文本历史；主 Agent 必须把任务和必要材料写进 `task`，Repository Explorer 则使用 Kun 同款 `{ title, query }` 契约。
-- 仓库或项目探索优先调用只读 `explore_agent`。复杂探索必须按互不重叠的范围动态拆成多个并行调用，整项目分析先枚举产品定位、后端或核心实现、前端交互、测试与完成度等所有适用证据面；数量由实际问题决定，禁止固定次数、为减少调用次数合并独立证据面，或把整仓调查塞进一次调用。返回后主 Agent 只做窄范围补充检查并负责整合与最终验证。
+- 子代理不继承主会话文本历史；所有角色统一使用结构化委派合同。旧的 `ask_*({ task })` 与 `explore_agent({ title, query })` 自由文本形状不再接受，避免“提示里要求自包含、运行时却无法校验”的空约束。
+- 仓库或项目探索优先调用只读 `explore_agent`。父 Agent 必须先确定绝对目标根；目标未知时在父会话继续定位或询问用户，不能把“猜项目在哪里”委派给 child。复杂探索按互不重叠的证据范围动态拆成多个并行调用；数量由实际问题决定，禁止固定次数、合并独立范围或把整仓调查塞进一次调用。返回后主 Agent 只做窄范围补充检查并负责整合与最终验证。
+- `inScope`、`outOfScope`、`doneWhen` 和 `blockedWhen` 都至少包含一项；`context` 与 `target.paths` 即使不适用也显式传空数组。遇到 `blockedWhen` 条件时 child 必须停止并报告，不得扩大目标、扫描父目录或用无依据猜测补齐材料。
 - 子代理没有 delegate 工具，避免递归资源放大。
 - 子代理不能无限重复已经确定失败的工具调用。相同调用与错误达到 3 次，或 8 次调用形成含错误的完整重复窗口时，当前 child 自动结束；父 Agent 应基于其部分结果改用其他证据或明确报告阻塞。
 - Cortex 主/子 Pi gateway 不可用时显式失败，不回退到无审批的 CLI / one-shot；父会话停止、关闭或 renderer 销毁会级联取消在途 child 并清理审批路由。

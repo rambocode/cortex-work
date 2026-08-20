@@ -464,6 +464,7 @@ function runDelegateSubAgent(
   onEvent: (ev: CliStreamEvent) => void,
   signal: AbortSignal,
   childSessionId: string,
+  targetCwd?: string,
 ): Promise<{ text: string; ok: boolean; error?: string }> {
   if (signal.aborted) return Promise.resolve({ text: "", ok: false, error: "已取消" });
 
@@ -481,7 +482,9 @@ function runDelegateSubAgent(
     // 因此子 Agent 依旧拿不到 ask_*；原生 resume id 则由稍后的 init 单独回传给 renderer。
     sessionId: childSessionId,
     agent: role.agent,
-    cwd: parent.cwd,
+    // 合同显式提供文件系统根时，child 的真实 cwd 与 prompt target 必须一致；否则即使文本写了
+    // 正确路径，底层相对路径仍会落到父会话 cwd，重现“从空日期目录开始猜项目”的问题。
+    cwd: targetCwd ?? parent.cwd,
     prompt: task,
     // 角色显式覆盖优先；未覆盖且同一 base agent 时继承父会话模型。跨体系改用子 Agent 默认模型。
     model: role.model || (sameBaseAgent ? parent.model : undefined),
@@ -518,7 +521,7 @@ function runDelegateSubAgent(
     scope: "delegate", phase: "start", summary: `${role.agent}[${role.label}] sub start`,
     runId: spawnKey, sessionId: parent.sessionId, agent: role.agent,
     data: {
-      cwd: parent.cwd, roleId: role.id, taskPreview: promptPreview(task),
+      cwd: req.cwd, roleId: role.id, taskPreview: promptPreview(task),
       parentRunId: parent.runId,
       parentSessionId: parent.sessionId,
       parentResumeSessionId: parent.resumeSessionId,
@@ -540,8 +543,8 @@ function runDelegateSubAgent(
   // 刻意不注入 MCP 桥 / todo:子 agent 拿不到 delegate 工具是防递归的核心不变量,todo 事件在
   // 委派流里也不渲染。claude/codex 原样 spawn。
   const proc = isPiSub
-    ? startPiInProcOneShot(req, { cwd: parent.cwd })
-    : startAgentProcess(cmd, args, { cwd: parent.cwd, env: subEnv, stdin });
+    ? startPiInProcOneShot(req, { cwd: req.cwd })
+    : startAgentProcess(cmd, args, { cwd: req.cwd, env: subEnv, stdin });
 
   return new Promise((resolve) => {
     let out = "";
@@ -950,8 +953,8 @@ export function registerCliHandlers(): void {
         childRunCount: 0,
         activeRuns: 0,
         waiters: [],
-        runSubAgent: (role, task, onEvent, childSessionId, signal) =>
-          runDelegateSubAgent(req, role, task, onEvent, signal ?? controller.signal, childSessionId),
+        runSubAgent: (role, task, onEvent, childSessionId, signal, targetCwd) =>
+          runDelegateSubAgent(req, role, task, onEvent, signal ?? controller.signal, childSessionId, targetCwd),
       };
       delegateState = state;
       registerDelegateSession(state);

@@ -33,6 +33,25 @@ function makeState(sessionId: string, abort: () => void = () => {}): DelegateSes
   };
 }
 
+function contractArgs(
+  objective: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    title: objective,
+    objective,
+    target: { description: "The explicitly named task target", paths: [] },
+    inScope: ["Complete only the stated objective"],
+    outOfScope: ["Do not perform unrelated work or broaden the target"],
+    constraints: { maxToolCalls: 20, maxDurationMinutes: 10, additional: [] },
+    context: [],
+    deliverable: "Return a concise evidence-backed result.",
+    doneWhen: ["The stated objective is fully answered"],
+    blockedWhen: ["Required target or context is missing"],
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   // 清空模块级 sessionStateMap，隔离测试间状态。
   killAllDelegates();
@@ -203,7 +222,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     }
   });
 
-  it("Repository Explorer 暴露 Kun 同款 title/query 契约并透传任务标题", async () => {
+  it("Repository Explorer 暴露完整结构化合同，并以显式根目录启动 child", async () => {
     await startDelegateHost();
     const sid = "explore-session";
     const runSubAgent = vi.fn<DelegateSessionState["runSubAgent"]>(async () => ({ text: "结构分析完成", ok: true }));
@@ -219,25 +238,43 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(list.body).toContain(EXPLORE_AGENT_TOOL_NAME);
       expect(list.body).not.toContain("ask_explore");
       expect(list.body).toContain("title");
-      expect(list.body).toContain("query");
-      expect(list.body).toContain("multiple parallel explore_agent calls with non-overlapping scopes");
-      expect(list.body).toContain("one call for API wiring, another for UI, another for tests");
-      expect(list.body).toContain("整项目分析要先枚举所有适用的独立证据面");
+      expect(list.body).toContain("objective");
+      expect(list.body).toContain("rootPath");
+      expect(list.body).toContain("inScope");
+      expect(list.body).toContain("outOfScope");
+      expect(list.body).toContain("doneWhen");
+      expect(list.body).toContain("blockedWhen");
+      expect(list.body).not.toContain('"query"');
+      expect(list.body).toContain("never use this tool to guess a project");
       const call = await post(cfg, {
         jsonrpc: "2.0", id: 22, method: "tools/call",
-        params: { name: EXPLORE_AGENT_TOOL_NAME, arguments: { title: "Project structure", query: "只读分析目录与技术栈" } },
+        params: {
+          name: EXPLORE_AGENT_TOOL_NAME,
+          arguments: contractArgs("只读分析目录与技术栈", {
+            title: "Project structure",
+            target: {
+              description: "delegate capability source",
+              rootPath: process.cwd(),
+              paths: ["src/main/capabilities/delegate"],
+            },
+          }),
+        },
       });
       expect(call.status).toBe(200);
       expect(call.body).toContain("结构分析完成");
       expect(runSubAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "explore" }),
-        "只读分析目录与技术栈",
+        expect.stringContaining('"objective": "只读分析目录与技术栈"'),
         expect.any(Function),
         expect.any(String),
         expect.any(AbortSignal),
+        process.cwd(),
       );
       expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        type: "init", subagentTask: "只读分析目录与技术栈", subagentTitle: "Project structure", subagentReadOnly: true,
+        type: "init",
+        subagentTask: expect.stringContaining("<delegation_contract>"),
+        subagentTitle: "Project structure",
+        subagentReadOnly: true,
       }));
     } finally {
       stopDelegateHost();
@@ -275,20 +312,39 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     });
     const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
     try {
+      const list = await post(cfg, { jsonrpc: "2.0", id: 30, method: "tools/list", params: {} });
+      expect(list.body).toContain("objective");
+      expect(list.body).toContain("outOfScope");
+      expect(list.body).not.toContain('"task"');
+      await post(cfg, {
+        jsonrpc: "2.0",
+        id: 31,
+        method: "tools/call",
+        params: { name: "ask_codex", arguments: { task: "旧自由文本调用" } },
+      });
+      expect(runSubAgent).not.toHaveBeenCalled();
+
       const call = await post(cfg, {
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
-        params: { name: "ask_codex", arguments: { task: "结合必要材料完成子任务" } },
+        params: {
+          name: "ask_codex",
+          arguments: contractArgs("结合必要材料完成子任务", {
+            context: ["父会话已确认接口定义"],
+            deliverable: "返回实现建议和风险清单。",
+          }),
+        },
       });
       expect(call.status).toBe(200);
       expect(call.body).toContain("子 Agent 的分析结果");
       expect(runSubAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "codex" }),
-        "结合必要材料完成子任务",
+        expect.stringContaining('"objective": "结合必要材料完成子任务"'),
         expect.any(Function),
         expect.any(String),
         expect.any(AbortSignal),
+        undefined,
       );
       expect(pushEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
         type: "init",
@@ -296,7 +352,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         stage: "subagent",
         subagentCallId: expect.any(String),
         childSessionId: expect.any(String),
-        subagentTask: "结合必要材料完成子任务",
+        subagentTask: expect.stringContaining('"context"'),
         subagentAgentId: "codex",
       }));
       const subagentCallId = pushEvent.mock.calls[0]?.[0]?.subagentCallId;
@@ -313,7 +369,10 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
       expect(pushChildEvent).toHaveBeenCalledWith(
         childSessionId,
         subagentCallId,
-        expect.objectContaining({ type: "init", subagentTask: "结合必要材料完成子任务" }),
+        expect.objectContaining({
+          type: "init",
+          subagentTask: expect.stringContaining('"objective": "结合必要材料完成子任务"'),
+        }),
       );
       expect(pushChildEvent).toHaveBeenCalledWith(
         childSessionId,
@@ -333,7 +392,8 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
             runId: "main-run",
             sessionId: sid,
             data: expect.objectContaining({
-              taskPreview: "结合必要材料完成子任务",
+              contractTitle: "结合必要材料完成子任务",
+              objectivePreview: "结合必要材料完成子任务",
               resultPreview: "子 Agent 的分析结果",
               returnedToMain: true,
             }),
@@ -365,7 +425,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     let finishHealthy: (() => void) | undefined;
     let healthySignal: AbortSignal | undefined;
     state.runSubAgent = vi.fn(async (_role, task, onEvent, _childSessionId, signal) => {
-      if (task === "正常任务") {
+      if (task.includes('"objective": "正常任务"')) {
         healthySignal = signal;
         await new Promise<void>((resolve) => { finishHealthy = resolve; });
         return { text: "正常完成", ok: true };
@@ -417,7 +477,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 24,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "正常任务" } },
+        params: { name: "ask_review", arguments: contractArgs("正常任务") },
       });
       await vi.waitFor(() => expect(healthySignal).toBeDefined());
 
@@ -425,7 +485,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 23,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "循环任务" } },
+        params: { name: "ask_review", arguments: contractArgs("循环任务") },
       });
       expect(looped.body).toContain("相同参数和错误重复失败 3 次");
       expect(looped.body).toContain("已找到正确目录");
@@ -460,6 +520,64 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     }
   });
 
+  it("合同工具调用预算耗尽时只终止当前 child，并返回权威失败原因", async () => {
+    await startDelegateHost();
+    const sid = "contract-budget-session";
+    const parentController = new AbortController();
+    const state = makeState(sid, () => parentController.abort());
+    state.roles = [{
+      id: "review",
+      label: "Reviewer",
+      agent: "pi",
+      systemPrompt: "",
+      createdAt: "",
+      updatedAt: "",
+    }];
+    let childSignal: AbortSignal | undefined;
+    state.runSubAgent = vi.fn(async (_role, _task, onEvent, _childSessionId, signal) => {
+      childSignal = signal;
+      for (let index = 0; index < 3; index += 1) {
+        onEvent({
+          type: "tool",
+          name: "read",
+          phase: "start",
+          toolCallId: `read-${index}`,
+          input: { path: `src/${index}.ts` },
+        });
+      }
+      return { text: "partial evidence", ok: false, error: "已取消" };
+    });
+    registerDelegateSession(state);
+    const cfg = buildDelegateMcpServerConfig(sid) as { url: string; headers?: Record<string, string> };
+    try {
+      const call = await post(cfg, {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "tools/call",
+        params: {
+          name: "ask_review",
+          arguments: contractArgs("预算检查", {
+            constraints: { maxToolCalls: 2, maxDurationMinutes: 10, additional: [] },
+          }),
+        },
+      });
+      expect(call.body).toContain("超过合同约定的 2 次工具调用上限");
+      expect(call.body).toContain("partial evidence");
+      expect(childSignal?.aborted).toBe(true);
+      expect(parentController.signal.aborted).toBe(false);
+      expect(agentTraceList()).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          scope: "delegate",
+          phase: "budget",
+          data: expect.objectContaining({ kind: "tool-call-limit", limit: 2, observed: 3 }),
+        }),
+      ]));
+    } finally {
+      stopDelegateHost();
+      unregisterDelegateSession(sid);
+    }
+  });
+
   it("子执行异常时返回 tool error，并向 renderer 发送失败完成帧", async () => {
     await startDelegateHost();
     const sid = "failure-session";
@@ -486,7 +604,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 4,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "审查" } },
+        params: { name: "ask_review", arguments: contractArgs("审查") },
       });
       expect(call.status).toBe(200);
       expect(call.body).toContain("spawn failed");
@@ -518,13 +636,13 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 5,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "第一次" } },
+        params: { name: "ask_review", arguments: contractArgs("第一次") },
       });
       const second = await post(cfg, {
         jsonrpc: "2.0",
         id: 6,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "第二次" } },
+        params: { name: "ask_review", arguments: contractArgs("第二次") },
       });
       expect(first.body).toContain("ok");
       expect(second.body).toContain("上限 1");
@@ -543,7 +661,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     state.maxParallel = 1;
     let finishFirst: (() => void) | undefined;
     state.runSubAgent = vi.fn(async (_role, task) => {
-      if (task === "第一项") await new Promise<void>((resolve) => { finishFirst = resolve; });
+      if (task.includes('"objective": "第一项"')) await new Promise<void>((resolve) => { finishFirst = resolve; });
       return { text: task, ok: true };
     });
     registerDelegateSession(state);
@@ -553,14 +671,14 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 7,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "第一项" } },
+        params: { name: "ask_review", arguments: contractArgs("第一项") },
       });
       await vi.waitFor(() => expect(state.runSubAgent).toHaveBeenCalledTimes(1));
       const second = post(cfg, {
         jsonrpc: "2.0",
         id: 8,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "第二项" } },
+        params: { name: "ask_review", arguments: contractArgs("第二项") },
       });
       await vi.waitFor(() => expect(state.waiters).toHaveLength(1));
       expect(state.runSubAgent).toHaveBeenCalledTimes(1);
@@ -586,7 +704,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
     state.maxParallel = 1;
     let finishFirst: (() => void) | undefined;
     state.runSubAgent = vi.fn(async (_role, task) => {
-      if (task === "占用槽位") await new Promise<void>((resolve) => { finishFirst = resolve; });
+      if (task.includes('"objective": "占用槽位"')) await new Promise<void>((resolve) => { finishFirst = resolve; });
       return { text: task, ok: true };
     });
     registerDelegateSession(state);
@@ -596,7 +714,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 31,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "占用槽位" } },
+        params: { name: "ask_review", arguments: contractArgs("占用槽位") },
       });
       await vi.waitFor(() => expect(state.runSubAgent).toHaveBeenCalledTimes(1));
 
@@ -605,7 +723,7 @@ describe("delegate host HTTP 端到端（pi 桥接握手）", () => {
         jsonrpc: "2.0",
         id: 32,
         method: "tools/call",
-        params: { name: "ask_review", arguments: { task: "不应启动" } },
+        params: { name: "ask_review", arguments: contractArgs("不应启动") },
       }, controller.signal);
       const rejected = expect(second).rejects.toThrow("调用方已取消");
       await vi.waitFor(() => expect(state.waiters).toHaveLength(1));

@@ -702,6 +702,29 @@ describe("Pi RPC delegate 子 Agent", () => {
     expect(child.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("合同提供 target.rootPath 时，Pi child 的真实 cwd 使用目标根而不是父会话 cwd", async () => {
+    const { state } = await openDelegateParent();
+    const targetRoot = process.cwd();
+    const pending = state.runSubAgent(
+      state.roles[0]!,
+      "结构化合同 prompt",
+      () => {},
+      "child-target-root",
+      undefined,
+      targetRoot,
+    );
+
+    await vi.waitFor(() => expect(h.openRequests.some((request) => request.uiSessionId === "child-target-root")).toBe(true));
+    const childIndex = h.openRequests.findIndex((request) => request.uiSessionId === "child-target-root");
+    const childRequest = h.openRequests[childIndex]!;
+    const child = h.instances[childIndex]!;
+    expect(childRequest.cwd).toBe(targetRoot);
+
+    child.onEvent({ type: "result", willRetry: false });
+    child.onEvent({ type: "settled" });
+    await expect(pending).resolves.toEqual({ text: "", ok: true });
+  });
+
   it("原生 Pi 角色保留自身 model/effort override，未覆盖字段才继承父会话", async () => {
     const piRole: RoleConfig = {
       ...codexRole,

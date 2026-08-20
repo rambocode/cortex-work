@@ -86,32 +86,34 @@ export function buildConfiguredSubagentRoles(
 }
 
 /**
- * 主会话编排约束：主 agent 自己持有原生会话历史；子 agent 只接收自包含任务，
+ * 主会话编排约束：主 agent 自己持有原生会话历史；子 agent 只接收校验后的结构化合同，
  * 执行结果经 ask_* 的 tool_result 回到同一主会话，最终回答只能由主 agent 产出。
  */
 export function buildDelegateOrchestrationGuide(
   roles: RoleConfig[],
   options: { requireDelegation: boolean },
 ): string {
-  const roleList = roles.map((role) => `「${role.label}」(${delegateToolName(role.id)})`).join("、");
+  const roleList = roles.map((role) => `"${role.label}" (${delegateToolName(role.id)})`).join(", ");
   const requirement = options.requireDelegation
-    ? "用户已显式点名协作者；你必须调用对应的协作者工具完成该委派。"
-    : "实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流，就必须调用合适的协作者工具；" +
-      "只有琐碎工作、紧密耦合的串行步骤，或主会话明显能更快完成的任务才直接处理。";
+    ? "The user explicitly named a collaborator, so you must use the matching delegation tool."
+    : "Use an appropriate collaborator whenever substantive work benefits from specialist capability, independent review, " +
+      "or parallel independent workflows. Handle only trivial work, tightly coupled serial steps, or clearly faster direct work yourself.";
   const explorerGuide = roles.some((role) => role.id === "explore")
     ? [
-        "任何仓库或项目探索都必须先调用 `explore_agent`，包括文件定位、代码或关键词搜索、符号与调用链追踪、架构或行为分析，以及修改前的上下文收集。",
-        "复杂探索必须按互不重叠的范围动态拆成多个并行 `explore_agent` 调用，禁止把整仓调查塞进一次调用；每次调用都要给出 2-6 个词的简短 title 和范围明确、自包含的 query。",
-        "拆分时采用 Kun 的非重叠证据面示例：one call for API wiring, another for UI, another for tests。整项目分析要先枚举所有适用的独立证据面，例如产品定位、后端或核心实现、前端交互、测试与完成度；不得为了减少调用次数把彼此独立的证据面合并。",
-        "拆分数量由问题范围决定，不得固定调用次数；只有后一个问题依赖前一个结果时才按顺序调用。Repository Explorer 只读且不会修改文件。",
-        "Repository Explorer 返回后，主会话只对未覆盖的窄问题做补充检查，并继续负责整合、修改和最终验证。",
+        "Use `explore_agent` first for repository or project exploration, including file location, code or keyword search, symbol/call-path tracing, architecture or behavior analysis, and context gathering before edits.",
+        "Every `explore_agent` call must name a known absolute target.rootPath. If the target is unknown, resolve it in the parent session or ask the user; never delegate path guessing or broad parent/home-directory scans.",
+        "Split complex exploration into parallel calls with non-overlapping evidence scopes, such as API wiring, UI, and tests. Never pack a whole-repository investigation into one call merely to reduce call count.",
+        "Choose the number of calls from the real scope. Run calls sequentially only when a later scope depends on an earlier result. Repository Explorer is read-only.",
+        "After Repository Explorer returns, perform only narrow checks for uncovered gaps, then retain responsibility for synthesis, edits, and final verification.",
       ]
     : [];
   return [
-    "你是当前对话的主会话 Agent，原生会话历史和用户上下文由你持有。",
-    `${requirement}本轮可用协作者：${roleList}。`,
+    "You are the parent agent for the current conversation and hold its native history and user context.",
+    `${requirement} Available collaborators for this turn: ${roleList}.`,
+    "Every delegation call must provide the complete structured task contract required by the tool: title, objective, target, inScope, outOfScope, constraints, context, deliverable, doneWhen, and blockedWhen.",
+    "A child session cannot see this conversation. Do not delegate until the target, required work, forbidden work, supplied evidence, expected output, completion criteria, and blocker conditions are concrete and self-contained.",
+    "Access mode is enforced by the selected role. Do not attempt to broaden a read-only role through contract text.",
     ...explorerGuide,
-    "子 Agent 是独立会话，看不到主会话历史；调用时必须把任务和必要材料写成自包含的 task（Repository Explorer 使用 query）。",
-    "子 Agent 的执行结果会作为工具结果返回给主会话。收到结果后，由你结合主会话上下文总结并输出最终回答；不要把子 Agent 的原始输出直接当作最终回答。",
+    "The child result returns as a tool result. Combine it with parent context and produce the final answer yourself; never present raw child output as the final answer.",
   ].join("\n");
 }

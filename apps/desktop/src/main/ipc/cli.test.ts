@@ -377,6 +377,31 @@ describe("delegate 派生 agent 基础类型", () => {
     }
   });
 
+  it("合同提供 target.rootPath 时，CLI child 的真实 cwd 使用目标根", async () => {
+    const targetRoot = mkdtempSync(join(tmpdir(), "delegate-target-cwd-"));
+    const child = Object.assign(fakeChild(), {
+      stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    try {
+      const done = __runDelegateSubAgentForTest(
+        { runId: "r", sessionId: "s", agent: "codex", cwd: "/tmp", prompt: "parent" },
+        { id: "explore", label: "Repository Explorer", agent: "codex", systemPrompt: "", createdAt: "", updatedAt: "" },
+        "结构化合同 prompt",
+        vi.fn(),
+        new AbortController().signal,
+        "child-target-cwd",
+        targetRoot,
+      );
+      const spawnOptions = spawnMock.mock.calls.at(-1)?.[2] as { cwd?: string };
+      expect(spawnOptions.cwd).toBe(targetRoot);
+      child.emit("close", 0);
+      await expect(done).resolves.toMatchObject({ ok: true });
+    } finally {
+      rmSync(targetRoot, { recursive: true, force: true });
+    }
+  });
+
   it("Kun 只读角色强制使用原生 read-only 权限，不继承主会话 full-auto", async () => {
     const child = Object.assign(fakeChild(), {
       stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),

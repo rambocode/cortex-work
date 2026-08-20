@@ -15,16 +15,17 @@ describe("delegate orchestration", () => {
     });
   });
 
-  it("约束子结果回传同一主会话后再总结输出", () => {
+  it("约束子结果回传同一主会话后再总结输出，并要求完整任务合同", () => {
     const guide = buildDelegateOrchestrationGuide(
       [buildAutoSubagentRole("codex")],
       { requireDelegation: true },
     );
-    expect(guide).toContain("主会话 Agent");
-    expect(guide).toContain("用户已显式点名协作者");
-    expect(guide).toContain("必须调用对应的协作者工具");
-    expect(guide).toContain("作为工具结果返回给主会话");
-    expect(guide).toContain("由你结合主会话上下文总结并输出最终回答");
+    expect(guide).toContain("parent agent for the current conversation");
+    expect(guide).toContain("explicitly named a collaborator");
+    expect(guide).toContain("complete structured task contract");
+    expect(guide).toContain("objective, target, inScope, outOfScope, constraints, context, deliverable, doneWhen, and blockedWhen");
+    expect(guide).toContain("child result returns as a tool result");
+    expect(guide).toContain("produce the final answer yourself");
   });
 
   it("普通会话按任务收益决定委派，琐碎或紧密串行任务仍可直接完成", () => {
@@ -32,22 +33,22 @@ describe("delegate orchestration", () => {
       [buildAutoSubagentRole("codex")],
       { requireDelegation: false },
     );
-    expect(guide).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
-    expect(guide).toContain("必须调用合适的协作者工具");
-    expect(guide).toContain("只有琐碎工作、紧密耦合的串行步骤");
-    expect(guide).toContain("才直接处理");
+    expect(guide).toContain("substantive work benefits from specialist capability");
+    expect(guide).toContain("independent review");
+    expect(guide).toContain("parallel independent workflows");
+    expect(guide).toContain("trivial work, tightly coupled serial steps");
   });
 
   it("对齐 Kun：仓库或项目探索必须先交给 Repository Explorer，独立问题同批并行", () => {
     const roles = buildConfiguredSubagentRoles("pi", undefined);
     const guide = buildDelegateOrchestrationGuide(roles, { requireDelegation: false });
 
-    expect(guide).toContain("任何仓库或项目探索都必须先调用 `explore_agent`");
-    expect(guide).toContain("互不重叠的范围动态拆成多个并行 `explore_agent`");
-    expect(guide).toContain("one call for API wiring, another for UI, another for tests");
-    expect(guide).toContain("整项目分析要先枚举所有适用的独立证据面");
-    expect(guide).toContain("拆分数量由问题范围决定，不得固定调用次数");
-    expect(guide).toContain("Repository Explorer 返回后");
+    expect(guide).toContain("Use `explore_agent` first for repository or project exploration");
+    expect(guide).toContain("known absolute target.rootPath");
+    expect(guide).toContain("never delegate path guessing or broad parent/home-directory scans");
+    expect(guide).toContain("parallel calls with non-overlapping evidence scopes");
+    expect(guide).toContain("such as API wiring, UI, and tests");
+    expect(guide).toContain("Choose the number of calls from the real scope");
   });
 
   it("归一化 Kun 运行上限，旧存档补默认值且非法输入被钳制", () => {

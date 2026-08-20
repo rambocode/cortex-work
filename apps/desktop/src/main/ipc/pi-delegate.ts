@@ -196,11 +196,17 @@ function mapPiDelegateEvent(ev: PiSessionEvent): CliStreamEvent | null {
   }
 }
 
-function delegateChildRequest(parent: PiOpenRequest, role: RoleConfig, childSessionId: string): PiOpenRequest {
+function delegateChildRequest(
+  parent: PiOpenRequest,
+  role: RoleConfig,
+  childSessionId: string,
+  targetCwd?: string,
+): PiOpenRequest {
   const readOnly = role.toolPolicy === "readOnly";
   return {
     uiSessionId: childSessionId,
-    cwd: parent.cwd,
+    // 文件系统任务的合同根目录同时成为 child 的真实 cwd，避免 prompt 与相对路径解析出现双真相。
+    cwd: targetCwd ?? parent.cwd,
     // 非 Pi 角色的模型已在 createPiDelegateRuntime 清掉；原生 Pi 角色可显式覆盖，未覆盖才继承
     // 父 Pi 模型。只传 providerId；preparePiOpenRequest 会在主进程重新解析 endpoint，绝不沿用
     // 父请求里可能来自 renderer 或旧代的 provider 对象。
@@ -231,9 +237,10 @@ function runPiDelegateSubAgent(options: {
   onEvent: (ev: CliStreamEvent) => void;
   signal: AbortSignal;
   childSessionId: string;
+  targetCwd?: string;
   deps: PiDelegateRuntimeDeps;
 }): Promise<SubAgentResult> {
-  const { parent, sender, role, task, onEvent, signal, childSessionId, deps } = options;
+  const { parent, sender, role, task, onEvent, signal, childSessionId, targetCwd, deps } = options;
   if (signal.aborted) return Promise.resolve({ text: "", ok: false, error: "已取消" });
 
   let child: PiSessionEngine | undefined;
@@ -324,7 +331,7 @@ function runPiDelegateSubAgent(options: {
     void (async () => {
       try {
         const request = await deps.prepareOpenRequest(
-          delegateChildRequest(parent, role, childSessionId),
+          delegateChildRequest(parent, role, childSessionId, targetCwd),
           { profile: "child" },
         );
         if (settled || signal.aborted) {
@@ -608,7 +615,7 @@ export function createPiDelegateRuntime(
     childRunCount: 0,
     activeRuns: 0,
     waiters: [],
-    runSubAgent: (role, task, onEvent, childSessionId, signal) =>
+    runSubAgent: (role, task, onEvent, childSessionId, signal, targetCwd) =>
       runPiDelegateSubAgent({
         parent: request,
         sender,
@@ -617,6 +624,7 @@ export function createPiDelegateRuntime(
         onEvent,
         signal: signal ?? controller.signal,
         childSessionId,
+        targetCwd,
         deps,
       }),
   };

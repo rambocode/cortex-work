@@ -20,11 +20,20 @@
 //   import 任一 IPC 入口，依赖仍保持单向。
 
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHost, type McpHostHandle } from "../mcp-host/server";
 import type { McpServerConfig, RoleConfig, CliStreamEvent } from "../../ipc/types";
 import { recordAgentTrace } from "../../ipc/agent-trace";
+import {
+  DelegationBudgetGuard,
+  delegationContractInputShape,
+  renderDelegationContract,
+  repositoryDelegationContractInputShape,
+  validateDelegationTarget,
+  type DelegationBudgetTrip,
+  type DelegationContract,
+  type RepositoryDelegationContract,
+} from "./contract";
 import { ChildToolLoopGuard, type ChildToolLoopTrip } from "./tool-loop-guard";
 
 // 工具名安全化（与 pi-providers.safeId 同源逻辑，内联以解除 electron 依赖、便于单测）：
@@ -84,13 +93,15 @@ export interface DelegateSessionState {
   childRunCount: number;
   activeRuns: number;
   waiters: DelegateWaiter[];
-  // 调用入口注入：启动子 agent 执行 task。onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
+  // 调用入口注入：启动子 agent 执行已校验、规范化的合同 prompt。targetCwd 来自合同根目录，
+  // onEvent 实时推送（事件已带 roleId）；signal 由实现闭包捕获。
   runSubAgent: (
     role: RoleConfig,
     task: string,
     onEvent: (ev: CliStreamEvent) => void,
     childSessionId: string,
     signal?: AbortSignal,
+    targetCwd?: string,
   ) => Promise<SubAgentResult>;
 }
 
@@ -187,9 +198,9 @@ function releaseDelegateSlot(state: DelegateSessionState): void {
 async function executeDelegateTool(
   role: RoleConfig,
   state: DelegateSessionState,
-  task: string,
-  subagentTitle?: string,
+  contract: DelegationContract,
   requestSignal?: AbortSignal,
+  options?: { repositoryTarget?: boolean },
 ): Promise<ToolResult> {
   // SDK 的 request signal 在 HTTP 调用方断开/超时时触发；必须与父回合 signal 合并。
   // 只监听父 signal 会让已取消的排队请求稍后仍获得槽位并启动无主 child。
@@ -197,15 +208,24 @@ async function executeDelegateTool(
     ? AbortSignal.any([state.signal, requestSignal])
     : state.signal;
   if (signal.aborted) return errorResult("已取消");
-  // task/query 必须自包含；空输入直接返回明确错误，避免独立子进程因拿不到主会话上下文而无效退出。
-  const taskText = typeof task === "string" ? task.trim() : "";
-  if (!taskText) {
-    return errorResult(
-      `委派给「${role.label}」失败：任务为空。请提供完整的任务描述，并附上协作者所需的` +
-        `全部数据/材料——它是独立进程，看不到你当前对话的内容。`,
-    );
+  // MCP schema 负责字段级校验；这里再做跨字段与文件系统校验。目标错误必须在消耗 child 配额前
+  // 返回，让父 Agent 修正合同，绝不能由独立 child 自行向父目录或用户主目录扩散搜索。
+  const targetError = await validateDelegationTarget(contract, {
+    requireRootPath: options?.repositoryTarget === true,
+    requireNonEmptyRoot: options?.repositoryTarget === true,
+  });
+  if (targetError) return errorResult(`委派给「${role.label}」失败：${targetError}`);
+
+  let taskText: string;
+  try {
+    taskText = renderDelegationContract(contract, {
+      access: role.toolPolicy === "readOnly" ? "readOnly" : "inherit",
+      roleLabel: role.label,
+    });
+  } catch (error) {
+    return errorResult(`委派给「${role.label}」失败：${error instanceof Error ? error.message : String(error)}`);
   }
-  const taskTitle = subagentTitle?.trim() || undefined;
+  const taskTitle = contract.title;
   // 单会话子任务上限是总量护栏，不限制同一角色的合理重复调用；是否调用多少次仍由模型决定。
   // JS handler 的检查与递增处于同一同步段，并发 tool call 也不会共同越过上限。
   if (state.childRunCount >= state.maxChildRuns) {
@@ -221,13 +241,36 @@ async function executeDelegateTool(
   const childController = new AbortController();
   const childSignal = AbortSignal.any([signal, childController.signal]);
   const toolLoopGuard = new ChildToolLoopGuard();
+  const budgetGuard = new DelegationBudgetGuard(contract.constraints);
   let toolLoopTrip: ChildToolLoopTrip | undefined;
-  // 每一次 ask 调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
+  let budgetTrip: DelegationBudgetTrip | undefined;
+  // 每一次委派调用都有独立 id：同一角色允许重复委派，UI 必须据此把卡片、预览和详情
   // 严格隔离，不能用 roleId 把三次调用的过程混成一份。
   const subagentCallId = randomUUID();
   // childSessionId 是 Cortex 侧持久 side 会话 id，与原生 agent 的 resume id 分离。后者要等
   // 子进程 init 才能得到；提前分配应用 id 才能在第一帧就创建可进入的独立会话。
   const childSessionId = randomUUID();
+  const tripBudget = (trip: DelegationBudgetTrip) => {
+    // 先到达的终止原因是权威原因。工具循环已熔断时，几乎同时到期的预算不能覆盖更具体的诊断。
+    if (budgetTrip || toolLoopTrip) return;
+    budgetTrip = trip;
+    recordAgentTrace({
+      scope: "delegate",
+      phase: "budget",
+      summary: `子 Agent「${role.label}」合同预算耗尽`,
+      runId: subagentCallId,
+      sessionId: childSessionId,
+      agent: role.agent,
+      data: {
+        kind: trip.kind,
+        limit: trip.limit,
+        observed: trip.observed,
+        parentRunId: state.runId,
+        parentSessionId: state.sessionId,
+      },
+    });
+    childController.abort(trip.message);
+  };
   // 先发 init（带 roleId/stageLabel）插入 roleHeader，渲染端据此把该协作者的过程独立成段。
   // stage=subagent 是 HMR/刷新恢复标识：renderer 内存中的 run.delegate 丢失后，仍能把后续
   // roleId 事件识别为子代理卡片，而不是误当成圆桌角色消息。
@@ -268,9 +311,9 @@ async function executeDelegateTool(
   // 子 agent 每个事件：父流转发（已带 roleId）+ 子流双发（init 除外,见上）+ 喂主进程看门狗
   //（防长子任务误杀主 agent，R2）。
   const onEvent = (ev: CliStreamEvent) => {
-    // 熔断后底层进程/worker 可能仍冲刷少量迟到事件；它们不再属于有效执行过程，避免继续污染
-    // child 归档。触发熔断的那条 tool-end 会先正常写入，再设置 toolLoopTrip。
-    if (toolLoopTrip) return;
+    // 熔断/预算耗尽后底层进程或 worker 可能仍冲刷少量迟到事件；它们不再属于有效执行过程，
+    // 避免继续污染 child 归档。触发限制的那一帧会先正常写入，再设置终止原因。
+    if (toolLoopTrip || budgetTrip) return;
     state.pushEvent({
       ...ev,
       roleId: role.id,
@@ -287,6 +330,14 @@ async function executeDelegateTool(
     });
     if (ev.type !== "init") pushChild(ev);
     state.bumpWatchdog();
+
+    if (ev.type === "tool" && ev.phase === "start") {
+      const trip = budgetGuard.recordToolCall();
+      if (trip) {
+        tripBudget(trip);
+        return;
+      }
+    }
 
     const trip = toolLoopGuard.observe(ev);
     if (!trip) return;
@@ -309,22 +360,30 @@ async function executeDelegateTool(
     });
     childController.abort(trip.message);
   };
+  budgetGuard.start(tripBudget);
   try {
     let result: SubAgentResult;
     try {
-      result = await state.runSubAgent(role, taskText, onEvent, childSessionId, childSignal);
+      result = await state.runSubAgent(
+        role,
+        taskText,
+        onEvent,
+        childSessionId,
+        childSignal,
+        contract.target.rootPath,
+      );
     } catch (err) {
       // runSubAgent 正常把失败收敛为 SubAgentResult；这里仍防御适配器/桥接层意外 reject，
       // 保证主 Agent 收到结构化 tool error，同时 renderer 的卡片能结束而不是永久转圈。
-      const message = toolLoopTrip?.message ?? (err instanceof Error ? err.message : String(err));
+      const message = budgetTrip?.message ?? toolLoopTrip?.message ?? (err instanceof Error ? err.message : String(err));
       pushChild({ type: "result", ok: false, error: message });
       state.pushEvent({ type: "result", ok: false, error: message, roleId: role.id, subagentCallId });
       return errorResult(`协作者「${role.label}」执行失败：${message}`);
     }
     // 某些 adapter 的 kill/abort 只负责请求停止，仍可能以 ok 或通用“已取消”结算；熔断原因是
     // 更具体、可操作的权威终态，且保留失败前的 partial text 供父 Agent 增量接手。
-    if (toolLoopTrip) {
-      result = { ...result, ok: false, error: toolLoopTrip.message };
+    if (budgetTrip || toolLoopTrip) {
+      result = { ...result, ok: false, error: budgetTrip?.message ?? toolLoopTrip?.message };
     }
     recordAgentTrace({
       scope: "delegate",
@@ -335,7 +394,13 @@ async function executeDelegateTool(
       agent: role.agent,
       data: {
         roleId: role.id,
-        taskPreview: taskText.length > 300 ? `${taskText.slice(0, 300)}…` : taskText,
+        contractTitle: contract.title,
+        objectivePreview:
+          contract.objective.length > 300 ? `${contract.objective.slice(0, 300)}…` : contract.objective,
+        inScopeCount: contract.inScope.length,
+        outOfScopeCount: contract.outOfScope.length,
+        maxToolCalls: contract.constraints.maxToolCalls,
+        maxDurationMinutes: contract.constraints.maxDurationMinutes,
         resultPreview:
           result.text.length > 300 ? `${result.text.slice(0, 300)}…` : result.text,
         ok: result.ok,
@@ -369,6 +434,7 @@ async function executeDelegateTool(
     return textResult(result.text || `（协作者「${role.label}」未产生文本输出）`);
   } finally {
     // 成功、失败和适配器异常都必须释放并行槽，否则后续排队任务会永久挂起。
+    budgetGuard.dispose();
     releaseDelegateSlot(state);
   }
 }
@@ -379,43 +445,34 @@ function registerDelegateTool(mcp: McpServer, role: RoleConfig, state: DelegateS
       EXPLORE_AGENT_TOOL_NAME,
       {
         description:
-          "Use this first for any repository or project exploration. " +
-          "Complex questions MUST be split into multiple parallel explore_agent calls with non-overlapping scopes " +
-          "(for example one call for API wiring, another for UI, another for tests). " +
-          "Never pack a whole-repo investigation into a single call. " +
-          "Each call needs a short distinct title (2-6 words) and a narrow self-contained query. " +
-          "整项目分析要先枚举所有适用的独立证据面，例如产品定位、后端或核心实现、前端交互、测试与完成度；" +
-          "不得为了减少调用次数把彼此独立的证据面合并。拆分数量由问题范围动态决定，不得固定调用次数。",
-        inputSchema: {
-          title: z.string().min(1).describe("本次探索的简短标题，建议 2-6 个词，用于子 Agent 卡片和会话标题。"),
-          query: z.string().min(1).describe("范围明确且自包含的只读探索任务；子 Agent 看不到主会话上下文。"),
-        },
+          "Delegate one bounded repository or project investigation to the read-only Repository Explorer. " +
+          "Every call requires a complete task contract: concrete objective, absolute target root, explicit in-scope and " +
+          "out-of-scope work, runtime budgets, supplied context, deliverable, completion criteria, and blocker conditions. " +
+          "The target root must already be known; never use this tool to guess a project by walking parent or home directories. " +
+          "Split complex investigations into parallel calls with non-overlapping evidence scopes.",
+        inputSchema: repositoryDelegationContractInputShape,
       },
-      async ({ title, query }: { title: string; query: string }, extra): Promise<ToolResult> =>
-        executeDelegateTool(role, state, query, title, extra.signal),
+      async (contract: RepositoryDelegationContract, extra): Promise<ToolResult> =>
+        executeDelegateTool(role, state, contract, extra.signal, { repositoryTarget: true }),
     );
     return;
   }
 
   const toolName = "ask_" + safeToolId(role.id);
   // description 带角色 persona，帮助主 agent 判断「这是谁、擅长什么、何时该委派给它」（R8）。
-  const personaLine = role.systemPrompt ? `角色设定：${role.systemPrompt.slice(0, 240)}。` : "";
+  const personaLine = role.systemPrompt ? `Role profile: ${role.systemPrompt.slice(0, 240)}. ` : "";
   mcp.registerTool(
     toolName,
     {
       description:
-        `把一个子任务委派给协作者「${role.label}」（底层 agent：${role.agent}）。${personaLine}` +
-        `⚠️ 协作者是一个独立进程，看不到你当前对话的任何上下文——你必须在 task 参数里写明完整的任务描述，` +
-        `并附上它完成任务所需的全部数据/材料（例如你已搜集到的内容）。它执行后会把结果返回给你，供你整合。`,
-      inputSchema: {
-        task: z.string().min(1).describe(
-          `交给协作者「${role.label}」的完整任务描述，必须自包含：写清要做什么 + 附上所需的全部数据/材料` +
-            `（协作者看不到你的对话上下文，凡未写进 task 的信息它都拿不到）。`,
-        ),
-      },
+        `Delegate one bounded task to collaborator "${role.label}" (runtime: ${role.agent}). ${personaLine}` +
+        "The collaborator cannot see the parent conversation. Every call must supply the complete structured task contract: " +
+        "objective, target, inScope, outOfScope, constraints, context, deliverable, doneWhen, and blockedWhen. " +
+        "The runtime derives and enforces access mode from the selected role.",
+      inputSchema: delegationContractInputShape,
     },
-    async ({ task }: { task: string }, extra): Promise<ToolResult> =>
-      executeDelegateTool(role, state, task, undefined, extra.signal),
+    async (contract: DelegationContract, extra): Promise<ToolResult> =>
+      executeDelegateTool(role, state, contract, extra.signal),
   );
 }
 
