@@ -980,10 +980,18 @@ describe("sanitizeForSave 落盘清理(过程不落盘:思考与工具步骤皆�
     expect(out.some((m) => typeof m.uid === "string" && m.uid.startsWith("err-"))).toBe(false);
   });
 
-  it("迁移旧档纯空 text 壳，但保留带附件或空白排版的消息", () => {
+  it("迁移旧档纯空白 text 壳，但保留正文内换行和带附件的消息", () => {
     const input: Message[] = [
       { kind: "text", who: "pi", time: "10:00", text: "", uid: "empty-1" },
-      { kind: "text", who: "pi", time: "10:01", text: "\n", uid: "layout-1" },
+      { kind: "text", who: "pi", time: "10:01", text: "\n\n", uid: "empty-2" },
+      {
+        kind: "text",
+        who: "pi",
+        time: "10:01",
+        text: { kind: "rich", parts: [{ t: "text", v: "\n" }] },
+        uid: "empty-rich",
+      },
+      { kind: "text", who: "pi", time: "10:01", text: "正文\n\n", uid: "layout-1" },
       {
         kind: "text",
         who: "me",
@@ -1290,7 +1298,7 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     expect(texts[0]).toMatchObject({ text: "你好世界" });
   });
 
-  it("工具轮次之间的空 text delta 不生成空白消息节点", () => {
+  it("工具轮次之间的纯空白 text delta 不生成空白消息节点", () => {
     const qc = new QueryClient();
     setupPiRun(qc);
     __handlePiEventForTest(qc, "s1", { type: "text", delta: "最终报告" });
@@ -1301,12 +1309,23 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
       const toolCallId = `tool-${index}`;
       __handlePiEventForTest(qc, "s1", { type: "tool-start", name, toolCallId });
       __handlePiEventForTest(qc, "s1", { type: "tool-end", name, toolCallId, isError: false });
-      __handlePiEventForTest(qc, "s1", { type: "text", delta: "" });
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: index % 2 === 0 ? "\n\n" : "\n\n\n" });
     }
 
     __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
     const texts = cacheOf(qc).filter((message) => message.kind === "text" && message.who === "pi");
     expect(texts).toEqual([expect.objectContaining({ text: "最终报告" })]);
+  });
+
+  it("已打开正文块内的换行 delta 继续参与 Markdown 排版", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "第一段" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "\n\n" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "第二段" });
+
+    const texts = cacheOf(qc).filter((message) => message.kind === "text" && message.who === "pi");
+    expect(texts).toEqual([expect.objectContaining({ text: "第一段\n\n第二段" })]);
   });
 
   it("text 增量向语音助手流式通道埋点；willRetry 广播 reset；reasoning 不发", () => {

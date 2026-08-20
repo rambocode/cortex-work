@@ -27,6 +27,12 @@ const MD_REHYPE_PLUGINS: import("react-markdown").Options["rehypePlugins"] = [
   [rehypeHighlight, { ignoreMissing: true }],
 ];
 
+/** 纯空白 RichText 没有可渲染内容；带可见 part 的正文即使包含换行也不属于空消息。 */
+function isBlankMessageText(text: Extract<Message, { kind: "text" }>["text"]): boolean {
+  if (typeof text === "string") return text.trim().length === 0;
+  return text.parts.every((part) => part.v.trim().length === 0);
+}
+
 function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const { t } = useTranslation("chat");
   const isShared = contact.group === "shared";
@@ -996,11 +1002,11 @@ export function MessageStream({
             lastWho = null;
             return <DaySep key={key} label={m.label} />;
           }
-          // 兼容旧版本已写入缓存/磁盘的 provider 空帧：纯空 text 没有任何可见载荷，不应占一整行。
-          // 带引用或附件的空正文仍是有效消息；空白字符也可能承担 Markdown 排版，不能 trim 后过滤。
+          // 兼容旧版本已写入缓存/磁盘的 provider 空帧：独立的纯空白 text 没有可见载荷，
+          // 不应占一整行。带引用或附件的空正文仍是有效消息；正文内部换行因同时含可见字符而保留。
           if (
             m.kind === "text" &&
-            m.text === "" &&
+            isBlankMessageText(m.text) &&
             !m.reply &&
             !m.attachments?.length &&
             !m.images?.length &&

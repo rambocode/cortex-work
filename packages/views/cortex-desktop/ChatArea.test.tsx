@@ -108,9 +108,9 @@ describe("团队侧 MessageStream 零回归（R12）", () => {
     const { container, getByText } = renderTeamStream(
       [
         { kind: "text", who: "pi", time: "10:00", uid: "answer", text: "最终报告" },
-        { kind: "text", who: "pi", time: "10:01", uid: "empty-1", text: "" },
-        { kind: "text", who: "pi", time: "10:02", uid: "empty-2", text: "" },
-        { kind: "text", who: "pi", time: "10:03", uid: "empty-3", text: "" },
+        { kind: "text", who: "pi", time: "10:01", uid: "empty-1", text: "\n\n" },
+        { kind: "text", who: "pi", time: "10:02", uid: "empty-2", text: "\n\n\n" },
+        { kind: "text", who: "pi", time: "10:03", uid: "empty-3", text: "\n\n" },
       ],
       true,
     );

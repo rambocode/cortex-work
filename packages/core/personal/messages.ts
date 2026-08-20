@@ -10,6 +10,7 @@ import type {
   ChatFileRef,
   ChatImageRef,
   Message,
+  RichText,
   TodoListItem,
   TurnStats,
   TurnTokenUsage,
@@ -866,12 +867,19 @@ export function windowTailTurns(
   };
 }
 
-// 判断 text 是否完全没有可见载荷。空字符串正文若仍带引用或附件，消息本身依然有展示价值；
-// 只清理 provider 协议空帧留下的纯空壳。空白字符不等于空字符串，Markdown 排版增量必须保留。
+// 判断 RichText 是否只含不可见空白。独立消息里的纯换行不会产生任何 DOM 内容；真正承担
+// Markdown 排版的换行会与同一个正文块里的可见字符共同存在，因此整段 trim 后仍非空。
+function isBlankRichText(text: RichText): boolean {
+  if (typeof text === "string") return text.trim().length === 0;
+  return text.parts.every((part) => part.v.trim().length === 0);
+}
+
+// 判断 text 是否完全没有可见载荷。纯空白正文若仍带引用或附件，消息本身依然有展示价值；
+// 只清理 provider 协议空帧留下的纯空壳。
 function isEmptyTextShell(m: Message): boolean {
   return (
     m.kind === "text" &&
-    m.text === "" &&
+    isBlankRichText(m.text) &&
     !m.reply &&
     !m.attachments?.length &&
     !m.images?.length &&
@@ -1335,6 +1343,11 @@ export function foldCliEvent(
   ctx: FoldCtx,
 ): { messages: Message[]; cursor: FoldCursor } {
   if (ev.type === "text") {
+    // 工具边界会清空 textUid；provider 随后可能发只含换行的 text_delta。没有打开正文块时，
+    // 这些空白没有排版对象，创建新消息只会留下 avatar 骨架。已有正文块时仍正常追加换行。
+    if (ev.delta.trim().length === 0 && (cursor.lastKind !== "text" || !cursor.textUid)) {
+      return { messages, cursor };
+    }
     // 续写当前 text 块。
     if (cursor.lastKind === "text" && cursor.textUid) {
       const segmentText = cursor.segmentText + ev.delta;
@@ -3067,6 +3080,15 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
   const active = piRunFor(sessionId);
   if (!active) return; // 轮已结束/未开始,丢弃残余流（与停止后丢弃 stdout 对称）。
   const { runId, run } = active;
+  // 与 foldCliEvent 的空白守卫同步，但必须在运行事件、TTFT、typing、sawText 等副作用之前返回。
+  // 否则虽然 DOM 不再追加空消息，本轮仍会被错误地当成“已有正文”。
+  if (
+    ev.type === "text" &&
+    ev.delta.trim().length === 0 &&
+    (run.cursor.lastKind !== "text" || !run.cursor.textUid)
+  ) {
+    return;
+  }
   run.lastEventAt = Date.now();
   if (run.phase === "starting") run.phase = "thinking";
   // 运行事件流采集(详情弹层数据源):pi 事件转成与 claude/codex 同形态的记录后统一入通道。
