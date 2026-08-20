@@ -14,10 +14,12 @@
 // 聊天模型选择器打通，避免用户保存完不知道去哪用、或不知道为什么选择器里没有它。
 
 import { useState } from "react";
+import { useProviderCatalog } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { CatalogProvider, CustomProviderDefinition } from "@cortex-work/core/desktop/provider-catalog";
 import { CustomProviderEditor } from "./CustomProviderPanel";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { slugifyProviderId } from "./customProviderRules";
 import { isGatewayGenerated } from "./gatewayDefinition";
 import { ProviderTestControl } from "./ProviderTestControl";
 import { parseCustomProvider, useCustomProviderActions, useCustomProviders } from "./useProviderData";
@@ -39,14 +41,21 @@ export function PiCustomProviderSection({
   const { t } = useTranslation("settings");
   const { items } = useCustomProviders();
   const { remove } = useCustomProviderActions();
+  const { catalog } = useProviderCatalog();
   const [editing, setEditing] = useState<EditingState>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // 与内建撞名的存量定义：主进程同步时会**静默丢弃**它（custom-provider-registry），
+  // probe/聊天实际命中的是内建供应商的官方端点——必须在行上给出可见错误态，而不是让用户
+  // 以为自己的 baseUrl 在生效。判据与主进程 saveCustomProvider 的拒绝口径同算法
+  //（slugifyProviderId ≙ 主进程 safeId）。Catalog 不可用时集合为空 → 不误报。
+  const builtinIds = new Set((catalog?.providers ?? []).map((p) => p.id));
 
   const q = query.trim().toLowerCase();
   // 网关来源的条目归 PiGatewaySection 管，这里排除掉（两区的过滤条件互补，不能有缝）。
   const rows = items
     .filter((def) => !isGatewayGenerated(def))
-    .map((def) => ({ def, parsed: parseCustomProvider(def) }))
+    .map((def) => ({ def, parsed: parseCustomProvider(def), conflict: builtinIds.has(slugifyProviderId(def.id)) }))
     .filter(
       (r) => !q || r.def.id.toLowerCase().includes(q) || (r.parsed?.name ?? "").toLowerCase().includes(q),
     );
@@ -63,10 +72,10 @@ export function PiCustomProviderSection({
 
       {rows.length > 0 ? (
         <div className="pw-pip-table">
-          {rows.map(({ def, parsed }) => (
+          {rows.map(({ def, parsed, conflict }) => (
             <div key={def.id} className="pw-pip-row is-on">
               <div className="pw-pip-row-main">
-                <span className={`pw-pip-dot ${parsed && parsed.models.length > 0 ? "is-on" : ""}`} />
+                <span className={`pw-pip-dot ${!conflict && parsed && parsed.models.length > 0 ? "is-on" : ""}`} />
                 <div className="pw-pip-row-info">
                   <span className="pw-pip-row-name">{parsed?.name ?? def.id}</span>
                   {parsed ? (
@@ -78,7 +87,8 @@ export function PiCustomProviderSection({
                 {parsed?.baseUrl ? <span className="pw-pip-baseurl">{parsed.baseUrl}</span> : null}
                 {parsed?.api ? <span className="pw-prov-badge">{parsed.api}</span> : null}
                 <span className="pw-pip-spacer" />
-                <ProviderTestControl providerId={def.id} modelId={parsed?.models[0]?.id ?? ""} />
+                {/* 撞名行不给测试按钮：probe 命中的是内建供应商，测出来的结果纯属误导。 */}
+                {conflict ? null : <ProviderTestControl providerId={def.id} modelId={parsed?.models[0]?.id ?? ""} />}
                 <button type="button" className="pw-pip-linkbtn" onClick={() => setEditing({ mode: "json", def })}>
                   {t("providers.inline.edit")}
                 </button>
@@ -94,7 +104,13 @@ export function PiCustomProviderSection({
                   {confirmDeleteId === def.id ? t("providers.custom.deleteConfirm") : t("providers.custom.delete")}
                 </button>
               </div>
-              <CustomProviderChatAvailability parsed={parsed} />
+              {conflict ? (
+                <div className="pw-prov-alert is-warn">
+                  {t("providers.inline.builtinConflict", { id: slugifyProviderId(def.id) })}
+                </div>
+              ) : (
+                <CustomProviderChatAvailability parsed={parsed} />
+              )}
             </div>
           ))}
         </div>

@@ -12,6 +12,8 @@
 
 // provider 名/文件名安全化:仅保留字母数字与 - _,其余替换为 -。
 // `registerProvider` 的注册名与 Catalog / 自定义列表的匹配键都经它归一。
+// ⚠️ 渲染端 `packages/views/.../provider/customProviderRules.ts` 的 `slugifyProviderId`
+// 是同算法镜像(渲染端不能 import 主进程模块),改一处必须改两处,两侧测试各有镜像用例。
 export function safeId(id: string): string {
   const s = id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return s || "provider";

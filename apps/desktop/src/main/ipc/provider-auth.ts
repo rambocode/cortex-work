@@ -351,7 +351,11 @@ export function registerProviderAuthHandlers(): void {
 
   ipcMain.handle(PROVIDER_IPC.customSave, async (_e, def: CustomProviderDefinition) => {
     try {
-      const result = await saveCustomProvider(def, await listSecretNames());
+      // 撞名校验的内建 id 集合在 IPC 层供给（custom-providers.ts 刻意不依赖 electron 的 catalog.ts）。
+      // Catalog 不可用时传 undefined → 跳过撞名检查，与 registry 侧的降级姿势一致。
+      const catalogProviders = getProviderCatalog()?.providers;
+      const builtinIds = catalogProviders ? new Set(catalogProviders.map((item) => item.id)) : undefined;
+      const result = await saveCustomProvider(def, await listSecretNames(), builtinIds);
       return result.ok ? { ok: true } : { ok: false, error: result.error };
     } catch (err) {
       return { ok: false, error: safeErrorMessage(err, "保存失败") };

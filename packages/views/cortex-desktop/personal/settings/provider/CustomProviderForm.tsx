@@ -12,6 +12,7 @@
 // providerAuthSetSecrets 进 safeStorage（顺序不能反——主进程保存时会拒绝未定义的引用）。
 
 import { useState } from "react";
+import { useProviderCatalog } from "@cortex-work/core";
 import { useTranslation } from "@cortex-work/core/i18n";
 import type { CustomProviderDefinition } from "@cortex-work/core/desktop/provider-catalog";
 import { secretNameFor, slugifyProviderId } from "./customProviderRules";
@@ -46,6 +47,7 @@ export function CustomProviderForm({
   const { t } = useTranslation("settings");
   const { save } = useCustomProviderActions();
   const { setSecrets } = useProviderAuthActions();
+  const { catalog } = useProviderCatalog();
 
   const [preset, setPreset] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -67,8 +69,15 @@ export function CustomProviderForm({
     .filter(Boolean);
   const ctx = Number(ctxText);
   const maxTok = Number(maxTokText);
+  const slug = slugifyProviderId(name);
+  const secretName = secretNameFor(slug);
+  // 与内建撞名在表单里就拦下（主进程 saveCustomProvider 仍是权威关卡）：撞名定义会被
+  // 同步侧静默丢弃、probe/聊天打到内建官方端点。Catalog 拿不到时集合为空 → 交主进程兜底。
+  const builtinConflict = !!name.trim() && (catalog?.providers ?? []).some((p) => p.id === slug);
+
   const canSave =
     !!name.trim() &&
+    !builtinConflict &&
     /^https?:\/\//i.test(baseUrl.trim()) &&
     modelIds.length > 0 &&
     Number.isFinite(ctx) &&
@@ -76,9 +85,6 @@ export function CustomProviderForm({
     Number.isFinite(maxTok) &&
     maxTok > 0 &&
     !saving;
-
-  const slug = slugifyProviderId(name);
-  const secretName = secretNameFor(slug);
 
   /** 由表单状态生成完整 Pi Provider JSON（能力字段全部来自用户声明，cost 固定全 0）。 */
   const buildJson = (): string => {
@@ -177,6 +183,9 @@ export function CustomProviderForm({
             spellCheck={false}
             onChange={(e) => setName(e.target.value)}
           />
+          {builtinConflict ? (
+            <span className="pw-prov-alert is-warn">{t("providers.inline.builtinConflict", { id: slug })}</span>
+          ) : null}
         </label>
         <label className="pw-set-field">
           <span className="pw-set-lbl">{t("providers.form.api")}</span>

@@ -16,6 +16,7 @@ import { join } from "path";
 
 import { cortexHome } from "../paths";
 import { createLogger } from "../log";
+import { safeId } from "../agents/pi-providers";
 import type { CustomProviderDefinition, CustomProviderValidation } from "./contract";
 import {
   SECRET_NAME_RE,
@@ -297,13 +298,31 @@ export async function listCustomProviders(): Promise<CustomProviderDefinition[]>
   return [...(await load()).providers];
 }
 
-/** 保存（新增或覆盖同 id）。校验不通过直接拒绝，绝不落一个 pi 加载不了的定义。 */
+/**
+ * 保存（新增或覆盖同 id）。校验不通过直接拒绝，绝不落一个 pi 加载不了的定义。
+ *
+ * `builtinIds` 是内建 Catalog 的 id 集合（由 IPC 层供给；本模块刻意不 import catalog.ts——
+ * 它依赖 electron.app，会污染本文件的纯 Node 单测环境）。撞名必须在保存时就拒绝：
+ * 同步侧（custom-provider-registry）对撞名定义是**静默丢弃**，probe/聊天会命中内建供应商的
+ * 官方端点（其中不少是 coding-plan 专属端点），拿用户的 key 打过去返回 InvalidSubscription
+ * 类 400，而设置页还显示着用户自己的 baseUrl——0.1.63 用户报障的正是这种假象。
+ * 比对必须用 `safeId` 归一口径（PROVIDER_ID_RE 放行大写，"DeepSeek" 归一后即撞 "deepseek"），
+ * 与 custom-provider-registry 的丢弃判据保持同一算法。
+ * Catalog 不可用时调用方传 undefined → 跳过撞名检查（不能把一次目录加载失败放大成拒绝一切保存）。
+ */
 export async function saveCustomProvider(
   input: CustomProviderDefinition,
   definedSecretNames: readonly string[],
+  builtinIds?: ReadonlySet<string>,
 ): Promise<{ ok: boolean; error?: string; errors?: ValidationError[] }> {
   if (!PROVIDER_ID_RE.test(input.id)) {
     return { ok: false, error: "Provider id 须是无空格的 slug（字母开头，可含数字、下划线、连字符）" };
+  }
+  if (builtinIds?.has(safeId(input.id))) {
+    return {
+      ok: false,
+      error: `「${input.id}」与内建供应商同名。同名定义不会生效（内建目录始终优先），请换一个名称，例如加上「-自建」后缀。`,
+    };
   }
   const validation = validateCustomProviderJson(input.json, definedSecretNames);
   if (!validation.ok) {

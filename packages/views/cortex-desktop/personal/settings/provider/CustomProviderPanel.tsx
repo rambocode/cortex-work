@@ -38,7 +38,7 @@ export function CustomProviderEditor({
 }) {
   const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
-  const { save } = useCustomProviderActions();
+  const { save, remove } = useCustomProviderActions();
   const { setSecrets } = useProviderAuthActions();
 
   const [idDraft, setIdDraft] = useState(initial?.id ?? "");
@@ -79,7 +79,12 @@ export function CustomProviderEditor({
       { id, json, secretRefs: refs, updatedAt: Date.now() },
       {
         onSuccess: (r) => {
-          if (r.ok) onClose();
+          if (!r.ok) return;
+          // 改 id 语义上是 rename：保存是「新增新 id」，必须删掉旧条目，否则旧行（比如与内建
+          // 撞名的那条）会一直留在列表里，用户以为改名没生效。Secret 引用按名字全局解析，
+          // 删旧 id 不影响新定义继续用同一批 `${secret:NAME}`。customDelete 幂等。
+          if (initial?.id && initial.id !== id) remove.mutate(initial.id);
+          onClose();
         },
       },
     );

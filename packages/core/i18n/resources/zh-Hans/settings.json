@@ -475,6 +475,7 @@
       "chatReady": "已可在聊天的模型选择器中选用（{{count}} 个模型）",
       "chatUnusableParse": "配置不完整：Provider JSON 无法解析，模型不会出现在聊天的模型选择器中。点「编辑」后用「校验」定位错误。",
       "chatUnusableModels": "配置不完整：没有一条模型通过校验，模型不会出现在聊天的模型选择器中。每个模型都要显式写全 input / reasoning / contextWindow / maxTokens。",
+      "builtinConflict": "与内建供应商「{{id}}」同名，此配置不会生效（内建目录始终优先）——请点「编辑」改名（例如加「-自建」后缀）。",
       "unset": "未设置",
       "defaultModelHint": "仅列出已配置供应商的模型,当前 {{count}} 个供应商可用;供应商在下方本页直接接入。",
       "addGateway": "＋ 接入聚合网关(new-api / one-api)",

@@ -475,6 +475,7 @@
       "chatReady": "Available in the chat model picker ({{count}} models)",
       "chatUnusableParse": "Incomplete configuration: the provider JSON cannot be parsed, so its models will not show up in the chat model picker. Open “Edit” and hit “Validate” to locate the error.",
       "chatUnusableModels": "Incomplete configuration: no model passed validation, so nothing will show up in the chat model picker. Every model must spell out input / reasoning / contextWindow / maxTokens.",
+      "builtinConflict": "Shares the id “{{id}}” with a built-in provider, so this definition never takes effect (the built-in catalog always wins). Click “Edit” and rename it (e.g. add a “-custom” suffix).",
       "unset": "Not set",
       "defaultModelHint": "Only models from configured providers are listed — {{count}} providers available. Connect providers right below on this page.",
       "addGateway": "＋ Connect an aggregation gateway (new-api / one-api)",

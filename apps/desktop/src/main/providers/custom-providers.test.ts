@@ -276,6 +276,38 @@ describe("落盘", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("与内建供应商撞名被拒（含大写变体——safeId 归一后比对，镜像渲染端 slugifyProviderId 口径）", async () => {
+    const builtinIds = new Set(["deepseek", "kimi-coding"]);
+    // 精确撞名与大写变体都要拒：PROVIDER_ID_RE 放行大写，"DeepSeek" 归一后即撞 "deepseek"。
+    for (const id of ["deepseek", "DeepSeek"]) {
+      const result = await saveCustomProvider(
+        { id, json: validJson(), secretRefs: [], updatedAt: 0 },
+        ["CORP_KEY"],
+        builtinIds,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("内建供应商同名");
+    }
+    expect(await listCustomProviders()).toEqual([]);
+  });
+
+  it("Catalog 不可用（builtinIds 缺省）时同名可保存——目录加载失败不能放大成拒绝一切保存", async () => {
+    const result = await saveCustomProvider(
+      { id: "deepseek", json: validJson(), secretRefs: [], updatedAt: 0 },
+      ["CORP_KEY"],
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("不撞名时带 builtinIds 也照常保存", async () => {
+    const result = await saveCustomProvider(
+      { id: "my-relay", json: validJson(), secretRefs: [], updatedAt: 0 },
+      ["CORP_KEY"],
+      new Set(["deepseek"]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("删除幂等", async () => {
     await saveCustomProvider({ id: "corp", json: validJson(), secretRefs: [], updatedAt: 0 }, ["CORP_KEY"]);
     expect(await deleteCustomProvider("corp")).toEqual({ ok: true });

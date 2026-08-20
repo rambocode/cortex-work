@@ -62,6 +62,14 @@ describe("provider id slug", () => {
     expect(slugifyProviderId("---")).toBe("custom-provider");
     expect(slugifyProviderId("")).toBe("custom-provider");
   });
+
+  // 与主进程 agents/pi-providers.ts 的 safeId 的镜像用例（同输入同输出）：
+  // 撞名判定 / 注册键 / 查找归一全依赖两侧算法一致，主进程侧在 custom-providers.test.ts 有对应用例。
+  it("与主进程 safeId 同口径（镜像用例）", () => {
+    expect(slugifyProviderId("DeepSeek")).toBe("deepseek");
+    expect(slugifyProviderId("My.Ollama")).toBe("my-ollama");
+    expect(slugifyProviderId("Kimi Coding")).toBe("kimi-coding");
+  });
 });
 
 describe("findInlineSecrets：compat 子树整棵跳过（线上死锁回归）", () => {

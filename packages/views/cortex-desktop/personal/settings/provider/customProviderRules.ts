@@ -83,7 +83,12 @@ export function secretNameFor(slug: string): string {
   return `CUSTOM_${slug.replace(/-/g, "_").toUpperCase()}_API_KEY`;
 }
 
-/** id slug 化：作为 pi provider 名，仅允许字母数字与 - _。 */
+/**
+ * id slug 化：作为 pi provider 名，仅允许字母数字与 - _。
+ * ⚠️ 与主进程 `apps/desktop/src/main/agents/pi-providers.ts` 的 `safeId` 是**同算法两份实现**
+ *（渲染端不能 import 主进程模块）：撞名判定、注册键、查找归一全依赖两者一致，改一处必须改两处
+ *（两侧测试各有一条镜像用例钉住）。唯一已知差异是空串兜底值，真实 id 非空时不影响。
+ */
 export function slugifyProviderId(s: string): string {
   const out = s
     .trim()

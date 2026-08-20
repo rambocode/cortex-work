@@ -266,6 +266,10 @@ export default interface Resources {
       "pending": "待审核",
       "rejected": "已拒绝"
     },
+    "historyGate": {
+      "earlierTurns": "还有 {{count}} 轮更早对话",
+      "expandMore": "展开更多"
+    },
     "messageHeader": {
       "agent": "Agent",
       "sharedAgent": "共享 Agent"
@@ -2413,6 +2417,7 @@ export default interface Resources {
         "addGateway": "＋ 接入聚合网关(new-api / one-api)",
         "baseUrlSet": "已设自定义地址",
         "baseUrlToggle": "自定义地址",
+        "builtinConflict": "与内建供应商「{{id}}」同名，此配置不会生效（内建目录始终优先）——请点「编辑」改名（例如加「-自建」后缀）。",
         "cancel": "取消",
         "chatReady": "已可在聊天的模型选择器中选用（{{count}} 个模型）",
         "chatUnusableModels": "配置不完整：没有一条模型通过校验，模型不会出现在聊天的模型选择器中。每个模型都要显式写全 input / reasoning / contextWindow / maxTokens。",

@@ -675,6 +675,17 @@ describe("自定义供应商：在聊天中是否可用的状态提示", () => {
     const brokenRow = (await screen.findByText("broken")).closest(".pw-pip-row") as HTMLElement;
     expect(within(brokenRow).getByText(/Provider JSON 无法解析/)).toBeInTheDocument();
   });
+
+  it("与内建撞名的存量定义 → 行上给出可见错误态且不给测试按钮（同步侧会静默丢弃它）", async () => {
+    // id "deepseek" 与 CATALOG 内建撞名：主进程注册时整条丢弃，probe/聊天命中的是内建官方端点。
+    const conflictDef = { ...CUSTOM_DEFS[0]!, id: "deepseek" };
+    const bridge = { ...makeBridge(), providerCustomList: vi.fn(async () => [conflictDef]) } as unknown as DesktopBridge;
+    renderUI(<PiProvidersSection />, bridge);
+    await openTab("自定义");
+    const row = (await screen.findByText("本地 Ollama")).closest(".pw-pip-row") as HTMLElement;
+    expect(within(row).getByText(/与内建供应商「deepseek」同名/)).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /测试/ })).toBeNull();
+  });
 });
 
 describe("默认模型级联下拉", () => {
