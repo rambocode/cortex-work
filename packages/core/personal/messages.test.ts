@@ -2964,6 +2964,43 @@ describe("Pi Stop 与启动 await 交错", () => {
     });
   }
 
+  it("历史会话发送使用 store 中最新的 piSessionFile，不被调用方旧快照降级成新会话", async () => {
+    setupSession();
+    usePersonalStore.getState().updateSession("s1", { piSessionFile: "/sessions/history.jsonl" });
+    const piSwitchSession = vi.fn(async () => undefined);
+    const piPrompt = vi.fn(async () => undefined);
+    const bridge = {
+      piSkillsList: vi.fn(async () => []),
+      piOpen: vi.fn(async () => ({
+        uiSessionId: "s1",
+        sessionId: "native-fresh",
+        sessionFile: "/sessions/fresh.jsonl",
+      })),
+      piSwitchSession,
+      piGetState: vi.fn(async () => ({
+        sessionId: "native-history",
+        sessionFile: "/sessions/history.jsonl",
+      })),
+      piPrompt,
+      piClose: vi.fn(async () => undefined),
+    } as unknown as DesktopBridge;
+
+    await __sendPiTurnForTest(
+      new QueryClient(),
+      bridge,
+      piSession, // 模拟 React 回调捕获的旧对象：其中尚无 piSessionFile。
+      "/proj",
+      "follow up",
+      undefined,
+      { runId: "prun-history", typingUid: "typ-history" },
+    );
+
+    expect(piSwitchSession).toHaveBeenCalledWith("s1", "/sessions/history.jsonl");
+    expect(piPrompt).toHaveBeenCalledOnce();
+    expect(usePersonalStore.getState().sessions[0]?.piSessionFile).toBe("/sessions/history.jsonl");
+    __resetPiSessionsForTest();
+  });
+
   it("慢 skill gate 期间 Stop：build 返回后不再迟到 piOpen/piPrompt", async () => {
     setupSession();
     let releaseSkills: (skills: []) => void = () => undefined;
@@ -3138,6 +3175,29 @@ describe("prewarmPiSession 会话预热", () => {
     await prewarmPiSession(qc, bridge, piSession, "/proj");
     const sess = usePersonalStore.getState().sessions.find((s) => s.id === "s1");
     expect(sess?.piSessionFile).toBe("/sessions/warm.jsonl");
+  });
+
+  it("历史会话预热优先恢复 store 最新指针，不用 fresh 文件覆盖历史上下文", async () => {
+    const qc = new QueryClient();
+    usePersonalStore.getState().updateSession("s1", { piSessionFile: "/sessions/history.jsonl" });
+    const piSwitchSession = vi.fn(async () => undefined);
+    const bridge = prewarmBridge({
+      piOpen: vi.fn(async () => ({
+        uiSessionId: "s1",
+        sessionId: "pi-fresh",
+        sessionFile: "/sessions/fresh.jsonl",
+      })),
+      piSwitchSession,
+      piGetState: vi.fn(async () => ({
+        sessionId: "pi-history",
+        sessionFile: "/sessions/history.jsonl",
+      })),
+    });
+
+    await prewarmPiSession(qc, bridge, piSession, "/proj");
+
+    expect(piSwitchSession).toHaveBeenCalledWith("s1", "/sessions/history.jsonl");
+    expect(usePersonalStore.getState().sessions[0]?.piSessionFile).toBe("/sessions/history.jsonl");
   });
 });
 

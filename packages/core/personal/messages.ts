@@ -3244,6 +3244,23 @@ function buildPiPromptMessage(text: string, appendSystemPrompt?: string): string
   return appendSystemPrompt ? `${appendSystemPrompt}\n\n${text}` : text;
 }
 
+/**
+ * UI 事件回调可能捕获 hydrate / 预热前的旧 SessionMeta。Pi 的 JSONL 指针会由预热、恢复和
+ * fork 异步更新，因此真正 open 前必须重读 store 权威态；否则旧对象里的 undefined 会启动
+ * fresh session，并把新空文件反向覆盖已经持久化的历史指针。
+ */
+function withLatestPiResumePointers(session: SessionMeta): SessionMeta {
+  const current = usePersonalStore.getState().sessions.find((candidate) => candidate.id === session.id);
+  if (!current) return session;
+  // 仅覆盖会被后台异步更新的恢复指针。Agent、模型、权限等配置仍取调用方本轮快照，避免用户
+  // 切换配置时一次已经开始的发送在中途改变执行语义。
+  return {
+    ...session,
+    piSessionFile: current.piSessionFile,
+    artifactSessionIds: current.artifactSessionIds,
+  };
+}
+
 // 全局追加系统提示词（U3/U4）:对 claude/codex/pi 三端统一注入,经每轮 appendSystemPrompt 下发
 // （pi 走 buildPiPromptMessage 前缀,claude --append-system-prompt,codex promptWithSkills 前置）。
 // 与 pi 专属、会话级的 piSystemPrompt 解耦并存。组装顺序:全局指令 → 语言指令(U4) → 用户记忆。
@@ -3514,21 +3531,22 @@ export async function prewarmPiSession(
   session: SessionMeta,
   projectPath: string,
 ): Promise<void> {
-  if (session.agent !== "pi" || !piRpcAvailable(bridge)) return;
-  if (isPiSessionOpen(session.id) || piSendStarting.has(session.id)) return;
-  if (usePersonalStore.getState().runningBySession[session.id]) return;
+  const effectiveSession = withLatestPiResumePointers(session);
+  if (effectiveSession.agent !== "pi" || !piRpcAvailable(bridge)) return;
+  if (isPiSessionOpen(effectiveSession.id) || piSendStarting.has(effectiveSession.id)) return;
+  if (usePersonalStore.getState().runningBySession[effectiveSession.id]) return;
   try {
-    const piOpen = await buildPiOpenForSession(bridge, session, projectPath);
+    const piOpen = await buildPiOpenForSession(bridge, effectiveSession, projectPath);
     const opened = await ensurePiSession(
       bridge,
-      { uiSessionId: session.id, cwd: projectPath, ...piOpen },
-      { resumeFrom: session.piSessionFile },
+      { uiSessionId: effectiveSession.id, cwd: projectPath, ...piOpen },
+      { resumeFrom: effectiveSession.piSessionFile },
     );
     // 与 sendPiTurn 同口径持久 sessionFile,保证后续任何重开都能恢复上下文。
-    if (opened.sessionFile && opened.sessionFile !== session.piSessionFile) {
-      usePersonalStore.getState().updateSession(session.id, { piSessionFile: opened.sessionFile });
+    if (opened.sessionFile && opened.sessionFile !== effectiveSession.piSessionFile) {
+      usePersonalStore.getState().updateSession(effectiveSession.id, { piSessionFile: opened.sessionFile });
     }
-    touchPiSession(bridge, session.id); // 预热即活跃,启动空闲回收计时。
+    touchPiSession(bridge, effectiveSession.id); // 预热即活跃,启动空闲回收计时。
   } catch {
     // 预热失败静默:不打扰输入,真正 send 会重走 ensurePiSession 并正常报错。
   }
@@ -3554,14 +3572,15 @@ async function sendPiTurn(
     invokedSkill?: { name: string; path: string };
   },
 ): Promise<void> {
+  const effectiveSession = withLatestPiResumePointers(session);
   const { runId, typingUid } = ids;
   const artifact = execution?.artifact;
   const cwd = artifact?.workspaceRoot ?? projectPath;
-  const resumeKey = artifact ? artifactResumeKey(session, artifact) : undefined;
-  const reuse = isPiSessionOpen(session.id); // 复用已开会话:一开即「思考中」;冷启显「启动中」。
+  const resumeKey = artifact ? artifactResumeKey(effectiveSession, artifact) : undefined;
+  const reuse = isPiSessionOpen(effectiveSession.id); // 复用已开会话:一开即「思考中」;冷启显「启动中」。
   beginPiRun(qc, {
     runId,
-    sessionId: session.id,
+    sessionId: effectiveSession.id,
     typingUid,
     cwd,
     promptText: text,
@@ -3569,37 +3588,37 @@ async function sendPiTurn(
     delegateRoles: delegation?.roles,
     artifactResumeKey: resumeKey,
     nestedRoleEvents: !!artifact,
-    permissionMode: toAdapterPermissions(session.execPermission).permissionMode,
+    permissionMode: toAdapterPermissions(effectiveSession.execPermission).permissionMode,
   });
   const run = runs.get(runId);
   if (!run) return;
-  piSendStarting.delete(session.id); // running 已置位,发送在途锁交棒（之后并发 send 被 running 挡）。
+  piSendStarting.delete(effectiveSession.id); // running 已置位,发送在途锁交棒（之后并发 send 被 running 挡）。
 
   try {
     const piOpen = await buildPiOpenForSession(
       bridge,
-      session,
+      effectiveSession,
       cwd,
       delegation,
       execution,
     );
     // skill/plugin/provider 配置装配都可能跨 IPC await；Stop 在此期间已把同一 RunState 标记为
     // stopping。必须在 ensure 前截断，不能让已经取消的轮次迟到 piOpen。
-    if (!currentPiRunCanContinue(session.id, runId, run)) return;
+    if (!currentPiRunCanContinue(effectiveSession.id, runId, run)) return;
     // 旧 artifact lane 存的是 oneshot 的逻辑 session id，不能交给 pi:switchSession 当 JSONL。
     // 只恢复明确像磁盘路径的值；首次成功 open 后会用真实 sessionFile 覆盖旧槽。
     const artifactResumeFrom = resumeKey
-      ? session.artifactSessionIds?.[resumeKey]
+      ? effectiveSession.artifactSessionIds?.[resumeKey]
       : undefined;
     const resumeFrom = resumeKey
       ? artifactResumeFrom && (artifactResumeFrom.endsWith(".jsonl") || /[\\/]/.test(artifactResumeFrom))
         ? artifactResumeFrom
         : undefined
-      : session.piSessionFile;
+      : effectiveSession.piSessionFile;
     const opened = await ensurePiSession(
       bridge,
       {
-        uiSessionId: session.id,
+        uiSessionId: effectiveSession.id,
         cwd,
         ...piOpen,
       },
@@ -3609,39 +3628,41 @@ async function sendPiTurn(
     );
     // Stop 也可能发生在 piOpen/switchSession/getState 在途。ensure 已经建立过 handle 时必须先关
     // 掉该世代，再把 renderer 收尾交还 stop fallback；绝不能把刚取消的轮次继续 prompt。
-    if (!currentPiRunCanContinue(session.id, runId, run)) {
-      await closePiSession(bridge, session.id);
+    if (!currentPiRunCanContinue(effectiveSession.id, runId, run)) {
+      await closePiSession(bridge, effectiveSession.id);
       return;
     }
     // 普通聊天与每个 artifact 使用独立 JSONL 槽。否则在普通 cwd 与产物 cwd 间切换时会把两套
     // 对话上下文串在一起；artifact 首次 RPC 成功也会在这里迁掉旧 oneshot 逻辑 id。
     if (opened.sessionFile) {
       if (resumeKey && opened.sessionFile !== artifactResumeFrom) {
-        usePersonalStore.getState().updateSession(session.id, {
+        usePersonalStore.getState().updateSession(effectiveSession.id, {
           artifactSessionIds: {
-            ...session.artifactSessionIds,
+            ...effectiveSession.artifactSessionIds,
             [resumeKey]: opened.sessionFile,
           },
         });
-      } else if (!resumeKey && opened.sessionFile !== session.piSessionFile) {
-        usePersonalStore.getState().updateSession(session.id, { piSessionFile: opened.sessionFile });
+      } else if (!resumeKey && opened.sessionFile !== effectiveSession.piSessionFile) {
+        usePersonalStore.getState().updateSession(effectiveSession.id, { piSessionFile: opened.sessionFile });
       }
     }
     flipPiRunToThinking(qc, runId); // 冷启就绪 → typing 翻「思考中」。
-    touchPiSession(bridge, session.id); // 阶段4:发起一轮 = 活跃,启动/重置空闲计时。
+    touchPiSession(bridge, effectiveSession.id); // 阶段4:发起一轮 = 活跃,启动/重置空闲计时。
     // 上面的会话文件持久化会同步通知 store 订阅者；保留最后一道对象身份守卫，确保任何同步 Stop
     // 都发生在 promptPi 之前，并关闭 ensure 已建的 handle。
-    if (!currentPiRunCanContinue(session.id, runId, run)) {
-      await closePiSession(bridge, session.id);
+    if (!currentPiRunCanContinue(effectiveSession.id, runId, run)) {
+      await closePiSession(bridge, effectiveSession.id);
       return;
     }
     // 传 runId（阶段4 代际）:主进程绑定到本轮,事件回带,renderer 守卫丢弃旧轮串台事件。
-    await promptPi(bridge, session.id, buildPiPromptMessage(text, appendSystemPrompt), runId, imagePaths);
-    autoTitle(bridge, session, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
+    await promptPi(bridge, effectiveSession.id, buildPiPromptMessage(text, appendSystemPrompt), runId, imagePaths);
+    autoTitle(bridge, effectiveSession, text); // pi 走 fallback 截断标题（autoTitle 内部仅 claude 跑 haiku）。
   } catch (err) {
     // Stop/settled/其它终态已接管该 RunState 时，迟到的 build/open reject 不能再追加“启动失败”并
     // 清理后来轮次；只有仍是当前且未停止的同一对象才走启动失败出口。
-    if (currentPiRunCanContinue(session.id, runId, run)) failPiTurn(qc, session.id, runId, err);
+    if (currentPiRunCanContinue(effectiveSession.id, runId, run)) {
+      failPiTurn(qc, effectiveSession.id, runId, err);
+    }
   }
 }
 
