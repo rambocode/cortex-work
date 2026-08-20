@@ -157,6 +157,11 @@ export interface PersonalState {
   // pi RPC 会话运行时状态（瞬态,不持久化;由 handlePiEvent 写,头部/composer 读）:
   // 待注入队列计数 / 压缩中 / 自动重试 / 思考强度。
   piRuntimeBySession: Record<string, PiRuntimeStatus | undefined>;
+  // 每会话最近一轮的终局（瞬态,不落盘;侧栏「已结束」徽标数据源）。
+  // 语义是「有你没看的结果」:写入时该会话正 active 则不写(markRunOutcome 内守卫);
+  // 切回该会话(setActiveSession)或开新一轮(setRunning 带 runId)即清。
+  // 用户主动 Stop 的轮次由 messages.ts 凭 run.stopping 跳过,不入此表。
+  runOutcomeBySession: Record<string, { ok: boolean; endedAt: number } | undefined>;
   // Catalog 时代的全局默认模型引用（替代已废弃的 providerSettings.defaultProviderId/defaultModel）。
   // 新建会话 / 会话未指定模型时用它兜底；引用在 Catalog 中查不到或未认证时**不回退**，
   // 由消费方进「未配置模型」阻断态（计划 §5）——它绝不是一条绕过 §5 的静默回退路径。
@@ -382,6 +387,10 @@ export interface PersonalState {
   toggleProjectCollapse: (id: string) => void;
   toggleTaskCollapse: (id: string) => void;
   setRunning: (sessionId: string, runId: string | undefined) => void;
+  // 记录/清除某会话最近一轮终局（侧栏「已结束」徽标）。mark 对当前 active 会话 no-op——
+  // 用户正看着的会话不需要「已结束」提醒,守卫内聚在 action 里,收尾各触点无需自判。
+  markRunOutcome: (sessionId: string, ok: boolean) => void;
+  clearRunOutcome: (sessionId: string) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
   /** 请求展开完整过程；输入目标可精确定位到一轮/工具/详情页签。 */
@@ -709,6 +718,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   collapsedTasks: {},
   runningBySession: {},
   piRuntimeBySession: {},
+  runOutcomeBySession: {},
   modeBlockHints: {},
   visionBlockHints: {},
   piUiPending: [],
@@ -1251,6 +1261,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 选中会话即离开时间线/首页/工作流视图。
       return {
         activeSessionId: sessionId,
+        // 「已结束」徽标看过即清:切回该会话即视为已读(无值时保持原引用,避免无谓重渲)。
+        ...(s.runOutcomeBySession[sessionId]
+          ? { runOutcomeBySession: { ...s.runOutcomeBySession, [sessionId]: undefined } }
+          : {}),
         activeProjectId: sess?.projectId ?? s.activeProjectId,
         // 无项目会话不覆盖（保留上一个有效项目作浮层默认归属）。
         lastActiveProjectId: sess?.projectId ?? s.lastActiveProjectId,
@@ -1284,7 +1298,27 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({ collapsedTasks: { ...s.collapsedTasks, [id]: !s.collapsedTasks[id] } })),
 
   setRunning: (sessionId, runId) =>
-    set((s) => ({ runningBySession: { ...s.runningBySession, [sessionId]: runId } })),
+    set((s) => ({
+      runningBySession: { ...s.runningBySession, [sessionId]: runId },
+      // 新一轮开始即清上一轮终局徽标(一处覆盖 claude/codex/pi 全部开轮路径)。
+      ...(runId && s.runOutcomeBySession[sessionId]
+        ? { runOutcomeBySession: { ...s.runOutcomeBySession, [sessionId]: undefined } }
+        : {}),
+    })),
+
+  markRunOutcome: (sessionId, ok) =>
+    set((s) =>
+      // active 会话不打「已结束」徽标——用户正看着,结果在消息流里。
+      s.activeSessionId === sessionId
+        ? s
+        : { runOutcomeBySession: { ...s.runOutcomeBySession, [sessionId]: { ok, endedAt: Date.now() } } },
+    ),
+  clearRunOutcome: (sessionId) =>
+    set((s) =>
+      s.runOutcomeBySession[sessionId]
+        ? { runOutcomeBySession: { ...s.runOutcomeBySession, [sessionId]: undefined } }
+        : s,
+    ),
 
   setPiRuntime: (sessionId, patch) =>
     set((s) => ({

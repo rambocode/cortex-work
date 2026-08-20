@@ -3626,3 +3626,78 @@ describe("工作过程归档落盘（saveProcessArchive spy）", () => {
     expect(saveProcessArchive).not.toHaveBeenCalled();
   });
 });
+
+describe("会话终局徽标写入（runOutcomeBySession,侧栏「已结束」数据源）", () => {
+  // 铺一个后台 pi 会话在跑的局面:activeSessionId 指向别的会话,s1 的收尾应落终局。
+  function setupBackgroundPiRun(qc: QueryClient, runId = "prun-o"): string {
+    usePersonalStore.setState({
+      sessions: [{ ...baseSession, agent: "pi", agentSessionIds: {} }],
+      activeSessionId: "other",
+      runningBySession: {},
+      piRuntimeBySession: {},
+      runOutcomeBySession: {},
+    });
+    beginPiRun(qc, { runId, sessionId: "s1", typingUid: "typ-s1", cwd: "/p", promptText: "hi" });
+    return runId;
+  }
+
+  it("后台会话 settled 成功 → 落 {ok:true}", () => {
+    const qc = new QueryClient();
+    setupBackgroundPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toMatchObject({ ok: true });
+  });
+
+  it("后台会话 error 后 settled → 落 {ok:false}", () => {
+    const qc = new QueryClient();
+    setupBackgroundPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "error", error: "boom" });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toMatchObject({ ok: false });
+  });
+
+  it("active 会话收尾不落终局（用户正看着,action 内守卫）", () => {
+    const qc = new QueryClient();
+    setupBackgroundPiRun(qc);
+    usePersonalStore.setState({ activeSessionId: "s1" });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toBeUndefined();
+  });
+
+  it("用户主动 Stop（run.stopping）后收尾不落终局", () => {
+    const qc = new QueryClient();
+    const runId = setupBackgroundPiRun(qc);
+    __markRunStoppingForTest("s1", runId);
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toBeUndefined();
+  });
+
+  it("pi 进程 crashed → 落 {ok:false}（确凿失败）", () => {
+    const qc = new QueryClient();
+    setupBackgroundPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "crashed", error: "boom" });
+    expect(usePersonalStore.getState().runningBySession.s1).toBeUndefined();
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toMatchObject({ ok: false });
+  });
+
+  it("stopping 后 crashed 不落终局（Stop 关进程被误报 crashed 的竞态）", () => {
+    const qc = new QueryClient();
+    const runId = setupBackgroundPiRun(qc);
+    __markRunStoppingForTest("s1", runId);
+    __handlePiEventForTest(qc, "s1", { type: "crashed" });
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toBeUndefined();
+  });
+
+  it("reapSessionRun 回收终局（删/关会话）", () => {
+    const qc = new QueryClient();
+    setupBackgroundPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toMatchObject({ ok: true });
+    reapSessionRun(qc, "s1");
+    expect(usePersonalStore.getState().runOutcomeBySession.s1).toBeUndefined();
+  });
+});

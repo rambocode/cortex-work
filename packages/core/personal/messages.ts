@@ -2400,6 +2400,7 @@ function finalizeRun(
       if (store.runningBySession[sessionIdHint] === runId) store.setRunning(sessionIdHint, undefined);
       flushChat(qc, sessionIdHint);
       // 静默收尾:注册表已丢失,说不清这一轮是成是败,报 failed 会是假警报。
+      // 同理不写 runOutcome——侧栏打成功/失败徽标都是假信号。
       petActivity.endRun(runId);
     }
     return;
@@ -2437,6 +2438,9 @@ function finalizeRun(
   // 切走/下一轮才清,见 clearProcess 各出口）;失败/异常退出轮立即清空（错误文案已走 text 进消息流）。
   // 两种结局都先打一份归档快照落盘（archiveRunProcess）——瞬态流清掉后,历史轮靠它回看。
   const runOk = run.gotResult && run.resultOk !== false && !error && (code === null || code === 0);
+  // 侧栏「已结束」徽标:后台会话收尾时落一条终局(active 会话由 action 内守卫跳过)。
+  // 用户主动 Stop(run.stopping)不算「已结束」——CLI 停止 kill 后进程 exit 仍会流入本函数,靠它跳过。
+  if (!run.stopping) usePersonalStore.getState().markRunOutcome(sessionId, runOk);
   // 轮末汇总:token 用量 + 耗时统计一起落一条 turnUsage,它同时是「轮末 token 行」与
   // 输入框统计条的唯一数据源(统计条按会话内全部 turnUsage 折叠,见 personal/turnStats.ts)。
   // 只要有任一侧有值就落——纯工具轮可能没有 token 上报,但耗时仍有展示价值。
@@ -2819,6 +2823,7 @@ function releaseStoppedRun(qc: QueryClient, sessionId: string, runId: string): v
   }
   store.setRunning(sessionId, undefined);
   store.setPiRuntime(sessionId, undefined);
+  store.clearRunOutcome(sessionId); // 用户主动停止不算「已结束」（防御性,正常路径不会有值）。
   clearTransient(qc, sessionId);
   clearProcess(qc, sessionId); // 立即清空出口（stop 4s 兜底，KTD8）。
   flushChat(qc, sessionId);
@@ -2993,6 +2998,8 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       store.setRunning(sessionId, undefined);
       store.setPiRuntime(sessionId, undefined);
       store.clearPiUiForSession(sessionId); // 清该会话悬挂的确认弹窗（进程已死,回写无意义）。
+      // 侧栏徽标:崩溃是确凿失败;stopping 守卫防「用户 Stop 关进程被误报 crashed」竞态。
+      if (active && !active.run.stopping) store.markRunOutcome(sessionId, false);
       flushChat(qc, sessionId);
       if (active) petActivity.endRun(active.runId, false); // 进程崩了是确凿的失败
       return;
@@ -3211,6 +3218,7 @@ export function reapSessionRun(qc: QueryClient, sessionId: string): void {
   const store = usePersonalStore.getState();
   store.setRunning(sessionId, undefined);
   store.setPiRuntime(sessionId, undefined);
+  store.clearRunOutcome(sessionId); // 会话消亡,终局徽标一并回收。
   store.clearPiUiForSession(sessionId); // 删/关会话时清其悬挂确认弹窗。
   clearTransient(qc, sessionId);
   // 删会话立即清空过程流并取消任何游离的延迟清理 timer（杜绝 timer 复活已删会话 process key，KTD8）。

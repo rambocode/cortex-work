@@ -138,3 +138,76 @@ describe("SessionList 会话重命名", () => {
     expect(usePersonalStore.getState().sessions[0]?.title).toBe("会话0");
   });
 });
+
+describe("SessionRow 运行状态徽标（等待确认 > 正在运行 > 已结束）", () => {
+  const base = { activeSessionId: undefined, onSelect: () => {}, onToast: () => {} };
+
+  // 每例铺底徽标相关瞬态,防跨用例污染。
+  function resetBadges() {
+    usePersonalStore.setState({
+      runningBySession: {},
+      piUiPending: [],
+      runOutcomeBySession: {},
+      activeSessionId: undefined,
+    });
+  }
+
+  function statusOf(title: string) {
+    return screen.getByText(title).closest("button")!.querySelector(".pw-session-status");
+  }
+
+  it("运行中会话显示 running 状态点,其它会话无徽标", () => {
+    resetBadges();
+    usePersonalStore.setState({ runningBySession: { s0: "run-1" } });
+    renderUI(<SessionList sessions={makeSessions(2)} {...base} />);
+    expect(statusOf("会话0")).toHaveAttribute("data-status", "running");
+    expect(statusOf("会话0")).toHaveAttribute("aria-label", "正在运行");
+    expect(statusOf("会话1")).toBeNull();
+  });
+
+  it("等待确认（confirm/askquestion 在队）优先于运行中", () => {
+    resetBadges();
+    usePersonalStore.setState({
+      runningBySession: { s0: "run-1" },
+      piUiPending: [
+        {
+          uiSessionId: "s0",
+          request: { type: "extension_ui_request", id: "r1", method: "confirm", title: "t", message: "m" },
+        },
+      ],
+    });
+    renderUI(<SessionList sessions={makeSessions(1)} {...base} />);
+    expect(statusOf("会话0")).toHaveAttribute("data-status", "confirm");
+  });
+
+  it("非阻塞 method（notify）不触发等待确认徽标", () => {
+    resetBadges();
+    usePersonalStore.setState({
+      piUiPending: [
+        {
+          uiSessionId: "s0",
+          request: { type: "extension_ui_request", id: "r2", method: "notify", message: "m" },
+        },
+      ],
+    });
+    renderUI(<SessionList sessions={makeSessions(1)} {...base} />);
+    expect(statusOf("会话0")).toBeNull();
+  });
+
+  it("已结束终局按成败显示 ok/fail,仅对非 active 行", () => {
+    resetBadges();
+    usePersonalStore.setState({
+      runOutcomeBySession: { s0: { ok: true, endedAt: 1000 }, s1: { ok: false, endedAt: 1000 } },
+    });
+    renderUI(<SessionList sessions={makeSessions(2)} {...base} />);
+    expect(statusOf("会话0")).toHaveAttribute("data-status", "ok");
+    expect(statusOf("会话1")).toHaveAttribute("data-status", "fail");
+  });
+
+  it("active 行不显示已结束徽标（读侧兜底,即使终局残留）", () => {
+    resetBadges();
+    usePersonalStore.setState({ runOutcomeBySession: { s0: { ok: true, endedAt: 1000 } } });
+    renderUI(<SessionList sessions={makeSessions(1)} {...base} activeSessionId="s0" />);
+    expect(statusOf("会话0")).toBeNull();
+  });
+});
