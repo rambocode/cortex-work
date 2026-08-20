@@ -153,6 +153,14 @@ dev 与仓库内 dist 全绿,只有 /Applications 下的正式包炸。
 2. 护栏脚本用 utilityProcess 按生产同款参数**真 fork 打包产物里的 pi-host.js**,断言 warmup ok;
 3. pi 依赖闭包自动比对 asar(治 marked 这类排除清单误伤)。
 
+> ⚠️ 0.1.64 追认：**只验 warmup 仍然不够**。warmup 仅加载 coding-agent / agent-core /
+> `pi-ai/compat`；自定义 Provider 在真实 `pi:open` 时才另行加载 `pi-ai` 根入口与
+> `pi-ai/api/*.lazy`。这两个 import 曾绕过 asar-aware loader，修到统一 loader 后又暴露手动
+> exports 解析器不支持 `./api/*`，于是发布护栏全绿、oMLX 会话仍报找不到 `pi-ai`。现行护栏在
+> warmup 后会发送一条最小自定义 Provider open，并要求 `reply{ok:true}`；resolver 同时只增加
+> 本仓需要的单 `*` exports 前后缀替换。以后新增 pi 子路径加载点必须复用
+> `importPiRuntimeModule()`，不能在共享 builder 里另写裸 `import()`。
+
 **流程层的两个补丁(否则以上全是摆设)**:
 1. **护栏不在发布链上=没有护栏**:该脚本 0.1.54 之前就存在,但 local-release-mac.sh、release:ui、
    CI 里都没接它,全靠人肉记得手跑。现已在三条发布路径各加一道强制关卡(arm64 侧签名校验后),

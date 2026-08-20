@@ -7,6 +7,7 @@
 import type { Provider } from "@earendil-works/pi-ai";
 
 import { safeId } from "../agents/pi-providers";
+import { importPiRuntimeModule } from "../agents/pi-inproc/runtime";
 import { collectSecretRefs, resolveSecretRefs } from "./secrets";
 
 /** 自定义 Provider 在进程间传递的安全形状；JSON 只含 `${secret:...}` 引用，不含解密后的真值。 */
@@ -25,8 +26,8 @@ export interface CustomProviderBuildOptions {
   onMissingHeaderSecrets?: (providerId: string, header: string, names: readonly string[]) => void;
 }
 
-// 与 pi-runtime.ts 同款的「bundler 不可见」动态 import：specifier 必须由变量拼出，避免
-// electron-vite 把纯 ESM 的 pi-ai 依赖图静默内联进 CJS 主进程或 worker 产物。
+// specifier 仍须由变量拼出，避免 bundler 静态内联纯 ESM 图；真正 import 统一经过
+// pi-inproc/runtime.ts，因为只有它同时处理主进程 app.asar 与 unpacked worker 两种父链。
 const piAiApiModule = (name: string): string => ["@earendil-works", "pi-ai", "api", `${name}.lazy`].join("/");
 const PI_AI_MODELS = ["@earendil-works", "pi-ai"].join("/");
 
@@ -176,12 +177,12 @@ export async function buildCustomProvider(
 
   const apiMap: Record<string, unknown> = {};
   for (const api of new Set(models.map((model) => String(model.api)))) {
-    const module = (await import(/* @vite-ignore */ piAiApiModule(api))) as Record<string, () => unknown>;
+    const module = await importPiRuntimeModule<Record<string, () => unknown>>(piAiApiModule(api));
     apiMap[api] = module[API_FACTORY[api]!]!();
   }
-  const piAi = (await import(/* @vite-ignore */ PI_AI_MODELS)) as {
+  const piAi = await importPiRuntimeModule<{
     createProvider: (input: Record<string, unknown>) => Provider;
-  };
+  }>(PI_AI_MODELS);
 
   const name = typeof parsed.name === "string" && parsed.name ? parsed.name : id;
   const rawApiKey = typeof parsed.apiKey === "string" ? parsed.apiKey : undefined;

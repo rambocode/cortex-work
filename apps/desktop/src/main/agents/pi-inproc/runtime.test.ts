@@ -14,6 +14,7 @@ vi.mock("../../log", () => ({ createLogger: () => logMocks.logger, isDevEnv: () 
 import {
   __resetPiRuntimeCacheForTests,
   __setPiRuntimeImporterForTests,
+  importPiRuntimeModule,
   loadPiAgentCore,
   loadPiAiCompat,
   loadPiCodingAgent,
@@ -41,6 +42,22 @@ describe("包加载", () => {
       "@earendil-works/pi-coding-agent",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai/compat",
+    ]);
+  });
+
+  it("自定义 Provider 的 pi-ai 根入口与 API 子路径也走同一个 importer", async () => {
+    const seen: string[] = [];
+    __setPiRuntimeImporterForTests(async (specifier) => {
+      seen.push(specifier);
+      return { specifier };
+    });
+
+    await importPiRuntimeModule("@earendil-works/pi-ai");
+    await importPiRuntimeModule("@earendil-works/pi-ai/api/openai-completions.lazy");
+
+    expect(seen).toEqual([
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-ai/api/openai-completions.lazy",
     ]);
   });
 

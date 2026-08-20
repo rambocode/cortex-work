@@ -1,5 +1,5 @@
-// pi in-process 引擎的**唯一**包加载点：三个 pi 包（coding-agent / agent-core / ai）的
-// lazy 动态 import + 单例缓存 + 加载失败的响亮错误。
+// pi in-process 引擎的**唯一**包加载点：三个 pi 包（coding-agent / agent-core / ai）以及
+// 自定义 Provider 所需 pi-ai 子路径的动态 import、单例缓存与加载失败的响亮错误。
 //
 // ── 为什么必须是「动态 import + 变量 specifier」（迁移计划 KTD1，不可让步）─────────────
 // 三个包都是**纯 ESM**（package.json `"type":"module"`，exports 只有 `import` 条件），而主进程
@@ -101,8 +101,9 @@ function pickExportTarget(entry: unknown): string | null {
 
 /**
  * 在 asar 的 node_modules 里手动解析 specifier 到入口文件绝对路径。
- * 只需覆盖本文件顶部三种形态：scoped 包名 + 至多一段静态子路径（如 "@earendil-works/pi-ai/compat"），
- * 刻意不实现通配 exports 等完整 ESM 解析语义——多余的通用性只会掩盖真实的解析失败。
+ * 只覆盖本仓真实用到的 scoped 包名与静态子路径。pi-ai 的 `api/*.lazy` 通过 `./api/*`
+ * exports 暴露，因此支持一个 `*` 的标准前后缀替换；不扩成完整 Node ESM resolver，避免把
+ * 多余的条件、数组与多通配语义悄悄实现错。
  */
 function resolvePiEntryInAsar(nodeModulesRoot: string, specifier: string): string {
   const segments = specifier.split("/");
@@ -113,12 +114,35 @@ function resolvePiEntryInAsar(nodeModulesRoot: string, specifier: string): strin
     exports?: Record<string, unknown>;
     main?: string;
   };
-  const target =
-    pickExportTarget(pkg.exports?.[subpath]) ?? (subpath === "." ? (pkg.main ?? "index.js") : null);
+  const target = resolveExportTarget(pkg.exports, subpath) ?? (subpath === "." ? (pkg.main ?? "index.js") : null);
   if (!target) {
     throw new Error(`无法从 ${pkgDir} 的 exports 解析子路径 ${subpath}`);
   }
-  return path.join(pkgDir, target);
+  const resolved = path.resolve(pkgDir, target);
+  const packageRoot = `${path.resolve(pkgDir)}${path.sep}`;
+  if (!resolved.startsWith(packageRoot)) {
+    throw new Error(`包 ${name} 的 exports 目标越界：${target}`);
+  }
+  return resolved;
+}
+
+/** 精确 exports 优先；未命中时支持一条仅含一个 `*` 的子路径映射。 */
+function resolveExportTarget(exports: Record<string, unknown> | undefined, subpath: string): string | null {
+  const exact = pickExportTarget(exports?.[subpath]);
+  if (exact) return exact;
+  if (!exports) return null;
+
+  for (const [pattern, entry] of Object.entries(exports)) {
+    const star = pattern.indexOf("*");
+    if (star < 0 || star !== pattern.lastIndexOf("*")) continue;
+    const prefix = pattern.slice(0, star);
+    const suffix = pattern.slice(star + 1);
+    if (!subpath.startsWith(prefix) || !subpath.endsWith(suffix)) continue;
+    const wildcard = subpath.slice(prefix.length, subpath.length - suffix.length);
+    const target = pickExportTarget(entry);
+    if (target) return target.split("*").join(wildcard);
+  }
+  return null;
 }
 
 /** 生产实现。见文件头 KTD1：specifier 必须是变量 + @vite-ignore；unpacked worker 走 asar 兜底。 */
@@ -134,6 +158,18 @@ const realImporter: PiImporter = async (specifier) => {
 let importer: PiImporter = realImporter;
 
 /**
+ * 加载任意 pi 运行时入口，并统一处理 unpacked worker → app.asar 的跨边界解析。
+ *
+ * 三个核心包由下方 loader 负责缓存；自定义 Provider 的 `pi-ai` 根入口与 `api/*.lazy`
+ * 子路径直接走这里。不能在调用方另写裸 `import()`：主进程里它能工作，但 pi-host 位于
+ * `app.asar.unpacked`，Node 的父链进不了 `app.asar/node_modules`，只会在正式包真实 open 时失败。
+ * Node 的 ESM loader 自身会缓存已加载模块，因此这里无需再维护一份按 specifier 的缓存表。
+ */
+export function importPiRuntimeModule<T = unknown>(specifier: string): Promise<T> {
+  return importer(specifier) as Promise<T>;
+}
+
+/**
  * 通用加载器：命中缓存 → import → 缓存。
  * reject 路径上把缓存清空，保证「失败不缓存」——装包/权限问题修好后无需重启即可恢复。
  */
@@ -145,7 +181,7 @@ function loadPackage<T>(
 ): Promise<T> {
   let cached = getCache();
   if (!cached) {
-    cached = importer(specifier).then(
+    cached = importPiRuntimeModule<T>(specifier).then(
       (mod) => mod as T,
       (err: unknown) => {
         setCache(null);

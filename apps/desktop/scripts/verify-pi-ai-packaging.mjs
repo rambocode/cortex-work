@@ -309,10 +309,11 @@ app.whenReady().then(async () => {
   // 上面几层全在**主进程**上下文验证，而 0.1.54 恰恰是 worker 独有的失败：pi-host 从
   // app.asar.unpacked fork，裸包名 import 的父链走不进 app.asar/node_modules，主进程全绿、
   // worker 全挂。这里用 utilityProcess 按生产同款参数真 fork 打包产物里的 pi-host.js——
-  // fork 即预热会加载三包，warmup 结果打到 stderr（见 host.ts startPiHostRuntimeWarmup），
-  // 断言收到 "[pi-host] warmup ok" 标记行。任何包在 worker 上下文解析失败都在这里红。
+  // fork 即预热只覆盖三个核心入口；真实 open 还会为自定义 Provider 加载 pi-ai 根入口与
+  // `api/*.lazy` 子路径。0.1.64 曾因此出现「warmup/发布护栏全绿，但真实会话 open 失败」。
+  // 所以收到 warmup ok 后还要发送一条最小自定义 Provider open，直到 reply{ok:true} 才算通过。
   if (existsSync(unpackedHost)) {
-    check("pi-host worker 真 fork 后三包 warmup 成功", () => {
+    check("pi-host worker 真 fork 后 warmup + 自定义 Provider open 成功", () => {
       const harnessDir = mkdtempSync(join(tmpdir(), "pi-host-fork-test-"));
       try {
         writeFileSync(
@@ -327,6 +328,7 @@ app.whenReady().then(() => {
   });
   let tail = "";
   let done = false;
+  let openSent = false;
   // finish 必须幂等：成功路径的 child.kill() 会触发 exit 事件再进一次 finish(false)。
   const finish = (ok) => {
     if (done) return;
@@ -337,11 +339,65 @@ app.whenReady().then(() => {
   };
   const timer = setTimeout(() => finish(false), 150000);
   child.stdout?.resume();
+  child.on("message", (raw) => {
+    let message;
+    try { message = JSON.parse(typeof raw === "string" ? raw : JSON.stringify(raw)); } catch { return; }
+    if (message.kind === "log") tail += "\\n" + message.message;
+    // ModelRuntime 初始化可能读取凭据清单；验证 Provider 构造不需要任何真实凭据。
+    if (message.kind === "credentialRequest") {
+      child.postMessage(JSON.stringify({
+        id: "verify-credential-response",
+        kind: "credentialResponse",
+        requestId: message.requestId,
+        value: message.op === "list" ? "[]" : null,
+      }));
+      return;
+    }
+    if (message.kind === "reply" && message.id === "verify-open") {
+      if (!message.ok) tail += "\\nopen failed: " + (message.error || "unknown error");
+      clearTimeout(timer);
+      finish(message.ok === true);
+    }
+  });
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk) => {
     tail += chunk;
-    if (tail.includes("[pi-host] warmup ok")) { clearTimeout(timer); finish(true); }
-    else if (tail.includes("[pi-host] warmup failed")) { clearTimeout(timer); finish(false); }
+    if (tail.includes("[pi-host] warmup failed")) { clearTimeout(timer); finish(false); return; }
+    if (!openSent && tail.includes("[pi-host] warmup ok")) {
+      openSent = true;
+      child.postMessage(JSON.stringify({
+        id: "verify-open",
+        kind: "open",
+        sessionId: "verify-session",
+        hasUiOutlet: false,
+        request: {
+          uiSessionId: "verify-ui",
+          cwd: process.env.TEST_CWD,
+          providerId: "verify-local",
+          model: "verify-model",
+          useOwnSkills: false,
+          skillPaths: [],
+          inProcExtensionPaths: [],
+          bridgeServers: [],
+          customProvider: {
+            id: "verify-local",
+            json: JSON.stringify({
+              name: "Packaging verifier",
+              baseUrl: "http://127.0.0.1:9/v1",
+              api: "openai-completions",
+              models: [{
+                id: "verify-model",
+                input: ["text"],
+                reasoning: false,
+                contextWindow: 32768,
+                maxTokens: 4096,
+                cost: { input: 0, output: 0 },
+              }],
+            }),
+          },
+        },
+      }));
+    }
   });
   child.on("exit", () => { clearTimeout(timer); finish(false); });
 });
@@ -350,16 +406,16 @@ app.whenReady().then(() => {
         writeFileSync(join(harnessDir, "package.json"), JSON.stringify({ name: "pi-host-fork-test", main: "main.cjs" }));
         const electronBin = join(appDir, "node_modules", ".bin", "electron");
         const out = spawnSync(electronBin, [harnessDir], {
-          env: { ...process.env, TEST_PI_HOST: unpackedHost },
+          env: { ...process.env, TEST_PI_HOST: unpackedHost, TEST_CWD: harnessDir },
           encoding: "utf8",
-          // 三包纯 ESM 闭包冷加载 + 进程 fork，比主进程那层慢，放宽到 160s。
+          // CI 冷机加载纯 ESM 闭包可能明显更慢；沿用原 worker 护栏的 150s，外层再留 10s 收尾。
           timeout: 160_000,
         });
         const stdout = `${out.stdout ?? ""}${out.stderr ?? ""}`;
         if (out.status !== 0 || !stdout.includes("[WORKER-PASS]")) {
           throw new Error(`退出码 ${out.status}: ${stdout.slice(0, 1200)}`);
         }
-        return "PI_WORKER_RESULT=PASS";
+        return "PI_WORKER_OPEN_RESULT=PASS";
       } finally {
         rmSync(harnessDir, { recursive: true, force: true });
       }

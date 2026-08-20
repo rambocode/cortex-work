@@ -26,13 +26,21 @@ vi.mock("./catalog", () => ({
 vi.mock("../log", () => ({
   createLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
 }));
-// pi-ai 是纯 ESM、只能动态引入；这里替身成「原样回传入参」，便于断言构造出的 Provider 形状。
-vi.mock("@earendil-works/pi-ai", () => ({ createProvider: (input: unknown) => ({ __provider: input }) }));
-vi.mock("@earendil-works/pi-ai/api/openai-completions.lazy", () => ({
-  openAICompletionsApi: () => ({ __api: "openai-completions" }),
-}));
-vi.mock("@earendil-works/pi-ai/api/anthropic-messages.lazy", () => ({
-  anthropicMessagesApi: () => ({ __api: "anthropic-messages" }),
+// builder 必须经过共享 pi importer；这里按 specifier 返回最小模块，既隔离纯 ESM 副作用，
+// 也能防止调用方以后退回只在主进程可用的裸 import。
+vi.mock("../agents/pi-inproc/runtime", () => ({
+  importPiRuntimeModule: async (specifier: string) => {
+    if (specifier === "@earendil-works/pi-ai") {
+      return { createProvider: (input: unknown) => ({ __provider: input }) };
+    }
+    if (specifier === "@earendil-works/pi-ai/api/openai-completions.lazy") {
+      return { openAICompletionsApi: () => ({ __api: "openai-completions" }) };
+    }
+    if (specifier === "@earendil-works/pi-ai/api/anthropic-messages.lazy") {
+      return { anthropicMessagesApi: () => ({ __api: "anthropic-messages" }) };
+    }
+    throw new Error(`测试未声明 pi 模块：${specifier}`);
+  },
 }));
 
 import { resetCustomProviderRegistryForTests, syncCustomProvidersInto } from "./custom-provider-registry";

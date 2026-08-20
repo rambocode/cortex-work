@@ -11,6 +11,13 @@ const runtimeMocks = vi.hoisted(() => ({ loadPiCodingAgent: vi.fn() }));
 
 vi.mock("../../main/agents/pi-inproc/runtime", () => ({
   loadPiCodingAgent: runtimeMocks.loadPiCodingAgent,
+  importPiRuntimeModule: async (specifier: string) => {
+    if (specifier === "@earendil-works/pi-ai") return { createProvider: (input: unknown) => input };
+    if (specifier === "@earendil-works/pi-ai/api/openai-completions.lazy") {
+      return { openAICompletionsApi: () => ({ id: "openai-completions" }) };
+    }
+    throw new Error(`测试未声明 pi 模块：${specifier}`);
+  },
 }));
 
 const { createWorkerModelResolver } = await import("./model");
