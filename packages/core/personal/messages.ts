@@ -3116,6 +3116,7 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
     case "result": {
       addRunTokenUsage(run, ev.usage);
       if (ev.willRetry) {
+        const contextCheckpoint = ev.stopReason === "context-checkpoint";
         if (run.retryErrorUid) {
           dropMsg(qc, sessionId, run.retryErrorUid);
           run.retryErrorUid = undefined;
@@ -3126,6 +3127,11 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
         run.awaitingRetry = true; // 挡住重试窗口内可能到达的 settled（见字段注释）
         run.gotResult = false;
         run.resultOk = undefined;
+        if (contextCheckpoint) {
+          // checkpoint 不是失败重试：前面的工具步骤、token、耗时和可能已输出的正文都属于同一
+          // user run。只保持运行态等待 compaction + continue，不能清空统计或 TTS buffer。
+          return;
+        }
         run.cursor = emptyFoldCursor();
         run.processCursor = emptyProcessCursor();
         run.buffer = "";

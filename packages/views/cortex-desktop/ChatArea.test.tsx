@@ -449,6 +449,57 @@ describe("个人会话 Kun 过程时间线", () => {
     expect(usePersonalStore.getState().processPanelOpenReq?.sessionId).toBe("session-1");
   });
 
+  it("失败轮结束后显示处理失败并默认展开错误动作", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(personalRunEventsKeys.detail("session-failed"), [
+      {
+        runId: "run-failed",
+        ts: 1,
+        ev: { type: "tool", name: "Bash", detail: "pnpm typecheck", phase: "start", toolCallId: "bash-failed" },
+      },
+      {
+        runId: "run-failed",
+        ts: 2,
+        ev: { type: "tool", name: "Bash", output: "TypeScript failed", isError: true, phase: "end", toolCallId: "bash-failed" },
+      },
+    ]);
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <MessageStream
+          contact={teamContact}
+          convo={{
+            headerStatus: { dot: "online", text: "" },
+            metaRow: [],
+            messages: [
+              { kind: "text", who: "me", time: "10:00", uid: "user-failed", text: "检查类型" },
+              { kind: "text", who: "pi", time: "10:01", uid: "answer-failed", text: "未能完成" },
+            ],
+          }}
+          onSelectFile={() => {}}
+          activeFile=""
+          onApprove={() => {}}
+          processMessages={[
+            {
+              kind: "agentLog",
+              who: "pi",
+              time: "10:01",
+              uid: "tools-failed",
+              title: "Agent 执行失败",
+              active: false,
+              completed: true,
+              items: [{ ic: "check", text: "Bash · pnpm typecheck", toolName: "bash", detail: "pnpm typecheck" }],
+            },
+          ]}
+          sessionId="session-failed"
+        />
+      </CoreProvider>,
+    );
+
+    const process = view.getByRole("button", { name: /处理失败.*运行了 1 条命令/ });
+    expect(process).toHaveAttribute("aria-expanded", "true");
+    expect(view.getByRole("button", { name: /pnpm typecheck.*查看完整错误/ })).toBeInTheDocument();
+  });
+
   it("运行中的过程默认展开，并取代重复的 typing 活动行", () => {
     const qc = new QueryClient();
     const view = render(

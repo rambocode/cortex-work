@@ -28,8 +28,15 @@
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
     "supportedArchitectures": {
-      "os": ["current", "darwin"],
-      "cpu": ["current", "x64", "arm64"]
+      "os": [
+        "current",
+        "darwin"
+      ],
+      "cpu": [
+        "current",
+        "x64",
+        "arm64"
+      ]
     },
     "onlyBuiltDependencies": [
       "esbuild",
@@ -38,19 +45,17 @@
       "node-mac-permissions"
     ],
     "overrides": {
-      "@earendil-works/pi-agent-core": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-ai": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-client": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-protocol": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-server": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-telemetry": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz",
-      "@earendil-works/pi-tui": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz",
       "@types/react": "catalog:",
       "@types/react-dom": "catalog:",
+      "lightningcss": "1.32.0",
       "minimatch": "10.2.5",
       "sherpa-onnx-darwin-arm64": "1.12.40",
       "sherpa-onnx-darwin-x64": "1.12.40",
       "sherpa-onnx-win-x64": "1.12.40"
+    },
+    "patchedDependencies": {
+      "@earendil-works/pi-coding-agent@0.84.2": "patches/@earendil-works__pi-coding-agent@0.84.2.patch",
+      "@earendil-works/pi-agent-core@0.84.2": "patches/@earendil-works__pi-agent-core@0.84.2.patch"
     }
   },
   "devDependencies": {

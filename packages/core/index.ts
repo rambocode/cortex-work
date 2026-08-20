@@ -48,6 +48,8 @@ export {
   initialModelDraft,
   type ModeBlockHint,
   type VisionBlockHint,
+  type ProcessPanelFocusTarget,
+  type ProcessPanelTarget,
   type PersonalState,
   type RightView,
 } from "./store/personal";

@@ -1976,6 +1976,34 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     }
   });
 
+  it("统计条:context checkpoint 保留压缩前后的完整 run token 与步数", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", {
+      type: "turn-end",
+      usage: { inputTokens: 100, outputTokens: 20 },
+    });
+    __handlePiEventForTest(qc, "s1", {
+      type: "result",
+      willRetry: true,
+      stopReason: "context-checkpoint",
+    });
+    __handlePiEventForTest(qc, "s1", { type: "step-start" });
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "最终答案" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "turn-end",
+      usage: { inputTokens: 50, outputTokens: 10 },
+    });
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    __handlePiEventForTest(qc, "s1", { type: "settled" });
+
+    const usage = chatOf(qc).find((message) => message.kind === "turnUsage") as
+      | Extract<Message, { kind: "turnUsage" }>
+      | undefined;
+    expect(usage).toMatchObject({ inputTokens: 150, outputTokens: 30 });
+    expect(usage?.stats?.steps).toBe(2);
+  });
+
   it("CLI 纯工具轮(ev.ok、!sawText、!ev.text):不追加持久 text 占位", () => {
     const qc = new QueryClient();
     setupCliRun(qc);

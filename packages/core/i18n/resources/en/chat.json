@@ -40,6 +40,8 @@
     "turnRunningNoTime": "Working",
     "turnDone": "Processed in {{duration}}",
     "turnDoneNoTime": "Processed",
+    "turnFailed": "Failed after {{duration}}",
+    "turnFailedNoTime": "Failed",
     "exitOk": "exit 0",
     "exitFailed": "Failed",
     "viewFullOutput": "View full output ({{count}} more lines)",

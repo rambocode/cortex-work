@@ -324,6 +324,19 @@ describe("message_end 的正常收尾", () => {
     ).toBeNull();
   });
 
+  it("length + toolCall 在 agent_end 派生 truncated，不能静默变成普通成功", () => {
+    const message = assistantMessage({
+      stopReason: "length",
+      content: [{ type: "toolCall", id: "call-1", name: "read", arguments: {} }],
+    });
+    expect(mapPiEvent({ type: "agent_end", messages: [message], willRetry: false })).toEqual({
+      type: "result",
+      willRetry: false,
+      stopReason: "length",
+      truncated: true,
+    });
+  });
+
   it("stopReason=toolUse → null（工具调用中间边界，收尾会让渲染端提前结束回合）", () => {
     expect(
       mapPiEvent({ type: "message_end", message: assistantMessage({ stopReason: "toolUse", content: [] }) }),

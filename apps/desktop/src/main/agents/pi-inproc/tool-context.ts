@@ -47,6 +47,8 @@ export interface ToolContextProjector {
 /** 单个 Cortex user run 只触发一次 checkpoint，压缩后由同一 AgentSession 自动 continue。 */
 export interface ContextCheckpointGuard {
   shouldStopAfterTurn(context: ShouldStopAfterTurnContext): ShouldStopAfterTurnDecision;
+  /** agent_end 发出时消费一次，供 Cortex 把内部边界标成 willRetry，避免 renderer 提前收尾。 */
+  consumePending(): boolean;
   reset(): void;
 }
 
@@ -81,7 +83,7 @@ export class MemoryToolOutputStore implements ToolOutputStore {
 /** 会话级本地全文存储；名称只有 hash，目录/文件权限分别固定为 0700/0600。 */
 export class FileToolOutputStore implements ToolOutputStore {
   private readonly directory: string;
-  private readonly entries = new Map<string, string>();
+  private readonly entries = new Map<string, { path: string; bytes: number; createdAt: number }>();
   private initialized = false;
 
   constructor(sessionId: string) {
@@ -91,17 +93,27 @@ export class FileToolOutputStore implements ToolOutputStore {
   async put(key: string, content: string): Promise<string | undefined> {
     const contentHash = shortHash(content);
     const existing = this.entries.get(`${key}:${contentHash}`);
-    if (existing) return existing;
+    if (existing) return existing.path;
     await this.ensureDirectory();
     const filename = `${shortHash(`${key}:${contentHash}`)}.txt`;
     const path = join(this.directory, filename);
     await writeFile(path, content, { encoding: "utf8", mode: 0o600, flag: "w" });
     await chmod(path, 0o600);
-    this.entries.set(`${key}:${contentHash}`, path);
+    this.entries.set(`${key}:${contentHash}`, {
+      path,
+      bytes: Buffer.byteLength(content),
+      createdAt: Date.now(),
+    });
     // manifest 故意不保存正文、原路径、命令或完整 hash；仅用于过期清理后的可观察性。
     await writeFile(
       join(this.directory, "manifest.json"),
-      JSON.stringify({ entries: [...this.entries.values()].map((entry) => ({ file: entry.split("/").at(-1), bytes: Buffer.byteLength(content), createdAt: Date.now() })) }),
+      JSON.stringify({
+        entries: [...this.entries.values()].map((entry) => ({
+          file: entry.path.split("/").at(-1),
+          bytes: entry.bytes,
+          createdAt: entry.createdAt,
+        })),
+      }),
       { encoding: "utf8", mode: 0o600 },
     );
     return path;
@@ -187,17 +199,29 @@ export function createContextCheckpointGuard(input: {
   reserveTokens: number;
 }): ContextCheckpointGuard {
   let checkpointed = false;
+  let pending = false;
   return {
     reset: () => {
       checkpointed = false;
+      pending = false;
+    },
+    consumePending: () => {
+      const value = pending;
+      pending = false;
+      return value;
     },
     shouldStopAfterTurn: ({ message, toolResults, context }) => {
       if (checkpointed || toolResults.length === 0 || message.stopReason !== "toolUse") return false;
       const model = input.model;
       if (!model || input.reserveTokens <= 0 || input.reserveTokens >= model.contextWindow) return false;
-      const estimatedTokens = estimateCharacters(context.messages, context.systemPrompt);
+      // 与上游 AgentSession 0.84.2 的 threshold 判定使用同一份 assistant usage，保证 guard
+      // 一旦停下，post-run compaction 必然接得住；巨型尾部工具结果由 context projector 限流。
+      const estimatedTokens = message.usage.totalTokens > 0
+        ? message.usage.totalTokens
+        : estimateCharacters(context.messages, context.systemPrompt);
       if (estimatedTokens <= model.contextWindow - input.reserveTokens) return false;
       checkpointed = true;
+      pending = true;
       return { reason: "context-checkpoint" };
     },
   };
@@ -258,7 +282,8 @@ function formatRead(text: string, args: Record<string, unknown> | undefined, lim
     length += line.length + 1;
   }
   const path = typeof args?.file_path === "string" ? args.file_path : typeof args?.path === "string" ? args.path : "requested file";
-  const offset = typeof args?.offset === "number" ? args.offset : 0;
+  // Pi read 的 offset 是 1-based；未传等价于从第 1 行开始，下一页必须是 1 + kept.length。
+  const offset = typeof args?.offset === "number" ? args.offset : 1;
   const nextOffset = offset + kept.length;
   return `${kept.join("\n")}\n\n[Read result truncated: ${path}; kept ${kept.length}/${lines.length} lines. Continue with offset=${nextOffset}.]`;
 }
@@ -328,6 +353,14 @@ export function createToolContextProjector(options: {
       try {
         const softLimit = clamp(Math.floor(model.contextWindow * 0.08), 1_024, 8_192);
         const seenRead = new Map<string, number>();
+        let latestToolBatchStart = -1;
+        for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+          const message = input.messages[index];
+          if (message?.role === "assistant" && message.content.some((content) => content.type === "toolCall")) {
+            latestToolBatchStart = index;
+            break;
+          }
+        }
         const candidates = input.messages.flatMap((message, index) => {
           if (!isToolResultMessage(message)) return [];
           const { text, hasImages } = textContent(message);
@@ -338,8 +371,8 @@ export function createToolContextProjector(options: {
           const readKey = (normalized === "read" || normalized === "read_file") && path ? `${path}:${shortHash(text)}:${String(args?.offset ?? 0)}:${String(args?.limit ?? "")}` : undefined;
           const duplicateOf = readKey ? seenRead.get(readKey) : undefined;
           if (readKey && duplicateOf === undefined) seenRead.set(readKey, index);
-          const recent = index >= input.messages.length - 4;
-          return [{ index, message, text, args, duplicateOf, rank: duplicateOf !== undefined ? 0 : message.isError ? 5 : recent ? 4 : normalized === "bash" ? 2 : normalized === "read" ? 3 : 1 }];
+          const recent = latestToolBatchStart >= 0 && index > latestToolBatchStart;
+          return [{ index, message, text, args, normalized, duplicateOf, rank: duplicateOf !== undefined ? 0 : message.isError ? 5 : recent ? 4 : normalized === "bash" ? 2 : normalized === "read" ? 3 : 1 }];
         }).sort((a, b) => a.rank - b.rank || a.index - b.index);
 
         const projected = [...input.messages];
@@ -350,12 +383,25 @@ export function createToolContextProjector(options: {
           const originalTokens = Math.ceil(candidate.text.length / 4);
           let replacement: string;
           if (candidate.duplicateOf !== undefined) {
-            const path = typeof candidate.args?.file_path === "string" ? candidate.args.file_path : "requested file";
+            const path = typeof candidate.args?.file_path === "string"
+              ? candidate.args.file_path
+              : typeof candidate.args?.path === "string"
+                ? candidate.args.path
+                : "requested file";
             replacement = `[Unchanged file result: ${path}, same content as previous read, sha256=${shortHash(candidate.text)}]`;
             projectionReport.deduplicatedResults += 1;
           } else {
-            const needsExternal = candidate.text.length > softLimit * 4;
-            const fullOutputRef = needsExternal ? await store.put(candidate.message.toolCallId, candidate.text) : undefined;
+            // read 的原文件本身就是可继续读取的全文引用；其它工具才需要会话级临时文件。
+            const needsExternal = candidate.normalized !== "read" && candidate.normalized !== "read_file" && candidate.text.length > softLimit * 4;
+            let fullOutputRef: string | undefined;
+            if (needsExternal) {
+              try {
+                fullOutputRef = await store.put(candidate.message.toolCallId, candidate.text);
+              } catch {
+                // 磁盘满/权限失败只失去全文引用，仍用内存中的 head+tail 投影继续会话。
+                fullOutputRef = undefined;
+              }
+            }
             if (fullOutputRef) projectionReport.externalizedResults += 1;
             replacement = projectText({
               text: candidate.text,

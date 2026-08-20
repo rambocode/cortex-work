@@ -2,7 +2,7 @@
 // 工具栏(时长模式/全折叠/搜索) + 概览时间线 + 事件台账。数据来自会话的运行事件流与
 // 每轮 prompt 记录,折叠由 trajectory-layout 完成。
 import { useCallback, useMemo, useState } from "react";
-import type { RunEvent, RunPromptRecord } from "@cortex-work/core";
+import type { ProcessPanelFocusTarget, RunEvent, RunPromptRecord } from "@cortex-work/core";
 import { buildTrajectoryLayout } from "./trajectory-layout";
 import { trajectoryRecordId } from "./trajectory-model";
 import { trajectorySearchMatches } from "./trajectory-search";
@@ -26,7 +26,7 @@ export interface TrajectoryViewProps {
   /** tool 名兜底文案(i18n)。 */
   fallbackToolName: string;
   /** 聊天流活动行请求的精确跳转；旧归档或被裁剪事件找不到时保持 overview。 */
-  initialTarget?: { runId?: string; toolCallId?: string; initialTab?: "overview" | "input" | "output" | "error" };
+  initialTarget?: ProcessPanelFocusTarget;
 }
 
 export function TrajectoryView({ events, prompts, running, fallbackToolName, initialTarget }: TrajectoryViewProps) {

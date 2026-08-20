@@ -42,10 +42,9 @@
   "dependencies": {
     "@cortex-work/core": "workspace:*",
     "@cortex-work/ui": "workspace:*",
-    "@earendil-works/pi-agent-core": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz",
-    "@earendil-works/pi-ai": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz",
-    "@earendil-works/pi-coding-agent": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz",
-    "@earendil-works/pi-server": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@firecrawl/anydoc": "0.1.3",

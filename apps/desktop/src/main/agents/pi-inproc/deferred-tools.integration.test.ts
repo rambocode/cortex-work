@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createDeferredToolsExtension } from "./deferred-tools";
 import { createPiNativeHooks } from "./native-hooks";
+import { createToolContextExtension, MemoryToolOutputStore } from "./tool-context";
 
 const roots: string[] = [];
 
@@ -201,6 +202,110 @@ describe("deferred tools · Pi agent loop", () => {
           estimatedInputTokens: snapshots[0]!.estimatedInputTokens,
         });
       }
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("context checkpoint 经真实 AgentSession 自动 compaction 后继续同一轮", async () => {
+    const root = tempRoot();
+    const faux = fauxProvider();
+    const runtime = await ModelRuntime.create({ modelsPath: null });
+    runtime.registerNativeProvider(faux.provider);
+    const largeTool: ToolDefinition = {
+      name: "large_result",
+      label: "Large Result",
+      description: "Return a large deterministic result.",
+      parameters: params(),
+      async execute() {
+        return { content: [{ type: "text" as const, text: "large\n".repeat(100) }], details: undefined };
+      },
+    };
+    faux.setResponses([
+      () => fauxAssistantMessage(fauxText("warmup one complete")),
+      () => fauxAssistantMessage(fauxText("warmup two complete")),
+      () => fauxAssistantMessage(fauxText("warmup three complete")),
+      () => fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+      () => fauxAssistantMessage(fauxText("checkpoint summary")),
+      () => fauxAssistantMessage(fauxText("checkpoint turn-prefix summary")),
+      () => fauxAssistantMessage(fauxText("final answer after checkpoint")),
+    ]);
+    const services = await createAgentSessionServices({
+      cwd: root,
+      agentDir: root,
+      modelRuntime: runtime,
+      settingsManager: SettingsManager.inMemory({
+        compaction: { enabled: true, reserveTokens: 1_024, keepRecentTokens: 512 },
+        retry: { enabled: false },
+      }),
+      resourceLoaderOptions: { noExtensions: true, noSkills: true },
+    });
+    const model = { ...faux.getModel(), contextWindow: 4_096, maxTokens: 1_024 };
+    const { session } = await createAgentSessionFromServices({
+      services,
+      sessionManager: SessionManager.inMemory(root),
+      model,
+      thinkingLevel: "off",
+      customTools: [largeTool],
+    });
+    // 生产路径同样由 PiInProcSession.rebind() 在 session 创建后安装 guard。
+    session.agent.shouldStopAfterTurn = ({ toolResults }) =>
+      toolResults.length > 0 ? { reason: "context-checkpoint" } : false;
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = session.subscribe((event) => events.push(event as unknown as Record<string, unknown>));
+
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+      await session.prompt(`warmup-one ${"x".repeat(4_000)}`);
+      await session.prompt(`warmup-two ${"y".repeat(4_000)}`);
+      await session.prompt(`warmup-three ${"z".repeat(4_000)}`);
+      await session.prompt("call the large result tool, then finish the answer");
+
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "agent_end", reason: "context-checkpoint", willRetry: true }),
+        expect.objectContaining({ type: "compaction_start", reason: "context-checkpoint" }),
+        expect.objectContaining({ type: "compaction_end", reason: "context-checkpoint", willRetry: true }),
+      ]));
+      expect(session.getLastAssistantText()).toBe("final answer after checkpoint");
+      expect(events.filter((event) => event.type === "agent_settled")).toHaveLength(4);
+    } finally {
+      unsubscribe();
+      session.dispose();
+    }
+  });
+
+  it("PI_CONTEXT_BLOCKED 在 provider request 前终止，不被 extension fail-open 吞掉", async () => {
+    const root = tempRoot();
+    const faux = fauxProvider();
+    const runtime = await ModelRuntime.create({ modelsPath: null });
+    runtime.registerNativeProvider(faux.provider);
+    const providerCall = vi.fn(() => fauxAssistantMessage(fauxText("must not run")));
+    faux.setResponses([providerCall]);
+    const services = await createAgentSessionServices({
+      cwd: root,
+      agentDir: root,
+      modelRuntime: runtime,
+      settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }),
+      resourceLoaderOptions: {
+        noExtensions: true,
+        noSkills: true,
+        extensionFactories: [
+          createToolContextExtension({ sessionId: "context-block", store: new MemoryToolOutputStore() }),
+        ],
+      },
+    });
+    const { session } = await createAgentSessionFromServices({
+      services,
+      sessionManager: SessionManager.inMemory(root),
+      model: { ...faux.getModel(), contextWindow: 6_000, maxTokens: 1_024 },
+      thinkingLevel: "off",
+    });
+
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+      await session.prompt(`force context block ${"x".repeat(8_000)}`);
+      expect(providerCall).not.toHaveBeenCalled();
+      expect(session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "error" });
     } finally {
       session.dispose();
     }

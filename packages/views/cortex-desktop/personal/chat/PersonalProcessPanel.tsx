@@ -3,7 +3,7 @@
 // typing 无结构化过程时仍可通过 store 请求打开本弹层，因此详情能力没有随旧入口一起删除。
 
 import { useEffect, useState } from "react";
-import { usePersonalStore } from "@cortex-work/core";
+import { usePersonalStore, type ProcessPanelFocusTarget } from "@cortex-work/core";
 import { useChatViewActive } from "./agentMeta";
 import { AgentTranscriptDialog } from "./AgentTranscriptDialog";
 
@@ -13,11 +13,7 @@ export function PersonalProcessPanel() {
 
   // 切会话时关闭，避免弹层残留展示上一个会话；外部请求以 sessionId + nonce 精确触发。
   const [transcriptOpen, setTranscriptOpen] = useState(false);
-  const [target, setTarget] = useState<{
-    runId?: string;
-    toolCallId?: string;
-    initialTab?: "overview" | "input" | "output" | "error";
-  }>();
+  const [target, setTarget] = useState<ProcessPanelFocusTarget>();
   useEffect(() => {
     setTranscriptOpen(false);
     setTarget(undefined);

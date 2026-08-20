@@ -1,0 +1,87 @@
+diff --git a/dist/agent-loop.js b/dist/agent-loop.js
+index 569149f9328920cda8c637ef4cdd0b11cac1a9eb..d43125f816bd7c382a3c5806322183467a17ad87 100644
+--- a/dist/agent-loop.js
++++ b/dist/agent-loop.js
+@@ -148,13 +148,18 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+                             : nextTurnSnapshot.thinkingLevel,
+                 };
+             }
+-            if (await config.shouldStopAfterTurn?.({
++            const stopDecision = await config.shouldStopAfterTurn?.({
+                 message,
+                 toolResults,
+                 context: currentContext,
+                 newMessages,
+-            })) {
+-                await emit({ type: "agent_end", messages: newMessages });
++            });
++            if (stopDecision) {
++                await emit({
++                    type: "agent_end",
++                    messages: newMessages,
++                    ...(typeof stopDecision === "object" ? { reason: stopDecision.reason } : {}),
++                });
+                 return;
+             }
+             pendingMessages = (await config.getSteeringMessages?.()) || [];
+diff --git a/dist/agent.d.ts b/dist/agent.d.ts
+index 42e1eab97b8df2c4e9be710a631b9311483153d7..4755d303c10a289316e8efc1127282e9773a3a62 100644
+--- a/dist/agent.d.ts
++++ b/dist/agent.d.ts
+@@ -1,5 +1,5 @@
+ import type { ImageContent, Message, SimpleStreamOptions, ThinkingBudgets, Transport } from "@earendil-works/pi-ai";
+-import type { AfterToolCallContext, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate, AgentMessage, AgentState, BeforeToolCallContext, BeforeToolCallResult, PrepareNextTurnContext, QueueMode, ShouldStopAfterTurnContext, StreamFn, ToolExecutionMode } from "./types.ts";
++import type { AfterToolCallContext, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate, AgentMessage, AgentState, BeforeToolCallContext, BeforeToolCallResult, PrepareNextTurnContext, QueueMode, ShouldStopAfterTurnContext, ShouldStopAfterTurnDecision, StreamFn, ToolExecutionMode } from "./types.ts";
+ export type { QueueMode } from "./types.ts";
+ /** Options for constructing an {@link Agent}. */
+ export interface AgentOptions {
+@@ -12,7 +12,7 @@ export interface AgentOptions {
+     onResponse?: SimpleStreamOptions["onResponse"];
+     beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
+     afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+-    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
++    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => ShouldStopAfterTurnDecision | Promise<ShouldStopAfterTurnDecision>;
+     prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+     prepareNextTurnWithContext?: (context: PrepareNextTurnContext, signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+     steeringMode?: QueueMode;
+@@ -42,7 +42,7 @@ export declare class Agent {
+     onResponse?: SimpleStreamOptions["onResponse"];
+     beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
+     afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+-    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
++    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => ShouldStopAfterTurnDecision | Promise<ShouldStopAfterTurnDecision>;
+     prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+     prepareNextTurnWithContext?: (context: PrepareNextTurnContext, signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+     private activeRun?;
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index a2d0ba2866440f10062fdc99648355fea98a3048..e26ad88adba58a49f9e8ad2d84e8abd191734608 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -108,6 +108,10 @@ export interface ShouldStopAfterTurnContext {
+     /** Messages that this loop invocation will return if it exits at this point. Prompt runs include the initial prompt messages; continuation runs do not include pre-existing context messages. */
+     newMessages: AgentMessage[];
+ }
++/** Graceful stop decision. A reason lets host runtimes distinguish an internal continuation boundary. */
++export type ShouldStopAfterTurnDecision = boolean | {
++    reason: string;
++};
+ /** Replacement runtime state used by the agent loop before starting another provider request. */
+ export interface AgentLoopTurnUpdate {
+     /** Context for the next provider request. */
+@@ -188,7 +192,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
+      *
+      * Contract: must not throw or reject. Throwing interrupts the low-level agent loop without producing a normal event sequence.
+      */
+-    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
++    shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => ShouldStopAfterTurnDecision | Promise<ShouldStopAfterTurnDecision>;
+     /**
+      * Called after `turn_end` and before the loop decides whether another provider request should start.
+      * Return replacement context/model/thinking state to affect the next turn in this run.
+@@ -376,6 +380,7 @@ export type AgentEvent = {
+ } | {
+     type: "agent_end";
+     messages: AgentMessage[];
++    reason?: string;
+ } | {
+     type: "turn_start";
+ } | {

@@ -23,7 +23,7 @@ import { loadProviderCatalogAt, type ProviderCatalogSources } from "./catalog";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(here, "__fixtures__/provider-catalog.json");
-const FIXTURE_PI_VERSION = "0.82.1";
+const FIXTURE_PI_VERSION = "0.84.2";
 
 /**
  * 拼一组临时输入：catalog 文件与 pi 包 package.json 刻意放在**不同**子目录，

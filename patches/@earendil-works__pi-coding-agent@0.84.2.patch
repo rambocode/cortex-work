@@ -1,0 +1,108 @@
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index 4bcf0d4b823d1cc847d1fa26a86a850761758194..53a858f63340945e05fa8ea592f46e2394b43579 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -334,8 +334,9 @@ export class AgentSession {
+             this._resolveIdleWaitIfIdle();
+         }
+     }
+-    // Track last assistant message for auto-compaction check
++    // Track the last assistant message and loop stop reason for post-run recovery.
+     _lastAssistantMessage = undefined;
++    _lastAgentEndReason = undefined;
+     /** Internal handler for agent events - shared by subscribe and reconnect */
+     _handleAgentEvent = async (event) => {
+         // When a user message starts, check if it's from either queue and remove it BEFORE emitting
+@@ -362,8 +363,18 @@ export class AgentSession {
+         }
+         // Emit to extensions first
+         await this._emitExtensionEvent(event);
+-        // Notify all listeners
+-        this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
++        // A context checkpoint is an internal continuation boundary: consumers must keep the run alive
++        // while post-run compaction executes instead of archiving it as a normal completion.
++        if (event.type === "agent_end") {
++            this._lastAgentEndReason = event.reason;
++            this._emit({
++                ...event,
++                willRetry: event.reason === "context-checkpoint" || this._willRetryAfterAgentEnd(event),
++            });
++        }
++        else {
++            this._emit(event);
++        }
+         // Handle session persistence
+         if (event.type === "message_end") {
+             // Check if this is a custom message from extensions
+@@ -758,6 +769,11 @@ export class AgentSession {
+     async _handlePostAgentRun() {
+         const msg = this._lastAssistantMessage;
+         this._lastAssistantMessage = undefined;
++        const endReason = this._lastAgentEndReason;
++        this._lastAgentEndReason = undefined;
++        if (endReason === "context-checkpoint") {
++            return await this._runAutoCompaction("context-checkpoint", true);
++        }
+         if (!msg) {
+             return false;
+         }
+@@ -1597,12 +1613,32 @@ export class AgentSession {
+         let started = false;
+         try {
+             if (!this.model) {
++                if (reason === "context-checkpoint") {
++                    this._emit({
++                        type: "compaction_end",
++                        reason,
++                        result: undefined,
++                        aborted: false,
++                        willRetry: false,
++                        errorMessage: "Context checkpoint cannot run because no model is selected.",
++                    });
++                }
+                 return false;
+             }
+             const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
+             const pathEntries = this.sessionManager.getBranch();
+             const preparation = prepareCompaction(pathEntries, settings);
+             if (!preparation) {
++                if (reason === "context-checkpoint") {
++                    this._emit({
++                        type: "compaction_end",
++                        reason,
++                        result: undefined,
++                        aborted: false,
++                        willRetry: false,
++                        errorMessage: "Context checkpoint found no compactable history.",
++                    });
++                }
+                 return false;
+             }
+             this._emit({ type: "compaction_start", reason });
+diff --git a/dist/core/extensions/runner.js b/dist/core/extensions/runner.js
+index 418865ad891951e3fb7e2a65f4dca4d7d87e3895..acfd8a76f956f6e9324a0178fc3465da73d56a51 100644
+--- a/dist/core/extensions/runner.js
++++ b/dist/core/extensions/runner.js
+@@ -24,6 +24,13 @@ const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS = [
+     "tui.input.copy",
+     "tui.editor.deleteToLineEnd",
+ ];
++/**
++ * Context handlers normally fail open. A host may use this explicit marker when sending the
++ * provider request would violate a hard context budget; that error must reach the agent loop.
++ */
++function isContextBlockError(error) {
++    return typeof error === "object" && error !== null && error.code === "PI_CONTEXT_BLOCKED";
++}
+ const buildBuiltinKeybindings = (resolvedKeybindings) => {
+     const builtinKeybindings = {};
+     for (const [keybinding, keys] of Object.entries(resolvedKeybindings)) {
+@@ -760,6 +767,8 @@ export class ExtensionRunner {
+                     }
+                 }
+                 catch (err) {
++                    if (isContextBlockError(err))
++                        throw err;
+                     const message = err instanceof Error ? err.message : String(err);
+                     const stack = err instanceof Error ? err.stack : undefined;
+                     this.emitError({

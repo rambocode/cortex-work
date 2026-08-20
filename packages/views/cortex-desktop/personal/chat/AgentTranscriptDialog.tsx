@@ -9,6 +9,7 @@ import {
   usePersonalRunEvents,
   usePersonalRunPrompts,
   usePersonalStore,
+  type ProcessPanelFocusTarget,
   type RunEvent,
   type TurnProcessArchive,
 } from "@cortex-work/core";
@@ -71,7 +72,7 @@ export function AgentTranscriptDialog({
   onClose: () => void;
   sessionId: string;
   /** 可选的原始 run/tool 定位；缺失或过期时 TrajectoryView 安全退回 overview。 */
-  target?: { runId?: string; toolCallId?: string; initialTab?: "overview" | "input" | "output" | "error" };
+  target?: ProcessPanelFocusTarget;
 }) {
   const { t } = useTranslation("chat");
   // 活动行是弹层的触发器。关闭后回到它，键盘用户不会在详情看完后丢失阅读位置。

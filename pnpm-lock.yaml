@@ -65,19 +65,21 @@ catalogs:
       version: 5.0.14
 
 overrides:
-  '@earendil-works/pi-agent-core': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-ai': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-client': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-protocol': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-server': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-telemetry': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz
-  '@earendil-works/pi-tui': file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz
   '@types/react': ^19.2.0
   '@types/react-dom': ^19.2.0
+  lightningcss: 1.32.0
   minimatch: 10.2.5
   sherpa-onnx-darwin-arm64: 1.12.40
   sherpa-onnx-darwin-x64: 1.12.40
   sherpa-onnx-win-x64: 1.12.40
+
+patchedDependencies:
+  '@earendil-works/pi-agent-core@0.84.2':
+    hash: 178b748f0b51ba005e5b4b851071eae9f5eebc572053d805ef353bb9daee74c8
+    path: patches/@earendil-works__pi-agent-core@0.84.2.patch
+  '@earendil-works/pi-coding-agent@0.84.2':
+    hash: 412e04848c7c6c4420fa213e0c733f9cd51c238be72892c815b5a54793f02f50
+    path: patches/@earendil-works__pi-coding-agent@0.84.2.patch
 
 importers:
 
@@ -102,17 +104,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@earendil-works/pi-agent-core':
-        specifier: file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz
-        version: file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        specifier: 0.84.2
+        version: 0.84.2(patch_hash=178b748f0b51ba005e5b4b851071eae9f5eebc572053d805ef353bb9daee74c8)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-ai':
-        specifier: file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz
-        version: file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        specifier: 0.84.2
+        version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
-        specifier: file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz
-        version: file:../../pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-server':
-        specifier: file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz
-        version: file:../../pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        specifier: 0.84.2
+        version: 0.84.2(patch_hash=412e04848c7c6c4420fa213e0c733f9cd51c238be72892c815b5a54793f02f50)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@electron-toolkit/preload':
         specifier: ^3.0.2
         version: 3.0.2(electron@39.8.10)
@@ -188,7 +187,7 @@ importers:
         version: 2.0.0(@types/node@25.9.1)
       '@tailwindcss/vite':
         specifier: 'catalog:'
-        version: 4.3.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+        version: 4.3.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
       '@types/html-to-docx':
         specifier: ^1.8.1
         version: 1.8.1
@@ -209,7 +208,7 @@ importers:
         version: 8.18.1
       '@vitejs/plugin-react':
         specifier: ^5.2.0
-        version: 5.2.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+        version: 5.2.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
       builder-util:
         specifier: ^26.15.0
         version: 26.15.0
@@ -221,7 +220,7 @@ importers:
         version: 26.15.2(electron-builder-squirrel-windows@26.15.2)
       electron-vite:
         specifier: ^5.0.0
-        version: 5.0.0(@swc/core@1.15.41)(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+        version: 5.0.0(@swc/core@1.15.41)(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
       eslint:
         specifier: ^9.28.0
         version: 9.39.4(jiti@2.7.0)
@@ -251,10 +250,10 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^7.3.6
-        version: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+        version: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.9.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.9.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
     optionalDependencies:
       node-mac-permissions:
         specifier: ^2.5.0
@@ -619,10 +618,10 @@ importers:
         version: 5.8.3
       vite:
         specifier: ^7.1.1
-        version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+        version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
       vite-plugin-singlefile:
         specifier: ^2.3.3
-        version: 2.3.3(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+        version: 2.3.3(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
 
 packages:
 
@@ -1006,46 +1005,34 @@ packages:
   '@daybrush/utils@1.13.0':
     resolution: {integrity: sha512-ALK12C6SQNNHw1enXK+UO8bdyQ+jaWNQ1Af7Z3FNxeAwjYhQT7do+TRE4RASAJ3ObaS2+TJ7TXR3oz2Gzbw0PQ==}
 
-  '@earendil-works/pi-agent-core@file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-VrurgVdTHQANcOEYBqVYeqk+IdxBY/ygEUZRm/NXSRKcKjClzw/JNyDHD8OpKYTRh1vNarUIt8N37atj0HzVWQ==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-agent-core@0.84.2':
+    resolution: {integrity: sha512-8Pn3wSCxj0cfo5I6jxQYVB/3uuQRmHhAlEclyjqpOuMEdQMIODHizRogv56FLdbU+dTiGnybeHQ2N+sV1/L2YA==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-ai@file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-aHtvCE3Vb2ZL7ZrhYvQTH3xpVgEMX7RLLiWjUupzGCnC6zyUxUu4CB1yiOf+iTMXotYI92wtWA7AF4IPvzePrw==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-ai@0.84.2':
+    resolution: {integrity: sha512-6MzsrYIYNVlE7SfpbL2yYb67Qo58p/7Q+xWG1RZvoX1P80aRCHSod2/13aFpxkow1lPO2LEh3c495J0Gwmyjig==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@earendil-works/pi-client@file:../../pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-CyRmIVGbjA+xGF8d6w7VjWMW39v+ABa2vUtTVPOqjjH0KixNzRakUv/fyrcGbty8wxNyUpnSkkLG6BFADnJYBQ==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-client@0.84.2':
+    resolution: {integrity: sha512-/RFSPhD/bZbpOp1oJj+UneSUFSgZhWxzcSENUY+8+8xhoBrWXMYI2t77XNx4Yf+c8YK2qTHquForhNcelYpXvg==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-coding-agent@file:../../pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-5TDysSSO43lR0PPP3kxgiU87Mbfao9a1UU8gR1E2lhbQGIGDSu46Iz6Si/NRbcn91sT6t5W6gaAaxn++AqKqlA==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-coding-agent@0.84.2':
+    resolution: {integrity: sha512-l4E+B7hgXKWddRo8bC/eSue2aWZjEgJ9xIpf5p0Og+lq8a2TArCwJ0HCoCPCgaBP/tN4zbYH/wOwvx9pJpeLCA==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@earendil-works/pi-protocol@file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-Ezy0JxnDMSrtO5w6wqdbVWAspI6M5FQW/g9pmB3lIpA+1cXEpapifYgUjA6gOZD+sQovaTx50XkathswMbL89A==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-protocol@0.84.2':
+    resolution: {integrity: sha512-jbBh03fkeckWEroHpcZBr4w5/Ibat8WwdXFlXHivYQImrQNFtLpDeL0t1cku4hmK0q3pceIRQHkw4fwbM4YILQ==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-server@file:../../pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-De/r5wWp7Vg59yehFQ7KB8VmFaHdVezSdkNYA8sSnBb/XC5dbmjlgNjwajcdR8EB+K8A8aVETSBpxrcyqbIlEQ==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-telemetry@0.84.2':
+    resolution: {integrity: sha512-wg5caea7uIv1BHRBm2Y116RvFG4oSAiP5qk9tA2463PDGIr4K8M1Ceyyg5DOpF/shUUl0gk826yQJAeAcHYB9g==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-telemetry@file:../../pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-53Ft3FCogOge8IfsGHHLXMlaT8HtQf/ELJVFk9R8vCQ+CkdgitSbT8PsRS0jMFU23El0t5POAroMJ5BzEg2llw==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
-    engines: {node: '>=22.19.0'}
-
-  '@earendil-works/pi-tui@file:../../pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz':
-    resolution: {integrity: sha512-TDHN3T9tv2bAaUjkK6K0CaLrrcm4TPw5JHSyJFNGfnuDQuh+hxbLGQas5vraKADVHI5UumMu/rLTkGQnEnbfSg==, tarball: file:../../pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz}
-    version: 0.84.3-cortex-local.0
+  '@earendil-works/pi-tui@0.84.2':
+    resolution: {integrity: sha512-ds2TLihOnM5sLJB3VpXV6y0uR5efVuHf4MN7yDpsty6hA2DUO/EDVzjp/0od0G2JslzVLMjT8T8zavtxVb+qbg==}
     engines: {node: '>=22.19.0'}
 
   '@egjs/agent@2.4.4':
@@ -6238,20 +6225,8 @@ packages:
     cpu: [arm64]
     os: [android]
 
-  lightningcss-android-arm64@1.33.0:
-    resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm64]
-    os: [android]
-
   lightningcss-darwin-arm64@1.32.0:
     resolution: {integrity: sha512-RzeG9Ju5bag2Bv1/lwlVJvBE3q6TtXskdZLLCyfg5pt+HLz9BqlICO7LZM7VHNTTn/5PRhHFBSjk5lc4cmscPQ==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm64]
-    os: [darwin]
-
-  lightningcss-darwin-arm64@1.33.0:
-    resolution: {integrity: sha512-Sciaz8eenNTKn9b3t7+xr0ipTp9YxKQY4npwQ3mrRuL0BAVHBLyZxofhaKBAVtzmtRZ/zTyo0/to4B1uWG/Djg==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [darwin]
@@ -6262,20 +6237,8 @@ packages:
     cpu: [x64]
     os: [darwin]
 
-  lightningcss-darwin-x64@1.33.0:
-    resolution: {integrity: sha512-Z5UPAxzrjlWNNyGy6i65cJzzvgJ5D3T6wMvs+gWpY9d7qRhANrxqAp6LhxIgZhWEw18RfJTGcRxjuLIBr+m8XQ==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [x64]
-    os: [darwin]
-
   lightningcss-freebsd-x64@1.32.0:
     resolution: {integrity: sha512-JCTigedEksZk3tHTTthnMdVfGf61Fky8Ji2E4YjUTEQX14xiy/lTzXnu1vwiZe3bYe0q+SpsSH/CTeDXK6WHig==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [x64]
-    os: [freebsd]
-
-  lightningcss-freebsd-x64@1.33.0:
-    resolution: {integrity: sha512-QQM/Ti/hQajJwCY+RiWuCZ9sdtI/XQk7nDK5vC8kkdwixezOlDgvDx7+RT+QjK6FcFT4MpsuoBnHIo/O3StRRg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [freebsd]
@@ -6286,21 +6249,8 @@ packages:
     cpu: [arm]
     os: [linux]
 
-  lightningcss-linux-arm-gnueabihf@1.33.0:
-    resolution: {integrity: sha512-N7FVBe6iS24MlM6R/4RBTxGhQheZGs7tiQ9U32UtF75NzP5Q7xWPRqLBCKxlRQRk3rY1jCIPLzx7WzOhuUIRLQ==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm]
-    os: [linux]
-
   lightningcss-linux-arm64-gnu@1.32.0:
     resolution: {integrity: sha512-0nnMyoyOLRJXfbMOilaSRcLH3Jw5z9HDNGfT/gwCPgaDjnx0i8w7vBzFLFR1f6CMLKF8gVbebmkUN3fa/kQJpQ==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  lightningcss-linux-arm64-gnu@1.33.0:
-    resolution: {integrity: sha512-j2v/itmy4HlNxlc6voKXYgBqNi0Ng2LShg4z7GufpEgs05P+2suBVyi9I6YHq5uoVFx9ETin3eCEhLVyXGQnKg==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
@@ -6313,22 +6263,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  lightningcss-linux-arm64-musl@1.33.0:
-    resolution: {integrity: sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
   lightningcss-linux-x64-gnu@1.32.0:
     resolution: {integrity: sha512-V7Qr52IhZmdKPVr+Vtw8o+WLsQJYCTd8loIfpDaMRWGUZfBOYEJeyJIkqGIDMZPwPx24pUMfwSxxI8phr/MbOA==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  lightningcss-linux-x64-gnu@1.33.0:
-    resolution: {integrity: sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
@@ -6341,21 +6277,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  lightningcss-linux-x64-musl@1.33.0:
-    resolution: {integrity: sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution: {integrity: sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [arm64]
-    os: [win32]
-
-  lightningcss-win32-arm64-msvc@1.33.0:
-    resolution: {integrity: sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [win32]
@@ -6366,18 +6289,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  lightningcss-win32-x64-msvc@1.33.0:
-    resolution: {integrity: sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA==}
-    engines: {node: '>= 12.0.0'}
-    cpu: [x64]
-    os: [win32]
-
   lightningcss@1.32.0:
     resolution: {integrity: sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ==}
-    engines: {node: '>= 12.0.0'}
-
-  lightningcss@1.33.0:
-    resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
   linkifyjs@4.3.3:
@@ -8144,7 +8057,7 @@ packages:
       '@types/node': ^20.19.0 || >=22.12.0
       jiti: '>=1.21.0'
       less: ^4.0.0
-      lightningcss: ^1.21.0
+      lightningcss: 1.32.0
       sass: ^1.70.0
       sass-embedded: ^1.70.0
       stylus: '>=0.54.8'
@@ -9161,10 +9074,10 @@ snapshots:
 
   '@daybrush/utils@1.13.0': {}
 
-  '@earendil-works/pi-agent-core@file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-agent-core@0.84.2(patch_hash=178b748f0b51ba005e5b4b851071eae9f5eebc572053d805ef353bb9daee74c8)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/pi-ai': file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-telemetry': file:../../pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz
+      '@earendil-works/pi-ai': 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-telemetry': 0.84.2
       diff: 8.0.4
       ignore: 7.0.5
       typebox: 1.3.7
@@ -9177,11 +9090,11 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
-      '@earendil-works/pi-telemetry': file:../../pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz
+      '@earendil-works/pi-telemetry': 0.84.2
       '@google/genai': 1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
       '@opentelemetry/api': 1.9.0
       '@smithy/node-http-handler': 4.7.3
@@ -9198,17 +9111,17 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-client@file:../../pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz':
+  '@earendil-works/pi-client@0.84.2':
     dependencies:
-      '@earendil-works/pi-protocol': file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz
+      '@earendil-works/pi-protocol': 0.84.2
 
-  '@earendil-works/pi-coding-agent@file:../../pi-local/.cortex-packages/earendil-works-pi-coding-agent-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-coding-agent@0.84.2(patch_hash=412e04848c7c6c4420fa213e0c733f9cd51c238be72892c815b5a54793f02f50)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/pi-agent-core': file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-ai': file:../../pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-client': file:../../pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz
-      '@earendil-works/pi-protocol': file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz
-      '@earendil-works/pi-tui': file:../../pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz
+      '@earendil-works/pi-agent-core': 0.84.2(patch_hash=178b748f0b51ba005e5b4b851071eae9f5eebc572053d805ef353bb9daee74c8)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-ai': 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-client': 0.84.2
+      '@earendil-works/pi-protocol': 0.84.2
+      '@earendil-works/pi-tui': 0.84.2
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
       cross-spawn: 7.0.6
@@ -9235,25 +9148,13 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-protocol@file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz':
+  '@earendil-works/pi-protocol@0.84.2':
     dependencies:
       typebox: 1.3.7
 
-  '@earendil-works/pi-server@file:../../pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
-    dependencies:
-      '@earendil-works/pi-agent-core': file:../../pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-protocol': file:../../pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-      - ws
-      - zod
+  '@earendil-works/pi-telemetry@0.84.2': {}
 
-  '@earendil-works/pi-telemetry@file:../../pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz': {}
-
-  '@earendil-works/pi-tui@file:../../pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz':
+  '@earendil-works/pi-tui@0.84.2':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
@@ -10991,12 +10892,12 @@ snapshots:
       postcss: 8.5.15
       tailwindcss: 4.3.0
 
-  '@tailwindcss/vite@4.3.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))':
+  '@tailwindcss/vite@4.3.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))':
     dependencies:
       '@tailwindcss/node': 4.3.0
       '@tailwindcss/oxide': 4.3.0
       tailwindcss: 4.3.0
-      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
 
   '@tanstack/query-core@5.100.14': {}
 
@@ -13001,7 +12902,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vitejs/plugin-react@5.2.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@5.2.0(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-react-jsx-self': 7.29.7(@babel/core@7.29.7)
@@ -13009,7 +12910,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-rc.3
       '@types/babel__core': 7.20.5
       react-refresh: 0.18.0
-      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -13027,13 +12928,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.7(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.7(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.7
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
 
   '@vitest/mocker@4.1.7(vite@8.0.14(@types/node@25.9.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))':
     dependencies:
@@ -14151,7 +14052,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron-vite@5.0.0(@swc/core@1.15.41)(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)):
+  electron-vite@5.0.0(@swc/core@1.15.41)(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)):
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-arrow-functions': 7.29.7(@babel/core@7.29.7)
@@ -14159,7 +14060,7 @@ snapshots:
       esbuild: 0.25.12
       magic-string: 0.30.21
       picocolors: 1.1.1
-      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
     optionalDependencies:
       '@swc/core': 1.15.41
     transitivePeerDependencies:
@@ -15509,67 +15410,34 @@ snapshots:
   lightningcss-android-arm64@1.32.0:
     optional: true
 
-  lightningcss-android-arm64@1.33.0:
-    optional: true
-
   lightningcss-darwin-arm64@1.32.0:
-    optional: true
-
-  lightningcss-darwin-arm64@1.33.0:
     optional: true
 
   lightningcss-darwin-x64@1.32.0:
     optional: true
 
-  lightningcss-darwin-x64@1.33.0:
-    optional: true
-
   lightningcss-freebsd-x64@1.32.0:
-    optional: true
-
-  lightningcss-freebsd-x64@1.33.0:
     optional: true
 
   lightningcss-linux-arm-gnueabihf@1.32.0:
     optional: true
 
-  lightningcss-linux-arm-gnueabihf@1.33.0:
-    optional: true
-
   lightningcss-linux-arm64-gnu@1.32.0:
-    optional: true
-
-  lightningcss-linux-arm64-gnu@1.33.0:
     optional: true
 
   lightningcss-linux-arm64-musl@1.32.0:
     optional: true
 
-  lightningcss-linux-arm64-musl@1.33.0:
-    optional: true
-
   lightningcss-linux-x64-gnu@1.32.0:
-    optional: true
-
-  lightningcss-linux-x64-gnu@1.33.0:
     optional: true
 
   lightningcss-linux-x64-musl@1.32.0:
     optional: true
 
-  lightningcss-linux-x64-musl@1.33.0:
-    optional: true
-
   lightningcss-win32-arm64-msvc@1.32.0:
     optional: true
 
-  lightningcss-win32-arm64-msvc@1.33.0:
-    optional: true
-
   lightningcss-win32-x64-msvc@1.32.0:
-    optional: true
-
-  lightningcss-win32-x64-msvc@1.33.0:
     optional: true
 
   lightningcss@1.32.0:
@@ -15587,22 +15455,6 @@ snapshots:
       lightningcss-linux-x64-musl: 1.32.0
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
-
-  lightningcss@1.33.0:
-    dependencies:
-      detect-libc: 2.1.2
-    optionalDependencies:
-      lightningcss-android-arm64: 1.33.0
-      lightningcss-darwin-arm64: 1.33.0
-      lightningcss-darwin-x64: 1.33.0
-      lightningcss-freebsd-x64: 1.33.0
-      lightningcss-linux-arm-gnueabihf: 1.33.0
-      lightningcss-linux-arm64-gnu: 1.33.0
-      lightningcss-linux-arm64-musl: 1.33.0
-      lightningcss-linux-x64-gnu: 1.33.0
-      lightningcss-linux-x64-musl: 1.33.0
-      lightningcss-win32-arm64-msvc: 1.33.0
-      lightningcss-win32-x64-msvc: 1.33.0
 
   linkifyjs@4.3.3: {}
 
@@ -17779,14 +17631,14 @@ snapshots:
       x-is-array: 0.1.0
       x-is-string: 0.1.0
 
-  vite-plugin-singlefile@2.3.3(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)):
+  vite-plugin-singlefile@2.3.3(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)):
     dependencies:
       micromatch: 4.0.8
-      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
     optionalDependencies:
       rollup: 4.62.2
 
-  vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0):
+  vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
@@ -17798,10 +17650,10 @@ snapshots:
       '@types/node': 24.13.3
       fsevents: 2.3.3
       jiti: 2.7.0
-      lightningcss: 1.33.0
+      lightningcss: 1.32.0
       yaml: 2.9.0
 
-  vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0):
+  vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
@@ -17813,12 +17665,12 @@ snapshots:
       '@types/node': 25.9.1
       fsevents: 2.3.3
       jiti: 2.7.0
-      lightningcss: 1.33.0
+      lightningcss: 1.32.0
       yaml: 2.9.0
 
   vite@8.0.14(@types/node@25.9.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0):
     dependencies:
-      lightningcss: 1.33.0
+      lightningcss: 1.32.0
       picomatch: 4.0.5
       postcss: 8.5.26
       rolldown: 1.0.2
@@ -17830,10 +17682,10 @@ snapshots:
       jiti: 2.7.0
       yaml: 2.9.0
 
-  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.9.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)):
+  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.9.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.7
-      '@vitest/mocker': 4.1.7(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.7(vite@7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.7
       '@vitest/runner': 4.1.7
       '@vitest/snapshot': 4.1.7
@@ -17850,7 +17702,7 @@ snapshots:
       tinyexec: 1.2.3
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.0

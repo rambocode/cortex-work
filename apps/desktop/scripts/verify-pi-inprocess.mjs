@@ -272,9 +272,9 @@ export async function runPiInProcessVerification({ importModule, log = console.l
     }
     say(`✓ agent loop 跑通（grep / read / bash 均真实执行）`);
 
-    // ── 3b. run 内 checkpoint guard（本地 fork contract）────────────────────
-    // Guard 必须在工具批次结束后停止本次底层 loop，并把结构化原因送到 agent_end；否则 Cortex
-    // 无法保留同一 UI run 后自动 compaction + continue，只能退回「length 1 token 假成功」。
+    // ── 3b. run 内 checkpoint guard（仓内最小 patch contract）───────────────
+    // Guard 必须在工具批次后停止底层 loop，并把结构化 reason 带进 agent_end；coding-agent
+    // 据此以 willRetry=true 执行 compaction + continue，Cortex renderer 保留同一 user run。
     const checkpointEvents = [];
     const checkpointAgent = new core.Agent({
       initialState: {

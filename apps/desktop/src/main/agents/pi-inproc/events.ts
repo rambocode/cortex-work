@@ -58,6 +58,11 @@ export interface PiEventPumpOptions {
   onFault?: (err: unknown, raw: unknown) => void;
   /** 已停止判定。停止后到达的残余事件一律丢弃（见下）。 */
   isStopped?: () => boolean;
+  /**
+   * 映射前的会话级装饰点。只允许补充宿主掌握的生命周期字段，不得改写模型/工具正文。
+   * Cortex 用它把本地 checkpoint guard 触发的 agent_end 标成 willRetry。
+   */
+  prepareRaw?: (raw: unknown) => unknown;
 }
 
 export interface PiEventPump {
@@ -107,13 +112,13 @@ export function sanitizePiSessionEvent(ev: PiSessionEvent): PiSessionEvent {
  * 微小窗口，不丢弃就会把上一个会话的尾巴事件串进新会话的消息流。
  */
 export function createPiEventPump(options: PiEventPumpOptions): PiEventPump {
-  const { onEvent, getRunId, onFault, isStopped } = options;
+  const { onEvent, getRunId, onFault, isStopped, prepareRaw } = options;
 
   const handle = (raw: unknown): void => {
     // 整个函数体包在 try 里：见文件头「异常边界」——本函数在 pi 的 agent loop 栈上执行。
     try {
       if (isStopped?.()) return;
-      const mapped = mapPiEvent(raw);
+      const mapped = mapPiEvent(prepareRaw?.(raw) ?? raw);
       if (!mapped) return; // 忽略清单（entry_appended / bash_execution_update / summarization_* 等）
       onEvent(sanitizePiSessionEvent(mapped), getRunId?.());
     } catch (err) {

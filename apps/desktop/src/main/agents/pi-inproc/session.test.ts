@@ -42,11 +42,13 @@ function makeAgentSession(id: string) {
     setModelCalls: [] as unknown[],
     thinkingCalls: [] as string[],
   };
+  const largeModel = { provider: "anthropic", id: "claude-x", contextWindow: 128_000, maxTokens: 4_096 };
+  const smallModel = { provider: "local", id: "local-40k", contextWindow: 40_000, maxTokens: 4_096 };
   const session = {
     sessionId: `sess-${id}`,
     sessionFile: `/tmp/${id}.jsonl`,
     sessionName: undefined as string | undefined,
-    model: { provider: "anthropic", id: "claude-x" },
+    model: largeModel,
     agent: { shouldStopAfterTurn: undefined as unknown },
     settingsManager: {
       getCompactionSettings: () => ({ enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 }),
@@ -63,7 +65,7 @@ function makeAgentSession(id: string) {
     resourceLoader: { getSkills: () => ({ skills: [{ name: "s1", description: "技能" }] }) },
     extensionRunner: { getRegisteredCommands: () => [{ invocationName: "memory", description: "扩展命令" }] },
     modelRuntime: {
-      getAvailable: async () => [{ provider: "anthropic", id: "claude-x" }],
+      getAvailable: async () => [largeModel, smallModel],
     },
     subscribe(listener: (e: unknown) => void) {
       listeners.add(listener);
@@ -79,7 +81,10 @@ function makeAgentSession(id: string) {
     waitForIdle: async () => {},
     reload: async () => {},
     compact: async (instructions?: string) => ({ summary: "压缩完成", instructions }),
-    setModel: async (m: unknown) => void state.setModelCalls.push(m),
+    setModel: async (m: unknown) => {
+      state.setModelCalls.push(m);
+      session.model = m as typeof largeModel;
+    },
     setThinkingLevel: (l: string) => void state.thinkingCalls.push(l),
     getSessionStats: () => ({ sessionId: `sess-${id}`, totalMessages: 1 }),
     getLastAssistantText: () => "最后一句",
@@ -242,6 +247,36 @@ describe("buildRpcArgs 的 flag 对应物", () => {
     const withCheckpoint = await open({}, makeMod(), { enableToolContextProjection: true });
     // 测试替身通过 open options 的 deps 注入模拟 gateway。真实接线由 capabilities.ts 固定传 true。
     expect(typeof (withCheckpoint.fake.created[0]?.session.agent as { shouldStopAfterTurn?: unknown }).shouldStopAfterTurn).toBe("function");
+  });
+
+  it("checkpoint agent_end 标为 willRetry；切模型后按新窗口重建 guard", async () => {
+    const h = await open({}, makeMod(), { enableToolContextProjection: true });
+    const firstGuard = h.fake.created[0]!.session.agent.shouldStopAfterTurn as (context: unknown) => unknown;
+    const context = {
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "toolUse",
+        usage: { input: 120_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 120_001, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      },
+      toolResults: [{ role: "toolResult" }],
+      context: { systemPrompt: "system", messages: [], tools: [] },
+      newMessages: [],
+    };
+    expect(firstGuard(context)).toEqual({ reason: "context-checkpoint" });
+    h.fake.created[0]!.emit({ type: "agent_end", messages: [], willRetry: false });
+    expect(h.events.at(-1)?.ev).toEqual({ type: "result", willRetry: true, stopReason: "context-checkpoint" });
+
+    await expect(h.session.setModel("local", "local-40k")).resolves.toMatchObject({ success: true });
+    const nextGuard = h.fake.created[0]!.session.agent.shouldStopAfterTurn as (context: unknown) => unknown;
+    expect(nextGuard).not.toBe(firstGuard);
+    expect(nextGuard({
+      ...context,
+      message: {
+        ...(context.message as Record<string, unknown>),
+        usage: { input: 30_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 30_001, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      },
+    })).toEqual({ reason: "context-checkpoint" });
   });
 });
 

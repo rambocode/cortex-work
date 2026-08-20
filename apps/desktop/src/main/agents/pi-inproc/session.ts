@@ -264,6 +264,7 @@ export class PiInProcSession implements PiSessionEngine {
       onEvent: (ev, runId) => this.dispatchEvent(ev, runId),
       getRunId: () => this.currentRunId,
       isStopped: () => this.stopped,
+      prepareRaw: (raw) => this.prepareRawEvent(raw),
       // 事件泵内部故障**不**上报 crashed：单条事件映射失败不代表会话不可用，
       // 上报 crashed 会让 pi-session.ts 摘除注册表条目，把一次可恢复的小故障放大成整会话失效。
       onFault: (err) => log.warn("pi 事件泵故障（会话继续）", { error: errText(err) }),
@@ -273,14 +274,7 @@ export class PiInProcSession implements PiSessionEngine {
   /** 绑定/重绑当前 AgentSession（首次 open 与每次 fork/switch/new 之后各一次）。 */
   async rebind(): Promise<void> {
     this.session = this.runtime.session;
-    if (this.enableToolContextProjection) {
-      assertToolContextBudget(this.session.model);
-      const { reserveTokens } = this.session.settingsManager.getCompactionSettings();
-      this.checkpointGuard = createContextCheckpointGuard({ model: this.session.model, reserveTokens });
-      this.session.agent.shouldStopAfterTurn = (context) => this.checkpointGuard?.shouldStopAfterTurn(context) ?? false;
-    } else {
-      this.checkpointGuard = undefined;
-    }
+    this.configureToolContextProtection();
     // uiContext 的 cast 集中在这一处：见 ui-context.ts 关于「不逐个实现 TUI 专属成员」的说明。
     await this.session.bindExtensions({
       uiContext: this.uiBridge.context as ExtensionUIContext,
@@ -314,6 +308,22 @@ export class PiInProcSession implements PiSessionEngine {
     this.unsubscribe = this.pump.attach(this.session);
   }
 
+  /**
+   * checkpoint 的窗口/阈值必须跟随当前模型；rebind 与 setModel 都经这里重建，禁止闭包永久
+   * 捕获会话刚打开时的 model。预算非法在 provider request 前响亮失败。
+   */
+  private configureToolContextProtection(): void {
+    if (!this.enableToolContextProjection) {
+      this.checkpointGuard = undefined;
+      this.session.agent.shouldStopAfterTurn = undefined;
+      return;
+    }
+    assertToolContextBudget(this.session.model);
+    const { reserveTokens } = this.session.settingsManager.getCompactionSettings();
+    this.checkpointGuard = createContextCheckpointGuard({ model: this.session.model, reserveTokens });
+    this.session.agent.shouldStopAfterTurn = (context) => this.checkpointGuard?.shouldStopAfterTurn(context) ?? false;
+  }
+
   // ── 事件出口 ────────────────────────────────────────────────────────────────────────
 
   /** 事件出口的唯一收口：顺带维护「扩展命令补发收尾」的取消条件。 */
@@ -323,6 +333,23 @@ export class PiInProcSession implements PiSessionEngine {
       this.clearSlashFinalizeTimer();
     }
     this.onEvent(ev, runId);
+  }
+
+  /**
+   * 上游 0.84.2 的 shouldStopAfterTurn 只返回 boolean，AgentSession 发出的 agent_end 不知道
+   * Cortex 是为了 checkpoint 主动停下。宿主在这一处补上 reason/willRetry，让 renderer 保留
+   * 同一 run；上游随后按 threshold 自动 compact，并由既有 post-run loop continue。
+   */
+  private prepareRawEvent(raw: unknown): unknown {
+    if (
+      raw &&
+      typeof raw === "object" &&
+      (raw as { type?: unknown }).type === "agent_end" &&
+      this.checkpointGuard?.consumePending()
+    ) {
+      return { ...(raw as Record<string, unknown>), reason: "context-checkpoint", willRetry: true };
+    }
+    return raw;
   }
 
   /** notify 是 fire-and-forget，走事件通道而非对话框队列（与旧路径同决策）。 */
@@ -560,7 +587,9 @@ export class PiInProcSession implements PiSessionEngine {
       const models = await this.session.modelRuntime.getAvailable();
       const model = models.find((m) => m.provider === provider && m.id === modelId);
       if (!model) throw new Error(`模型不存在: ${provider}/${modelId}`);
+      if (this.enableToolContextProjection) assertToolContextBudget(model);
       await this.session.setModel(model);
+      this.configureToolContextProtection();
       return model;
     });
   }

@@ -83,6 +83,18 @@ function assistantHasToolCall(message: Record<string, unknown> | undefined): boo
   return Array.isArray(content) && content.some((block) => (block as Record<string, unknown>)?.type === "toolCall");
 }
 
+/** agent_end 携带本次 loop 的 messages；倒序取最后一条 assistant 供延迟终态判定。 */
+function lastAssistantMessage(messages: unknown): Record<string, unknown> | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message && typeof message === "object" && (message as Record<string, unknown>).role === "assistant") {
+      return message as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
 /**
  * 从 prompt 文本里取斜杠命令名（不含前导 /）。非 / 开头返回 undefined。
  * 只切到首个空白，`/foo bar` → `foo`；与 get_commands 回传的 `name`（无前导 /）同形，可直接比对。
@@ -258,10 +270,17 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
     }
     case "agent_end": {
       const reason = o.reason === "context-checkpoint" ? "context-checkpoint" : undefined;
+      const lastAssistant = lastAssistantMessage(o.messages);
+      const truncatedToolCall =
+        !o.willRetry && lastAssistant?.stopReason === "length" && assistantHasToolCall(lastAssistant);
       return {
         type: "result",
         willRetry: !!o.willRetry,
-        ...(reason ? { stopReason: reason } : {}),
+        ...(reason
+          ? { stopReason: reason }
+          : truncatedToolCall
+            ? { stopReason: "length" as const, truncated: true }
+            : {}),
       };
     }
     // pi 0.82.1 新增:agent 完全静默（无活跃 run / 重试 / 自动压缩 / 排队续跑）的权威终态。

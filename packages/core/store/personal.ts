@@ -83,6 +83,9 @@ export interface ProcessPanelTarget {
   initialTab?: "overview" | "input" | "output" | "error";
 }
 
+/** 面板内部和 Trajectory 只消费定位部分；sessionId 由面板宿主持有。 */
+export type ProcessPanelFocusTarget = Omit<ProcessPanelTarget, "sessionId">;
+
 let seq = 0;
 function newId(prefix: string): string {
   seq += 1;

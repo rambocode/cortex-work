@@ -40,6 +40,8 @@
     "turnRunningNoTime": "处理中",
     "turnDone": "已处理 {{duration}}",
     "turnDoneNoTime": "已处理",
+    "turnFailed": "处理失败 {{duration}}",
+    "turnFailedNoTime": "处理失败",
     "exitOk": "exit 0",
     "exitFailed": "执行失败",
     "viewFullOutput": "查看完整输出（还有 {{count}} 行）",

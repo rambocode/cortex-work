@@ -57,7 +57,7 @@ export function canonicalJson(value) {
  *   · `oauth` 存在            → "oauth"
  *   · `apiKey` 且有 `login`   → "api-key"（可交互录入密钥）
  *   · `apiKey` 但无 `login`   → "ambient"（原文：Ambient-only providers omit `login`）
- * 注意：0.82.1 的内建 Provider 无一是 ambient-only，故 "ambient" 目前不会出现；
+ * 注意：当前锁定版本的内建 Provider 无一是 ambient-only，故 "ambient" 目前不会出现；
  * bedrock / vertex 这类「也能吃环境变量与 ADC 文件」的能力由 `envVars` 表达，
  * 二者是正交信息，不要把 envVars 非空当成 ambient。
  */
@@ -80,6 +80,9 @@ function deriveAuthKinds(auth) {
  */
 async function probeEnvVars(provider) {
   const seen = [];
+  // 0.84+ 把取消信号设为所有 auth resolve 的必传合同；探针使用永不主动取消的本地 signal，
+  // 仍保持“不联网、不读真实环境/文件”的既有安全语义。
+  const signal = new globalThis.AbortController().signal;
   const ctx = {
     env: async (name) => {
       if (!seen.includes(name)) seen.push(name);
@@ -88,7 +91,7 @@ async function probeEnvVars(provider) {
     fileExists: async () => false,
   };
   try {
-    await provider.auth?.apiKey?.resolve?.({ ctx, credential: undefined });
+    await provider.auth?.apiKey?.resolve?.({ ctx, credential: undefined, signal });
   } catch (e) {
     // resolve 抛错说明 pi 侧实现变了（探测前提被打破），宁可让构建失败也不产出半份表。
     throw new Error(`探测 ${provider.id} 的环境变量失败: ${e.message}`);
@@ -168,7 +171,7 @@ async function resolvePiPackages() {
 
 /**
  * 生成完整 Catalog（内存对象，不写盘）。返回 `{ catalog, skipped }`，
- * `skipped` 是被排除的零静态模型 Provider（0.82.1 里是纯动态的 radius）。
+ * `skipped` 是被排除的零静态模型 Provider（当前锁定版本里是纯动态的 radius）。
  */
 export async function buildProviderCatalog() {
   const { all, piVersion } = await resolvePiPackages();
@@ -184,7 +187,7 @@ export async function buildProviderCatalog() {
       throw new Error(`读取 ${provider.id} 模型列表失败: ${e.message}`);
     }
 
-    // 零静态模型 = 纯动态 Provider（0.82.1 里是 radius，目录需联网向网关拉取）。
+    // 零静态模型 = 纯动态 Provider（当前锁定版本里是 radius，目录需联网向网关拉取）。
     // Catalog 是「随包、离线、只读」的静态快照，收录一个空壳只会让 UI 出现永远没有模型的条目。
     if (models.length === 0) {
       skipped.push(provider.id);

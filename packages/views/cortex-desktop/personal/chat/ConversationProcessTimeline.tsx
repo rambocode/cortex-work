@@ -8,7 +8,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { usePersonalRunEvents, usePersonalStore, type TurnProcessArchive } from "@cortex-work/core";
+import {
+  usePersonalRunEvents,
+  usePersonalStore,
+  type ProcessPanelTarget,
+  type TurnProcessArchive,
+} from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
 import {
   buildCurrentRunToolInvocations,
@@ -37,7 +42,7 @@ function ActivityRow({
   row: ProcessActivityRow;
   sessionId?: string;
   runId?: string;
-  onOpen: (target: { sessionId: string; runId?: string; toolCallId?: string; initialTab?: "overview" | "input" | "output" | "error" }) => void;
+  onOpen: (target: ProcessPanelTarget) => void;
 }) {
   const { t } = useTranslation("chat");
   const failed = row.status === "failed";
@@ -130,13 +135,15 @@ export function ConversationProcessTimeline({
   );
   // 归档是已完成轮的快照：无论会话此刻是否在跑新一轮，它都不该显示成运行中。
   const active = !archive && (sessionRunning || messageActive);
+  const failed = presentation.summary.failed > 0;
 
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   // 运行中展开看实时过程，收尾后自动折回一行；用户手动切换在同一状态内不被刷新打断。
   useEffect(() => {
     setUserOpen(null);
   }, [active]);
-  const expanded = userOpen ?? active;
+  // 失败轮默认保持展开，确保错误动作无需再点一次就能看见；用户手动状态仍优先。
+  const expanded = userOpen ?? (active || failed);
 
   // 运行中逐秒推进耗时；收尾后固定为本轮事件的首尾区间。
   const [now, setNow] = useState(() => Date.now());
@@ -159,7 +166,9 @@ export function ConversationProcessTimeline({
   const duration = elapsedMs !== undefined ? formatDuration(elapsedMs) : "";
   const headText = active
     ? t(duration ? "processInline.turnRunning" : "processInline.turnRunningNoTime", { duration })
-    : t(duration ? "processInline.turnDone" : "processInline.turnDoneNoTime", { duration });
+    : failed
+      ? t(duration ? "processInline.turnFailed" : "processInline.turnFailedNoTime", { duration })
+      : t(duration ? "processInline.turnDone" : "processInline.turnDoneNoTime", { duration });
   const headSummary = [
     presentation.summary.files > 0
       ? t(presentation.summary.files === 1 ? "processInline.readSummaryOne" : "processInline.readSummaryMany", { count: presentation.summary.files })
@@ -173,7 +182,7 @@ export function ConversationProcessTimeline({
   ].filter((value): value is string => value !== undefined);
 
   return (
-    <div className="pw-conversation-process-turn" data-active={active} data-open={expanded}>
+    <div className="pw-conversation-process-turn" data-active={active} data-error={failed} data-open={expanded}>
       <button
         type="button"
         className="pw-conversation-process-turn-head"

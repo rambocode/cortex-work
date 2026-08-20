@@ -62,7 +62,7 @@ describe("ToolContextProjector", () => {
 
   it("超预算 read 只投影副本、按完整行裁剪并给出继续读取 offset", async () => {
     const original = Array.from({ length: 8_000 }, (_, index) => `line ${index + 1}`).join("\n");
-    const messages = [assistantCall("read-1", "read", { file_path: "README.md", offset: 0, limit: 8_000 }), toolResult("read-1", "read", original)];
+    const messages = [assistantCall("read-1", "read", { file_path: "README.md", limit: 8_000 }), toolResult("read-1", "read", original)];
     const result = await createToolContextProjector({ sessionId: "s2", store: new MemoryToolOutputStore() }).project({
       messages,
       model: MODEL,
@@ -72,7 +72,11 @@ describe("ToolContextProjector", () => {
     const projected = result.messages[1] as Extract<AgentMessage, { role: "toolResult" }>;
     expect(projected).not.toBe(messages[1]);
     expect(projected.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("offset=") });
-    expect((projected.content[0] as { text: string }).text).toContain("line 1");
+    const projectedText = (projected.content[0] as { text: string }).text;
+    expect(projectedText).toContain("line 1");
+    const continuation = projectedText.match(/kept (\d+)\/\d+ lines\. Continue with offset=(\d+)/);
+    expect(continuation).not.toBeNull();
+    expect(Number(continuation?.[2])).toBe(Number(continuation?.[1]) + 1);
     expect((messages[1] as Extract<AgentMessage, { role: "toolResult" }>).content[0]).toMatchObject({ text: original });
     expect(projected.toolCallId).toBe("read-1");
     expect(projected.toolName).toBe("read");
@@ -90,6 +94,20 @@ describe("ToolContextProjector", () => {
     });
     expect(result.messages).not.toBe(messages);
     expect(result.report.projectedResults).toBe(1);
+  });
+
+  it("重放 38943-token 症状时把输入压到 31808 预算内，保留完整 4096 输出空间", async () => {
+    const result = await createToolContextProjector({ sessionId: "qwen-trace", store: new MemoryToolOutputStore() }).project({
+      messages: [
+        assistantCall("bash-qwen", "bash", { command: "inspect project" }),
+        toolResult("bash-qwen", "bash", `head\n${"detail\n".repeat(8_000)}tail`),
+      ],
+      model: MODEL,
+      usage: { tokens: 38_943, contextWindow: 40_000, percent: 97 },
+      systemPrompt: "system",
+    });
+    expect(result.report.budgetExhausted).toBe(false);
+    expect(result.report.estimatedAfter).toBeLessThanOrEqual(40_000 - 4_096 - 4_096);
   });
 
   it("重复 read 以 path + content hash 替换为稳定引用，且不改变调用顺序", async () => {
@@ -131,6 +149,28 @@ describe("ToolContextProjector", () => {
       systemPrompt: "system",
     });
     expect((failure.messages[1] as Extract<AgentMessage, { role: "toolResult" }>).content[0]).toMatchObject({ text: expect.stringContaining("tail") });
+  });
+
+  it("全文临时文件写入失败时退回内存 head+tail，不中断会话", async () => {
+    const long = `head\n${"middle\n".repeat(8_000)}tail`;
+    const result = await createToolContextProjector({
+      sessionId: "s-store-failure",
+      store: {
+        put: async () => {
+          throw new Error("disk full");
+        },
+        dispose: async () => {},
+      },
+    }).project({
+      messages: [assistantCall("bash-1", "bash", { command: "build" }), toolResult("bash-1", "bash", long)],
+      model: MODEL,
+      usage: { tokens: 39_000, contextWindow: 40_000, percent: 97 },
+      systemPrompt: "system",
+    });
+    const text = ((result.messages[1] as Extract<AgentMessage, { role: "toolResult" }>).content[0] as { text: string }).text;
+    expect(text).toContain("head");
+    expect(text).toContain("tail");
+    expect(result.report).toMatchObject({ projectedResults: 1, externalizedResults: 0, budgetExhausted: false });
   });
 
   it("图片块和无法投影的结果保持原状，dispose 清理内存全文", async () => {
@@ -182,6 +222,8 @@ describe("ContextCheckpointGuard", () => {
       newMessages: [],
     });
     expect(decision).toEqual({ reason: "context-checkpoint" });
+    expect(guard.consumePending()).toBe(true);
+    expect(guard.consumePending()).toBe(false);
     expect(
       guard.shouldStopAfterTurn({
         message: assistantCall("call-2", "read") as Extract<AgentMessage, { role: "assistant" }>,

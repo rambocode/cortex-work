@@ -289,6 +289,8 @@ export default interface Resources {
       "toolSummaryOne": "调用了 1 个工具",
       "turnDone": "已处理 {{duration}}",
       "turnDoneNoTime": "已处理",
+      "turnFailed": "处理失败 {{duration}}",
+      "turnFailedNoTime": "处理失败",
       "turnRunning": "处理中 {{duration}}",
       "turnRunningNoTime": "处理中",
       "viewFullOutput": "查看完整输出（还有 {{count}} 行）",

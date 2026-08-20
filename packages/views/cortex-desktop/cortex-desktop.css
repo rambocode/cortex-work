@@ -14636,6 +14636,7 @@ button.sb-row {
   transition: color 0.12s ease;
 }
 .pw-conversation-process-turn-head:hover { color: var(--pcm-text-2); }
+.pw-conversation-process-turn[data-error="true"] .pw-conversation-process-turn-head { color: var(--pcm-danger); }
 .pw-conversation-process-turn-summary {
   flex: 1 1 auto;
   min-width: 0;

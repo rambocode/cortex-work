@@ -51,7 +51,16 @@ flowchart TD
 - `apps/desktop/src/main/agents/pi-inproc/deferred-tools.ts`：延迟目录深模块，负责搜索、排序、激活、并发语义与 `addedToolNames`。
 - `apps/desktop/src/main/agents/pi-inproc/tool-context.ts`：context hook 的深模块，负责模型上下文估算、工具结果投影、会话级全文临时文件和退出/过期清理。
 - `apps/desktop/src/main/agents/pi-inproc/native-hooks.ts`：只在 gateway 长驻会话注册投影 extension，并记录无正文的 projection report。
-- `../../pi-local/`：本机 lockstep Pi fork（`0.84.3-cortex-local.0`），补充 run 内 `context-checkpoint` 契约；其 tarball 位于 `.cortex-packages/`，根 `package.json` 的 pnpm overrides 与 Desktop 的 file dependencies 必须一起指向同一组包。
+- `@earendil-works/* 0.84.2`：使用 registry 发布版本，任何 checkout/CI 都可由 lockfile 安装。
+- `patches/@earendil-works__pi-agent-core@0.84.2.patch`：让 `shouldStopAfterTurn` 可返回
+  `{reason:"context-checkpoint"}`，并把 reason 带进 `agent_end`。
+- `patches/@earendil-works__pi-coding-agent@0.84.2.patch`：让 checkpoint `agent_end` 以
+  `willRetry=true` 进入自动 compaction + continue；同时让带 `code=PI_CONTEXT_BLOCKED` 的 context
+  hook 错误越过 extension 的常规 fail-open 边界，阻止超预算 provider request。
+- 两份 patch 的删除条件：上游发布同时包含结构化 turn guard、checkpoint 自动续接和
+  `isContextBlockError` 的版本。升级后必须删除 patch 并重跑完整 runtime/打包护栏。
+- `apps/desktop/src/main/agents/pi-inproc/session.ts`：按当前模型安装 guard；切模型、fork、switch、
+  new session 后都重建。事件泵再对 checkpoint `agent_end` 做幂等装饰，避免未来上游行为漂移。
 - `apps/desktop/src/main/agents/pi-mcp-inproc.ts`：把 `tool_search` 加入 MCP 保留名。
 
 ## 验证
@@ -64,7 +73,9 @@ flowchart TD
 - required delegate 必须接入成功，但其 schema 首轮不发送；`tool_search` 后仍可在同一回合调用。
 - renderer 不能关闭普通父聊天的优化，也不能给 artifact / child 强行开启。
 - 结果投影发生时不记录命令、路径或正文；临时全文不进入 Git、用户文档目录或应用日志。
-- 投影后仍超预算时，context extension 抛出受控 `PI_CONTEXT_BLOCKED`，本地 Pi fork 在 `convertToLlm` 前透传该错误，禁止 provider request 退化为 `max_tokens=1`。
+- 投影后仍超预算时，context extension 抛出受控 `PI_CONTEXT_BLOCKED`；仓内最小 pnpm patch 在
+  `convertToLlm` 前透传该错误，禁止 provider request 退化为 `max_tokens=1`。
+- `pnpm install --frozen-lockfile` 必须在没有 sibling `pi-local` 目录的隔离 worktree 中成功。
 
 常用命令：
 
