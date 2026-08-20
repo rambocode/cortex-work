@@ -980,6 +980,23 @@ describe("sanitizeForSave 落盘清理(过程不落盘:思考与工具步骤皆�
     expect(out.some((m) => typeof m.uid === "string" && m.uid.startsWith("err-"))).toBe(false);
   });
 
+  it("迁移旧档纯空 text 壳，但保留带附件或空白排版的消息", () => {
+    const input: Message[] = [
+      { kind: "text", who: "pi", time: "10:00", text: "", uid: "empty-1" },
+      { kind: "text", who: "pi", time: "10:01", text: "\n", uid: "layout-1" },
+      {
+        kind: "text",
+        who: "me",
+        time: "10:02",
+        text: "",
+        files: [{ path: "/tmp/report.md", name: "report.md", mimeType: "text/markdown" }],
+        uid: "file-1",
+      },
+    ];
+
+    expect(sanitizeForSave(input).map((message) => message.uid)).toEqual(["layout-1", "file-1"]);
+  });
+
   it("survivesSanitize 与 sanitizeForSave 一致:报错不计入隐藏游标 count", () => {
     const msgs: Message[] = [
       { kind: "text", who: "me", time: "10:00", text: "问", uid: "u-1-a" },
@@ -1271,6 +1288,25 @@ describe("pi RPC 会话事件折叠（handlePiEvent）", () => {
     const texts = cacheOf(qc).filter((m) => m.kind === "text" && m.who === "pi");
     expect(texts).toHaveLength(1);
     expect(texts[0]).toMatchObject({ text: "你好世界" });
+  });
+
+  it("工具轮次之间的空 text delta 不生成空白消息节点", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "最终报告" });
+
+    // Pi provider 会在 tool-only assistant block 的边界发出空 text_delta。工具事件会重置
+    // 正文游标，若把这些协议空帧当正文折叠，每个工具后都会追加一条空的 Cortex 消息。
+    for (const [index, name] of ["Read", "Bash", "Grep"].entries()) {
+      const toolCallId = `tool-${index}`;
+      __handlePiEventForTest(qc, "s1", { type: "tool-start", name, toolCallId });
+      __handlePiEventForTest(qc, "s1", { type: "tool-end", name, toolCallId, isError: false });
+      __handlePiEventForTest(qc, "s1", { type: "text", delta: "" });
+    }
+
+    __handlePiEventForTest(qc, "s1", { type: "result", willRetry: false });
+    const texts = cacheOf(qc).filter((message) => message.kind === "text" && message.who === "pi");
+    expect(texts).toEqual([expect.objectContaining({ text: "最终报告" })]);
   });
 
   it("text 增量向语音助手流式通道埋点；willRetry 广播 reset；reasoning 不发", () => {

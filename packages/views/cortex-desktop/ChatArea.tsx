@@ -996,6 +996,18 @@ export function MessageStream({
             lastWho = null;
             return <DaySep key={key} label={m.label} />;
           }
+          // 兼容旧版本已写入缓存/磁盘的 provider 空帧：纯空 text 没有任何可见载荷，不应占一整行。
+          // 带引用或附件的空正文仍是有效消息；空白字符也可能承担 Markdown 排版，不能 trim 后过滤。
+          if (
+            m.kind === "text" &&
+            m.text === "" &&
+            !m.reply &&
+            !m.attachments?.length &&
+            !m.images?.length &&
+            !m.files?.length
+          ) {
+            return null;
+          }
           // 规格 §2「统一左缘线」：个人会话里同一 Agent 的连续内容（正文、日志、任务清单）共用
           // 一个头像行，正文与卡片一律对齐 x=36px。团队会话保持原有的「日志/清单各带头像」分组。
           const grouped =

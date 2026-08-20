@@ -85,7 +85,7 @@ describe("用户消息气泡自动折叠", () => {
 
 // 团队侧调用 MessageStream:**不传** collapsibleLogs/collapsibleReasoning/stickToBottomKey 等任何
 // 过程/个人相关 flag（团队侧默认形态）。
-function renderTeamStream(messages: Message[]) {
+function renderTeamStream(messages: Message[], markdownBodies = false) {
   const qc = new QueryClient();
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
@@ -95,6 +95,7 @@ function renderTeamStream(messages: Message[]) {
         onSelectFile={() => {}}
         activeFile=""
         onApprove={() => {}}
+        markdownBodies={markdownBodies}
       />
     </CoreProvider>,
   );
@@ -102,6 +103,22 @@ function renderTeamStream(messages: Message[]) {
 
 describe("团队侧 MessageStream 零回归（R12）", () => {
   afterEach(() => cleanup());
+
+  it("旧会话中的纯空 Cortex text 不生成消息 DOM，正常正文仍保留", () => {
+    const { container, getByText } = renderTeamStream(
+      [
+        { kind: "text", who: "pi", time: "10:00", uid: "answer", text: "最终报告" },
+        { kind: "text", who: "pi", time: "10:01", uid: "empty-1", text: "" },
+        { kind: "text", who: "pi", time: "10:02", uid: "empty-2", text: "" },
+        { kind: "text", who: "pi", time: "10:03", uid: "empty-3", text: "" },
+      ],
+      true,
+    );
+
+    expect(getByText("最终报告")).toBeInTheDocument();
+    expect(container.querySelectorAll(".msgs-inner > .msg")).toHaveLength(1);
+    expect(container.querySelectorAll(".m-text.md-body")).toHaveLength(1);
+  });
 
   it("传含 agentLog 的 convo、不传过程 flag → 仍内联渲染 .agent-log 工具步骤", () => {
     const messages: Message[] = [

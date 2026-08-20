@@ -866,12 +866,29 @@ export function windowTailTurns(
   };
 }
 
-// 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog/报错提示）——隐藏游标的
+// 判断 text 是否完全没有可见载荷。空字符串正文若仍带引用或附件，消息本身依然有展示价值；
+// 只清理 provider 协议空帧留下的纯空壳。空白字符不等于空字符串，Markdown 排版增量必须保留。
+function isEmptyTextShell(m: Message): boolean {
+  return (
+    m.kind === "text" &&
+    m.text === "" &&
+    !m.reply &&
+    !m.attachments?.length &&
+    !m.images?.length &&
+    !m.files?.length
+  );
+}
+
+// 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog/报错提示/空 text 壳）——隐藏游标的
 // count 必须以「落盘后存活」的消息为基准计数,否则下次加载（这些已剥离、数组变短）后按旧 count
 // 切分会偏移可见/隐藏边界（R11 的 count 兜底路径）。
 function survivesSanitize(m: Message): boolean {
   return (
-    m.kind !== "typing" && m.kind !== "reasoning" && m.kind !== "agentLog" && !isTransientErrorMessage(m)
+    m.kind !== "typing" &&
+    m.kind !== "reasoning" &&
+    m.kind !== "agentLog" &&
+    !isTransientErrorMessage(m) &&
+    !isEmptyTextShell(m)
   );
 }
 
@@ -935,6 +952,7 @@ const processCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 //  - agentLog 丢弃——agent 中间执行过程（工具步骤）改走右侧瞬态过程流、**永不落盘**;
 //  - 报错/提示（uid("err")）丢弃——agent 报错只作当场可见反馈,不入会话记录(避免污染),失败信息
 //    改投主进程日志(见 appendMsg)。
+//  - 无正文、引用和附件的 text 空壳丢弃——兼容清理旧版本已落盘的 provider 空 delta。
 // 此过滤既保证新会话过程/报错不入档,也作为「破坏性旧档迁移」:旧档被加载后任意一次 flushChat 即把
 // chat JSON 原地重写为不含 agentLog/报错的版本（无 .bak、不可逆，KTD2）。
 // 加载历史时同样过此函数,故旧数据里遗留的 reasoning/agentLog/报错会被顺带清掉。
@@ -2029,6 +2047,10 @@ function handleCliEvent(qc: QueryClient, runId: string, ev: CliStreamEvent, sess
   // 写作 runId 恒为 writing: 前缀,但 sessionId 用 writing- 前缀,守卫两者杜绝任何漏网。
   if (runId.startsWith("design:") || runId.startsWith("slides:") || runId.startsWith("writing:") || runId.startsWith("writing-"))
     return;
+  // 某些 provider 会在 tool-only assistant block 的边界发空 text delta。它不是正文，必须在
+  // run 恢复、游标切换和 sawText 等副作用之前丢弃；只忽略长度为 0 的帧，换行/空格仍可能是
+  // 合法 Markdown 增量，不能 trim 后过滤。
+  if (ev.type === "text" && ev.delta.length === 0) return;
   // 信封归一 P2:子会话信封(sessionId=childSessionId,runId=callId)直接路由到子会话
   // reducer,不进主 run 状态机——也绝不能落进下面的 recovered-run 重建路径(会给 side
   // 会话伪造 phantom run)。归属由信封字段+注册表决定,不再从事件标记推断。
@@ -2892,6 +2914,10 @@ export function __scheduleStopFallbackForTest(
 // pi 归一化事件 → 消息缓存。无活跃 run 也要处理的状态/瞬态事件先分流;其余折叠进当前轮。
 function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, evRunId?: string): void {
   const store = usePersonalStore.getState();
+  // Pi 会在工具调用前后产生协议级空 text_delta。若工具已重置正文游标，空帧会被折成新的持久
+  // text 消息，最终在会话尾部形成一批空白 Cortex 节点；同时还会误删 typing、标记 sawText。
+  // 因此必须在任何运行态副作用之前把它视为 no-op。空白字符本身仍保留，以支持 Markdown 排版。
+  if (ev.type === "text" && ev.delta.length === 0) return;
   // 阶段4:任何事件 = 活跃,刷新空闲回收计时器（避免运行中被误回收）。
   touchPiSession(bridgeRef, sessionId);
   // 阶段4 代际守卫:事件带 runId 且与当前活跃轮不符 → 迟到/串台事件（崩溃重开/editResend 重入的
