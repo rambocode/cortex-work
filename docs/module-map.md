@@ -111,7 +111,7 @@
 
 | 名词 | HTML | renderer 入口 | main 侧 |
 |---|---|---|---|
-| 主窗口 | `index.html` | `src/App.tsx` | `index.ts` |
+| 主窗口 | `index.html` | `src/App.tsx` | `index.ts`（单实例锁 / app.ready 前协议）→ `runtime.ts`（直接创建主窗口；见 `docs/startup-performance.md`） |
 | Spotlight 浮动框 | `spotlight.html` | `src/spotlight.tsx` | `spotlight.ts`、`hotkey.ts` |
 | 闪记浮层 | `notes.html` | `src/notes-overlay.tsx` | `notes-overlay.ts` |
 | 桌面宠物（兼语音助手语音球宿主，双模式互斥） | `pet-overlay.html` | `src/pet-overlay.tsx` | `pet-overlay-window.ts` |

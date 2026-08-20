@@ -1,9 +1,9 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
-// 默认宽度 1000：每次冷启动都以这个宽度开窗（主窗口没有尺寸持久化，用户拉宽只在本次运行内有效）。
+// 默认宽度 1180：直接沿用已撤销的阶段式首屏宽度，主窗口首次出现时不再发生横向尺寸跳变。
 // 最小宽 520 = 中栏最小宽 440（渲染层 --pw-center-min）+ 右侧 rail 48 + 余量：允许窗口缩到
 // 770 以下（渲染层此时自动收起左栏，见 useResponsiveLeftCollapsed），但中栏永不低于 440。
-export const MAIN_WINDOW_DEFAULT_WIDTH = 1000;
+export const MAIN_WINDOW_DEFAULT_WIDTH = 1180;
 export const MAIN_WINDOW_MIN_WIDTH = 520;
 
 export function createMainWindowOptions({

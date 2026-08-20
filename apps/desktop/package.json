@@ -14,6 +14,7 @@
     "build:sensevoice": "node scripts/prepare-sensevoice-sidecar.mjs",
     "prepare:kws": "node scripts/prepare-kws-models.mjs",
     "prepare:agent-browser": "node scripts/prepare-agent-browser.mjs",
+    "benchmark:startup": "node scripts/benchmark-startup.mjs",
     "rebuild:native": "node scripts/rebuild-native-modules.mjs",
     "prebuild:notes": "node scripts/extract-release-notes.mjs",
     "build:worker": "vite build --config electron.worker.config.ts",
