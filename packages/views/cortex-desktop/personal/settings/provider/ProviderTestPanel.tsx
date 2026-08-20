@@ -42,6 +42,8 @@ const STEP_ORDER = ["runtime", "resolve", "auth", "request", "response"];
 export function ProviderTestPanel({
   anchorRef,
   params,
+  modelIds,
+  onSelectModel,
   phase,
   steps,
   result,
@@ -52,6 +54,9 @@ export function ProviderTestPanel({
 }: {
   anchorRef: React.RefObject<HTMLElement | null>;
   params: ProviderTestParams;
+  /** 可选：候选模型 id。多于一个且处于确认阶段时，模型行渲染成下拉（见参数区注释）。 */
+  modelIds?: readonly string[];
+  onSelectModel?: (modelId: string) => void;
   phase: "confirming" | "running" | "done";
   steps: ProviderConnectionTestStep[];
   result?: ProviderConnectionTestResult;
@@ -127,7 +132,29 @@ export function ProviderTestPanel({
 
       {/* 参数区常驻：确认前是「将要用什么」，跑完是「刚才用了什么」——排查时两者同样重要。 */}
       <dl className="pw-pip-testparams">
-        <ParamRow label={t("providers.connectionTestParamModel")} value={params.modelId || "—"} mono />
+        {/* 只在确认阶段允许换模型：running/done 阶段展示纯文本，测试中途换模型会与步骤流错位。
+            下拉只影响本次测试用哪个模型，不改任何持久化偏好。 */}
+        {phase === "confirming" && modelIds && modelIds.length > 1 && onSelectModel ? (
+          <div className="pw-pip-testparam">
+            <dt>{t("providers.connectionTestParamModel")}</dt>
+            <dd className="pw-pip-mono">
+              <select
+                className="pw-set-input pw-pip-testmodel"
+                aria-label={t("providers.connectionTestModelSelect")}
+                value={params.modelId}
+                onChange={(e) => onSelectModel(e.target.value)}
+              >
+                {modelIds.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            </dd>
+          </div>
+        ) : (
+          <ParamRow label={t("providers.connectionTestParamModel")} value={params.modelId || "—"} mono />
+        )}
         <ParamRow label={t("providers.connectionTestParamEndpoint")} value={endpoint || "—"} hint={endpointKind} mono />
         <ParamRow label={t("providers.connectionTestParamCredential")} value={credential} />
         <ParamRow label={t("providers.connectionTestParamLimit")} value={t("providers.connectionTestLimitValue")} />

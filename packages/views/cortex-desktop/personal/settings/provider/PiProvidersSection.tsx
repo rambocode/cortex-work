@@ -431,6 +431,7 @@ function SubscriptionCard({
             <ProviderTestControl
               providerId={provider.id}
               modelId={provider.models[0]?.id ?? ""}
+              modelIds={provider.models.map((m) => m.id)}
               context={{
                 providerName: provider.name,
                 baseUrl: provider.baseUrl,

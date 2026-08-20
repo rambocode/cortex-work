@@ -14405,6 +14405,8 @@ button.sb-row {
 .pw-pip-testparam > dt { font-size: 11px; color: var(--text-4, var(--text-3)); }
 .pw-pip-testparam > dd { margin: 0; min-width: 0; font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-pip-testparam-hint { margin-left: 6px; font-size: 10.5px; color: var(--text-4, var(--text-3)); }
+/* 确认阶段的测试模型下拉：塞进 280px 面板的参数值列里,长模型 id 靠 select 自身截断。 */
+.pw-pip-testmodel { width: 100%; max-width: 100%; min-width: 0; height: 22px; padding: 1px 4px; font-size: 11.5px; }
 .pw-pip-testwarn { margin: 0; }
 /* 步骤列表：图标列定宽，名称与 detail 纵向堆叠（detail 常是长 URL / 错误原文）。 */
 .pw-pip-teststeps { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }

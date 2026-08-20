@@ -341,6 +341,7 @@
     "connectionTestCostTitle": "连接测试会真实调用一次模型",
     "connectionTestCostBody": "将用 {{model}} 发一条最小请求验证连通性，**可能产生少量费用**。保存配置本身不会自动测试。",
     "connectionTestConfirm": "确认测试",
+    "connectionTestModelSelect": "选择用于本次测试的模型",
     "connectionTestCancel": "取消",
     "connectionTestOk": "连接正常 · {{model}} · {{latency}}ms",
     "connectionTestFailed": "连接失败：{{error}}",

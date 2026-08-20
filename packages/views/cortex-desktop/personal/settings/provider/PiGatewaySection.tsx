@@ -125,6 +125,7 @@ export function PiGatewaySection({
                     <ProviderTestControl
                       providerId={def.id}
                       modelId={parsed?.models[0]?.id ?? ""}
+                      modelIds={parsed?.models.map((m) => m.id) ?? []}
                       // 网关的地址写在自定义 Provider JSON 里（不走 baseUrl 覆盖），故直接取解析值。
                       context={{
                         providerName: parsed?.name ?? def.id,

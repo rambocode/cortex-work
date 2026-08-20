@@ -88,7 +88,13 @@ export function PiCustomProviderSection({
                 {parsed?.api ? <span className="pw-prov-badge">{parsed.api}</span> : null}
                 <span className="pw-pip-spacer" />
                 {/* 撞名行不给测试按钮：probe 命中的是内建供应商，测出来的结果纯属误导。 */}
-                {conflict ? null : <ProviderTestControl providerId={def.id} modelId={parsed?.models[0]?.id ?? ""} />}
+                {conflict ? null : (
+                  <ProviderTestControl
+                    providerId={def.id}
+                    modelId={parsed?.models[0]?.id ?? ""}
+                    modelIds={parsed?.models.map((m) => m.id) ?? []}
+                  />
+                )}
                 <button type="button" className="pw-pip-linkbtn" onClick={() => setEditing({ mode: "json", def })}>
                   {t("providers.inline.edit")}
                 </button>

@@ -341,6 +341,7 @@
     "connectionTestCostTitle": "A connection test makes a real model call",
     "connectionTestCostBody": "This sends a minimal request with {{model}} to verify connectivity and **may incur a small charge**. Saving a configuration never tests automatically.",
     "connectionTestConfirm": "Run test",
+    "connectionTestModelSelect": "Choose the model for this test",
     "connectionTestCancel": "Cancel",
     "connectionTestOk": "Connected · {{model}} · {{latency}}ms",
     "connectionTestFailed": "Connection failed: {{error}}",

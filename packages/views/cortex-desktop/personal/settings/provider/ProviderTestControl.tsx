@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { useDesktopBridge } from "@cortex-work/core";
+import { useDesktopBridge, usePersonalStore } from "@cortex-work/core";
 import type {
   ProviderConnectionTestResult,
   ProviderConnectionTestStep,
@@ -28,23 +28,43 @@ let traceSeq = 0;
 
 export function ProviderTestControl({
   providerId,
-  /** 用于测试与费用提示的模型（通常取该 Provider 的第一个模型）。 */
+  /** 缺省测试模型（通常取该 Provider 的第一个模型；用户可在面板里换）。 */
   modelId,
+  /**
+   * 可选：该 Provider 的全部模型 id。传了且多于一个时，确认面板出现模型下拉——
+   * Coding Plan / Token Plan 类端点只覆盖套餐内的部分模型，恒测 models[0] 会出现
+   * 「测试必败而聊天正常」（或反之）的误导性结论。不传时行为与旧版完全一致。
+   */
+  modelIds,
   /** 面板参数区要展示的上下文（端点 / 凭据来源等）。缺省时面板只是少显示几行，不报错。 */
   context,
 }: {
   providerId: string;
   modelId: string;
+  modelIds?: readonly string[];
   context?: Omit<ProviderTestParams, "providerId" | "modelId">;
 }) {
   const { t } = useTranslation("settings");
   const bridge = useDesktopBridge();
   const [state, setState] = useState<TestState>({ kind: "idle" });
   const [steps, setSteps] = useState<ProviderConnectionTestStep[]>([]);
+  // 本次测试用的模型：默认优先「用户的默认模型」（命中本 Provider 且在候选内时），它比
+  // models[0] 更接近用户实际在聊的那一个；否则回落传入的 modelId。用 getState() 取一次
+  // 快照而非订阅——这只是初值语义，测试中途 store 变化不该引起重渲染。
+  const [selectedModelId, setSelectedModelId] = useState<string>(() => {
+    const ref = usePersonalStore.getState().defaultModelRef;
+    if (ref && ref.providerId === providerId && (modelIds ?? []).includes(ref.modelId)) return ref.modelId;
+    return modelId;
+  });
   const anchorRef = useRef<HTMLSpanElement>(null);
   // 当前这次测试的 traceId。放 ref 而不是 state：事件回调要读它的最新值，
   // 而事件订阅只在挂载时建一次，闭包捕获 state 会永远读到旧值。
   const traceRef = useRef<string>("");
+
+  // 实际生效的模型：选择必须落在当前候选集内——候选列表变化（定义刚编辑过）后残留的
+  // 旧选择自动回落 modelId，不 setState，避免「渲染另一个供应商时拿着旧模型去测」。
+  const effectiveModelId =
+    modelIds && modelIds.length > 0 && !modelIds.includes(selectedModelId) ? modelId : selectedModelId;
 
   // 订阅主进程的实时步骤流。按 traceId 过滤是**本组件的责任**（通道是全局广播）：
   // 不过滤的话，A 行的步骤会画进 B 行的面板。
@@ -69,7 +89,7 @@ export function ProviderTestControl({
     setSteps([]);
     setState({ kind: "running" });
     const res =
-      (await bridge?.providerConnectionTest?.(providerId, modelId || undefined, traceId)) ??
+      (await bridge?.providerConnectionTest?.(providerId, effectiveModelId || undefined, traceId)) ??
       ({ ok: false, error: "unsupported" } satisfies ProviderConnectionTestResult);
     // 返回值里的 steps 是兜底：订阅晚了或事件丢了也能拿到完整轨迹（见主进程 handler 注释）。
     if (res.steps?.length) setSteps(res.steps);
@@ -104,7 +124,9 @@ export function ProviderTestControl({
       {state.kind !== "idle" ? (
         <ProviderTestPanel
           anchorRef={anchorRef}
-          params={{ ...context, providerId, modelId }}
+          params={{ ...context, providerId, modelId: effectiveModelId }}
+          modelIds={modelIds}
+          onSelectModel={setSelectedModelId}
           phase={state.kind}
           steps={steps}
           result={state.kind === "done" ? state.result : undefined}

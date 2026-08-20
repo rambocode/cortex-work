@@ -2294,6 +2294,7 @@ export default interface Resources {
       "connectionTestEndpointOverride": "自定义覆盖",
       "connectionTestFailed": "连接失败：{{error}}",
       "connectionTestLimitValue": "16 tokens · 60s 超时 · 请求内容 “ping”",
+      "connectionTestModelSelect": "选择用于本次测试的模型",
       "connectionTestOk": "连接正常 · {{model}} · {{latency}}ms",
       "connectionTestParamCredential": "凭据",
       "connectionTestParamEndpoint": "端点",

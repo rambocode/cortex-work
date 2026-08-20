@@ -94,7 +94,12 @@ export function ApiKeyRow({
         {/* 操作列：宽度自适应但恒在末列，各行按钮因此竖直对齐。 */}
         <div className="pw-pip-row-actions">
           {status.configured || noAuth ? (
-            <ProviderTestControl providerId={provider.id} modelId={provider.models[0]?.id ?? ""} context={testContext} />
+            <ProviderTestControl
+              providerId={provider.id}
+              modelId={provider.models[0]?.id ?? ""}
+              modelIds={provider.models.map((m) => m.id)}
+              context={testContext}
+            />
           ) : null}
           <button
             type="button"
