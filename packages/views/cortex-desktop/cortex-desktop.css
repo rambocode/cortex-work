@@ -3981,9 +3981,6 @@ button.sb-row {
   margin-left: 6px;
   padding-left: 10px;
 }
-.pw-context-sessions .pw-session.is-active {
-  box-shadow: inset 3px 0 var(--accent);
-}
 .pw-context-sessions .pw-session-more {
   width: calc(100% - 12px);
   margin-left: 6px;
