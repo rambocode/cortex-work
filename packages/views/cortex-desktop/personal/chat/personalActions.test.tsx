@@ -212,10 +212,21 @@ describe("send 分叉", () => {
     });
     expect(req.delegateRoles).toHaveLength(8);
     expect(req.delegatePolicy).toEqual({ maxParallel: 256, maxChildRuns: 25 });
-    expect(req.appendSystemPrompt).toContain("实质性任务只要受益于专项能力、独立复核或多个互不依赖的工作流");
-    expect(req.appendSystemPrompt).toContain("必须调用合适的协作者工具");
-    expect(req.appendSystemPrompt).toContain("任何仓库或项目探索都必须先调用 `explore_agent`");
-    expect(req.appendSystemPrompt).toContain("互不重叠的范围动态拆成多个并行 `explore_agent`");
+    // 委派编排指引是发给 LLM 的 system prompt,按仓库约定一律英文(见 CLAUDE.md),
+    // 断言取 buildDelegateOrchestrationGuide 的原句;改文案时这里必须同步。
+    expect(req.appendSystemPrompt).toContain(
+      "Use an appropriate collaborator whenever substantive work benefits from specialist capability",
+    );
+    // 结构化委派合同是硬要求:少一个字段就退回「口头派活」,子会话拿不到自足上下文。
+    expect(req.appendSystemPrompt).toContain(
+      "Every delegation call must provide the complete structured task contract",
+    );
+    expect(req.appendSystemPrompt).toContain(
+      "Use `explore_agent` first for repository or project exploration",
+    );
+    expect(req.appendSystemPrompt).toContain(
+      "Split complex exploration into parallel calls with non-overlapping evidence scopes",
+    );
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
   });
 
@@ -271,7 +282,7 @@ describe("send 分叉", () => {
       ]),
     );
     expect((bridge.piPrompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toContain(
-      "由你结合主会话上下文总结",
+      "Combine it with parent context and produce the final answer yourself",
     );
     expect(bridge.startOrchestration).not.toHaveBeenCalled();
 
