@@ -5401,8 +5401,10 @@ button.sb-row {
   margin-right: 2px;
 }
 /* 一级行(Agent / 模型 / 推理):标签在左,当前值 + › 在右、次要色,超长省略。
-   行包裹层是二级 flyout 的定位锚,也是「行 → flyout」的连续 hover 域。 */
-.pw-mt-row-wrap { position: relative; }
+   行包裹层只做「行 → flyout」的连续 hover 域,**不能**是定位锚 —— 二级 flyout 要跟
+   一级面板底缘对齐,所以它的包含块必须是 .pw-mt-menu(absolute 自带包含块)而不是这一行。
+   给这里加回 position:relative 会让 flyout 退回「跟着行走」,底部对齐立刻失效。 */
+.pw-mt-row-wrap { position: static; }
 .pw-mt-row { justify-content: space-between; gap: 16px; }
 /* 须用 (0,2,0) 压过 .pw-tb-menu-item span { flex:1 } 的 (0,1,1),否则值列会被均分拉伸。 */
 .pw-mt-row .pw-mt-row-value {
@@ -5412,14 +5414,21 @@ button.sb-row {
   color: var(--text-3);
 }
 .pw-mt-row .pw-mt-row-value > svg { flex: none; }
-/* 二级 flyout:默认在所属行的右侧展开、顶缘与行对齐(4px 内边距 + 1px 边框的补偿);
-   右侧空间不足时组件实测溢出并补 --left 类翻到左侧(见 ModelThinkingPill 的 layoutEffect)。
+/* 二级 flyout:在一级面板右侧展开,**底缘与面板底缘齐平**(bottom:-1px 抵掉面板 1px 边框),
+   内容向上生长。顶缘对齐行的老做法在贴底的 composer 里会把长模型列表顶出窗口下缘,
+   用户反复反馈「模型列表显示不全」;底部对齐后可用空间是面板上方的整块视口高度。
+   高度上限由组件按「面板底缘 - 8px」实测下发(inline maxHeight),超出即本层内部滚动。
+   右侧空间不足时组件实测溢出并补 --left 类翻到左侧(见 useOverflowSafePlacement)。
    用 .pw-mt-pill 前缀提升特异性压过 .pw-tb-menu 的默认 top/right 定位。 */
 .pw-mt-pill .pw-mt-sub {
-  top: -5px;
+  top: auto;
+  bottom: -1px;
   left: calc(100% + 4px);
   right: auto;
-  bottom: auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   min-width: 180px;
   /* 宽度上限:长模型名（"GPT-5.3 Codex Spark"）会把 min-width 撑到 230px+，
      在窄栏里直接顶出窗口。有了上限，下面 .pw-mt-models 的省略号截断才真正生效
@@ -5432,12 +5441,6 @@ button.sb-row {
 .pw-mt-pill .pw-mt-sub--left {
   left: auto;
   right: calc(100% + 4px);
-}
-/* 翻上变体:flyout 默认与所属行顶部对齐向下铺,「推理」5 档在贴底的写作助手栏里会被
-   窗口下边缘裁掉;溢出时改为与行底部对齐向上铺。与水平翻转是两个独立维度,可同时生效。 */
-.pw-mt-pill .pw-mt-sub--up {
-  top: auto;
-  bottom: -5px;
 }
 /* 合并 pill 的菜单左对齐(pw-tb-menu 默认 right:0)。显式 opaque 背景 + z-index 盖住 composer pill。
    用 .pw-mt-pill 前缀提升特异性:.pw-tb-menu 在本文件中定义更靠后,等特异性会反向覆盖,
@@ -5452,9 +5455,10 @@ button.sb-row {
   font-size: 11px;
   color: var(--text-3);
 }
-/* 模型二级列表:限高内部滚动承载长模型列表/后续搜索;长模型名(如 pi 的「Prov · Model」)
-   省略号截断,避免过宽。 */
-.pw-mt-models { max-height: 280px; overflow-y: auto; }
+/* 模型二级列表:**不再自带 max-height/overflow** —— 限高与滚动统一由 .pw-mt-sub 承担
+   (它按视口实测下发 maxHeight);两层各滚一次会出现双滚动条且滚不到底。
+   长模型名(如 pi 的「Prov · Model」)省略号截断,避免过宽。 */
+.pw-mt-models { min-height: 0; }
 .pw-mt-models .pw-tb-menu-item span {
   min-width: 0;
   overflow: hidden;
