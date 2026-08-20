@@ -4393,15 +4393,23 @@ button.sb-row {
 .pw-session-act { width: auto; padding: 3px; }
 .pw-session-act.is-danger, .pw-session-act.is-danger svg { color: var(--red); }
 .pw-session-act.is-danger:hover { background: var(--red-soft); }
-/* 会话运行状态徽标:置于标题左侧 26px 缩进空白区(定位锚是 .pw-session-row)。
-   三态:confirm(等确认,琥珀,急促脉冲+光环,提示需要行动) > running(主色,呼吸) > ok/fail(绿/红,静态)。
-   绝对定位避开右侧 hover 操作按钮与时间显隐逻辑;pw-traj-pulse keyframes 复用轨迹面板既有定义。 */
+/* 会话运行状态徽标。三态:confirm(等确认,琥珀,急促脉冲+光环,提示需要行动) >
+   running(蓝,呼吸,占右侧时间位——运行中相对时间无意义) > ok/fail(绿/红,静态)。
+   confirm/ok/fail 绝对定位于标题左侧 26px 缩进空白区(定位锚 .pw-session-row),
+   避开右侧 hover 操作按钮与时间显隐逻辑;pw-traj-pulse keyframes 复用轨迹面板既有定义。 */
 .pw-session-status {
   position: absolute; left: 19px; top: 50%; transform: translateY(-50%);
   width: 6px; height: 6px; border-radius: 50%;
   pointer-events: none;
 }
-.pw-session-status.is-running { background: var(--accent); animation: pw-traj-pulse 1.2s ease-in-out infinite; }
+.pw-session-status.is-running {
+  /* 运行点走 flex 布局排在行尾(替代时间),不用绝对定位。 */
+  position: static; transform: none; flex-shrink: 0;
+  background: var(--blue);
+  animation: pw-traj-pulse 1.2s ease-in-out infinite;
+}
+/* hover 时与时间同款让位给右侧操作按钮;必须同时停动画——脉冲动画的 opacity 帧会盖过普通声明。 */
+.pw-session-row:hover .pw-session-status.is-running { opacity: 0; animation: none; }
 .pw-session-status.is-confirm {
   background: var(--amber);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent);

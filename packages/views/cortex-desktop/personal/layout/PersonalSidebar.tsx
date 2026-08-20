@@ -157,8 +157,8 @@ function SessionRow({
             event.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
           }}
         >
-          {status ? (
-            // 状态点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
+          {status && status !== "running" ? (
+            // 等确认/已结束点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
             <span
               className={`pw-session-status is-${status}`}
               data-status={status}
@@ -167,7 +167,17 @@ function SessionRow({
             />
           ) : null}
           <span className="pw-session-title">{session.title}</span>
-          <span className="pw-session-time">{relTime(session.updatedAt)}</span>
+          {status === "running" ? (
+            // 运行中呼吸点占用右侧时间位(运行中相对时间无意义,hover 让位规则与时间同款)。
+            <span
+              className="pw-session-status is-running"
+              data-status="running"
+              title={statusLabel}
+              aria-label={statusLabel}
+            />
+          ) : (
+            <span className="pw-session-time">{relTime(session.updatedAt)}</span>
+          )}
         </button>
       )}
       {renameDraft === null ? (
