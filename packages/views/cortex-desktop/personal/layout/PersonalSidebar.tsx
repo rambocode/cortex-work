@@ -157,24 +157,34 @@ function SessionRow({
             event.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
           }}
         >
-          {status && status !== "running" ? (
-            // 等确认/已结束点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
+          {status === "confirm" ? (
+            // 等确认点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
             <span
-              className={`pw-session-status is-${status}`}
-              data-status={status}
+              className="pw-session-status is-confirm"
+              data-status="confirm"
               title={statusLabel}
               aria-label={statusLabel}
             />
           ) : null}
           <span className="pw-session-title">{session.title}</span>
           {status === "running" ? (
-            // 运行中呼吸点占用右侧时间位(运行中相对时间无意义,hover 让位规则与时间同款)。
+            // 运行中 loading 环占用右侧时间位(运行中相对时间无意义,hover 让位规则与时间同款)。
             <span
               className="pw-session-status is-running"
               data-status="running"
               title={statusLabel}
               aria-label={statusLabel}
             />
+          ) : status === "ok" || status === "fail" ? (
+            // 已结束成功/失败 icon 同样占右侧时间位;endedAt 详情在 title tooltip 里。
+            <span
+              className={`pw-session-status is-${status}`}
+              data-status={status}
+              title={statusLabel}
+              aria-label={statusLabel}
+            >
+              {status === "ok" ? <Icon.CheckCircle size={12} /> : <Icon.XCircle size={12} />}
+            </span>
           ) : (
             <span className="pw-session-time">{relTime(session.updatedAt)}</span>
           )}
