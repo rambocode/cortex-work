@@ -286,6 +286,10 @@
     "agentOutput": "子 Agent 输出",
     "waitingOutput": "正在等待子 Agent 产生输出…"
   },
+  "historyGate": {
+    "earlierTurns": "还有 {{count}} 轮更早对话",
+    "expandMore": "展开更多"
+  },
   "subagentThread": {
     "title": "正在查看代理过程",
     "description": "这是「{{title}}」委派的子代理过程，可随时返回主对话。",

@@ -720,7 +720,7 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
     });
   });
 
-  // n 条用户文本消息(走 renderRich 纯文本,findByText 稳定)。
+  // n 轮对话:每轮一条用户文本消息(走 renderRich 纯文本,findByText 稳定)。
   const many = (n: number, prefix = "消息"): Message[] =>
     Array.from({ length: n }, (_, i) => ({
       kind: "text" as const,
@@ -730,40 +730,62 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
       uid: `m${i + 1}`,
     }));
 
-  it("默认只渲染尾部 20 条,更早的折叠", async () => {
+  it("默认只渲染最近 2 个完整回合,更早的折叠", async () => {
     renderAreaWithChat(many(30));
     expect(await screen.findByText("消息30")).toBeInTheDocument();
-    expect(screen.getByText("消息11")).toBeInTheDocument(); // 尾部第 20 条
-    expect(screen.queryByText("消息10")).toBeNull(); // 第 21 条往前折叠
+    expect(screen.getByText("消息29")).toBeInTheDocument(); // 尾部第 2 轮
+    expect(screen.queryByText("消息28")).toBeNull(); // 第 3 轮往前折叠
     expect(screen.queryByText("消息1")).toBeNull();
   });
 
-  it("折叠时显示「展开更多」入口并标注剩余条数", async () => {
+  it("窗口起点落在用户消息:agent 回复不与其提问拆开", async () => {
+    const agentMsg = (uid: string, text: string): Message => ({ kind: "text", who: "claude", time: "10:01", text, uid });
+    renderAreaWithChat([
+      many(1)[0]!, // 消息1(第 1 轮)
+      agentMsg("a1", "答复1"),
+      { kind: "text", who: "me", time: "10:00", text: "消息2", uid: "m2" },
+      agentMsg("a2", "答复2甲"),
+      agentMsg("a3", "答复2乙"),
+      { kind: "text", who: "me", time: "10:00", text: "消息3", uid: "m3" },
+      agentMsg("a4", "答复3"),
+    ]);
+    expect(await screen.findByText("答复3")).toBeInTheDocument();
+    // 窗口起点 = 倒数第 2 条用户消息,该轮的多条回复完整在窗
+    expect(screen.getByText("消息2")).toBeInTheDocument();
+    expect(screen.getByText("答复2甲")).toBeInTheDocument();
+    expect(screen.getByText("答复2乙")).toBeInTheDocument();
+    // 更早回合整轮折叠(不会出现半截回复)
+    expect(screen.queryByText("消息1")).toBeNull();
+    expect(screen.queryByText("答复1")).toBeNull();
+  });
+
+  it("折叠时显示「展开更多」入口并标注剩余回合数", async () => {
     renderAreaWithChat(many(30));
     await screen.findByText("消息30");
-    expect(screen.getByText(/还有 10 条更早消息/)).toBeInTheDocument();
+    expect(screen.getByText(/还有 28 轮更早对话/)).toBeInTheDocument();
     expect(screen.getByText("展开更多")).toBeInTheDocument();
   });
 
-  it("点「展开更多」多渲染一页,覆盖全部后入口消失", async () => {
-    renderAreaWithChat(many(30));
-    await screen.findByText("消息30");
+  it("点「展开更多」向上多 2 轮,覆盖全部后入口消失", async () => {
+    renderAreaWithChat(many(4));
+    await screen.findByText("消息4");
+    expect(screen.queryByText("消息2")).toBeNull();
     fireEvent.click(screen.getByText("展开更多"));
-    expect(await screen.findByText("消息1")).toBeInTheDocument(); // 20→40 覆盖 30 条
-    expect(screen.getByText("消息10")).toBeInTheDocument();
+    expect(await screen.findByText("消息1")).toBeInTheDocument(); // 2→4 覆盖 4 轮
+    expect(screen.getByText("消息2")).toBeInTheDocument();
     expect(screen.queryByText("展开更多")).toBeNull();
   });
 
-  it("消息不足 20 条:不显示入口,全部渲染", async () => {
-    renderAreaWithChat(many(12));
-    expect(await screen.findByText("消息12")).toBeInTheDocument();
+  it("回合不足 2:不显示入口,全部渲染", async () => {
+    renderAreaWithChat(many(2));
+    expect(await screen.findByText("消息2")).toBeInTheDocument();
     expect(screen.getByText("消息1")).toBeInTheDocument();
     expect(screen.queryByText("展开更多")).toBeNull();
   });
 
-  it("切换会话后窗口重置为尾部 20 条", async () => {
+  it("切换会话后窗口重置为尾部 2 轮", async () => {
     const b = {
-      loadChat: async (sid: string) => (sid === "s1" ? many(30) : many(25, "B")),
+      loadChat: async (sid: string) => (sid === "s1" ? many(4) : many(25, "B")),
       saveChat: async () => {},
     } as unknown as DesktopBridge;
     usePersonalStore.setState({
@@ -777,14 +799,14 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
         <PersonalChatArea onToast={() => {}} />
       </CoreProvider>,
     );
-    await screen.findByText("消息30");
+    await screen.findByText("消息4");
     fireEvent.click(screen.getByText("展开更多"));
     await screen.findByText("消息1"); // s1 全展开
 
     usePersonalStore.getState().setActiveSession("s2");
     expect(await screen.findByText("B25")).toBeInTheDocument();
-    expect(screen.getByText("B6")).toBeInTheDocument(); // 尾部 20(25-20+1=6)
-    expect(screen.queryByText("B5")).toBeNull(); // 窗口已重置,更早折叠
+    expect(screen.getByText("B24")).toBeInTheDocument(); // 尾部 2 轮
+    expect(screen.queryByText("B23")).toBeNull(); // 窗口已重置,更早折叠
   });
 
   it("/clear 后:窗口优先,展完可见集才出现「显示隐藏」入口", async () => {
@@ -801,11 +823,11 @@ describe("PersonalChatArea 历史会话分页渲染窗口", () => {
         },
       ],
     });
-    renderAreaWithChat(many(30)); // 隐藏 m1..m5 → 可见 m6..m30(25 条)
-    await screen.findByText("消息30");
-    expect(screen.getByText(/还有 5 条更早消息/)).toBeInTheDocument(); // 25-20=5
+    renderAreaWithChat(many(9)); // 隐藏 m1..m5 → 可见 m6..m9(4 轮)
+    await screen.findByText("消息9");
+    expect(screen.getByText(/还有 2 轮更早对话/)).toBeInTheDocument(); // 4-2=2
     expect(screen.queryByText(/已隐藏/)).toBeNull(); // 窗口未展完,不显示隐藏 gate
-    fireEvent.click(screen.getByText("展开更多")); // +20 → 覆盖可见 25 条
+    fireEvent.click(screen.getByText("展开更多")); // +2 → 覆盖可见 4 轮
     expect(await screen.findByText("消息6")).toBeInTheDocument(); // 可见集顶部
     expect(screen.queryByText("消息5")).toBeNull(); // 仍属 /clear 隐藏区
     expect(screen.getByText(/已隐藏 5 条历史记录/)).toBeInTheDocument(); // 现在出现隐藏 gate

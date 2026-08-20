@@ -472,7 +472,7 @@ export {
   pruneProcessArchives,
   discardProcessArchives,
   useRenderWindow,
-  windowTailMessages,
+  windowTailTurns,
   usePersonalActions,
   presetSessionTitle,
   usePersonalCliEvents,

@@ -62,7 +62,7 @@ import {
   thinkingSnippet,
   truncateForEdit,
   typingText,
-  windowTailMessages,
+  windowTailTurns,
 } from "./messages";
 import { __resetPiSessionsForTest, ensurePiSession, isPiSessionOpen } from "./pi-session";
 import type { DesktopBridge } from "../desktop/bridge";
@@ -678,31 +678,46 @@ describe("personal hidden history helpers", () => {
   });
 });
 
-describe("windowTailMessages 渲染窗口尾部切片", () => {
-  const five = [msg("m1"), msg("m2"), msg("m3"), msg("m4"), msg("m5")];
+describe("windowTailTurns 渲染窗口按完整回合切片", () => {
+  // 一个回合 = 一条用户消息(kind:text, who:"me")+ 其后直到下一条用户消息前的全部输出。
+  const agentMsg = (uid: string): Message => ({ kind: "text", who: "claude", time: "10:01", text: uid, uid });
+  const day = (uid: string): Message => ({ kind: "day", label: "今天", uid });
+  // 3 个回合:u1(a1,a2) / u2(a3) / u3(a4,a5)
+  const threeTurns = [msg("u1"), agentMsg("a1"), agentMsg("a2"), msg("u2"), agentMsg("a3"), msg("u3"), agentMsg("a4"), agentMsg("a5")];
 
-  it("limit ≥ 总数:返回全量,无折叠", () => {
-    expect(windowTailMessages(five, 5)).toEqual({ rendered: five, collapsedEarlier: 0 });
-    expect(windowTailMessages(five, 99)).toEqual({ rendered: five, collapsedEarlier: 0 });
-  });
-
-  it("limit < 总数:返回尾部 limit 条,折叠数为差值", () => {
-    const r = windowTailMessages(five, 2);
-    expect(r.rendered.map((m) => m.uid)).toEqual(["m4", "m5"]);
+  it("turnLimit < 总回合数:窗口起点落在用户消息上,折叠回合数为差值", () => {
+    const r = windowTailTurns(threeTurns, 2);
+    expect(r.rendered.map((m) => m.uid)).toEqual(["u2", "a3", "u3", "a4", "a5"]);
     expect(r.collapsedEarlier).toBe(3);
+    expect(r.collapsedTurns).toBe(1);
   });
 
-  it("limit 递增:切片头部前移", () => {
-    expect(windowTailMessages(five, 4).rendered.map((m) => m.uid)).toEqual(["m2", "m3", "m4", "m5"]);
+  it("turnLimit ≥ 总回合数:返回全量(含首条用户消息前的前导消息),无折叠", () => {
+    const leading = [agentMsg("pre"), ...threeTurns];
+    expect(windowTailTurns(leading, 3)).toEqual({ rendered: leading, collapsedEarlier: 0, collapsedTurns: 0 });
+    expect(windowTailTurns(leading, 99)).toEqual({ rendered: leading, collapsedEarlier: 0, collapsedTurns: 0 });
   });
 
-  it("limit ≤ 0:折叠全部(防御,不抛、不越界)", () => {
-    expect(windowTailMessages(five, 0)).toEqual({ rendered: [], collapsedEarlier: 5 });
-    expect(windowTailMessages(five, -3)).toEqual({ rendered: [], collapsedEarlier: 5 });
+  it("窗口起点紧邻其前的 day 分隔符一并带进窗口", () => {
+    const withDay = [msg("u1"), agentMsg("a1"), day("d1"), msg("u2"), agentMsg("a2")];
+    const r = windowTailTurns(withDay, 1);
+    expect(r.rendered.map((m) => m.uid)).toEqual(["d1", "u2", "a2"]);
+    expect(r.collapsedEarlier).toBe(2);
+    expect(r.collapsedTurns).toBe(1);
+  });
+
+  it("全程无用户消息:返回全量,折叠回合数 0", () => {
+    const noAnchor = [agentMsg("a1"), agentMsg("a2")];
+    expect(windowTailTurns(noAnchor, 2)).toEqual({ rendered: noAnchor, collapsedEarlier: 0, collapsedTurns: 0 });
+  });
+
+  it("turnLimit ≤ 0:折叠全部(防御,不抛、不越界)", () => {
+    expect(windowTailTurns(threeTurns, 0)).toEqual({ rendered: [], collapsedEarlier: 8, collapsedTurns: 3 });
+    expect(windowTailTurns(threeTurns, -3)).toEqual({ rendered: [], collapsedEarlier: 8, collapsedTurns: 3 });
   });
 
   it("空消息:返回空,无折叠", () => {
-    expect(windowTailMessages([], 20)).toEqual({ rendered: [], collapsedEarlier: 0 });
+    expect(windowTailTurns([], 2)).toEqual({ rendered: [], collapsedEarlier: 0, collapsedTurns: 0 });
   });
 });
 

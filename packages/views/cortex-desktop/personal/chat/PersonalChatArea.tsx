@@ -131,15 +131,16 @@ function HiddenHistoryGate({
   );
 }
 
-// 「展开更多」入口:历史会话默认折叠更早消息,点击逐步多渲染一页(复用 .pw-history-gate 视觉)。
-function MoreHistoryGate({ count, onExpand }: { count: number; onExpand: () => void }) {
+// 「展开更多」入口:历史会话默认折叠更早的完整回合,点击按回合向上加载(复用 .pw-history-gate 视觉)。
+function MoreHistoryGate({ turns, onExpand }: { turns: number; onExpand: () => void }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="pw-history-gate">
       <div className="pw-history-gate-line" />
       <button className="pw-history-gate-btn" onClick={onExpand} type="button">
         <Icon.Chevron size={11} />
-        <span>还有 {count} 条更早消息</span>
-        <b>展开更多</b>
+        <span>{t("historyGate.earlierTurns", { count: turns })}</span>
+        <b>{t("historyGate.expandMore")}</b>
       </button>
       <div className="pw-history-gate-line" />
     </div>
@@ -445,7 +446,7 @@ export function PersonalChatArea({
 
   const agent = session?.agent;
   const contact = useMemo(() => (agent ? agentContact(agent) : null), [agent]);
-  // 渲染窗口:历史会话默认只渲染最新 20 条,「展开更多」逐步加载更早的。窗口作用在 messages
+  // 渲染窗口:历史会话默认只渲染最近 2 个完整回合,「展开更多」按回合向上加载。窗口作用在 messages
   //(即 /clear 后的可见集)之上;resetKey 含 hiddenHistory 游标,切会话 / /clear 后窗口重置。
   const resetKey = `${session?.id ?? ""}:${session?.hiddenHistory?.count ?? 0}:${session?.hiddenHistory?.hiddenAt ?? 0}`;
   const win = useRenderWindow(resetKey, messages);
@@ -883,7 +884,7 @@ export function PersonalChatArea({
           showHiddenHistory ? (
             <HiddenHistoryGate count={hiddenCount} expanded onToggle={() => setShowHiddenHistory(false)} />
           ) : win.canExpandMore ? (
-            <MoreHistoryGate count={win.collapsedEarlier} onExpand={win.expandMore} />
+            <MoreHistoryGate turns={win.collapsedTurns} onExpand={win.expandMore} />
           ) : hiddenCount > 0 ? (
             <HiddenHistoryGate count={hiddenCount} expanded={false} onToggle={() => setShowHiddenHistory(true)} />
           ) : undefined

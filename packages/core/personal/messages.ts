@@ -823,15 +823,47 @@ export function splitPersonalMessages(messages: Message[], hiddenHistory?: Hidde
   };
 }
 
-// 渲染窗口:对消息集取尾部 limit 条,返回切片 + 仍被折叠的更早条数。纯函数,无副作用。
-// 配合 useRenderWindow,让历史会话默认只渲染最新 limit 条(其余「展开更多」逐步加载),
-// 把首屏渲染量从 O(全部) 降到 O(limit),规避长会话一次性全量渲染导致的卡顿/闪退。
-export function windowTailMessages(
+// 回合锚点判据:一条用户正文消息即一轮的起点(与 branches.ts 的 anchor 口径、lastUserMsgUid 同源)。
+function isTurnAnchor(m: Message): boolean {
+  return m.kind === "text" && m.who === "me";
+}
+
+// 渲染窗口:对消息集取尾部 turnLimit 个**完整回合**(一条用户消息 + 其后直到下一条用户消息前的
+// 全部输出),返回切片 + 被折叠的更早条数/回合数。纯函数,无副作用。
+// 配合 useRenderWindow,让历史会话默认只渲染最近几轮(其余「展开更多」按回合加载),
+// 把首屏渲染量从 O(全部) 降到 O(尾部几轮),且切分点永远落在回合边界——不会出现
+// 「首屏从某条 agent 回复的后半段开始、上文提问被折叠」的断头视图。
+export function windowTailTurns(
   source: Message[],
-  limit: number,
-): { rendered: Message[]; collapsedEarlier: number } {
-  const start = Math.min(source.length, Math.max(0, source.length - limit));
-  return { rendered: start > 0 ? source.slice(start) : source, collapsedEarlier: start };
+  turnLimit: number,
+): { rendered: Message[]; collapsedEarlier: number; collapsedTurns: number } {
+  const totalTurns = source.reduce((n, m) => (isTurnAnchor(m) ? n + 1 : n), 0);
+  if (turnLimit <= 0) {
+    return { rendered: [], collapsedEarlier: source.length, collapsedTurns: totalTurns };
+  }
+  // 从尾向前数到第 turnLimit 个用户锚即窗口起点;锚不足则全量(含首条用户消息前的前导消息)。
+  let start = 0;
+  let seen = 0;
+  for (let i = source.length - 1; i >= 0; i--) {
+    if (isTurnAnchor(source[i]!)) {
+      seen += 1;
+      if (seen >= turnLimit) {
+        start = i;
+        break;
+      }
+    }
+  }
+  const collapsedTurns = Math.max(0, totalTurns - seen);
+  // 锚不足、或折叠区已无任何完整回合(只剩首条用户消息前的前导消息)→ 全量,
+  // 避免出现「还有 0 轮更早对话」的空门。
+  if (seen < turnLimit || collapsedTurns === 0) start = 0;
+  // day 分隔符语义上属于其后的消息:起点紧邻其前的 day 一并带进窗口。
+  while (start > 0 && source[start - 1]!.kind === "day") start -= 1;
+  return {
+    rendered: start > 0 ? source.slice(start) : source,
+    collapsedEarlier: start,
+    collapsedTurns,
+  };
 }
 
 // 落盘会被 sanitizeForSave 丢弃的瞬态/过程消息（typing/reasoning/agentLog/报错提示）——隐藏游标的
@@ -4186,58 +4218,61 @@ export function usePersonalRunPrompts(sessionId: string | undefined): RunPromptR
   return useThrottledValue(data ?? EMPTY_RUN_PROMPTS, CHAT_RENDER_THROTTLE_MS);
 }
 
-// 渲染窗口默认尺寸与每次「展开更多」步长。
-export const RENDER_WINDOW_INITIAL = 20;
-export const RENDER_WINDOW_STEP = 20;
+// 渲染窗口默认回合数与每次「展开更多」的回合步长。
+export const RENDER_TURNS_INITIAL = 2;
+export const RENDER_TURNS_STEP = 2;
 
 export interface RenderWindow {
   rendered: Message[];
   collapsedEarlier: number;
+  collapsedTurns: number;
   canExpandMore: boolean;
   expandMore: () => void;
   expandNonce: number;
   stickKey: string;
 }
 
-// 历史会话分页渲染窗口:默认只渲染 source 尾部 RENDER_WINDOW_INITIAL 条,「展开更多」每次 +STEP。
+// 历史会话分页渲染窗口(回合制):默认只渲染 source 尾部 RENDER_TURNS_INITIAL 个完整回合,
+// 「展开更多」每次向上 +RENDER_TURNS_STEP 回合。
 //  - resetKey 变(切会话 / /clear 游标变)→ 窗口回到尾部默认值、锚点计数归零;
-//  - source 尾部追加(流式新消息)→ 窗口同步增长,避免已渲染内容被新消息挤出顶部;
+//  - 新用户消息落地(开启新回合)→ visibleTurns 同步 +1,避免已渲染的旧回合被挤出顶部;
+//    同一回合内的流式追加天然落在窗口尾部,无需处理;
 //  - expandMore 递增窗口并 bump expandNonce,供 MessageStream 区分「头部插入(保锚点)」与「尾部追加(贴底)」。
 // 纯视图裁剪:不改持久化与 AI 上下文,只削减 DOM 渲染与 markdown 解析量。
 export function useRenderWindow(resetKey: string, source: Message[]): RenderWindow {
-  const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW_INITIAL);
+  const [visibleTurns, setVisibleTurns] = useState(RENDER_TURNS_INITIAL);
   const [expandNonce, setExpandNonce] = useState(0);
-  const prevLen = useRef(source.length);
+  const turnCount = useMemo(() => source.reduce((n, m) => (m.kind === "text" && m.who === "me" ? n + 1 : n), 0), [source]);
+  const prevTurns = useRef(turnCount);
   // 是否已收到该 resetKey 下的首批数据:首批到达(loadChat 0→N)只建基线、不当作流式追加跟随,
-  // 否则异步落地的整段历史会被误判为「追加」,把窗口撑到 20+N、裁剪失效。
+  // 否则异步落地的整段历史会被误判为「新回合追加」,把窗口撑到 2+N 轮、裁剪失效。
   const baselineReady = useRef(false);
 
   useEffect(() => {
-    setVisibleCount(RENDER_WINDOW_INITIAL);
+    setVisibleTurns(RENDER_TURNS_INITIAL);
     setExpandNonce(0);
     baselineReady.current = false;
-    prevLen.current = source.length;
+    prevTurns.current = turnCount;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
   useEffect(() => {
-    const len = source.length;
     if (!baselineReady.current) {
-      if (len > 0) baselineReady.current = true; // 首批数据落定,建立跟随基线
-      prevLen.current = len;
+      if (source.length > 0) baselineReady.current = true; // 首批数据落定,建立跟随基线
+      prevTurns.current = turnCount;
       return;
     }
-    if (len > prevLen.current) setVisibleCount((c) => c + (len - prevLen.current));
-    prevLen.current = len;
-  }, [source.length]);
+    if (turnCount > prevTurns.current) setVisibleTurns((c) => c + (turnCount - prevTurns.current));
+    prevTurns.current = turnCount;
+  }, [source.length, turnCount]);
 
-  const { rendered, collapsedEarlier } = useMemo(
-    () => windowTailMessages(source, visibleCount),
-    [source, visibleCount],
+  const { rendered, collapsedEarlier, collapsedTurns } = useMemo(
+    () => windowTailTurns(source, visibleTurns),
+    [source, visibleTurns],
   );
 
   const expandMore = useCallback(() => {
-    setVisibleCount((c) => c + RENDER_WINDOW_STEP);
+    setVisibleTurns((c) => c + RENDER_TURNS_STEP);
     setExpandNonce((n) => n + 1);
   }, []);
 
@@ -4245,7 +4280,7 @@ export function useRenderWindow(resetKey: string, source: Message[]): RenderWind
   const tail = rendered[rendered.length - 1];
   const stickKey = `${source.length}:${tail?.uid ?? source.length}`;
 
-  return { rendered, collapsedEarlier, canExpandMore: collapsedEarlier > 0, expandMore, expandNonce, stickKey };
+  return { rendered, collapsedEarlier, collapsedTurns, canExpandMore: collapsedEarlier > 0, expandMore, expandNonce, stickKey };
 }
 
 // 编辑重发:截断到目标消息之前(目标消息本身也移除,由重发的新消息替代)。

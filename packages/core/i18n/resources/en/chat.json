@@ -286,6 +286,10 @@
     "agentOutput": "Subagent output",
     "waitingOutput": "Waiting for subagent output…"
   },
+  "historyGate": {
+    "earlierTurns": "{{count}} earlier turns",
+    "expandMore": "Show more"
+  },
   "subagentThread": {
     "title": "Viewing agent process",
     "description": "This subagent process was delegated by \"{{title}}\". You can return to the main conversation at any time.",
