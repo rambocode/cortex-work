@@ -205,7 +205,7 @@ jobs:
           fi
 
       # 仅签名档校验签名/公证(未签名包跑 codesign 必失败);在仓库外副本上做,规避仓库 node_modules 假通过。
-      - name: Verify signed app and dmg (outside repo)
+      - name: Verify signed app (outside repo)
         if: ${{ env.MODE != 'build-unsigned' }}
         run: |
           src="apps/desktop/dist/mac-arm64"
@@ -218,15 +218,6 @@ jobs:
           codesign -dv --verbose=4 "$app_copy"
           spctl --assess --type execute --verbose "$app_copy"
           xcrun stapler validate "$app_copy"
-          dmg="$(ls -1 apps/desktop/dist/*-arm64.dmg | head -n 1)"
-          cp "$dmg" "$work/"
-          dmg_copy="$work/$(basename "$dmg")"
-          # dmg 为人工分发容器:app 已签名+公证+staple(上面是硬门)。dmg 本身是否独立签名/公证取决于
-          # electron-builder(它公证的是 app),故下面两条仅信息性报告,不因 dmg 无独立签名/票据而 fail 构建。
-          spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy" \
-            || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
-          xcrun stapler validate "$dmg_copy" \
-            || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
       # pi 打包态护栏(0.1.54 教训:护栏不在发布链上=没有护栏):依赖闭包比对 asar + asar 内
       # 真实加载 + worker 真 fork。脚本自带仓库外隔离副本;不分签名档,unsigned 构建同样要验
@@ -247,8 +238,6 @@ jobs:
           name: cortex-desktop-${{ env.BUILD_TAG }}-macos-arm64
           if-no-files-found: error
           path: |
-            apps/desktop/dist/*-arm64.dmg
-            apps/desktop/dist/*-arm64.dmg.blockmap
             apps/desktop/dist/*-arm64.zip
             apps/desktop/dist/*-arm64.zip.blockmap
             apps/desktop/dist/latest-mac-arm64.yml
@@ -262,13 +251,11 @@ jobs:
         run: |
           shopt -s nullglob
           assets=(
-            apps/desktop/dist/*-arm64.dmg
-            apps/desktop/dist/*-arm64.dmg.blockmap
             apps/desktop/dist/*-arm64.zip
             apps/desktop/dist/*-arm64.zip.blockmap
             apps/desktop/dist/latest-mac-arm64.yml
           )
-          (( ${#assets[@]} == 5 )) || { echo "Expected 5 arm64 release assets, got ${#assets[@]}" >&2; exit 1; }
+          (( ${#assets[@]} == 3 )) || { echo "Expected 3 arm64 release assets, got ${#assets[@]}" >&2; exit 1; }
           gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber "${assets[@]}"
 
   build-macos-x64:
@@ -366,7 +353,7 @@ jobs:
 
       # x64 的 electron-builder 默认输出目录是 dist/mac(不是 dist/mac-arm64),
       # 与 arm64 job 的路径不同,校验步骤必须分别指向各自目录。
-      - name: Verify signed app and dmg (outside repo)
+      - name: Verify signed app (outside repo)
         if: ${{ env.MODE != 'build-unsigned' }}
         run: |
           src="apps/desktop/dist/mac"
@@ -379,13 +366,6 @@ jobs:
           codesign -dv --verbose=4 "$app_copy"
           spctl --assess --type execute --verbose "$app_copy"
           xcrun stapler validate "$app_copy"
-          dmg="$(ls -1 apps/desktop/dist/*-x64.dmg | head -n 1)"
-          cp "$dmg" "$work/"
-          dmg_copy="$work/$(basename "$dmg")"
-          spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy" \
-            || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
-          xcrun stapler validate "$dmg_copy" \
-            || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
 
       - name: Rename manifest for release transfer
         run: cp apps/desktop/dist/latest-mac.yml apps/desktop/dist/latest-mac-x64.yml
@@ -397,8 +377,6 @@ jobs:
           name: cortex-desktop-${{ env.BUILD_TAG }}-macos-x64
           if-no-files-found: error
           path: |
-            apps/desktop/dist/*-x64.dmg
-            apps/desktop/dist/*-x64.dmg.blockmap
             apps/desktop/dist/*-x64.zip
             apps/desktop/dist/*-x64.zip.blockmap
             apps/desktop/dist/latest-mac-x64.yml
@@ -411,13 +389,11 @@ jobs:
         run: |
           shopt -s nullglob
           assets=(
-            apps/desktop/dist/*-x64.dmg
-            apps/desktop/dist/*-x64.dmg.blockmap
             apps/desktop/dist/*-x64.zip
             apps/desktop/dist/*-x64.zip.blockmap
             apps/desktop/dist/latest-mac-x64.yml
           )
-          (( ${#assets[@]} == 5 )) || { echo "Expected 5 x64 release assets, got ${#assets[@]}" >&2; exit 1; }
+          (( ${#assets[@]} == 3 )) || { echo "Expected 3 x64 release assets, got ${#assets[@]}" >&2; exit 1; }
           gh release upload "$BUILD_TAG" --repo "$RELEASE_REPO" --clobber "${assets[@]}"
 
   build-windows-x64:
@@ -570,12 +546,8 @@ jobs:
           product_name="$(node -p "require('./apps/desktop/package.json').productName")"
           version="$(node -p "require('./apps/desktop/package.json').version")"
           required_assets=(
-            "${product_name}-${version}-arm64.dmg"
-            "${product_name}-${version}-arm64.dmg.blockmap"
             "${product_name}-${version}-arm64.zip"
             "${product_name}-${version}-arm64.zip.blockmap"
-            "${product_name}-${version}-x64.dmg"
-            "${product_name}-${version}-x64.dmg.blockmap"
             "${product_name}-${version}-x64.zip"
             "${product_name}-${version}-x64.zip.blockmap"
             "${product_name}-Setup-${version}.exe"

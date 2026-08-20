@@ -212,24 +212,23 @@ mac:
     # 「控制这台电脑」这种高权限，不写清用途几乎必然被拒。
     NSAccessibilityUsageDescription: "Cortex 需要辅助功能权限，以便定位当前应用的输入框（快捷回复）以及在您确认后代您操作鼠标键盘（电脑操作）。"
   # 显式覆盖命名模板,强制所有架构文件名都带 ${arch}。electron-builder 默认把 x64 当"默认架构"、
-  # 文件名不带 arch 后缀(如 Cortex-x.dmg),与 arm64 的 Cortex-x-arm64.dmg 长得不对称、极易看混——
-  # 这正是此前 v0.1.27 发布事故里 x64 产物被误当 arm64 上传覆盖的根源之一。
+  # 文件名不带 arch 后缀时 x64 与 arm64 产物容易看混——这正是此前 v0.1.27 发布事故里
+  # x64 产物被误当 arm64 上传覆盖的根源之一。
   artifactName: ${productName}-${version}-${arch}.${ext}
   target:
-    # 自动更新走 zip,人工分发用 dmg。arch 数组仅声明"允许构建的架构";每次实际构建只应产出
+    # Squirrel.Mac 自动更新只消费 zip；GitHub Release 不再上传仅供人工拖拽安装的 dmg。
+    # arch 数组仅声明"允许构建的架构";每次实际构建只应产出
     # 单一架构,两架构仍串行构建、发布只在最后合并双架构清单后做一次(分次上传会互相覆盖,
     # 即 v0.1.27 事故根源,与 pi 无关、任何时候不得放开)。原先「resources/pi 单一共享目录」
     # 的串行理由已随 pi gateway 化删除而消失,但 release:ui/local-release-mac.sh 的阶段编排与
     # 断点续跑状态机按串行设计,是否可并行需单独评估。同一条约束在根 CLAUDE.md「发版规范」
     # 还有一份副本,改一处必须改两处。
-    # ⚠️ 单架构靠 CLI 精确控制,踩过坑:必须显式带上目标类型名(如 `--mac zip dmg --arm64`),
-    #   光传 `--mac --arm64` 不够——electron-builder 的 CLI 只有在显式列出 zip/dmg 等类型名时才会
+    # ⚠️ 单架构靠 CLI 精确控制,踩过坑:必须显式带上目标类型名(如 `--mac zip --arm64`),
+    #   光传 `--mac --arm64` 不够——electron-builder 的 CLI 只有在显式列出 zip 等类型名时才会
     #   忽略本文件里这份 arch 数组、只按 --arm64/--x64 构建单一架构;不带类型名时会退回到按
     #   这里声明的 arch 数组全量展开,--arm64/--x64 形同虚设,一次命令会把 arm64+x64 都编译进去
     #   (见 apps/desktop/package.json 的 build:mac-arm64/build:mac-x64 脚本写法)。
     - target: zip
-      arch: [arm64, x64]
-    - target: dmg
       arch: [arm64, x64]
 win:
   icon: assets/cortex-neuron-icon.png

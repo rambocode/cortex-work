@@ -50,27 +50,19 @@ GH_TOKEN_VAL="${GH_TOKEN:-$(gh auth token 2>/dev/null || true)}"
 : "${GH_TOKEN_VAL:?gh 未登录且未设 GH_TOKEN}"
 echo "▶ 发布 ${BUILD_TAG} → ${REPO} (macOS arm64 + x64,签名+公证)"
 
-# 清掉旧的本地构建产物：dist 里残留的旧版本 dmg/zip 会被后面的 glob 匹配并误传到 release。
+# 清掉旧的本地构建产物：dist 里残留的旧版本 zip 会被后面的 glob 匹配并误传到 release。
 # (CI 在干净 VM 上无此问题；本地必须先清一次。)
 rm -rf apps/desktop/dist
 STAGE="$(mktemp -d)"
 echo "暂存目录: $STAGE"
 
 verify_signed_app() {
-  local app_dir="$1" dmg_glob="$2"
+  local app_dir="$1"
   local work="$(mktemp -d)"
   ditto "$app_dir/${PRODUCT}.app" "$work/${PRODUCT}.app"
   codesign --verify --deep --strict --verbose=2 "$work/${PRODUCT}.app"
   spctl --assess --type execute --verbose "$work/${PRODUCT}.app"
   xcrun stapler validate "$work/${PRODUCT}.app"
-  local dmg
-  dmg="$(ls -1 $dmg_glob | head -n 1)"
-  cp "$dmg" "$work/"
-  local dmg_copy="$work/$(basename "$dmg")"
-  spctl --assess --type open --context context:primary-signature --verbose "$dmg_copy" \
-    || echo "DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。"
-  xcrun stapler validate "$dmg_copy" \
-    || echo "DMG 无 stapled ticket — 可接受(app ticket 已 staple)。"
   echo "✓ 签名+公证+staple 校验通过($app_dir)"
 }
 
@@ -78,11 +70,10 @@ verify_signed_app() {
 echo "── channel: macOS arm64 ──"
 CORTEX_NOTES_STRICT=1 pnpm --filter @cortex-work/desktop run prepackage:mac-arm64
 CSC_NAME="Jiangwei Lan (HQ537XMLJY)" pnpm --filter @cortex-work/desktop run build:mac-arm64
-verify_signed_app "apps/desktop/dist/mac-arm64" "apps/desktop/dist/*-arm64.dmg"
+verify_signed_app "apps/desktop/dist/mac-arm64"
 # pi 打包态护栏(0.1.54 教训:护栏不在发布链上=没有护栏):依赖闭包比对 asar + asar 内真实加载 +
 # worker 真 fork。脚本自带仓库外隔离;只跑 arm64(失败类型为 JS 模块解析,与架构无关)。
 node apps/desktop/scripts/verify-pi-ai-packaging.mjs "apps/desktop/dist/mac-arm64/${PRODUCT}.app"
-cp apps/desktop/dist/*-arm64.dmg apps/desktop/dist/*-arm64.dmg.blockmap "$STAGE/"
 cp apps/desktop/dist/*-arm64.zip apps/desktop/dist/*-arm64.zip.blockmap "$STAGE/"
 cp apps/desktop/dist/latest-mac.yml "$STAGE/latest-mac-arm64.yml"
 cp -r apps/desktop/build "$STAGE/build" # release-notes.md 供后面发布用
@@ -91,8 +82,7 @@ cp -r apps/desktop/build "$STAGE/build" # release-notes.md 供后面发布用
 echo "── channel: macOS x64 ──"
 pnpm --filter @cortex-work/desktop run prepackage:mac-x64
 CSC_NAME="Jiangwei Lan (HQ537XMLJY)" pnpm --filter @cortex-work/desktop run build:mac-x64
-verify_signed_app "apps/desktop/dist/mac" "apps/desktop/dist/*-x64.dmg"
-cp apps/desktop/dist/*-x64.dmg apps/desktop/dist/*-x64.dmg.blockmap "$STAGE/"
+verify_signed_app "apps/desktop/dist/mac"
 cp apps/desktop/dist/*-x64.zip apps/desktop/dist/*-x64.zip.blockmap "$STAGE/"
 cp apps/desktop/dist/latest-mac.yml "$STAGE/latest-mac-x64.yml"
 
@@ -117,13 +107,13 @@ fi
 NOTES="$STAGE/build/release-notes.md"
 [[ -f "$NOTES" ]] || { echo "✗ 缺 release notes: $NOTES" >&2; exit 1; }
 
-for pattern in "*-arm64.dmg" "*-arm64.zip" "*-x64.dmg" "*-x64.zip" "latest-mac.yml"; do
+for pattern in "*-arm64.zip" "*-arm64.zip.blockmap" "*-x64.zip" "*-x64.zip.blockmap" "latest-mac.yml"; do
   ls "$STAGE"/$pattern >/dev/null 2>&1 || { echo "✗ 缺产物: $pattern" >&2; exit 1; }
 done
 
 if ! gh release view "$BUILD_TAG" --repo "$REPO" >/dev/null 2>&1; then
   gh release create "$BUILD_TAG" --repo "$REPO" --title "${BUILD_TAG#v}" --notes-file "$NOTES"
 fi
-gh release upload "$BUILD_TAG" --repo "$REPO" --clobber "$STAGE"/*.dmg "$STAGE"/*.dmg.blockmap \
+gh release upload "$BUILD_TAG" --repo "$REPO" --clobber \
   "$STAGE"/*.zip "$STAGE"/*.zip.blockmap "$STAGE/latest-mac.yml"
 echo "✓ 已发布 ${BUILD_TAG}(macOS arm64 + x64)到 https://github.com/$REPO/releases/tag/$BUILD_TAG"

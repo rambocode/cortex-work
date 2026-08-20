@@ -65,6 +65,26 @@ describe('desktop release toolchain contract', () => {
     expect(builderConfig.win?.artifactName).toBe('${productName}-Setup-${version}.${ext}')
   })
 
+  it('publishes macOS auto-updates as ZIP-only assets', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8'))
+    expect(packageJson.scripts?.['build:mac-arm64']).toBe(
+      'electron-builder --mac zip --arm64 --publish never',
+    )
+    expect(packageJson.scripts?.['build:mac-x64']).toBe(
+      'electron-builder --mac zip --x64 --publish never',
+    )
+
+    const builderConfig = load(readFileSync(resolve(desktopRoot, 'electron-builder.yml'), 'utf8'))
+    expect(builderConfig.mac?.target).toEqual([{ target: 'zip', arch: ['arm64', 'x64'] }])
+
+    const localRelease = readFileSync(resolve(desktopRoot, '../../scripts/local-release-mac.sh'), 'utf8')
+    const releaseUi = readFileSync(resolve(desktopRoot, '../../scripts/release-ui/steps.mjs'), 'utf8')
+    const workflow = readFileSync(resolve(desktopRoot, '../../.github/workflows/desktop-release.yml'), 'utf8')
+    expect(localRelease).not.toContain('.dmg')
+    expect(releaseUi).not.toContain('.dmg')
+    expect(workflow).not.toContain('.dmg')
+  })
+
   it('bypasses Actions artifact storage when publishing a release', () => {
     const workflow = load(
       readFileSync(resolve(desktopRoot, '../../.github/workflows/desktop-release.yml'), 'utf8'),

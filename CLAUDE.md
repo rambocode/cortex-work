@@ -115,6 +115,7 @@ pnpm --filter @cortex-work/desktop typecheck  # desktop 同时跑 node + web 两
 - 该段正文是应用内「更新内容」与 GitHub Release body 的唯一来源：打包时 `scripts/extract-release-notes.mjs` 按 `version` 提取它 → 写入 `latest-mac.yml` 的 `releaseNotes`，运行时更新弹窗展示。
 - 缺段时：本地/非正式构建写安全占位、不阻断；CI `publish-release`（`CORTEX_NOTES_STRICT=1`）则**非零退出使发布失败**，刻意防止「忘写版本段 → 静默丢更新说明」。tag 仍须与 `package.json` 的 `version` 一致（CI 有强校验）。
 - 本地 ci 发布,`APPLE_ID`等信息在,`@.env`文件,可以直接执行,`@scripts/local-release-mac.sh`
+- macOS GitHub Release 只发布自动更新必需的双架构 ZIP、ZIP blockmap 与 `latest-mac.yml`；DMG 仅用于人工拖拽安装，不参与 `electron-updater`，已从正式构建与上传合同移除。最终 `latest-mac.yml` 只能包含 ZIP 条目。
 - **推荐用可视化发布控制台**：`pnpm release:ui` → http://localhost:5178 。它把 `local-release-mac.sh` 的直线流程拆成 12 个可单独重试的阶段（准备 / arm64 五步（含 pi 打包态护栏）/ x64 四步 / 合并清单 / 上传），提供前置检查（CHANGELOG 版本段、tag 一致性与推送、证书、gh 登录、Apple 凭据）、实时日志流与 **Apple 公证队列监控**。pi 打包态护栏（`verify-pi-ai-packaging.mjs`：依赖闭包比对 asar、asar 内真实加载、worker 真 fork，并执行最小自定义 Provider open；脚本自带仓库外隔离）是 0.1.54/0.1.64 事故后加固的强制关卡，三条发布路径（release:ui / local-release-mac.sh / CI）都有，任何一条里去掉它等于回到「护栏靠人肉记得」。
   - 失败后再点「开始发布」会**跳过已完成阶段、从断点续跑**——阶段状态落盘在 `.release-stage/<tag>.state.json`，产物暂存在 `.release-stage/<tag>/`，跨进程重启有效。这解决了 bash 脚本「一次公证超时就得重跑整轮双架构构建（20+ 分钟）」的问题。
   - 公证是全链唯一不受本机控制的一环：提交长时间停在 `In Progress` 是 Apple 侧排队，等即可；`Invalid` 才需要查产物。`electron-builder` 在这种情况下只会吐一句没有正文的 "Failed to notarize"，光看日志无法区分二者，所以要看队列面板。

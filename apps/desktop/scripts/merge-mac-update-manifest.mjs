@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 合并 macOS arm64、x64 两次独立 electron-builder 构建各自产出的 latest-mac.yml,
-// 产出一份 files[] 同时含两种架构条目的清单。
+// 产出一份 files[] 同时含两种架构 ZIP 条目的清单。DMG 不参与 Squirrel.Mac 自动更新，
+// 也不再进入 GitHub Release；最终清单出现非 ZIP 条目应直接拒绝发布。
 //
 // 背景(v0.1.27 发布事故):electron-updater 的 MacUpdater 只有当 files[] 同时存在
 // arm64 与非 arm64 条目时才按机器架构过滤;清单里只剩一种架构时会直接下载唯一存在的那个,
@@ -26,6 +27,13 @@ const flagVal = (name) => {
 const isArm64Url = (url) => /-arm64\./.test(url);
 
 const assertMultiArch = (files, label) => {
+  const nonZip = files.filter((f) => !/\.zip$/.test(f.url));
+  if (nonZip.length > 0) {
+    console.error(
+      `[merge-mac-update-manifest] 拒绝发布:${label} 含非 ZIP 条目 (${nonZip.map((f) => f.url).join(", ")})`,
+    );
+    process.exit(1);
+  }
   const hasArm64 = files.some((f) => isArm64Url(f.url));
   const hasNonArm64 = files.some((f) => !isArm64Url(f.url));
   if (files.length < 2 || !hasArm64 || !hasNonArm64) {

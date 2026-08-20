@@ -39,11 +39,11 @@ function copyAll(files, destDir, label) {
 }
 
 /**
- * 校验已签名的 .app 与 dmg。
+ * 校验 ZIP 内承载的已签名 .app。DMG 已从 GitHub 发布合同移除。
  * 刻意先 ditto 到临时目录再验:直接对 dist 里的 app 跑 spctl 会因为 quarantine 属性缺失而
  * 与用户真实下载到的产物状态不一致,ditto 一次能还原「解压后」的样子。
  */
-async function verifySigned(run, appDir, dmgSuffix) {
+async function verifySigned(run, appDir) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "cortex-verify-"));
   const appPath = path.join(appDir, `${PRODUCT}.app`);
   if (!fs.existsSync(appPath)) throw new Error(`找不到已签名的 app：${appPath}`);
@@ -53,16 +53,6 @@ async function verifySigned(run, appDir, dmgSuffix) {
   await run.exec("spctl", ["--assess", "--type", "execute", "--verbose", path.join(work, `${PRODUCT}.app`)]);
   await run.exec("xcrun", ["stapler", "validate", path.join(work, `${PRODUCT}.app`)]);
 
-  const dmg = findFiles(path.dirname(appDir), (f) => f.endsWith(dmgSuffix))[0];
-  if (dmg) {
-    const dmgCopy = path.join(work, path.basename(dmg));
-    fs.copyFileSync(dmg, dmgCopy);
-    // dmg 自身没有独立签名/ticket 是可接受的:Gatekeeper 认的是挂载后 app 上的 ticket。
-    const a = await run.capture("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose", dmgCopy]);
-    if (!a.ok) run.log("DMG 无独立代码签名/公证 — 可接受(挂载后 app 已公证,Gatekeeper 认 app)。", "warn");
-    const b = await run.capture("xcrun", ["stapler", "validate", dmgCopy]);
-    if (!b.ok) run.log("DMG 无 stapled ticket — 可接受(app ticket 已 staple)。", "warn");
-  }
   fs.rmSync(work, { recursive: true, force: true });
   run.log(`✓ 签名+公证+staple 校验通过(${appDir})`, "ok");
 }
@@ -126,7 +116,7 @@ export function buildSteps() {
       group: "准备",
       title: "清理旧产物 + 准备暂存目录",
       run: async (ctx) => {
-        // 本地 dist 里残留的旧版本 dmg/zip 会被后面的产物收集误匹配并传到 release
+        // 本地 dist 里残留的旧版本 zip 会被后面的产物收集误匹配并传到 release
         // （CI 在干净 VM 上无此问题，本地必须先清一次）。
         const dist = path.join(ctx.repoRoot, "apps/desktop/dist");
         fs.rmSync(dist, { recursive: true, force: true });
@@ -145,14 +135,14 @@ export function buildSteps() {
     {
       id: "arm64:build",
       group: "macOS arm64",
-      title: "打包 + 签名 + 公证（zip/dmg）",
+      title: "打包 + 签名 + 公证（zip）",
       run: buildWithRetry("build:mac-arm64"),
     },
     {
       id: "arm64:verify",
       group: "macOS arm64",
       title: "校验签名 / 公证 / staple",
-      run: async (ctx) => verifySigned(ctx.run, path.join(ctx.repoRoot, "apps/desktop/dist/mac-arm64"), "-arm64.dmg"),
+      run: async (ctx) => verifySigned(ctx.run, path.join(ctx.repoRoot, "apps/desktop/dist/mac-arm64")),
     },
     {
       id: "arm64:pi-guard",
@@ -176,7 +166,7 @@ export function buildSteps() {
       run: async (ctx) => {
         const dist = path.join(ctx.repoRoot, "apps/desktop/dist");
         const picked = copyAll(
-          findFiles(dist, (f) => /-arm64\.(dmg|zip)(\.blockmap)?$/.test(f)),
+          findFiles(dist, (f) => /-arm64\.zip(\.blockmap)?$/.test(f)),
           ctx.stageDir,
           "arm64",
         );
@@ -196,14 +186,14 @@ export function buildSteps() {
     {
       id: "x64:build",
       group: "macOS x64",
-      title: "打包 + 签名 + 公证（zip/dmg）",
+      title: "打包 + 签名 + 公证（zip）",
       run: buildWithRetry("build:mac-x64"),
     },
     {
       id: "x64:verify",
       group: "macOS x64",
       title: "校验签名 / 公证 / staple",
-      run: async (ctx) => verifySigned(ctx.run, path.join(ctx.repoRoot, "apps/desktop/dist/mac"), "-x64.dmg"),
+      run: async (ctx) => verifySigned(ctx.run, path.join(ctx.repoRoot, "apps/desktop/dist/mac")),
     },
     {
       id: "x64:stage",
@@ -212,7 +202,7 @@ export function buildSteps() {
       run: async (ctx) => {
         const dist = path.join(ctx.repoRoot, "apps/desktop/dist");
         const picked = copyAll(
-          findFiles(dist, (f) => /-x64\.(dmg|zip)(\.blockmap)?$/.test(f)),
+          findFiles(dist, (f) => /-x64\.zip(\.blockmap)?$/.test(f)),
           ctx.stageDir,
           "x64",
         );
@@ -264,7 +254,7 @@ export function buildSteps() {
         if (!fs.existsSync(notes)) throw new Error(`缺 release notes：${notes}`);
 
         // 上传前逐类清点，缺任何一类都不要开始传——传一半的 release 比没传更糟。
-        const required = [/-arm64\.dmg$/, /-arm64\.zip$/, /-x64\.dmg$/, /-x64\.zip$/, /^latest-mac\.yml$/];
+        const required = [/-arm64\.zip$/, /-arm64\.zip\.blockmap$/, /-x64\.zip$/, /-x64\.zip\.blockmap$/, /^latest-mac\.yml$/];
         for (const re of required) {
           if (!fs.readdirSync(ctx.stageDir).some((f) => re.test(f))) throw new Error(`缺产物：${re}`);
         }
@@ -274,9 +264,9 @@ export function buildSteps() {
           await ctx.run.exec("gh", ["release", "create", ctx.tag, "--repo", REPO, "--title", ctx.tag.replace(/^v/, ""), "--notes-file", notes], { env });
         }
 
-        // 逐个上传而不是一次传完:单个 dmg/zip 有 200MB,一次性传 9 个时任何一个连接被重置都会让
+        // 逐个上传而不是一次传完:单个 zip 有数百 MB,一次性传完时任何一个连接被重置都会让
         // 整批重来(v0.1.49 实测踩到)。
-        const assets = findFiles(ctx.stageDir, (f) => /\.(dmg|zip)(\.blockmap)?$/.test(f) || f === "latest-mac.yml");
+        const assets = findFiles(ctx.stageDir, (f) => /\.zip(\.blockmap)?$/.test(f) || f === "latest-mac.yml");
         // latest-mac.yml 放最后传:更新清单一旦就位,客户端就认为该版本可用。必须保证它出现时
         // 所有安装包都已传完,否则抢先更新的用户会撞上 404。
         assets.sort((a, b) => Number(a.endsWith("latest-mac.yml")) - Number(b.endsWith("latest-mac.yml")));
