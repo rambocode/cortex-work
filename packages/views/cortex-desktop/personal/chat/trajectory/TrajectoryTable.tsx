@@ -131,7 +131,7 @@ export interface TrajectoryTableProps {
   /** 选中某行后可能需要清掉时间线选区(行在区外时)。 */
   onRecordSelect?: (index: number) => void;
   /** 外部(时间线点击)请求选中;新对象重复触发。 */
-  recordSelection: { index: number } | null;
+  recordSelection: { index: number; initialTab?: DetailTab } | null;
   /** 外部请求仅滚动就位不改选中。 */
   recordFocus: { index: number } | null;
   onClearSelection?: () => void;
@@ -252,7 +252,7 @@ export function TrajectoryTable({
 
   // 选中一行:复用「最近用过且此类型可用」的页签(参照实现的 tab history 行为)。
   const selectRecord = useCallback(
-    (index: number) => {
+    (index: number, initialTab?: DetailTab) => {
       const record = allRecords.find((candidate) => candidate.cell.index === index);
       onRecordSelect?.(index);
       setSelectedRequest(null);
@@ -261,14 +261,14 @@ export function TrajectoryTable({
       const tabs = detailTabs(record);
       const available = new Set(tabs.map((tab) => tab.id));
       const recent = [...tabHistory.current].reverse().find((tab) => available.has(tab));
-      setActiveTab(recent ?? tabs[0]?.id ?? "overview");
+      setActiveTab((initialTab && available.has(initialTab) ? initialTab : recent) ?? tabs[0]?.id ?? "overview");
     },
     [allRecords, onRecordSelect],
   );
   useEffect(() => {
     if (recordSelection === null || appliedRecordSelection.current === recordSelection) return;
     appliedRecordSelection.current = recordSelection;
-    selectRecord(recordSelection.index);
+    selectRecord(recordSelection.index, recordSelection.initialTab);
     const record = allRecords.find((candidate) => candidate.cell.index === recordSelection.index);
     pendingScrollRecordId.current = record === undefined ? null : trajectoryRecordId(record.cell);
   }, [allRecords, recordSelection, selectRecord]);

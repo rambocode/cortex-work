@@ -26,7 +26,9 @@ const GROUNDING_ENV = "PI_COMPUSE_GROUNDING_MODEL";
 const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
 
 /**
- * 【临时】剔掉 `native-hooks.ts` 里无条件注入的调试扩展 `cortex-payload-debug`
+ * 【内部基础设施】剔掉无条件注入的抓包/上下文保护扩展；本 helper 只断言可选业务能力的注册顺序。
+ * `cortex-tool-context` 必须在 gateway 常驻会话中常驻，另有专门断言，不应让审批开关测试耦合它。
+ * `native-hooks.ts` 里无条件注入的调试扩展 `cortex-payload-debug`
  *（DeepSeek「关闭思考仍思考」的 before_provider_request 抓包，见该文件注释）。
  * 它必须无条件注入才能覆盖关审批的会话，于是恒占 `extensionFactories[0]`——本层断言的是
  * **业务扩展**的注册与顺序，不该被它带偏。`native-hooks.test.ts` 用的是同一条判据；
@@ -34,7 +36,7 @@ const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
  */
 function businessExtensions(deps: { extensionFactories?: unknown[] }): Array<{ name: string }> {
   return ((deps.extensionFactories ?? []) as Array<{ name: string }>).filter(
-    (extension) => extension.name !== "cortex-payload-debug",
+    (extension) => extension.name !== "cortex-payload-debug" && extension.name !== "cortex-tool-context",
   );
 }
 
@@ -82,6 +84,11 @@ describe("buildWorkerDeps · 原生能力", () => {
   it("关闭审批时不注册 hook", async () => {
     const deps = await buildWorkerDeps({ ...BASE, enableToolApproval: false }, ctx());
     expect(businessExtensions(deps)).toHaveLength(0);
+  });
+
+  it("gateway 常驻注入工具上下文投影，调用方不能由 PiOpenRequest 关闭", async () => {
+    const deps = await buildWorkerDeps(BASE, ctx());
+    expect((deps.extensionFactories ?? []).map((extension) => (extension as { name: string }).name)).toContain("cortex-tool-context");
   });
 
   it("普通父聊天按内部标记注入延迟工具目录，未标记的 child/artifact 保持 eager", async () => {

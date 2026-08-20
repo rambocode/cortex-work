@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CoreProvider,
+  personalProcessArchiveKeys,
   personalRunEventsKeys,
   usePersonalStore,
   type RunEvent,
@@ -66,7 +67,7 @@ describe("PersonalProcessPanel", () => {
     expect(view.container.querySelector(".pw-process")).not.toBeInTheDocument();
     expect(view.queryByRole("dialog", { name: "运行过程详情" })).not.toBeInTheDocument();
 
-    act(() => usePersonalStore.getState().requestOpenProcessPanel("s1"));
+    act(() => usePersonalStore.getState().requestOpenProcessPanel({ sessionId: "s1" }));
     const dialog = await view.findByRole("dialog", { name: "运行过程详情" });
     await waitFor(() => expect(dialog).toHaveTextContent("ls -la"));
     expect(dialog).toHaveTextContent("a.txt");
@@ -77,10 +78,10 @@ describe("PersonalProcessPanel", () => {
 
   it("忽略其它会话的请求，并在活动会话切换时关闭已打开弹层", async () => {
     const view = renderPanel();
-    act(() => usePersonalStore.getState().requestOpenProcessPanel("other-session"));
+    act(() => usePersonalStore.getState().requestOpenProcessPanel({ sessionId: "other-session" }));
     expect(view.queryByRole("dialog", { name: "运行过程详情" })).not.toBeInTheDocument();
 
-    act(() => usePersonalStore.getState().requestOpenProcessPanel("s1"));
+    act(() => usePersonalStore.getState().requestOpenProcessPanel({ sessionId: "s1" }));
     await view.findByRole("dialog", { name: "运行过程详情" });
     act(() => {
       usePersonalStore.setState({
@@ -94,11 +95,62 @@ describe("PersonalProcessPanel", () => {
     await waitFor(() => expect(view.queryByRole("dialog", { name: "运行过程详情" })).not.toBeInTheDocument());
   });
 
+  it("实时事件已裁剪时，按持久归档恢复活动行对应的工具详情", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(personalProcessArchiveKeys.detail("s1"), [
+      {
+        runId: "archived-run",
+        startedAt: 1_000,
+        endedAt: 2_000,
+        messages: [],
+        invocations: [
+          {
+            key: "tool-read-1",
+            name: "Read",
+            input: { file_path: "README.md" },
+            output: "archived output",
+            running: false,
+            startedAt: 1_000,
+            endedAt: 2_000,
+          },
+        ],
+      },
+    ]);
+    usePersonalStore.setState({
+      homeOpen: false,
+      automationOpen: false,
+      settingsOpen: false,
+      noteEditorId: undefined,
+      processPanelOpenReq: undefined,
+      projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: 0 }],
+      sessions: [{ id: "s1", projectId: "p1", title: "S1", agent: "claude", createdAt: 0, updatedAt: 0 }],
+      activeProjectId: "p1",
+      activeSessionId: "s1",
+      runningBySession: {},
+    });
+    const view = render(
+      <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge} queryClient={qc}>
+        <PersonalProcessPanel />
+      </CoreProvider>,
+    );
+
+    act(() =>
+      usePersonalStore.getState().requestOpenProcessPanel({
+        sessionId: "s1",
+        runId: "archived-run",
+        toolCallId: "read-1",
+        initialTab: "output",
+      }),
+    );
+    const dialog = await view.findByRole("dialog", { name: "运行过程详情" });
+    await waitFor(() => expect(dialog).toHaveTextContent("archived output"));
+  });
+
   it("非会话视图不挂载弹层", () => {
     const view = renderPanel();
     act(() => {
       usePersonalStore.setState({ automationOpen: true });
-      usePersonalStore.getState().requestOpenProcessPanel("s1");
+      usePersonalStore.getState().requestOpenProcessPanel({ sessionId: "s1" });
     });
     expect(view.queryByRole("dialog", { name: "运行过程详情" })).not.toBeInTheDocument();
   });

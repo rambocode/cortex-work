@@ -1744,11 +1744,18 @@ export type PiSessionEvent =
   | { type: "step-start" }
   | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
-  | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）
+  | {
+      type: "result";
+      willRetry: boolean;
+      usage?: TurnTokenUsage;
+      /** 与主进程 PiSessionEvent 镜像；optional 保持旧版本 renderer 兼容。 */
+      stopReason?: "stop" | "length" | "context-checkpoint";
+      truncated?: boolean;
+    }
   // agent 完全静默（pi 0.82.1 agent_settled）。正常轮次晚于 result 到达、纯冗余;
   // pi 漏发 agent_end 时作为终态兜底,渲染侧幂等收尾（见 personal/messages.ts）。
   | { type: "settled" }
-  | { type: "compaction"; phase: "start" | "end"; reason?: string }
+  | { type: "compaction"; phase: "start" | "end"; reason?: string; error?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; error?: string }
   | { type: "queue"; steering: number; followUp: number }
   | { type: "session-info"; name?: string }

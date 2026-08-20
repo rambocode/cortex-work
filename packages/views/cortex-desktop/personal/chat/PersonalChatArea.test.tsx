@@ -1873,6 +1873,19 @@ describe("PersonalChatArea 操作条只挂每轮末条 agent 文本", () => {
     expect(screen.getAllByRole("button", { name: "追问" })).toHaveLength(1);
   });
 
+  it("截断提示行提供手动继续生成入口，运行中禁用避免并发新轮", async () => {
+    setup();
+    renderChat([u("m1", "问题"), a("a1", "已保留的前半段"), { ...a("a2", "回复因上下文或输出上限被截断。已保留当前内容。"), truncated: true }]);
+    await screen.findByText("回复因上下文或输出上限被截断。已保留当前内容。");
+    expect(screen.getByRole("button", { name: "继续生成" })).toBeEnabled();
+
+    cleanup();
+    setup(true);
+    renderChat([u("m1", "问题"), { ...a("a2", "回复因上下文或输出上限被截断。已保留当前内容。"), truncated: true }]);
+    await screen.findByText("回复因上下文或输出上限被截断。已保留当前内容。");
+    expect(screen.getByRole("button", { name: "继续生成" })).toBeDisabled();
+  });
+
   it("文本段之间夹过程块(todoList)不影响末条判定", async () => {
     setup();
     renderChat([

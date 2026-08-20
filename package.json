@@ -38,6 +38,13 @@
       "node-mac-permissions"
     ],
     "overrides": {
+      "@earendil-works/pi-agent-core": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-agent-core-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-ai": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-ai-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-client": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-client-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-protocol": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-protocol-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-server": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-server-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-telemetry": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-telemetry-0.84.3-cortex-local.0.tgz",
+      "@earendil-works/pi-tui": "file:/Users/mike/source/ai/cortex-org/pi-local/.cortex-packages/earendil-works-pi-tui-0.84.3-cortex-local.0.tgz",
       "@types/react": "catalog:",
       "@types/react-dom": "catalog:",
       "minimatch": "10.2.5",

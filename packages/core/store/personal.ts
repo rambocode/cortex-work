@@ -70,6 +70,19 @@ import { migrateProfile } from "../personal/avatars";
 import { normalizeSubagentSettings } from "../personal/subagents";
 import { createThreadGoal, updateThreadGoalStatus } from "../personal/goal";
 
+/**
+ * 聊天流请求打开完整过程的瞬态定位目标。
+ *
+ * 它绝不进入持久化状态：run 事件有容量上限，旧目标随时可能失效；面板找不到目标时应打开
+ * overview。`toolCallId` 保持跨进程协议原值，用于和 trajectory 的原始工具事件精确配对。
+ */
+export interface ProcessPanelTarget {
+  sessionId: string;
+  runId?: string;
+  toolCallId?: string;
+  initialTab?: "overview" | "input" | "output" | "error";
+}
+
 let seq = 0;
 function newId(prefix: string): string {
   seq += 1;
@@ -204,9 +217,9 @@ export interface PersonalState {
   // 打开某篇知识库文档预览的请求(点会话正文里的 kb:// 引用)。右栏据此拉正文渲染;
   // nonce 让「同一篇再次点击」也能重新拉取(文档可能已更新)。瞬态,不进 toPersistedState。
   knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
-  // 展开「执行过程」面板的请求(点聊天流 typing 活动行触发)。nonce 让同会话重复点击也能触发;
-  // 用请求信号而非提升面板 userOpen,保留面板「每轮默认收起」的既有逻辑。瞬态,不进 toPersistedState。
-  processPanelOpenReq?: { sessionId: string; nonce: number };
+  // 展开「执行过程」面板的请求。目标只保存一次性 UI 意图，不持久化；事件已被环形裁剪时，
+  // 消费端必须安全退回整轮 overview，而不能让活动行点击变成报错。
+  processPanelOpenReq?: ProcessPanelTarget & { nonce: number };
   // 已 auto_open 自动打开过的「会话:URL」键集合。防探测结果在重渲染/多会话来回切换中
   // 反复自动弹面板(同键不再触发)。用数组而非单槽,否则切到别的会话再切回会重复弹
   // (安全/正确性评审)。瞬态,不进 toPersistedState。
@@ -371,8 +384,8 @@ export interface PersonalState {
   setRunning: (sessionId: string, runId: string | undefined) => void;
   // 合并/清空某 pi 会话的运行时状态（patch=undefined 整体清空,如轮结束/会话退出）。
   setPiRuntime: (sessionId: string, patch: Partial<PiRuntimeStatus> | undefined) => void;
-  // 请求展开「执行过程」面板(nonce 递增触发,面板侧 useEffect 消费)。
-  requestOpenProcessPanel: (sessionId: string) => void;
+  /** 请求展开完整过程；输入目标可精确定位到一轮/工具/详情页签。 */
+  requestOpenProcessPanel: (target: ProcessPanelTarget) => void;
   // 设置/清空某会话的运行模式拦截提示（hint=undefined 清空,如切档/忽略/新发送）。
   setModeBlockHint: (sessionId: string, hint: ModeBlockHint | undefined) => void;
   // 设置/清空某会话的图片能力拦截提示（hint=undefined 清空,如移除图片/换模型/新一轮发送）。
@@ -1282,10 +1295,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   // nonce 用「上个值 +1」而非时间戳:同会话快速连点也保证变化,且不依赖时钟。
-  requestOpenProcessPanel: (sessionId) =>
+  requestOpenProcessPanel: (target) =>
     set((s) => ({
       processPanelOpenReq: {
-        sessionId,
+        ...target,
         nonce: (s.processPanelOpenReq?.nonce ?? 0) + 1,
       },
     })),

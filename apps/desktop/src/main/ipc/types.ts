@@ -1241,11 +1241,19 @@ export type PiSessionEvent =
   | { type: "step-start" }
   | { type: "turn-end"; usage?: TurnTokenUsage } // 一次模型调用（含工具）结束
   | { type: "error"; error: string } // assistant stopReason=error/aborted
-  | { type: "result"; willRetry: boolean; usage?: TurnTokenUsage } // 一次 run 结束（agent_end）
+  | {
+      type: "result";
+      willRetry: boolean;
+      usage?: TurnTokenUsage;
+      /** 原始模型终止原因；checkpoint 是可恢复内部边界，length 是用户可见截断。 */
+      stopReason?: "stop" | "length" | "context-checkpoint";
+      /** length 且无 toolCall 的最终正文被截断；renderer 必须提示而不能伪装成成功。 */
+      truncated?: boolean;
+    }
   // agent 完全静默（pi 0.82.1 agent_settled）。晚于 result 到达,正常轮次是冗余信号;
   // pi 漏发 agent_end 时作为终态兜底,由渲染侧幂等收尾。
   | { type: "settled" }
-  | { type: "compaction"; phase: "start" | "end"; reason?: string }
+  | { type: "compaction"; phase: "start" | "end"; reason?: string; error?: string }
   | { type: "retry"; attempt: number; maxAttempts?: number; error?: string }
   | { type: "queue"; steering: number; followUp: number }
   | { type: "session-info"; name?: string }

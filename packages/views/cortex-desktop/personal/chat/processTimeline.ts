@@ -5,7 +5,7 @@
 // 时间线(当前轮)必须用同一份配对逻辑，否则「实时看到的过程」与「回看的过程」会漂移。
 import { collectRunInvocations, normalizedToolName, runTimeSpan, type RunEvent } from "@cortex-work/core";
 import type { ArchivedToolInvocation } from "@cortex-work/core";
-import type { AgentLogItem, Message } from "@cortex-work/core/types";
+import type { AgentLogItem, Message, RichText } from "@cortex-work/core/types";
 
 export type ProcessMessage = Extract<Message, { kind: "reasoning" | "agentLog" | "stageTitle" }>;
 
@@ -18,6 +18,49 @@ export type ProcessEntry =
   | { kind: "reasoning"; key: string; message: Extract<ProcessMessage, { kind: "reasoning" }> }
   | { kind: "stage"; key: string; label: string }
   | { kind: "tool"; key: string; item: AgentLogItem; invocation?: ToolInvocation };
+
+/** 聊天流的紧凑活动行；详情仍由原始 invocation 与完整过程面板承担。 */
+export type ProcessActivityRow =
+  | {
+      kind: "reasoning";
+      key: string;
+      label: string;
+      status: "running" | "done";
+    }
+  | {
+      kind: "read-group";
+      key: string;
+      labels: string[];
+      count: number;
+      callIds: string[];
+      status: "running" | "done" | "failed";
+    }
+  | {
+      kind: "command" | "tool";
+      key: string;
+      label: string;
+      callId?: string;
+      status: "running" | "done" | "failed";
+      durationMs?: number;
+    };
+
+export interface ProcessPresentation {
+  stages: Array<{
+    key: string;
+    label?: string;
+    rows: ProcessActivityRow[];
+    running: boolean;
+    failed: boolean;
+  }>;
+  summary: {
+    steps: number;
+    files: number;
+    commands: number;
+    tools: number;
+    failed: number;
+    running: boolean;
+  };
+}
 
 /** 一个可折叠的「阶段」：连续的思考 + 工具调用聚合体，是折叠的最小单位（规格 §3）。 */
 export interface ProcessStage {
@@ -123,6 +166,146 @@ export function toolEntryRunning(entry: Extract<ProcessEntry, { kind: "tool" }>)
 /** 工具条目的可读目标（文件路径 / 命令参数），用于摘要去重与胶囊上的参数段。 */
 export function toolEntryTarget(entry: Extract<ProcessEntry, { kind: "tool" }>): string | undefined {
   return entry.invocation?.detail ?? inputTarget(entry.invocation?.input) ?? entry.item.detail;
+}
+
+const COMMAND_TOOLS = new Set(["bash", "shell", "command", "exec", "run_command"]);
+const HIDDEN_ACTIVITY_TOOLS = new Set(["tool_search", "toolsearch"]);
+const TODO_TOOLS = new Set(["todo_write", "todowrite"]);
+
+/** tool invocation 的稳定 callId；历史归档兼容旧格式时只能由 key 反推。 */
+function callIdOf(entry: Extract<ProcessEntry, { kind: "tool" }>): string | undefined {
+  const key = entry.invocation?.key;
+  return key?.startsWith("tool-") ? key.slice("tool-".length) : undefined;
+}
+
+/** 仅在 cwd 之内相对化，防止把工作区外的真实位置伪装成项目文件。 */
+function displayPath(path: string, cwd: string | undefined): string {
+  if (!cwd || !path.startsWith(`${cwd}/`)) return path;
+  return path.slice(cwd.length + 1) || path;
+}
+
+/** 命令正文在台账中只能是一行；完整原文仍留在过程详情，不在这里改写。 */
+function compactCommand(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** 过程摘要兼容 RichText；活动台账只需要无样式的可读文字，链接/代码样式由完整面板保留。 */
+function plainText(value: RichText): string {
+  return typeof value === "string" ? value : value.parts.map((part) => part.v).join("");
+}
+
+function entryStatus(entry: Extract<ProcessEntry, { kind: "tool" }>): "running" | "done" | "failed" {
+  if (entry.invocation?.isError) return "failed";
+  return toolEntryRunning(entry) ? "running" : "done";
+}
+
+function entryDuration(entry: Extract<ProcessEntry, { kind: "tool" }>): number | undefined {
+  const { startedAt, endedAt } = entry.invocation ?? {};
+  return startedAt !== undefined && endedAt !== undefined && endedAt >= startedAt ? endedAt - startedAt : undefined;
+}
+
+/**
+ * 由过程条目生成聊天流唯一的活动台账。
+ *
+ * 这层只投影展示：不改变 entries、invocation 或归档，也不会丢掉完整 input/output。连续成功 read
+ * 才能聚合；失败 read 独立保留，避免用户在一条「读取成功」里看不到真实失败。
+ */
+export function buildProcessPresentation(
+  stages: ProcessStage[],
+  options: { cwd?: string } = {},
+): ProcessPresentation {
+  const summary: ProcessPresentation["summary"] = {
+    steps: 0,
+    files: 0,
+    commands: 0,
+    tools: 0,
+    failed: 0,
+    running: false,
+  };
+  const successfulReadTargets = new Set<string>();
+
+  const presentationStages = stages.map((stage) => {
+    const rows: ProcessActivityRow[] = [];
+    for (const entry of stage.entries) {
+      if (entry.kind === "reasoning") {
+        const status = entry.message.active ? "running" : "done";
+        const previous = rows.at(-1);
+        // reasoning 是流式增量；同一段只保留一条最新状态，不能随着 token 增长堆出列表。
+        if (previous?.kind === "reasoning") {
+          previous.status = status;
+        } else {
+          rows.push({ kind: "reasoning", key: entry.key, label: "thinking", status });
+        }
+        summary.steps += 1;
+        summary.running ||= status === "running";
+        continue;
+      }
+
+      const name = normalizedToolName(entry.item.toolName ?? entry.invocation?.name);
+      if (HIDDEN_ACTIVITY_TOOLS.has(name)) continue;
+      const status = entryStatus(entry);
+      const callId = callIdOf(entry);
+      const target = toolEntryTarget(entry);
+      const isRead = isReadTool(entry.item.toolName ?? entry.invocation?.name);
+
+      if (isRead && status !== "failed") {
+        const path = target ? displayPath(target, options.cwd) : plainText(entry.item.text);
+        const previous = rows.at(-1);
+        if (previous?.kind === "read-group" && previous.status !== "failed") {
+          if (!previous.labels.includes(path)) previous.labels.push(path);
+          if (callId && !previous.callIds.includes(callId)) previous.callIds.push(callId);
+          previous.count = previous.labels.length;
+          previous.status = status;
+        } else {
+          rows.push({
+            kind: "read-group",
+            key: entry.key,
+            labels: [path],
+            count: 1,
+            callIds: callId ? [callId] : [],
+            status,
+          });
+        }
+        successfulReadTargets.add(path);
+        summary.steps += 1;
+        summary.running ||= status === "running";
+        continue;
+      }
+
+      const command = COMMAND_TOOLS.has(name);
+      const label = command
+        ? compactCommand(inputTarget(entry.invocation?.input) ?? target ?? plainText(entry.item.text))
+        : target
+          ? `${entry.invocation?.name ?? entry.item.toolName ?? "tool"} · ${displayPath(target, options.cwd)}`
+          : plainText(entry.item.text);
+      const row: ProcessActivityRow = {
+        kind: command ? "command" : "tool",
+        key: entry.key,
+        label,
+        ...(callId ? { callId } : {}),
+        status,
+        ...(entryDuration(entry) !== undefined ? { durationMs: entryDuration(entry) } : {}),
+      };
+
+      // todo_write 的每个调用都是整表快照，连续快照只以最新状态替换前一个活动行。
+      const previous = rows.at(-1);
+      if (TODO_TOOLS.has(name) && previous?.kind === "tool" && previous.key.startsWith("todo-")) {
+        rows[rows.length - 1] = { ...row, key: `todo-${entry.key}` };
+      } else {
+        rows.push(TODO_TOOLS.has(name) ? { ...row, key: `todo-${entry.key}` } : row);
+      }
+      summary.steps += 1;
+      if (command) summary.commands += 1;
+      else summary.tools += 1;
+      if (status === "failed") summary.failed += 1;
+      summary.running ||= status === "running";
+    }
+
+    return { key: stage.key, label: stage.label, rows, running: stage.running, failed: stage.failed };
+  });
+
+  summary.files = successfulReadTargets.size;
+  return { stages: presentationStages, summary };
 }
 
 /**

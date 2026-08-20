@@ -2062,6 +2062,22 @@ describe("U3 纯工具轮终态占位（中栏避免「问了没回」）", () =
     vi.useRealTimers();
   });
 
+  it("pi length 终态保留正文并追加可持久化的手动续写提示", () => {
+    const qc = new QueryClient();
+    setupPiRun(qc);
+    __handlePiEventForTest(qc, "s1", { type: "text", delta: "已经生成的前半段" });
+    __handlePiEventForTest(qc, "s1", {
+      type: "result",
+      willRetry: false,
+      stopReason: "length",
+      truncated: true,
+    });
+    const notice = chatOf(qc).find(
+      (message) => message.kind === "text" && message.who === "pi" && message.truncated === true,
+    );
+    expect(notice).toMatchObject({ text: expect.stringContaining("被截断"), truncated: true });
+  });
+
   it("pi 只有思考、没有最终正文时给出可见提示，不静默结束本轮", () => {
     vi.useFakeTimers();
     const qc = new QueryClient();

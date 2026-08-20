@@ -13,13 +13,20 @@ export function PersonalProcessPanel() {
 
   // 切会话时关闭，避免弹层残留展示上一个会话；外部请求以 sessionId + nonce 精确触发。
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [target, setTarget] = useState<{
+    runId?: string;
+    toolCallId?: string;
+    initialTab?: "overview" | "input" | "output" | "error";
+  }>();
   useEffect(() => {
     setTranscriptOpen(false);
+    setTarget(undefined);
   }, [activeSessionId]);
   // 外部打开请求来自内联过程段的「查看完整过程」，以及无结构化过程时的 typing 活动行。
   const openReq = usePersonalStore((s) => s.processPanelOpenReq);
   useEffect(() => {
     if (openReq && openReq.sessionId === activeSessionId) {
+      setTarget({ runId: openReq.runId, toolCallId: openReq.toolCallId, initialTab: openReq.initialTab });
       setTranscriptOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -31,6 +38,7 @@ export function PersonalProcessPanel() {
       open={transcriptOpen}
       onClose={() => setTranscriptOpen(false)}
       sessionId={activeSessionId}
+      target={target}
     />
   );
 }

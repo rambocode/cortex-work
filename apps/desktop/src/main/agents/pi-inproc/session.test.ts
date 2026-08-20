@@ -14,7 +14,7 @@ vi.mock("electron", () => ({ app: {} }));
 vi.mock("child_process", () => ({ spawn: vi.fn() }));
 vi.mock("../../ipc/agent-trace", () => ({ recordAgentTrace: vi.fn(), recordStreamDelta: vi.fn() }));
 
-import { openPiInProcSession, type PiInProcSession } from "./session";
+import { openPiInProcSession, type PiInProcDeps, type PiInProcSession } from "./session";
 import type { PiCodingAgentModule } from "./runtime";
 import type { PiOpenRequest, PiSessionEvent, PiUiRequest } from "../../ipc/types";
 
@@ -47,6 +47,10 @@ function makeAgentSession(id: string) {
     sessionFile: `/tmp/${id}.jsonl`,
     sessionName: undefined as string | undefined,
     model: { provider: "anthropic", id: "claude-x" },
+    agent: { shouldStopAfterTurn: undefined as unknown },
+    settingsManager: {
+      getCompactionSettings: () => ({ enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 }),
+    },
     thinkingLevel: "medium",
     isStreaming: false,
     isCompacting: false,
@@ -153,7 +157,11 @@ interface Harness {
   fake: ReturnType<typeof makeMod>;
 }
 
-async function open(req: Partial<PiOpenRequest> = {}, fake = makeMod()): Promise<Harness> {
+async function open(
+  req: Partial<PiOpenRequest> = {},
+  fake = makeMod(),
+  deps: Partial<PiInProcDeps> = {},
+): Promise<Harness> {
   const events: Array<{ ev: PiSessionEvent; runId?: string }> = [];
   const uiRequests: PiUiRequest[] = [];
   const session = await openPiInProcSession({
@@ -161,7 +169,7 @@ async function open(req: Partial<PiOpenRequest> = {}, fake = makeMod()): Promise
     onEvent: (ev, runId) => events.push({ ev, runId }),
     onUiRequest: (r) => uiRequests.push(r),
     askQuestionSentinel: "@@S@@",
-    deps: { loadModule: async () => fake.mod },
+    deps: { loadModule: async () => fake.mod, ...deps },
   });
   return { session, events, uiRequests, fake };
 }
@@ -224,6 +232,16 @@ describe("buildRpcArgs 的 flag 对应物", () => {
     expect(fake.servicesCalls[0]!.modelRuntime).toBe(modelRuntime);
     expect(fake.sessionCalls[0]!.model).toBe(model);
     expect(logMocks.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("gateway 的上下文投影启用 run 内 checkpoint，oneshot/普通会话不装该 guard", async () => {
+    const enabled = await open({}, makeMod());
+    // 默认 in-process 路径保持关闭，避免给 oneshot 引入长驻历史语义。
+    expect((enabled.fake.created[0]?.session.agent as { shouldStopAfterTurn?: unknown }).shouldStopAfterTurn).toBeUndefined();
+
+    const withCheckpoint = await open({}, makeMod(), { enableToolContextProjection: true });
+    // 测试替身通过 open options 的 deps 注入模拟 gateway。真实接线由 capabilities.ts 固定传 true。
+    expect(typeof (withCheckpoint.fake.created[0]?.session.agent as { shouldStopAfterTurn?: unknown }).shouldStopAfterTurn).toBe("function");
   });
 });
 

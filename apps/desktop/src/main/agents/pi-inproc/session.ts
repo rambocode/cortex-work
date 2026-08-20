@@ -50,6 +50,11 @@ import type {
 
 import { createPiEventPump, isAgentTurnEvent } from "./events";
 import { loadPiCodingAgent, type PiCodingAgentModule } from "./runtime";
+import {
+  assertToolContextBudget,
+  createContextCheckpointGuard,
+  type ContextCheckpointGuard,
+} from "./tool-context";
 import { applyActiveTools, resolveToolWhitelist } from "./tools";
 import { createPiUiBridge, type PiUiBridge } from "./ui-context";
 import { slashCommandName, type PiImageContent, type RpcResponse, type RpcSlashCommandSource } from "./rpc-shared";
@@ -121,6 +126,8 @@ export interface PiInProcDeps {
   customTools?: ToolDefinition[];
   /** 原生内联扩展（审批 hook 等，U3 填充）。取代旧路径「生成 .js 文件 + `-e` 加载」。 */
   extensionFactories?: unknown[];
+  /** gateway 长驻会话启用模型工具结果投影及 run 内 checkpoint；oneshot 保持关闭。 */
+  enableToolContextProjection?: boolean;
   /**
    * 磁盘上已安装的 pi extension 路径（等价旧路径的 `-e <path>`），透传给
    * `resourceLoaderOptions.additionalExtensionPaths`。
@@ -236,6 +243,7 @@ export class PiInProcSession implements PiSessionEngine {
   private slashCommandSources?: Map<string, RpcSlashCommandSource>;
 
   private readonly pump: ReturnType<typeof createPiEventPump>;
+  private checkpointGuard?: ContextCheckpointGuard;
 
   constructor(
     private readonly runtime: AgentSessionRuntime,
@@ -249,6 +257,7 @@ export class PiInProcSession implements PiSessionEngine {
     private readonly cwd: string,
     /** 外部资源释放钩子，见 `PiInProcDeps.onDispose`。 */
     private readonly onDispose?: () => Promise<void> | void,
+    private readonly enableToolContextProjection = false,
   ) {
     this.session = runtime.session;
     this.pump = createPiEventPump({
@@ -264,6 +273,14 @@ export class PiInProcSession implements PiSessionEngine {
   /** 绑定/重绑当前 AgentSession（首次 open 与每次 fork/switch/new 之后各一次）。 */
   async rebind(): Promise<void> {
     this.session = this.runtime.session;
+    if (this.enableToolContextProjection) {
+      assertToolContextBudget(this.session.model);
+      const { reserveTokens } = this.session.settingsManager.getCompactionSettings();
+      this.checkpointGuard = createContextCheckpointGuard({ model: this.session.model, reserveTokens });
+      this.session.agent.shouldStopAfterTurn = (context) => this.checkpointGuard?.shouldStopAfterTurn(context) ?? false;
+    } else {
+      this.checkpointGuard = undefined;
+    }
     // uiContext 的 cast 集中在这一处：见 ui-context.ts 关于「不逐个实现 TUI 专属成员」的说明。
     await this.session.bindExtensions({
       uiContext: this.uiBridge.context as ExtensionUIContext,
@@ -416,6 +433,7 @@ export class PiInProcSession implements PiSessionEngine {
   prompt(message: string, runId?: string, images?: PiImageContent[]): Promise<RpcResponse> {
     if (this.stopped) return Promise.resolve(fail("prompt", "pi 会话已停止退出"));
     if (runId !== undefined) this.currentRunId = runId;
+    this.checkpointGuard?.reset();
     const isSlash = this.needsExtensionCommandFinalize(message);
     this.clearSlashFinalizeTimer();
     this.slashSawAgentEvent = false;
@@ -749,7 +767,15 @@ export async function openPiInProcSession(options: PiInProcOpenOptions): Promise
     ...(jsReplSentinel ? { jsReplSentinel } : {}),
   });
 
-  const session = new PiInProcSession(runtime, uiBridge, onEvent, req.uiSessionId, cwd, deps.onDispose);
+  const session = new PiInProcSession(
+    runtime,
+    uiBridge,
+    onEvent,
+    req.uiSessionId,
+    cwd,
+    deps.onDispose,
+    deps.enableToolContextProjection === true,
+  );
   notifySlot.emit = session.notifySink();
   // 必须早于 rebind：session_start handler 本身可能等待 UI 应答，调用方需先
   // 拿到 respondUi 句柄才能解锁它。此回调不表示 open 已完成，权威就绪点仍是下方 await。

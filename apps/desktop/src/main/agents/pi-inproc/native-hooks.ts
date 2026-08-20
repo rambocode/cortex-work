@@ -50,6 +50,7 @@ import type {
 import { DEFAULT_APPROVAL_TOOLS, TODO_TOOL_NAME, normalizePiTodos } from "../pi-extensions";
 import { recordAgentTrace } from "../../ipc/agent-trace";
 import { createLogger } from "../../log";
+import { createToolContextExtension, type ToolContextProjectionReport } from "./tool-context";
 
 const log = createLogger("pi-inproc-hooks");
 
@@ -521,6 +522,11 @@ export interface PiNativeHooksOptions {
   askQuestionSentinel?: string;
   /** todo_write 是否注册。缺省 true —— 旧路径两条链路（RPC 与单发）都常驻加载它。 */
   enableTodoTool?: boolean;
+  /**
+   * 仅 gateway 长驻会话启用的模型上下文投影。renderer/PiOpenRequest 不暴露此开关，防止用户
+   * 为节省 token 关闭运行正确性保护；oneshot 没有长驻历史，首版保持 false。
+   */
+  enableToolContextProjection?: boolean;
 }
 
 /** 可直接铺进 `PiInProcDeps` 的两堆产物。 */
@@ -529,6 +535,17 @@ export interface PiNativeHooks {
   customTools: ToolDefinition[];
   /** → `PiInProcDeps.extensionFactories`。 */
   extensionFactories: InlineExtension[];
+}
+
+/** 投影发生时只记录计数/估算值，绝不把路径、命令或工具正文写进 trace。 */
+function recordToolContextProjection(sessionId: string | undefined, report: ToolContextProjectionReport): void {
+  recordAgentTrace({
+    scope: "pi",
+    phase: "context-project",
+    summary: report.budgetExhausted ? "工具上下文投影后仍超预算" : "已投影工具上下文",
+    ...(sessionId ? { sessionId } : {}),
+    data: report,
+  });
 }
 
 /**
@@ -591,6 +608,15 @@ export function createPiNativeHooks(options: PiNativeHooksOptions): PiNativeHook
   if (options.enableSampleCommands) extensionFactories.push(createSampleCommandExtension());
   if (options.askQuestionSentinel) customTools.push(createAskQuestionTool(options.askQuestionSentinel));
   if (options.enableTodoTool !== false) customTools.push(createTodoTool());
+  if (options.enableToolContextProjection) {
+    // uiSessionId 是 gateway 的稳定会话命名空间；临时输出以其 hash 分目录，避免文件名泄露用户内容。
+    extensionFactories.push(
+      createToolContextExtension({
+        sessionId: options.uiSessionId ?? "pi-session",
+        onReport: (report) => recordToolContextProjection(options.uiSessionId, report),
+      }),
+    );
+  }
 
   return { customTools, extensionFactories };
 }

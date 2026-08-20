@@ -88,16 +88,14 @@ check("asar 含 pi-ai 入口 providers/all.js", () => {
   if (!inAsar.has(p)) throw new Error(`${p} 不在 asar 中（files 排除清单误伤？）`);
 });
 
-// pi-ai 的重型 SDK 依赖闭包抽样（名单来源：pi-ai package.json dependencies + 实测传递闭包；
-// 升级 pi 后若此处失败，先重新求闭包再改 electron-builder.yml 的排除项）。
+// pi-ai 的重型 SDK 依赖闭包抽样（名单来源：当前 pi-ai package.json dependencies；
+// 升级 pi 后先以完整闭包判据为准，再更新这份可读抽样，不让已删除的旧 SDK 变成误报）。
 for (const dep of [
   "openai",
   "@anthropic-ai/sdk",
   "@google/genai",
-  "@mistralai/mistralai",
   "@aws-sdk/client-bedrock-runtime",
   "@smithy/node-http-handler",
-  "fast-xml-parser",
   "gaxios",
   "web-streams-polyfill",
   "typebox",

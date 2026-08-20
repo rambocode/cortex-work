@@ -5,6 +5,7 @@ import type { Message } from "@cortex-work/core/types";
 import {
   buildCurrentRunToolInvocations,
   buildProcessEntries,
+  buildProcessPresentation,
   formatClock,
   formatDuration,
   groupProcessStages,
@@ -148,5 +149,71 @@ describe("耗时格式化", () => {
     expect(formatDuration(1_800)).toBe("1.8s");
     expect(formatDuration(23_400)).toBe("23s");
     expect(formatDuration(61_000)).toBe("1:01");
+  });
+});
+
+describe("buildProcessPresentation", () => {
+  const log = (items: Array<{ text: string; toolName: string; ic: "check" | "running" }>): Message => ({
+    kind: "agentLog",
+    who: "pi",
+    time: "10:00",
+    title: "工具",
+    items,
+  });
+
+  it("连续成功读取按相对路径聚合、同一路径去重，失败读取独立保留", () => {
+    const entries = buildProcessEntries(
+      [
+        log([
+          { text: "Read a", toolName: "Read", ic: "check" },
+          { text: "Read a again", toolName: "Read", ic: "check" },
+          { text: "Read b", toolName: "Read", ic: "check" },
+          { text: "Read missing", toolName: "Read", ic: "check" },
+        ]),
+      ],
+      buildCurrentRunToolInvocations([
+        toolEvent({ ts: 1, name: "Read", toolCallId: "a1", input: { file_path: "/repo/a.ts" } }),
+        toolEvent({ ts: 2, phase: "end", name: "Read", toolCallId: "a1" }),
+        toolEvent({ ts: 3, name: "Read", toolCallId: "a2", input: { file_path: "/repo/a.ts" } }),
+        toolEvent({ ts: 4, phase: "end", name: "Read", toolCallId: "a2" }),
+        toolEvent({ ts: 5, name: "Read", toolCallId: "b1", input: { file_path: "/repo/b.ts" } }),
+        toolEvent({ ts: 6, phase: "end", name: "Read", toolCallId: "b1" }),
+        toolEvent({ ts: 7, name: "Read", toolCallId: "missing", input: { file_path: "/outside/missing.ts" } }),
+        toolEvent({ ts: 8, phase: "end", name: "Read", toolCallId: "missing", isError: true }),
+      ]),
+    );
+    const presentation = buildProcessPresentation(groupProcessStages(entries), { cwd: "/repo" });
+    expect(presentation.stages[0]?.rows).toMatchObject([
+      { kind: "read-group", labels: ["a.ts", "b.ts"], count: 2, callIds: ["a1", "a2", "b1"] },
+      { kind: "tool", status: "failed" },
+    ]);
+    expect(presentation.summary).toMatchObject({ files: 2, failed: 1 });
+  });
+
+  it("reasoning 流式增量只形成一个稳定活动行，tool_search 不进入聊天流", () => {
+    const messages: Message[] = [
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r1", text: "first", active: false },
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r2", text: "second", active: true },
+      log([{ text: "discover", toolName: "tool_search", ic: "check" }]),
+    ];
+    const rows = buildProcessPresentation(groupProcessStages(buildProcessEntries(messages, []))).stages[0]?.rows;
+    expect(rows).toEqual([{ kind: "reasoning", key: "r1", label: "thinking", status: "running" }]);
+  });
+
+  it("命令保持顺序、将多行正文压成单行，且不重建既有 key", () => {
+    const entries = buildProcessEntries(
+      [log([{ text: "first", toolName: "Bash", ic: "check" }, { text: "second", toolName: "Bash", ic: "check" }])],
+      buildCurrentRunToolInvocations([
+        toolEvent({ ts: 1, name: "Bash", toolCallId: "one", input: { command: "git\nstatus" } }),
+        toolEvent({ ts: 2, phase: "end", name: "Bash", toolCallId: "one" }),
+        toolEvent({ ts: 3, name: "Bash", toolCallId: "two", input: { command: "pnpm typecheck" } }),
+        toolEvent({ ts: 4, phase: "end", name: "Bash", toolCallId: "two" }),
+      ]),
+    );
+    const rows = buildProcessPresentation(groupProcessStages(entries)).stages[0]?.rows;
+    expect(rows).toMatchObject([
+      { kind: "command", key: "tool-one", label: "git status", callId: "one" },
+      { kind: "command", key: "tool-two", label: "pnpm typecheck", callId: "two" },
+    ]);
   });
 });

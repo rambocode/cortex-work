@@ -19,6 +19,7 @@
 // `pi-host.js` → `index.js` 两个名字依次找，两边都别改。
 
 import { PiHost, attachHostLogSink, startPiHostRuntimeWarmup } from "./host";
+import { cleanupExpiredToolContextDirectories } from "../../main/agents/pi-inproc/tool-context";
 
 /**
  * `process.parentPort` 的最小形状。
@@ -48,6 +49,8 @@ if (parentPort) {
   // fork 即预热：本进程常驻并承载多个会话，三包 ESM 闭包的加载在这里就开始付（一次性），
   // 首个 `open` 到达时 await 的是同一个在途 Promise（见 host.ts 的 startPiHostRuntimeWarmup）。
   startPiHostRuntimeWarmup();
+  // 不读取残留正文，仅按目录 mtime 回收崩溃会话遗留的 hash 目录；清理失败不影响 worker 启动。
+  void cleanupExpiredToolContextDirectories();
   process.stderr.write(`[pi-host] ready on node ${process.version}\n`);
 } else {
   // 没有 parentPort = 不是被 utilityProcess.fork 起来的（例如打包校验脚本直接 require 本文件

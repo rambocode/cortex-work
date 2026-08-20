@@ -108,7 +108,7 @@ const BASELINE_CASES: Record<
   message_end: {
     why: "stopReason=stop 是最终边界，产 result 兜住 pi 偶发缺 agent_end；usage 刻意不带（紧随其后的 turn_end 携带同一份，带上会双计）",
     event: { type: "message_end", message: assistantMessage({ stopReason: "stop" }) },
-    expected: { type: "result", willRetry: false },
+    expected: { type: "result", willRetry: false, stopReason: "stop" },
   },
   turn_end: {
     why: "透出该次模型调用的 usage（含互斥的缓存读/写桶），供同一用户回合累加",
@@ -306,17 +306,36 @@ describe("message_end 的错误路径（KTD5 红线）", () => {
 });
 
 describe("message_end 的正常收尾", () => {
-  it("stopReason=length → result（无 usage 时省略 usage 字段而非给 undefined）", () => {
+  it("stopReason=length → 带 truncated 的 result（无 usage 时省略 usage 字段而非给 undefined）", () => {
     expect(mapPiEvent({ type: "message_end", message: { stopReason: "length" } })).toEqual({
       type: "result",
       willRetry: false,
+      stopReason: "length",
+      truncated: true,
     });
+  });
+
+  it("length 且 assistant 带 toolCall 不提前收尾，等待 agent_end 判断续跑", () => {
+    expect(
+      mapPiEvent({
+        type: "message_end",
+        message: assistantMessage({ stopReason: "length", content: [{ type: "toolCall", id: "call-1", name: "read", arguments: {} }] }),
+      }),
+    ).toBeNull();
   });
 
   it("stopReason=toolUse → null（工具调用中间边界，收尾会让渲染端提前结束回合）", () => {
     expect(
       mapPiEvent({ type: "message_end", message: assistantMessage({ stopReason: "toolUse", content: [] }) }),
     ).toBeNull();
+  });
+
+  it("agent_end context-checkpoint → willRetry result，renderer 保留同一 user run", () => {
+    expect(mapPiEvent({ type: "agent_end", messages: [], reason: "context-checkpoint", willRetry: true })).toEqual({
+      type: "result",
+      willRetry: true,
+      stopReason: "context-checkpoint",
+    });
   });
 
   it("未知 stopReason / 缺 message → null（盲区，由 pi-rpc 的 warn 埋点观测）", () => {

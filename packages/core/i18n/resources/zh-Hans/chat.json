@@ -28,6 +28,10 @@
     "workTitle": "工作过程（{{count}} 步）",
     "readSummaryOne": "读取了 1 个文件",
     "readSummaryMany": "读取了 {{count}} 个文件",
+    "readFiles": "读取 {{files}}",
+    "readFilesMore": "读取 {{files}} 等 {{count}} 个文件",
+    "commandSummaryOne": "运行了 1 条命令",
+    "commandSummaryMany": "运行了 {{count}} 条命令",
     "toolSummaryOne": "调用了 1 个工具",
     "toolSummaryMany": "调用了 {{count}} 个工具",
     "noDetails": "没有可展开的详细信息",
@@ -38,7 +42,9 @@
     "turnDoneNoTime": "已处理",
     "exitOk": "exit 0",
     "exitFailed": "执行失败",
-    "viewFullOutput": "查看完整输出（还有 {{count}} 行）"
+    "viewFullOutput": "查看完整输出（还有 {{count}} 行）",
+    "errorDetails": "查看完整错误",
+    "continueGeneration": "继续生成"
   },
   "todoList": {
     "title": "任务清单",
@@ -231,6 +237,8 @@
     "piExited": "⚠️ pi 会话已退出{{detail}}。下次发送将自动重启并恢复上下文。",
     "piExitedDetail": "：{{error}}",
     "piEmptyReply": "⚠️ 模型本轮未生成最终答复，请重试。",
+    "piReplyTruncated": "⚠️ 回复因上下文或输出上限被截断。已保留当前内容。",
+    "piContextCheckpointFailed": "⚠️ 上下文压缩失败，未能继续生成。",
     "aborted": "⏹ 已中断本轮。",
     "piStartFailed": "⚠️ pi 会话启动失败：{{message}}",
     "imageUnsupported": "⚠️ 当前环境不支持图片上传。",

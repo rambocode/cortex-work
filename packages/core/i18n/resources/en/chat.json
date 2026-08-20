@@ -28,6 +28,10 @@
     "workTitle": "Work process ({{count}} steps)",
     "readSummaryOne": "Read 1 file",
     "readSummaryMany": "Read {{count}} files",
+    "readFiles": "Read {{files}}",
+    "readFilesMore": "Read {{files}} and {{count}} files",
+    "commandSummaryOne": "Ran 1 command",
+    "commandSummaryMany": "Ran {{count}} commands",
     "toolSummaryOne": "Called 1 tool",
     "toolSummaryMany": "Called {{count}} tools",
     "noDetails": "No additional details",
@@ -38,7 +42,9 @@
     "turnDoneNoTime": "Processed",
     "exitOk": "exit 0",
     "exitFailed": "Failed",
-    "viewFullOutput": "View full output ({{count}} more lines)"
+    "viewFullOutput": "View full output ({{count}} more lines)",
+    "errorDetails": "View full error",
+    "continueGeneration": "Continue generating"
   },
   "todoList": {
     "title": "Tasks",
@@ -231,6 +237,8 @@
     "piExited": "⚠️ The pi session has exited{{detail}}. The next message will automatically restart and restore context.",
     "piExitedDetail": ": {{error}}",
     "piEmptyReply": "⚠️ The model did not produce a final answer for this turn. Please retry.",
+    "piReplyTruncated": "⚠️ The reply was truncated by a context or output limit. The generated content has been preserved.",
+    "piContextCheckpointFailed": "⚠️ Context compaction failed and the reply could not continue.",
     "aborted": "⏹ This turn was aborted.",
     "piStartFailed": "⚠️ Failed to start the pi session: {{message}}",
     "imageUnsupported": "⚠️ Image upload is not supported in this environment.",

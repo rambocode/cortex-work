@@ -5509,6 +5509,22 @@ button.sb-row {
   cursor: pointer;
 }
 .m-act-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.pw-truncated-reply-actions { margin-top: 8px; }
+.pw-truncated-reply-continue {
+  min-height: 28px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--pcm-line-2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pcm-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pw-truncated-reply-continue:hover:not(:disabled) { border-color: var(--pcm-accent); }
+.pw-truncated-reply-continue:focus-visible { outline: 2px solid var(--pcm-accent); outline-offset: 2px; }
+.pw-truncated-reply-continue:disabled { cursor: default; opacity: .55; }
 
 /* 分支回复分页器(agent 回复 tail):常驻不随 hover 淡入——用户需一眼看到存在多版本回复 */
 .m-branch-pager {
@@ -14737,11 +14753,11 @@ button.sb-row {
 .pw-conversation-process-header-chevron[data-open="true"] { transform: rotate(90deg); }
 .pw-conversation-process-item-chevron[data-open="true"] { transform: rotate(180deg); }
 
-/* 展开明细面板 */
-/* 单阶段的 bare 形态：整轮开关已经管了展开，这里不再套一层带底色的面板。 */
+/* 展开的活动台账没有卡片层或终端层，阅读节奏由缩进、状态图标和时间线轨道表达。 */
 .pw-conversation-process-list.is-bare {
-  margin-top: 0;
-  padding: 0;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 0 0 0 2px;
   border: 0;
   background: transparent;
 }
@@ -14760,56 +14776,43 @@ button.sb-row {
   from { opacity: 0; transform: translateY(-2px); }
   to { opacity: 1; transform: none; }
 }
-.pw-conversation-process-item {
+.pw-conversation-process-activity {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
-  max-width: 100%;
-}
-.pw-conversation-process-item-main {
-  display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
   border: 0;
   background: transparent;
+  color: var(--pcm-text-3);
   font: inherit;
+  font-size: 12.5px;
   text-align: left;
   cursor: pointer;
   user-select: none;
 }
-
-/* 思考行：弱化的过程文字，点开看完整 reasoning。 */
-.pw-conversation-process-item[data-kind="reasoning"] .pw-conversation-process-item-main {
-  padding: 0;
-  color: var(--pcm-thinking);
-  font-size: 13px;
+.pw-conversation-process-activity:hover:not(:disabled) { color: var(--pcm-text); }
+.pw-conversation-process-activity:disabled { cursor: default; }
+.pw-conversation-process-activity:focus-visible {
+  outline: 2px solid var(--pcm-accent);
+  outline-offset: 2px;
 }
-.pw-conversation-process-item[data-kind="reasoning"] .pw-conversation-process-item-main:hover { color: var(--pcm-text-2); }
-.pw-conversation-process-reasoning {
-  margin-top: 6px;
-  color: var(--pcm-thinking);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-/* §4 工具调用：完成态收成单行胶囊；点开是终端块。 */
-.pw-conversation-process-item[data-kind="tool"] .pw-conversation-process-item-main {
-  padding: 5px 10px;
-  border: 1px solid var(--pcm-line-2);
-  border-radius: 7px;
-  background: var(--pcm-card);
-  color: var(--pcm-text-3);
-  font-family: var(--mono);
-  font-size: 12px;
-  transition: border-color 0.12s ease;
-}
-.pw-conversation-process-item[data-kind="tool"] .pw-conversation-process-item-main:hover { border-color: var(--pcm-line-hover); }
-.pw-conversation-process-item[data-kind="tool"] .pw-conversation-process-item-main > span:nth-child(2) {
+.pw-conversation-process-activity-label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-conversation-process-activity[data-kind="command"] .pw-conversation-process-activity-label {
+  font-family: var(--mono);
+}
+.pw-conversation-process-activity[data-kind="reasoning"] .pw-conversation-process-activity-label {
+  color: var(--pcm-thinking);
+}
+.pw-conversation-process-activity > .pw-conversation-process-live {
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -14819,50 +14822,19 @@ button.sb-row {
   flex: none;
   color: var(--pcm-success);
 }
-.pw-conversation-process-item[data-error="true"] .pw-conversation-process-item-state { color: var(--pcm-danger); }
+.pw-conversation-process-activity[data-error="true"] .pw-conversation-process-item-state { color: var(--pcm-danger); }
 .pw-conversation-process-item-time {
   flex: none;
   color: var(--pcm-meta-3);
   font-variant-numeric: tabular-nums;
 }
-.pw-conversation-process-item-detail { width: 100%; min-width: 0; }
-.pw-conversation-process-term {
-  margin-top: 6px;
-  padding: 10px 13px;
-  border-radius: 8px;
-  background: var(--pcm-terminal);
-  color: var(--pcm-terminal-text);
-  font-family: var(--mono);
+.pw-conversation-process-error-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pcm-danger);
   font-size: 11.5px;
-  line-height: 1.75;
-}
-.pw-conversation-process-term-cmd { overflow-wrap: anywhere; }
-.pw-conversation-process-term-input,
-.pw-conversation-process-term-out {
-  margin: 2px 0 0;
-  max-height: 220px;
-  overflow: auto;
-  color: var(--pcm-terminal-dim);
-  font: inherit;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.pw-conversation-process-term-more {
-  margin-top: 2px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--pcm-terminal-link);
-  font: inherit;
-  cursor: pointer;
-}
-.pw-conversation-process-term-more:hover { text-decoration: underline; }
-.pw-conversation-process-term-exit { margin-top: 2px; color: var(--pcm-terminal-ok); }
-.pw-conversation-process-term-exit[data-error="true"] { color: var(--pcm-terminal-err); }
-.pw-conversation-process-empty {
-  margin-top: 6px;
-  color: var(--pcm-meta-2);
-  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 运行中指示器：12px、2px 描边、spin 1s linear infinite（规格 §3）。 */

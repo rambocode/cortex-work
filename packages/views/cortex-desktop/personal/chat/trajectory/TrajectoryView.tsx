@@ -12,6 +12,7 @@ import {
   type TrajectoryTimeRange,
 } from "./trajectory-timeline-model";
 import { TrajectoryTable } from "./TrajectoryTable";
+import type { DetailTab } from "./TrajectoryDetails";
 import { TrajectoryTimeline } from "./TrajectoryTimeline";
 import { TrajectoryToolbar } from "./TrajectoryToolbar";
 
@@ -24,9 +25,11 @@ export interface TrajectoryViewProps {
   running: boolean;
   /** tool 名兜底文案(i18n)。 */
   fallbackToolName: string;
+  /** 聊天流活动行请求的精确跳转；旧归档或被裁剪事件找不到时保持 overview。 */
+  initialTarget?: { runId?: string; toolCallId?: string; initialTab?: "overview" | "input" | "output" | "error" };
 }
 
-export function TrajectoryView({ events, prompts, running, fallbackToolName }: TrajectoryViewProps) {
+export function TrajectoryView({ events, prompts, running, fallbackToolName, initialTarget }: TrajectoryViewProps) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS);
   const [collapsedAssistants, setCollapsedAssistants] = useState<ReadonlySet<string>>(EMPTY_RECORD_IDS);
   const [timelineSelection, setTimelineSelection] = useState<TrajectoryTimeRange | null>(null);
@@ -47,6 +50,15 @@ export function TrajectoryView({ events, prompts, running, fallbackToolName }: T
       timelineSelection === null ? null : trajectoryTimelineFocusIndexes(turns, timelineSelection, timelineMode),
     [timelineMode, timelineSelection, turns],
   );
+  const initialRecordSelection = useMemo(() => {
+    if (!initialTarget?.runId || !initialTarget.toolCallId) return null;
+    const turn = turns.find((candidate) => candidate.runId === initialTarget.runId);
+    const cell = turn?.groups.flatMap((group) => group.cells).find((candidate) => candidate.callId === initialTarget.toolCallId);
+    if (!cell) return null;
+    // Trajectory 以 output 承接工具错误详情；保留 public target 的 error 语义而不泄露内部页签名。
+    const initialTab: DetailTab = initialTarget.initialTab === "error" ? "output" : initialTarget.initialTab ?? "overview";
+    return { index: cell.index, initialTab };
+  }, [initialTarget, turns]);
 
   // 台账里点选了聚焦区外的行 → 视为放弃时间线选区(参照实现 handleRecordSelect)。
   const handleRecordSelect = useCallback(
@@ -167,7 +179,7 @@ export function TrajectoryView({ events, prompts, running, fallbackToolName }: T
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
           onRecordSelect={handleRecordSelect}
-          recordSelection={timelineRecordSelection}
+          recordSelection={initialRecordSelection ?? timelineRecordSelection}
           recordFocus={timelineRecordFocus}
           onClearSelection={() => setTimelineSelection(null)}
           collapsedTurns={collapsedTurns}

@@ -300,7 +300,7 @@ describe("个人会话 Kun 过程时间线", () => {
     usePersonalStore.setState({ runningBySession: {} });
   });
 
-  it("完成后折叠为带分类统计的工作过程，逐级展开工具列表与单项详情", () => {
+  it("完成后折叠为紧凑活动台账，聊天流不再渲染工具原始详情", () => {
     const qc = new QueryClient();
     usePersonalStore.setState({ processPanelOpenReq: undefined });
     qc.setQueryData(personalRunEventsKeys.detail("session-1"), [
@@ -418,10 +418,9 @@ describe("个人会话 Kun 过程时间线", () => {
       </CoreProvider>,
     );
 
-    // 回合开关：`已处理 <耗时> · N 步 · 读取 X 个文件 · 调用 Y 个工具`。单阶段时统计并入这一行
-    // ——阶段摘要条走 bare 形态不渲染，统计不能跟着少的那一层一起消失。
+    // 回合开关只保留可扫描摘要；具体工具细节由完整过程面板负责。
     const process = view.getByRole("button", {
-      name: /已处理.*3 步.*读取了 1 个文件.*调用了 1 个工具/,
+      name: /已处理.*读取了 1 个文件.*调用了 1 个工具/,
     });
     expect(process).toHaveAttribute("aria-expanded", "false");
     expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
@@ -434,19 +433,17 @@ describe("个人会话 Kun 过程时间线", () => {
     fireEvent.click(process);
     expect(process).toHaveAttribute("aria-expanded", "true");
     expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
-    expect(view.getByRole("button", { name: /思考过程/ })).toHaveAttribute("aria-expanded", "false");
-    const readRow = view.getByRole("button", { name: /Read.*src\/chat\.tsx/ });
-    expect(readRow).toHaveAttribute("aria-expanded", "false");
+    const readRow = view.getByRole("button", { name: /读取 src\/chat\.tsx/ });
     expect(view.queryByText(/old-turn/)).not.toBeInTheDocument();
     expect(view.queryByText(/transient-only-command/)).not.toBeInTheDocument();
     expect(view.getByText("Grep · process")).toBeInTheDocument();
-
-    fireEvent.click(view.getByRole("button", { name: /思考过程/ }));
-    expect(view.getByText("先定位消息渲染入口")).toBeInTheDocument();
     fireEvent.click(readRow);
-    const readDetail = readRow.closest(".pw-conversation-process-item");
-    expect(readDetail).toHaveTextContent('"file_path": "src/chat.tsx"');
-    expect(readDetail).toHaveTextContent("export function MessageStream() {}");
+    expect(usePersonalStore.getState().processPanelOpenReq).toMatchObject({
+      sessionId: "session-1",
+      toolCallId: "read-1",
+    });
+    expect(view.container.querySelector(".pw-conversation-process-term")).not.toBeInTheDocument();
+    expect(view.queryByText("export function MessageStream() {}", { exact: false })).not.toBeInTheDocument();
 
     fireEvent.click(view.getByRole("button", { name: "查看完整过程" }));
     expect(usePersonalStore.getState().processPanelOpenReq?.sessionId).toBe("session-1");
@@ -483,10 +480,10 @@ describe("个人会话 Kun 过程时间线", () => {
       </CoreProvider>,
     );
 
-    const process = view.getByRole("button", { name: /处理中.*1 步/ });
+    const process = view.getByRole("button", { name: /处理中/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
     expect(view.queryByText("正在检查事件归组")).not.toBeInTheDocument();
-    expect(view.getByRole("button", { name: /思考中…/ })).toHaveAttribute("aria-expanded", "false");
+    expect(view.getByRole("button", { name: /思考中…/ })).toBeInTheDocument();
     expect(view.queryByRole("status", { name: "Cortex 正在思考…" })).not.toBeInTheDocument();
 
     view.rerender(
@@ -518,7 +515,7 @@ describe("个人会话 Kun 过程时间线", () => {
         />
       </CoreProvider>,
     );
-    expect(view.getByRole("button", { name: /已处理.*1 步/ })).toHaveAttribute("aria-expanded", "false");
+    expect(view.getByRole("button", { name: /已处理/ })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("会话仍在运行时，步骤切相产生的短暂 inactive 不得折叠工作过程", () => {
@@ -556,7 +553,7 @@ describe("个人会话 Kun 过程时间线", () => {
     );
 
     const view = render(renderStream(true));
-    const process = view.getByRole("button", { name: /处理中.*1 步/ });
+    const process = view.getByRole("button", { name: /处理中/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
 
     view.rerender(renderStream(false));
@@ -703,19 +700,18 @@ describe("历史轮过程归档（重开会话后仍可回看）", () => {
 
   it("归档轮渲染出摘要条，并插在它自己那条用户消息之后（不是流末尾）", () => {
     const view = renderWithArchive();
-    const head = view.getByRole("button", { name: /已处理 8\.8s.*2 步.*调用了 2 个工具/ });
+    const head = view.getByRole("button", { name: /已处理 8\.8s.*运行了 1 条命令.*调用了 1 个工具/ });
     expect(head).toHaveAttribute("aria-expanded", "false"); // 历史轮恒为完成态，默认折叠
     const text = view.container.textContent ?? "";
     expect(text.indexOf("第一轮问题")).toBeLessThan(text.indexOf("已处理 8.8s"));
     expect(text.indexOf("已处理 8.8s")).toBeLessThan(text.indexOf("第一轮回答"));
   });
 
-  it("展开后能看到工具调用快照（输入与输出都在归档里）", () => {
+  it("归档轮展开后保持紧凑活动行，不内联渲染快照正文", () => {
     const view = renderWithArchive();
     fireEvent.click(view.getByRole("button", { name: /已处理 8\.8s/ }));
-    const toolRow = view.getByRole("button", { name: /Bash.*ls/ });
-    fireEvent.click(toolRow);
-    expect(view.getByText(/a\.ts/)).toBeInTheDocument();
+    expect(view.getByRole("button", { name: /ls/ })).toBeInTheDocument();
+    expect(view.queryByText(/a\.ts/)).not.toBeInTheDocument();
     // 历史轮没有瞬态原始事件，「查看完整过程」入口不给（点开只会是空面板）。
     expect(view.queryByRole("button", { name: /完整过程/ })).not.toBeInTheDocument();
   });

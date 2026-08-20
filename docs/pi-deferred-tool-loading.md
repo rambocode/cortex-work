@@ -4,7 +4,7 @@
 
 普通 Cortex 会话会把 agent-browser、浏览器控制、自动化、日历、知识库、媒体、工作流、delegate、用户 MCP 和市场扩展统一注册进 Pi。旧行为把全部已注册工具同时设为 active，provider 的首个请求因此携带全部工具 schema；空会话输入一条短消息也可能达到约 41K input token。
 
-本模块把“工具已注册”和“本次请求需暴露”拆开：能力仍在会话建立时完成握手、注册和安全校验，但首轮只发送高频核心工具与一个小型 `tool_search`。模型需要其它能力时，在同一 agent turn 内搜索并激活匹配工具。
+本模块把“工具已注册”和“本次请求需暴露”拆开：能力仍在会话建立时完成握手、注册和安全校验，但首轮只发送高频核心工具与一个小型 `tool_search`。模型需要其它能力时，在同一 agent turn 内搜索并激活匹配工具。它只控制 schema 预算；工具执行后的大结果由 `tool-context.ts` 在下一次 provider request 前单独投影，两者不可互相替代。
 
 该变化对用户透明，没有新增设置或操作步骤，因此不另建用户帮助页。
 
@@ -13,6 +13,7 @@
 - **registered tools**：会话可用的完整工具目录。MCP `tools/list`、Cortex 原生工具和磁盘 extension 仍全部进入该目录。
 - **active tools**：当前 provider request 真正携带 schema 的工具集合。
 - **deferred tools**：已注册但当前未 active 的工具，可由 `tool_search` 激活。
+- **tool context projection**：工具结果的模型可见副本。它不修改 AgentSession、会话 JSONL、运行事件或过程归档，只在总 context 超预算时压缩成功结果、去重 read，并可把完整正文放到 `0600` 的会话级临时文件。
 - **required bridge**：显式 delegate / artifact bridge 声明的强接入契约。它要求握手和业务工具完整，但不要求普通父聊天把整套 schema 放进首轮 active 集。
 
 ## 核心规则
@@ -23,6 +24,7 @@
 4. 工具审批仍在 extension-level `tool_call` hook 执行。延迟激活只改变 schema 何时发给模型，不改变审批、MCP 调用、超时、取消或资源回收。
 5. MCP 工具不得占用 `tool_search`。该名字与 Pi 内建工具一样进入保留名集合，否则恶意或误配置的 MCP 可以覆盖唯一发现入口。
 6. `tool_search` 串行执行。同一 assistant message 内的多次搜索必须在前一次 active 集上累加，不能用旧快照互相覆盖。
+7. schema 延迟加载和结果投影分别保护“工具定义”和“工具输出”两类预算。预算内结果逐字不变；预算外优先压缩旧成功结果，错误、最新结果和图片块的保留优先级更高。
 
 ## 业务流程
 
@@ -47,6 +49,9 @@ flowchart TD
 - `apps/desktop/src/main/ipc/pi-session.ts`：在主进程权威边界设置 `deferNonCoreTools`，并删除 renderer 伪造值。
 - `apps/desktop/src/worker/pi-host/capabilities.ts`：组装首轮常驻名单，required bridge 继续 fail-loud 但工具 schema 可延迟，plan 白名单原样下传。
 - `apps/desktop/src/main/agents/pi-inproc/deferred-tools.ts`：延迟目录深模块，负责搜索、排序、激活、并发语义与 `addedToolNames`。
+- `apps/desktop/src/main/agents/pi-inproc/tool-context.ts`：context hook 的深模块，负责模型上下文估算、工具结果投影、会话级全文临时文件和退出/过期清理。
+- `apps/desktop/src/main/agents/pi-inproc/native-hooks.ts`：只在 gateway 长驻会话注册投影 extension，并记录无正文的 projection report。
+- `../../pi-local/`：本机 lockstep Pi fork（`0.84.3-cortex-local.0`），补充 run 内 `context-checkpoint` 契约；其 tarball 位于 `.cortex-packages/`，根 `package.json` 的 pnpm overrides 与 Desktop 的 file dependencies 必须一起指向同一组包。
 - `apps/desktop/src/main/agents/pi-mcp-inproc.ts`：把 `tool_search` 加入 MCP 保留名。
 
 ## 验证
@@ -58,6 +63,8 @@ flowchart TD
 - plan 白名单同时约束初始 active 集和搜索结果。
 - required delegate 必须接入成功，但其 schema 首轮不发送；`tool_search` 后仍可在同一回合调用。
 - renderer 不能关闭普通父聊天的优化，也不能给 artifact / child 强行开启。
+- 结果投影发生时不记录命令、路径或正文；临时全文不进入 Git、用户文档目录或应用日志。
+- 投影后仍超预算时，context extension 抛出受控 `PI_CONTEXT_BLOCKED`，本地 Pi fork 在 `convertToLlm` 前透传该错误，禁止 provider request 退化为 `max_tokens=1`。
 
 常用命令：
 

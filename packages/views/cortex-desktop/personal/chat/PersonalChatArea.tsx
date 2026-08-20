@@ -572,8 +572,19 @@ export function PersonalChatArea({
 
   // typing 仍打开当前主会话整轮过程；子代理卡自己的“查看过程”直接进入独立 side 会话。
   const handleActivityClick = useCallback(() => {
-    if (session) usePersonalStore.getState().requestOpenProcessPanel(session.id);
+    if (session) usePersonalStore.getState().requestOpenProcessPanel({ sessionId: session.id });
   }, [session]);
+
+  /** `length` 自动恢复失败后的显式续写：同一会话接着已有 JSONL，不把截断提示本身喂给模型。 */
+  const continueTruncatedReply = useCallback(() => {
+    if (!session || !project || running) return;
+    void send(
+      session,
+      project.path,
+      "Continue the previous response from where it was truncated. Do not repeat content already shown.",
+      [],
+    );
+  }, [project, running, send, session]);
 
   // 消息底部行:时间常驻(撑起固定高度,避免悬停露出图标时抖动)+ 悬停淡入的操作。
   const renderTextTail = useCallback(
@@ -620,6 +631,20 @@ export function PersonalChatArea({
                 </button>
               </div>
             ) : null}
+          </div>
+        );
+      }
+      if (m.truncated) {
+        return (
+          <div className="m-msg-actions pw-truncated-reply-actions">
+            <button
+              type="button"
+              className="pw-truncated-reply-continue"
+              disabled={running}
+              onClick={continueTruncatedReply}
+            >
+              {t("processInline.continueGeneration")}
+            </button>
           </div>
         );
       }
@@ -721,7 +746,7 @@ export function PersonalChatArea({
         </div>
       );
     },
-    [session, project, running, lastUserMsgUid, regenerate, switchBranch, branchGroups, allMessages, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast],
+    [session, project, running, lastUserMsgUid, regenerate, switchBranch, branchGroups, allMessages, ttsPlayback.isSpeaking, ttsSettings, bridge, onToast, continueTruncatedReply, t],
   );
 
   // 追问浮层的会话上下文(R6:复用当前会话 agent/model/cwd/provider,不新建会话)。

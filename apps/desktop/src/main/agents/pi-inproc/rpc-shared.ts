@@ -77,6 +77,12 @@ function diagnosticsError(diagnostics: unknown): string | undefined {
   return typeof err?.message === "string" ? err.message : undefined;
 }
 
+/** length + toolCall 仍是工具批次边界，必须等 agent_end 决定是否续跑，不能提前收尾当前 run。 */
+function assistantHasToolCall(message: Record<string, unknown> | undefined): boolean {
+  const content = message?.content;
+  return Array.isArray(content) && content.some((block) => (block as Record<string, unknown>)?.type === "toolCall");
+}
+
 /**
  * 从 prompt 文本里取斜杠命令名（不含前导 /）。非 / 开头返回 undefined。
  * 只切到首个空白，`/foo bar` → `foo`；与 get_commands 回传的 `name`（无前导 /）同形，可直接比对。
@@ -165,8 +171,14 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       // agent-loop:`streamAssistantResponse` 内发 message_end,循环末尾发 turn_end)。
       // 这里再带一份,渲染层的 addRunTokenUsage 会把最后一步的 token 累加两次——会话统计条
       // 的输入/输出与缓存命中率会随之失真。usage 的唯一来源统一收敛到 turn-end。
-      if (stopReason === "stop" || stopReason === "length") {
-        return { type: "result", willRetry: false };
+      if (stopReason === "stop") {
+        return { type: "result", willRetry: false, stopReason: "stop" };
+      }
+      if (stopReason === "length") {
+        // toolCall 后的 length 可能仍会转为自动 compaction/continue；此刻收尾会让 renderer
+        // 错误归档并清掉运行态。没有工具调用的 length 才是用户可见的最终截断。
+        if (assistantHasToolCall(msg)) return null;
+        return { type: "result", willRetry: false, stopReason: "length", truncated: true };
       }
       // 盲区补点(R10):非空的未知 stopReason → 不产任何终态事件,renderer 可能永久卡「思考中」。
       // 记录原始值便于定位 pi 协议漂移;已知值(error/aborted/stop/length/toolUse)与缺省静默,不噪声。
@@ -244,8 +256,14 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
       const usage = piTurnUsage(message?.usage);
       return { type: "turn-end", ...(usage ? { usage } : {}) };
     }
-    case "agent_end":
-      return { type: "result", willRetry: !!o.willRetry };
+    case "agent_end": {
+      const reason = o.reason === "context-checkpoint" ? "context-checkpoint" : undefined;
+      return {
+        type: "result",
+        willRetry: !!o.willRetry,
+        ...(reason ? { stopReason: reason } : {}),
+      };
+    }
     // pi 0.82.1 新增:agent 完全静默（无活跃 run / 重试 / 自动压缩 / 排队续跑）的权威终态。
     // 正常轮次里 agent_end 已先产 result,此事件是纯冗余;真正价值在异常路径——pi 漏发
     // agent_end 时它是最后一道终态保险,渲染侧据此收尾而非干等宽限（见 messages.ts 的 settled 分支）。
@@ -258,6 +276,7 @@ export function mapPiEvent(raw: unknown): PiSessionEvent | null {
         phase: o.type === "compaction_start" ? "start" : "end",
       };
       if (typeof o.reason === "string") out.reason = o.reason;
+      if (typeof o.errorMessage === "string") out.error = o.errorMessage;
       return out;
     }
     case "auto_retry_start": {

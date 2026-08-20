@@ -1,5 +1,4 @@
-// 个人会话内联工作过程（规格 3a §2–§4）：过程区挂在头像中轴的竖线上，每个「阶段」是折叠的
-// 最小单位——运行中展开并实时追加，完成后自动折叠为摘要条；工具完成态收成单行胶囊，点开是终端块。
+// 个人会话内联工作过程：聊天流只呈现紧凑活动台账；原始 input/output/reasoning 永远留在完整过程面板。
 //
 // 两个数据源，同一套渲染：
 //  - 当前轮：瞬态过程流(messages) + 瞬态原始事件(usePersonalRunEvents)，逐 token 实时更新；
@@ -11,27 +10,15 @@ import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { usePersonalRunEvents, usePersonalStore, type TurnProcessArchive } from "@cortex-work/core";
 import type { Message } from "@cortex-work/core/types";
-import { renderRich } from "../../rich";
 import {
   buildCurrentRunToolInvocations,
   buildProcessEntries,
+  buildProcessPresentation,
   currentRunTimeSpan,
-  formatClock,
   formatDuration,
   groupProcessStages,
-  inputTarget,
-  isReadTool,
-  jsonPreview,
-  toolEntryRunning,
-  toolEntryTarget,
-  type ProcessEntry,
-  type ProcessStage,
+  type ProcessActivityRow,
 } from "./processTimeline";
-
-// 规格 §4：终端输出超过 8 行截断，尾部给「查看完整输出」。
-const TERMINAL_PREVIEW_LINES = 8;
-// 规格 §4：运行中的工具只展开输出尾部最近 3 行，完成后才收起为单行胶囊。
-const TERMINAL_TAIL_LINES = 3;
 
 export { buildCurrentRunToolInvocations } from "./processTimeline";
 
@@ -40,267 +27,61 @@ function ProcessSpinner() {
   return <span className="pw-conversation-process-spinner" aria-hidden="true" />;
 }
 
-/** 工具调用输出的终端块：命令原文 → 参数/输出 → exit 行。 */
-function ToolTerminal({
-  command,
-  input,
-  output,
-  isError,
-  running,
-  duration,
+/** 轻量活动行；点击始终进入完整过程面板，聊天流绝不回退渲染终端/input/output。 */
+function ActivityRow({
+  row,
+  sessionId,
+  runId,
+  onOpen,
 }: {
-  command: string;
-  input?: unknown;
-  output?: string;
-  isError?: boolean;
-  running: boolean;
-  duration?: string;
+  row: ProcessActivityRow;
+  sessionId?: string;
+  runId?: string;
+  onOpen: (target: { sessionId: string; runId?: string; toolCallId?: string; initialTab?: "overview" | "input" | "output" | "error" }) => void;
 }) {
   const { t } = useTranslation("chat");
-  const [showAll, setShowAll] = useState(false);
-  const lines = useMemo(() => (output ? output.replace(/\s+$/, "").split("\n") : []), [output]);
-  // 运行中盯的是「刚刚发生了什么」，取尾部 3 行；完成后是回顾，取头部 8 行再给完整入口。
-  const limit = running ? TERMINAL_TAIL_LINES : TERMINAL_PREVIEW_LINES;
-  const truncated = !showAll && lines.length > limit;
-  const visible = truncated ? (running ? lines.slice(-limit) : lines.slice(0, limit)) : lines;
-  const exitText = isError
-    ? t("processInline.exitFailed")
-    : `${t("processInline.exitOk")}${duration ? ` · ${duration}` : ""}`;
+  const failed = row.status === "failed";
+  const running = row.status === "running";
+  const readableLabels = row.kind === "read-group" ? row.labels.slice(0, 3) : [];
+  const label =
+    row.kind === "reasoning"
+      ? t(running ? "processInline.thinkingNow" : "processInline.thinking")
+      : row.kind === "read-group"
+        ? t(
+            row.count > readableLabels.length ? "processInline.readFilesMore" : "processInline.readFiles",
+            { files: readableLabels.join("、"), count: row.count },
+          )
+        : row.label;
+  const duration = "durationMs" in row && row.durationMs !== undefined ? formatDuration(row.durationMs) : undefined;
+  const toolCallId = row.kind === "read-group" ? row.callIds[0] : "callId" in row ? row.callId : undefined;
+
+  const open = () => {
+    if (!sessionId) return;
+    onOpen({
+      sessionId,
+      ...(runId ? { runId } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(failed ? { initialTab: "error" as const } : {}),
+    });
+  };
 
   return (
-    <div className="pw-conversation-process-term">
-      <div className="pw-conversation-process-term-cmd">$ {command}</div>
-      {input !== undefined ? (
-        <pre className="pw-conversation-process-term-input">{jsonPreview(input)}</pre>
-      ) : null}
-      {visible.length > 0 ? <pre className="pw-conversation-process-term-out">{visible.join("\n")}</pre> : null}
-      {truncated ? (
-        <button type="button" className="pw-conversation-process-term-more" onClick={() => setShowAll(true)}>
-          {t("processInline.viewFullOutput", { count: lines.length - limit })}
-        </button>
-      ) : null}
-      {/* 还在跑就没有退出码可言，只有收尾后才给 exit 行，避免展示一个尚不成立的结论。 */}
-      {running ? null : (
-        <div className="pw-conversation-process-term-exit" data-error={isError === true}>
-          {isError ? "✕" : "✓"} {exitText}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 单条思考行：正文弱化为 #8A8578，点开看完整 reasoning。 */
-function ReasoningRow({ entry }: { entry: Extract<ProcessEntry, { kind: "reasoning" }> }) {
-  const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(false);
-  const active = entry.message.active === true;
-  return (
-    <div className="pw-conversation-process-item" data-kind="reasoning" data-active={active}>
-      <button
-        type="button"
-        className="pw-conversation-process-item-main"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <Icon.Sparkle size={13} />
-        <span className={active ? "pw-conversation-process-live" : undefined}>
-          {t(active ? "processInline.thinkingNow" : "processInline.thinking")}
-        </span>
-        <span className="pw-conversation-process-item-chevron" data-open={expanded} aria-hidden="true">
-          <Icon.ChevronRight size={12} />
-        </span>
-      </button>
-      {expanded ? <div className="pw-conversation-process-reasoning">{renderRich(entry.message.text)}</div> : null}
-    </div>
-  );
-}
-
-/**
- * 单个工具调用：完成态是一行胶囊（✓ 命令 参数 耗时 ▾），点开展开终端块。
- * 运行中默认展开输出尾部（规格 §4），完成后回到收起——用户手动切换后以手动状态为准。
- */
-function ToolRow({ entry }: { entry: Extract<ProcessEntry, { kind: "tool" }> }) {
-  const { t } = useTranslation("chat");
-  const running = toolEntryRunning(entry);
-  const invocation = entry.invocation;
-  const failed = invocation?.isError === true;
-  const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  // 运行→完成翻转时清掉手动状态，回到「完成即收起」的默认规则。
-  useEffect(() => {
-    setUserOpen(null);
-  }, [running]);
-  // 规格 §8：失败的工具默认展开 stderr——出错时用户第一件想看的就是输出，不该再点一次。
-  const expanded = userOpen ?? (running || failed);
-
-  const target = toolEntryTarget(entry);
-  const hasDetails = invocation?.input !== undefined || invocation?.output !== undefined || !!target;
-  const durationMs =
-    invocation?.startedAt !== undefined && invocation?.endedAt !== undefined
-      ? invocation.endedAt - invocation.startedAt
-      : undefined;
-  const duration = durationMs !== undefined ? formatDuration(durationMs) : undefined;
-  // 终端首行尽量还原用户敲的那条命令；非命令类工具退回「工具名 + 目标」，不臆造 shell 语法。
-  const rawCommand = inputTarget(invocation?.input);
-  const command = rawCommand ?? `${invocation?.name ?? entry.item.toolName ?? ""}${target ? ` ${target}` : ""}`.trim();
-
-  return (
-    <div
-      className="pw-conversation-process-item"
-      data-kind="tool"
+    <button
+      type="button"
+      className="pw-conversation-process-activity"
+      data-kind={row.kind}
       data-active={running}
       data-error={failed}
+      onClick={open}
+      disabled={!sessionId}
     >
-      <button
-        type="button"
-        className="pw-conversation-process-item-main"
-        aria-expanded={expanded}
-        onClick={() => setUserOpen(!expanded)}
-      >
-        <span className="pw-conversation-process-item-state" aria-hidden="true">
-          {running ? (
-            <ProcessSpinner />
-          ) : failed ? (
-            <Icon.XCircle size={12} />
-          ) : isReadTool(entry.item.toolName ?? invocation?.name) ? (
-            <Icon.File size={12} />
-          ) : (
-            <Icon.Check size={12} />
-          )}
-        </span>
-        <span className={running ? "pw-conversation-process-live" : undefined}>{renderRich(entry.item.text)}</span>
-        {duration ? <span className="pw-conversation-process-item-time">{duration}</span> : null}
-        <span className="pw-conversation-process-item-chevron" data-open={expanded} aria-hidden="true">
-          <Icon.Chevron size={11} />
-        </span>
-      </button>
-      {expanded ? (
-        <div className="pw-conversation-process-item-detail">
-          {hasDetails ? (
-            <ToolTerminal
-              command={command || (entry.item.toolName ?? "")}
-              input={invocation?.input}
-              output={invocation?.output}
-              isError={failed}
-              running={running}
-              duration={duration}
-            />
-          ) : (
-            <div className="pw-conversation-process-empty">{t("processInline.noDetails")}</div>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * 阶段的分类统计文案（`N 步 · 读取 X 个文件 · 调用 Y 个工具`）。
- * 顶部的整轮行与阶段摘要条共用它——单阶段走 bare 形态时摘要条不渲染，统计必须由顶部行接住，
- * 否则「读了几个文件、调了几个工具」这条信息会随着少一层折叠一起消失。
- */
-function stageSummary(
-  t: (key: string, options?: Record<string, unknown>) => string,
-  stage: ProcessStage,
-  { withSteps }: { withSteps: boolean },
-): string[] {
-  const parts: string[] = [];
-  if (withSteps) parts.push(t("agentLog.steps", { count: stage.stepCount }));
-  if (stage.readCount > 0) {
-    parts.push(
-      t(stage.readCount === 1 ? "processInline.readSummaryOne" : "processInline.readSummaryMany", {
-        count: stage.readCount,
-      }),
-    );
-  }
-  if (stage.toolCount > 0) {
-    parts.push(
-      t(stage.toolCount === 1 ? "processInline.toolSummaryOne" : "processInline.toolSummaryMany", {
-        count: stage.toolCount,
-      }),
-    );
-  }
-  return parts;
-}
-
-/**
- * 一个阶段块：摘要条 + 展开明细面板，整体挂在时间线的一个节点上。
- * `sessionActive` 是会话级运行态——单条 reasoning/tool 切相时所有 message 都可能短暂 inactive，
- * 只看阶段内条目会触发「收起→展开」的布局闪烁，所以尾部阶段的折叠必须跟随会话生命周期。
- */
-function ProcessStageBlock({
-  stage,
-  sessionActive,
-  defaultLabel,
-  bare = false,
-}: {
-  stage: ProcessStage;
-  sessionActive: boolean;
-  defaultLabel: string;
-  /** 只有一个阶段时由外层的整轮开关直接管展开，这里省掉摘要条，避免两层折叠嵌套。 */
-  bare?: boolean;
-}) {
-  const { t } = useTranslation("chat");
-  const running = stage.running || sessionActive;
-  const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  // 手动优先：记住用户的展开/收起，直到本阶段运行态翻转（= 下一阶段开始）才恢复自动规则。
-  useEffect(() => {
-    setUserOpen(null);
-  }, [running]);
-  // 规格 §8：失败的阶段不自动折叠——把错误藏进摘要条等于让用户找不到出问题的那一步。
-  const expanded = userOpen ?? (running || stage.failed);
-
-  // 运行中的阶段耗时靠「首个事件时刻 → 现在」逐秒推算；完成后固定为事件区间。
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running || stage.startedAt === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [running, stage.startedAt]);
-  const elapsedMs = running
-    ? stage.startedAt !== undefined
-      ? Math.max(0, now - stage.startedAt)
-      : undefined
-    : stage.elapsedMs;
-
-  // 具名阶段（三段编排）标题里没有步数，摘要要补上；缺省阶段的标题本身已含步数，不重复。
-  const summary = stageSummary(t, stage, { withSteps: !!stage.label });
-
-  const rows = stage.entries.map((entry) =>
-    entry.kind === "reasoning" ? (
-      <ReasoningRow key={entry.key} entry={entry} />
-    ) : (
-      <ToolRow key={entry.key} entry={entry} />
-    ),
-  );
-
-  if (bare) return <div className="pw-conversation-process-list is-bare">{rows}</div>;
-
-  return (
-    <div className="pw-conversation-process-node" data-active={running} data-failed={stage.failed}>
-      <span className="pw-conversation-process-dot" data-kind="stage" aria-hidden="true" />
-      <button
-        type="button"
-        className="pw-conversation-process-header"
-        aria-expanded={expanded}
-        onClick={() => setUserOpen(!expanded)}
-      >
-        <span className="pw-conversation-process-header-state" aria-hidden="true">
-          {running ? <ProcessSpinner /> : stage.failed ? <Icon.XCircle size={12} /> : <Icon.Check size={12} />}
-        </span>
-        <span className={running ? "pw-conversation-process-live" : undefined}>{stage.label ?? defaultLabel}</span>
-        {/* 摘要段恒渲染（可能为空串）：它同时充当摘要条的弹性空间，让耗时与折起箭头始终贴右。 */}
-        <span className="pw-conversation-process-summary">
-          {summary.length > 0 ? `· ${summary.join(" · ")}` : ""}
-        </span>
-        {elapsedMs !== undefined ? (
-          <span className="pw-conversation-process-elapsed">{formatClock(elapsedMs)}</span>
-        ) : null}
-        <span className="pw-conversation-process-header-chevron" data-open={expanded} aria-hidden="true">
-          <Icon.ChevronRight size={12} />
-        </span>
-      </button>
-      {expanded ? <div className="pw-conversation-process-list">{rows}</div> : null}
-    </div>
+      <span className="pw-conversation-process-item-state" aria-hidden="true">
+        {running ? <ProcessSpinner /> : failed ? <Icon.XCircle size={12} /> : row.kind === "read-group" ? <Icon.File size={12} /> : <Icon.Check size={12} />}
+      </span>
+      <span className={running ? "pw-conversation-process-live" : "pw-conversation-process-activity-label"}>{label}</span>
+      {duration ? <span className="pw-conversation-process-item-time">{duration}</span> : null}
+      {failed ? <span className="pw-conversation-process-error-summary">{t("processInline.errorDetails")}</span> : null}
+    </button>
   );
 }
 
@@ -308,7 +89,7 @@ function ProcessStageBlock({
  * Agent 回合的顶部行：`已处理 10s ›`。
  *
  * 个人工作区不再显示消息头像，这一行就是本回合的视觉起点——同时交代「花了多久」和「过程在这里进」。
- * 只有一个阶段时它直接接管展开（阶段摘要条走 bare 形态），不做两层折叠。
+ * 展开后只出现一层活动台账；阶段只保留为纯逻辑分组，不再在聊天流引入嵌套折叠。
  */
 export function ConversationProcessTimeline({
   messages,
@@ -332,6 +113,11 @@ export function ConversationProcessTimeline({
   );
   const entries = useMemo(() => buildProcessEntries(sourceMessages, invocations), [sourceMessages, invocations]);
   const stages = useMemo(() => groupProcessStages(entries), [entries]);
+  const cwd = usePersonalStore((state) => {
+    const projectId = state.sessions.find((session) => session.id === sessionId)?.projectId;
+    return state.projects.find((project) => project.id === projectId)?.path;
+  });
+  const presentation = useMemo(() => buildProcessPresentation(stages, { cwd }), [cwd, stages]);
   const span = useMemo(
     () => (archive ? { startedAt: archive.startedAt, endedAt: archive.endedAt } : currentRunTimeSpan(liveEvents)),
     [archive, liveEvents],
@@ -368,17 +154,23 @@ export function ConversationProcessTimeline({
           ? Math.max(0, span.endedAt - span.startedAt)
           : undefined;
 
-  const totalSteps = stages.reduce((sum, stage) => sum + stage.stepCount, 0);
-  if (totalSteps === 0) return null;
+  if (presentation.summary.steps === 0) return null;
 
   const duration = elapsedMs !== undefined ? formatDuration(elapsedMs) : "";
   const headText = active
     ? t(duration ? "processInline.turnRunning" : "processInline.turnRunningNoTime", { duration })
     : t(duration ? "processInline.turnDone" : "processInline.turnDoneNoTime", { duration });
-  const single = stages.length === 1;
-  // readCount 是**按阶段去重**的文件数，跨阶段直接相加会把同一个文件重复计进去；多阶段时
-  // 顶部行只报耗时，统计留在各自的摘要条上。
-  const headSummary = single && stages[0] ? stageSummary(t, stages[0], { withSteps: true }) : [];
+  const headSummary = [
+    presentation.summary.files > 0
+      ? t(presentation.summary.files === 1 ? "processInline.readSummaryOne" : "processInline.readSummaryMany", { count: presentation.summary.files })
+      : undefined,
+    presentation.summary.commands > 0
+      ? t(presentation.summary.commands === 1 ? "processInline.commandSummaryOne" : "processInline.commandSummaryMany", { count: presentation.summary.commands })
+      : undefined,
+    presentation.summary.tools > 0
+      ? t(presentation.summary.tools === 1 ? "processInline.toolSummaryOne" : "processInline.toolSummaryMany", { count: presentation.summary.tools })
+      : undefined,
+  ].filter((value): value is string => value !== undefined);
 
   return (
     <div className="pw-conversation-process-turn" data-active={active} data-open={expanded}>
@@ -398,16 +190,19 @@ export function ConversationProcessTimeline({
       </button>
       {expanded ? (
         <div className="pw-conversation-process" data-testid="conversation-process" data-active={active}>
-          {stages.map((stage, index) => (
-            <ProcessStageBlock
-              key={`${sessionId ?? ""}:${stage.key}`}
-              stage={stage}
-              // 只有尾部阶段跟随会话运行态；之前的阶段已经收尾，不该被新一轮拉回展开。
-              sessionActive={active && index === stages.length - 1}
-              defaultLabel={t("processInline.workTitle", { count: stage.stepCount })}
-              bare={single}
-            />
-          ))}
+          <div className="pw-conversation-process-list is-bare">
+            {presentation.stages.flatMap((stage) =>
+              stage.rows.map((row) => (
+                <ActivityRow
+                  key={`${sessionId ?? ""}:${row.key}`}
+                  row={row}
+                  sessionId={sessionId}
+                  runId={archive?.runId ?? liveEvents.at(-1)?.runId}
+                  onOpen={requestOpenProcessPanel}
+                />
+              )),
+            )}
+          </div>
           {/* 「查看完整过程」读的是瞬态原始事件（当前轮），历史轮没有对应数据，入口不给。 */}
           {sessionId && !archive ? (
             <div className="pw-conversation-process-node" data-kind="more">
@@ -415,7 +210,7 @@ export function ConversationProcessTimeline({
               <button
                 type="button"
                 className="pw-conversation-process-more"
-                onClick={() => requestOpenProcessPanel(sessionId)}
+                onClick={() => requestOpenProcessPanel({ sessionId, ...(liveEvents.at(-1)?.runId ? { runId: liveEvents.at(-1)?.runId } : {}) })}
               >
                 {t("processInline.openTranscript")}
               </button>

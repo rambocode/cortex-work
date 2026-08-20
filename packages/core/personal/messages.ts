@@ -2874,6 +2874,26 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
       return;
     case "compaction":
       store.setPiRuntime(sessionId, { compacting: ev.phase === "start" });
+      if (ev.phase === "end" && ev.error) {
+        const checkpointRun = piRunFor(sessionId);
+        if (checkpointRun?.run.awaitingRetry) {
+          // checkpoint 已先宣布 willRetry；若压缩失败必须解除该闸门并显式结算，不能等一个
+          // 被 awaitingRetry 忽略的 settled 让 UI 永久转圈。
+          checkpointRun.run.awaitingRetry = undefined;
+          checkpointRun.run.resultOk = false;
+          checkpointRun.run.gotResult = true;
+          dropMsg(qc, sessionId, checkpointRun.run.typingUid);
+          finalizeRunReasoning(qc, checkpointRun.run);
+          finalizeProcessAgentLog(qc, sessionId, checkpointRun.run);
+          appendMsg(qc, sessionId, {
+            kind: "text",
+            who: checkpointRun.run.agent,
+            time: realHHMM(),
+            text: t("chat:core.piContextCheckpointFailed"),
+            uid: uid("checkpoint-err"),
+          });
+        }
+      }
       return;
     case "retry":
       store.setPiRuntime(sessionId, { retry: { attempt: ev.attempt, max: ev.maxAttempts } });
@@ -3136,6 +3156,18 @@ function handlePiEvent(qc: QueryClient, sessionId: string, ev: PiSessionEvent, e
           time: realHHMM(),
           text: t("chat:core.piEmptyReply"),
           uid: uid("err"),
+        });
+      }
+      // `length` 不是普通成功：正文已经保留，但必须留下可持久化的可见提示。自动 checkpoint
+      // 续接会走 willRetry=true，不会进入这里，因而不会产生一个随后要撤销的假提示。
+      if (ev.truncated) {
+        appendMsg(qc, sessionId, {
+          kind: "text",
+          who: run.agent,
+          time: realHHMM(),
+          text: t("chat:core.piReplyTruncated"),
+          truncated: true,
+          uid: uid("truncated"),
         });
       }
       // 过程流当前打开的 agentLog 收尾打勾。

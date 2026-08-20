@@ -94,6 +94,8 @@ export async function buildWorkerDeps(
       ? { enableSampleCommands: prepared.enableSampleCommands }
       : {}),
     ...(prepared.askQuestionSentinel ? { askQuestionSentinel: prepared.askQuestionSentinel } : {}),
+    // gateway 是唯一有多轮原始工具历史的 Pi 路径；投影规则集中在 native hook，不在 worker 复制。
+    enableToolContextProjection: true,
     onApprovalDecision: ctx.onApprovalDecision ?? defaultApprovalSink,
   });
 
@@ -144,6 +146,8 @@ export async function buildWorkerDeps(
 
   return {
     ...(ctx.resolveModel ? { resolveModel: ctx.resolveModel } : {}),
+    // 与 native context extension 同一权威门控：只让 gateway 长驻会话执行 checkpoint。
+    enableToolContextProjection: true,
     customTools: [...hooks.customTools, ...webUiTools, ...mcpTools],
     extensionFactories: [
       ...hooks.extensionFactories,

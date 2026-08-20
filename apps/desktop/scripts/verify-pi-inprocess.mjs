@@ -272,6 +272,27 @@ export async function runPiInProcessVerification({ importModule, log = console.l
     }
     say(`✓ agent loop 跑通（grep / read / bash 均真实执行）`);
 
+    // ── 3b. run 内 checkpoint guard（本地 fork contract）────────────────────
+    // Guard 必须在工具批次结束后停止本次底层 loop，并把结构化原因送到 agent_end；否则 Cortex
+    // 无法保留同一 UI run 后自动 compaction + continue，只能退回「length 1 token 假成功」。
+    const checkpointEvents = [];
+    const checkpointAgent = new core.Agent({
+      initialState: {
+        systemPrompt: "cortex checkpoint verification",
+        model: { id: "verify", provider: "verify", api: "anthropic" },
+        tools: [coding.createGrepTool(cwd)],
+      },
+      shouldStopAfterTurn: ({ toolResults }) => (toolResults.length ? { reason: "context-checkpoint" } : false),
+      streamFn: makeMockStreamFn(piAi, [{ name: "grep", arguments: { pattern: NEEDLE, path: cwd } }]),
+    });
+    checkpointAgent.subscribe((event) => checkpointEvents.push(event));
+    await withTimeout(checkpointAgent.prompt("checkpoint"), LOOP_TIMEOUT_MS, "checkpoint guard");
+    const checkpointEnd = checkpointEvents.find((event) => event.type === "agent_end");
+    if (checkpointEnd?.reason !== "context-checkpoint") {
+      return fail(`checkpoint guard 未产 context-checkpoint agent_end（实际 ${checkpointEnd?.reason ?? "无"}）`);
+    }
+    say("✓ run 内 checkpoint guard 以 context-checkpoint 结束工具批次");
+
     // ── 4. createAgentSession 构造（U2 引擎层的落脚点） ─────────────────────
     // 无 provider 凭据下也应能构造成功：会话对象的创建不该依赖模型可用性。
     // 用 SessionManager.inMemory() 避免在验证机上落盘 session JSONL。

@@ -174,6 +174,8 @@ export type Message =
       roleId?: string;
       roleLabel?: string;
       roleColor?: string;
+      /** true 仅用于 Pi `stopReason="length"` 的持久化提示行；渲染端据此提供手动续写入口。 */
+      truncated?: boolean;
       uid?: string;
     }
   | {
