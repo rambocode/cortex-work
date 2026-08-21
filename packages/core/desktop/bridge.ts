@@ -1050,4 +1050,29 @@ export interface DesktopBridge {
     /** 在 Finder 中显示当前运行的 .app,供用户直接拖进授权列表（reset 不奏效时的兜底）。 */
     revealApp(): Promise<void>;
   };
+
+  // ── 团队工作区应用内登录态（W1）───────────────────────────────────────────────
+  // 邮箱验证码登录成功后，壳把完整配置持久化（token 经主进程 safeStorage 加密落盘）；冷启动读回
+  // 填充 runtime 配置 → 动态启用真实后端 ApiClient。全部可选（web/旧壳无 → 登录入口降级隐藏，
+  // 仅走 env 注入的向后兼容路径）。跨进程契约：IPC 通道 auth:get-config / auth:set-config /
+  // auth:clear-config，与 apps/desktop/src/main/ipc/auth-config.ts + preload 三处手工对齐。
+  /** 读回持久化登录配置（无配置/解密失败 token → null 或 token 缺失）。 */
+  authGetConfig?(): Promise<AuthConfig | null>;
+  /** 全量覆盖写入登录配置（登录成功）。 */
+  authSetConfig?(cfg: AuthConfig): Promise<void>;
+  /** 清除登录配置（登出）。 */
+  authClearConfig?(): Promise<void>;
+}
+
+// 团队工作区登录态（W1）：应用内邮箱验证码登录后持久化的配置。token 为 JWT 明文，仅在
+// IPC 边界与内存出现；主进程 safeStorage 加密后落盘（其余明文字段直接落盘）。
+// 见 apps/desktop/src/main/ipc/auth-config.ts。
+export interface AuthConfig {
+  baseUrl: string;
+  workspaceId?: string;
+  workspaceSlug?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  token?: string;
 }

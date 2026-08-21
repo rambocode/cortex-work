@@ -136,6 +136,7 @@ import type {
 // 不引入主进程运行时依赖）。详见 .llms 交接文档 4.4 与 bridge.ts 的 startOrchestration 契约。
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
 import type { RoundtableStartRequest } from "../main/ipc/types";
+import type { AuthConfig } from "@cortex-work/core/desktop/bridge";
 import type { SyncInvalidateScope } from "../main/ipc/sync-invalidate";
 // 写作检索(U4）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-retrieval-types.ts 镜像）。
 import type {
@@ -407,6 +408,12 @@ const personal = {
     ipcRenderer.on("roles:changed", listener);
     return () => ipcRenderer.removeListener("roles:changed", listener);
   },
+  // 团队工作区应用内登录态（W1）：读回/写入/清除持久化配置。形状与 DesktopBridge 的
+  // authGetConfig/authSetConfig/authClearConfig 逐字对齐（手工比对，无 satisfies）。IPC 通道
+  // auth:get-config / auth:set-config / auth:clear-config，与 main/ipc/auth-config.ts 对齐。
+  authGetConfig: (): Promise<AuthConfig | null> => ipcRenderer.invoke("auth:get-config"),
+  authSetConfig: (cfg: AuthConfig): Promise<void> => ipcRenderer.invoke("auth:set-config", cfg),
+  authClearConfig: (): Promise<void> => ipcRenderer.invoke("auth:clear-config"),
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   artifactCreate: (

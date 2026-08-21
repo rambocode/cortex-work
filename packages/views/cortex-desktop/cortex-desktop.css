@@ -16032,3 +16032,110 @@ button.sb-row {
   cursor: pointer;
 }
 .pw-search-fullres:hover { text-decoration: underline; }
+
+/* ── 分身会话（W3）：拥有者查看自己分身被调用的会话列表 + 详情弹层。 ── */
+/* 列表:每个自有分身一组(角色名小标题 + 其会话行),行为可点击按钮 → 打开详情弹层。 */
+.pw-avatar-sessions-group { margin-top: 10px; }
+.pw-avatar-sessions-group:first-child { margin-top: 4px; }
+.pw-avatar-sessions-group-h { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.pw-avatar-sessions-list { display: flex; flex-direction: column; gap: 4px; }
+.pw-avatar-sessions-row {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) auto 1fr auto;
+  align-items: center; gap: 10px;
+  width: 100%; padding: 7px 10px;
+  background: var(--bg-soft, var(--bg-hover)); border: 1px solid var(--border-soft, var(--border));
+  border-radius: 8px; cursor: pointer; text-align: left;
+  font-size: 12.5px; color: var(--text-1);
+}
+.pw-avatar-sessions-row:hover { background: var(--bg-hover); }
+.pw-avatar-sessions-caller { font-weight: 600; }
+.pw-avatar-sessions-time { font-size: 11.5px; color: var(--text-3, var(--text-2)); font-variant-numeric: tabular-nums; }
+.pw-avatar-sessions-prompt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.pw-avatar-sessions-outcome { font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+/* 骨架占位条(加载态)。 */
+.pw-avatar-sessions-skeleton { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.pw-avatar-sessions-skel-row { height: 30px; border-radius: 8px; background: var(--bg-hover); opacity: 0.6; }
+
+/* 侧栏「团队工作区」快速入口分组:标题栏样式沿用 .pw-archived-h,
+   内部拆成 toggle(展开/折叠) + jump(切到团队工作区)两个独立按钮，避免 button 嵌套 button。 */
+.pw-team-group { margin-top: 6px; }
+.pw-team-h { justify-content: space-between; padding-right: 10px; }
+.pw-team-h-toggle {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1; min-width: 0;
+  background: none; border: none; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+  cursor: pointer; text-align: left;
+}
+.pw-team-jump { flex-shrink: 0; }
+.pw-team-group-body { padding: 0 6px 6px; }
+
+/* 中栏详情:个人侧栏「团队工作区」点击后占据中间会话区域,不弹 modal。 */
+.pw-avatar-session-page {
+  min-height: 0;
+  height: 100%;
+  width: min(860px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+
+/* 详情弹层:设置页仍复用 .pw-dlg-overlay/.pw-dlg 骨架,改纵向布局(头部 → 滚动问答正文)。 */
+.pw-avatar-session-dlg { flex-direction: column; }
+.pw-avatar-session-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px 10px; border-bottom: 1px solid var(--border);
+}
+.pw-avatar-session-head-l { flex: 1; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.pw-avatar-session-caller { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.pw-avatar-session-time { font-size: 12px; color: var(--text-3, var(--text-2)); font-variant-numeric: tabular-nums; }
+.pw-avatar-session-body { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.pw-avatar-session-seg-h { font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+/* 思考过程:灰系折叠段,等宽小字完整可读。 */
+.pw-avatar-session-pre {
+  margin: 0; padding: 8px 10px;
+  background: var(--bg-soft, var(--bg-hover)); border-radius: 8px;
+  font-family: ui-monospace, monospace; font-size: 11.5px; line-height: 1.5;
+  color: var(--text-2); white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+/* 工具调用:一步一行,仅工具名。 */
+.pw-avatar-session-tool-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.pw-avatar-session-tool-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+/* 答案正文:核心内容,全文完整可读(不截断)。 */
+.pw-avatar-session-answer-body {
+  font-size: 13.5px; line-height: 1.6; color: var(--text-1); user-select: text;
+}
+.pw-avatar-session-answer-body.pw-todo-md {
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.pw-avatar-session-skeleton { display: flex; flex-direction: column; gap: 8px; }
+.pw-avatar-session-skel-row { height: 40px; border-radius: 8px; background: var(--bg-hover); opacity: 0.6; }
+/* 多轮会话:每轮一块(提问 + 该轮回复段),轮间用细分隔线分段,让「问1/答1/问2/答2」层次清晰。 */
+.pw-avatar-session-turn { display: flex; flex-direction: column; gap: 10px; padding-bottom: 14px; }
+.pw-avatar-session-turn + .pw-avatar-session-turn { border-top: 1px solid var(--border-1, var(--bg-hover)); padding-top: 14px; }
+/* 用户提问:靠右的气泡,区别于分身回复段(左对齐)。 */
+.pw-avatar-session-prompt {
+  align-self: flex-end; max-width: 88%;
+  padding: 8px 12px; border-radius: 12px 12px 2px 12px;
+  background: var(--accent-soft, var(--bg-hover)); color: var(--text-1);
+  font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+/* 列表行的轮数标:小圆点式次要信息。 */
+.pw-avatar-sessions-turns { font-size: 11px; color: var(--text-3, var(--text-2)); white-space: nowrap; }
+
+/* ── 团队工作区登录卡（W1/LoginGate） ─────────────────────────────────────────
+   .pw-input 的 flex:1 1 200px 是为「行式」布局设计的;登录卡把输入放在纵向 flex 的
+   label 里,flex-basis 会变成高度(输入框被拉成 200px 高的巨块)。此处收敛为固定高度。 */
+.auth-login-card .pw-input {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+.auth-login-card .pw-tl-gen { height: 36px; }

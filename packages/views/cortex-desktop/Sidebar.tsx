@@ -90,6 +90,8 @@ function LastMessage({ item, mode }: { item: Contact; mode: SidebarMode }) {
       online: { c: "var(--green)", text: item.statusText || t("sidebar.online") },
       idle: { c: "var(--text-3)", text: item.statusText || t("sidebar.idle") },
       offline: { c: "var(--text-4)", text: item.statusText || t("sidebar.offline") },
+      // 分身「在线但本机 CLI 不可执行」态，与 offline 区分呈现（AE11）。i18n key 缺省时回退中文。
+      unavailable: { c: "var(--amber)", text: item.statusText || "在线 · 本机 CLI 不可用" },
     };
     const s = map[status] || map.idle!;
     return (
@@ -149,17 +151,27 @@ export function ContactRow({
   active,
   onClick,
   mode,
+  isChild = false,
+  isHuman = false,
 }: {
   item: Contact;
   active: boolean;
   onClick: (id: string) => void;
   mode: SidebarMode;
+  // 分身子行：视觉缩进挂在成员行下方（团队分身两级渲染）。
+  isChild?: boolean;
+  // 成员（真人）行：不渲染在线圆点（真人无 agent 执行态），点击后 ChatArea 给降级提示。
+  isHuman?: boolean;
 }) {
   return (
-    <div className={`contact ${active ? "is-active" : ""}`} onClick={() => onClick(item.id)}>
+    <div
+      className={`contact ${active ? "is-active" : ""} ${isChild ? "is-avatar-child" : ""} ${isHuman ? "is-human-owner" : ""}`}
+      onClick={() => onClick(item.id)}
+      style={isChild ? { paddingLeft: 26 } : undefined}
+    >
       <div className="avatar" style={{ background: item.avatar.bg }}>
         {item.avatar.initials}
-        <span className={`agent-dot s-${item.agentStatus}`} />
+        {isHuman ? null : <span className={`agent-dot s-${item.agentStatus}`} />}
       </div>
       <div className="name">{item.name}</div>
       {mode !== "minimal" ? <div className="time">{item.time}</div> : null}
@@ -185,6 +197,43 @@ function matches(c: Contact, search: string): boolean {
   return c.name.toLowerCase().includes(q) || (c.role || "").toLowerCase().includes(q);
 }
 
+// 成员段：一条 human 成员行 + 其名下缩进的分身行。零分身成员显示「暂未共享分身」空态
+// （与离线态文案区分，见 R5）。搜索时：成员或其任一分身命中即展示；命中成员则展开其全部分身，
+// 否则仅展示命中的分身。
+function OwnerBlock({
+  human,
+  avatars,
+  activeId,
+  onSelect,
+  mode,
+  search,
+}: {
+  human: Contact;
+  avatars: Contact[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  mode: SidebarMode;
+  search: string;
+}) {
+  const humanHit = matches(human, search);
+  const visibleAvatars = humanHit ? avatars : avatars.filter((a) => matches(a, search));
+  // 段是否可见：成员命中，或有命中的分身。
+  if (!humanHit && visibleAvatars.length === 0) return null;
+  return (
+    <div className="sb-owner">
+      <ContactRow item={human} active={human.id === activeId} onClick={onSelect} mode={mode} isHuman />
+      {avatars.length === 0 ? (
+        // 真正零分身的成员才显示空态；搜索把分身过滤空不算（不误导为「未共享」）。
+        search ? null : <div className="sb-owner-empty" style={{ paddingLeft: 26, color: "var(--text-4)", fontSize: 12 }}>暂未共享分身</div>
+      ) : (
+        visibleAvatars.map((a) => (
+          <ContactRow key={a.id} item={a} active={a.id === activeId} onClick={onSelect} mode={mode} isChild />
+        ))
+      )}
+    </div>
+  );
+}
+
 function SidebarSection({
   group,
   contacts,
@@ -201,26 +250,74 @@ function SidebarSection({
   search: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const list = contacts.filter((c) => c.group === group.id && matches(c, search));
-  if (list.length === 0) return null;
+  const groupContacts = contacts.filter((c) => c.group === group.id);
+  // kind 驱动的两级条目（成员/分身）与旧扁平条目（mock/legacy，无 kind）并存：
+  // 有 human 成员时按两级渲染，否则回落原扁平渲染（零回归）。
+  const humans = groupContacts.filter((c) => c.kind === "human");
+  const legacy = groupContacts.filter((c) => c.kind !== "human" && c.kind !== "avatar");
+
+  // 扁平回落路径（当前段无成员两级结构）。
+  if (humans.length === 0) {
+    const list = legacy.filter((c) => matches(c, search));
+    if (list.length === 0) return null;
+    return (
+      <div className="sb-section">
+        <div className="sb-section-h" data-collapsed={collapsed} onClick={() => setCollapsed((v) => !v)} style={{ cursor: "pointer" }}>
+          <span className="chev">
+            <Icon.Chevron size={11} />
+          </span>
+          <span>{group.label}</span>
+          <span className="count">· {list.length}</span>
+        </div>
+        {!collapsed && list.map((c) => <ContactRow key={c.id} item={c} active={c.id === activeId} onClick={onSelect} mode={mode} />)}
+      </div>
+    );
+  }
+
+  // 两级路径：按成员分段，各段成员行 + 其名下分身行。
+  const avatarsByOwner = new Map<string, Contact[]>();
+  for (const c of groupContacts) {
+    if (c.kind !== "avatar") continue;
+    const ownerId = c.ownerId ?? "";
+    if (!avatarsByOwner.has(ownerId)) avatarsByOwner.set(ownerId, []);
+    avatarsByOwner.get(ownerId)!.push(c);
+  }
+  // 计算可见成员段（用于空段整体隐藏与段头计数）。
+  const visibleHumans = humans.filter((h) => {
+    const avs = avatarsByOwner.get(h.id) ?? [];
+    if (matches(h, search)) return true;
+    return avs.some((a) => matches(a, search));
+  });
+  const legacyList = legacy.filter((c) => matches(c, search));
+  if (visibleHumans.length === 0 && legacyList.length === 0) return null;
+
   return (
     <div className="sb-section">
-      <div
-        className="sb-section-h"
-        data-collapsed={collapsed}
-        onClick={() => setCollapsed((v) => !v)}
-        style={{ cursor: "pointer" }}
-      >
+      <div className="sb-section-h" data-collapsed={collapsed} onClick={() => setCollapsed((v) => !v)} style={{ cursor: "pointer" }}>
         <span className="chev">
           <Icon.Chevron size={11} />
         </span>
         <span>{group.label}</span>
-        <span className="count">· {list.length}</span>
+        <span className="count">· {visibleHumans.length + legacyList.length}</span>
       </div>
-      {!collapsed &&
-        list.map((c) => (
-          <ContactRow key={c.id} item={c} active={c.id === activeId} onClick={onSelect} mode={mode} />
-        ))}
+      {!collapsed && (
+        <>
+          {legacyList.map((c) => (
+            <ContactRow key={c.id} item={c} active={c.id === activeId} onClick={onSelect} mode={mode} />
+          ))}
+          {humans.map((h) => (
+            <OwnerBlock
+              key={h.id}
+              human={h}
+              avatars={avatarsByOwner.get(h.id) ?? []}
+              activeId={activeId}
+              onSelect={onSelect}
+              mode={mode}
+              search={search}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -236,6 +333,9 @@ export interface SidebarProps {
   activeSection: Section;
   onNavigate: (section: Section) => void;
   sectionCounts?: Partial<Record<"tasks" | "agents" | "usage", number | string>>;
+  // 团队登录退出回调(W1):桌面壳注入,透传给 OrgSwitcher 的退出菜单项。缺省(web/未接线)
+  // → OrgSwitcher 兜底走原有 toast 占位行为。
+  onLogout?: () => void;
 }
 
 export function Sidebar({
@@ -249,6 +349,7 @@ export function Sidebar({
   activeSection,
   onNavigate,
   sectionCounts,
+  onLogout,
 }: SidebarProps) {
   const { t } = useTranslation();
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
@@ -263,7 +364,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <WorkspaceTabs />
-      <OrgSwitcher />
+      <OrgSwitcher onLogout={onLogout} />
       <SidebarTop
         search={search}
         onSearch={onSearch}

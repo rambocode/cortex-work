@@ -24,6 +24,7 @@ import { ToastStack } from "./ToastStack";
 import { SectionPage } from "./Sections";
 import { PersonalWorkspace } from "./personal/layout/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
+import { LoginGate, type AuthedResult } from "./auth/LoginGate";
 import { PetBridge } from "./pet/PetBridge";
 import { VoiceAssistantController } from "./personal/voice-assistant/VoiceAssistantController";
 import { useTweaksPersistence } from "./useTweaksPersistence";
@@ -44,9 +45,19 @@ export interface CortexDesktopViewProps {
   onOpenFlashNote?: () => void;
   // 「项目管理」独立窗口入口(桌面端由壳注入 window.desktopAPI.projectsWindow.open;web 端缺省 → 隐藏)。
   onOpenProjectsWindow?: () => void;
+  // 团队工作区应用内登录（W1）：桌面壳注入。缺省（web/旧壳未接线）→ 不拦截、不渲染登录卡，
+  // 走 env 注入的向后兼容路径。enabled=是否已登录并启用真实后端。
+  auth?: {
+    enabled: boolean;
+    userName?: string;
+    userEmail?: string;
+    defaultBaseUrl: string;
+    onAuthenticated: (cfg: AuthedResult) => void;
+    onLogout: () => void;
+  };
 }
 
-export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onOpenProjectsWindow }: CortexDesktopViewProps) {
+export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onOpenProjectsWindow, auth }: CortexDesktopViewProps) {
   const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { apiClient } = useCoreContext();
@@ -78,15 +89,21 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
     pushToast,
   } = useCortexUIStore();
 
-  const { data: contacts = [] } = useQuery(contactListOptions(wsId));
+  // 团队通讯录/会话真实化(U7/U8):必须把 apiClient 传给 query options,
+  // 否则 queryFn 永远走 mock 回落路径(apiClient 为 null 的 Web/离线场景仍回落 mock)。
+  const { data: contacts = [] } = useQuery(contactListOptions(wsId, apiClient));
   const { data: issues } = useQuery(issueListOptions(wsId, apiClient));
   const { data: agents } = useQuery(agentListOptions(wsId, apiClient));
   const { data: usageDaily } = useQuery(dashboardUsageDailyOptions(wsId, apiClient, 30));
-  const { data: convo } = useQuery(conversationOptions(wsId, activeContactId));
-  const { sendMessage, approveChange } = useCortexActions(wsId);
-
   const contact: Contact | undefined = contacts.find((c) => c.id === activeContactId);
+  // conversationOptions 需要当前 contact 判定分身会话(kind==="avatar")→ 走真实 sessions/messages。
+  const { data: convo } = useQuery(conversationOptions(wsId, activeContactId, apiClient, contact));
+  const { sendMessage, approveChange } = useCortexActions(wsId);
   const personal = workspace === "personal";
+  // 团队工作区未登录锁定态（W1）:仅替换主内容区为登录卡,侧栏与「团队/个人」切换 tab
+  // 保持可用——个人工作区必须不受任何登录门控影响(用户可随时切回)。锁定时通讯录传空,
+  // 避免未登录还展示 mock 假联系人造成误导。
+  const teamLocked = !personal && !!auth && !auth.enabled;
 
   // Mark the opened conversation as read — an optimistic write to the contacts
   // cache (server state), not a copy into Zustand.
@@ -139,7 +156,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
           />
           <div className="body">
             <Sidebar
-              contacts={contacts}
+              contacts={teamLocked ? [] : contacts}
               activeId={activeContactId}
               onSelect={setActiveContact}
               mode={tweaks.sidebar}
@@ -148,13 +165,17 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
               onToast={pushToast}
               activeSection={activeSection}
               onNavigate={setSection}
+              onLogout={auth?.onLogout}
               sectionCounts={{
                 tasks: issues?.total,
                 agents: agents?.filter((a) => !a.archived_at).length,
                 usage: usageDaily ? `${usageDaily.reduce((sum, row) => sum + row.task_count, 0)}` : undefined,
               }}
             />
-            {activeSection === "chat" ? (
+            {teamLocked ? (
+              // 未登录:主内容区呈现登录卡(侧栏仍在,可切回个人工作区)。
+              <LoginGate defaultBaseUrl={auth!.defaultBaseUrl} onAuthenticated={auth!.onAuthenticated} />
+            ) : activeSection === "chat" ? (
               <>
                 <ChatArea
                   contact={contact}

@@ -4,6 +4,10 @@
 
 import { queryOptions } from "@tanstack/react-query";
 import { getConversation, getFileDiff, listContacts, listOrganizations } from "../mock/api";
+import type { ApiClient } from "../api/client";
+import type { Contact, Conversation } from "../types";
+import { mapAvatarsToContacts } from "./contacts-map";
+import { buildAvatarConversationFromTurns } from "./session-stream";
 
 // Organizations are global (not workspace-scoped), so their key carries no wsId.
 export const organizationKeys = {
@@ -32,16 +36,41 @@ export const fileDiffKeys = {
   detail: (wsId: string, path: string) => [...fileDiffKeys.all(wsId), path] as const,
 };
 
-export const contactListOptions = (wsId: string) =>
+// 团队通讯录：apiClient 可用时走真实服务端（GET /api/avatars → 成员/分身两级 Contact[]），
+// 否则回落 mock。query key 不变（契约 §8 硬约定），apiClient 为可选加性参数，保持向后兼容
+// ——旧调用点 contactListOptions(wsId) 未传 apiClient 时行为等同原 mock 路径。
+export const contactListOptions = (wsId: string, api?: ApiClient | null) =>
   queryOptions({
     queryKey: contactKeys.list(wsId),
-    queryFn: () => listContacts(),
+    queryFn: async () => {
+      if (!api) return listContacts();
+      const { avatars } = await api.listAvatars();
+      return mapAvatarsToContacts(avatars);
+    },
   });
 
-export const conversationOptions = (wsId: string, contactId: string) =>
+// 会话历史：apiClient + 分身联系人（contact.kind==="avatar"）→ 走真实后端。
+// 多轮会话化后（migration 100）：listAvatarSessions 返回「一行一个会话」，取最近活跃的会话，
+// 再经 getAvatarConversation 拉该会话的**全部轮次**，组装成完整多轮 Conversation（问1/答1/问2/答2…），
+// 并挂上分身会话态（最后一轮在途则续接流式/取消）。刷新/重开后不再只剩最后一轮。
+// 否则回落 mock getConversation。key 不变（契约硬约定）；api/contact 为可选加性参数——旧调用点
+// 未传时行为等同原 mock 路径。
+export const conversationOptions = (wsId: string, contactId: string, api?: ApiClient | null, contact?: Contact) =>
   queryOptions({
     queryKey: conversationKeys.detail(wsId, contactId),
-    queryFn: () => getConversation(contactId),
+    queryFn: async (): Promise<Conversation | null> => {
+      if (!api || contact?.kind !== "avatar") return getConversation(contactId);
+      const runtimeId = contact.runtimeId ?? contact.id;
+      const { sessions } = await api.listAvatarSessions(runtimeId);
+      // 取最近活跃的会话（按 updated_at 降序首条）；无历史 → null（视图渲染空态引导）。
+      const latest = [...sessions].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))[0];
+      if (!latest) return null;
+      const { turns } = await api.getAvatarConversation(latest.conversation_id);
+      return buildAvatarConversationFromTurns(turns, {
+        who: contact.role || contact.name,
+        conversationId: latest.conversation_id,
+      });
+    },
   });
 
 export const fileDiffOptions = (wsId: string, path: string) =>

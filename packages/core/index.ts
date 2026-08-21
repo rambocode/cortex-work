@@ -112,7 +112,7 @@ export {
   replySaveUrgency,
   type ReplyStore,
 } from "./store/reply";
-export type { DesktopBridge } from "./desktop/bridge";
+export type { DesktopBridge, AuthConfig } from "./desktop/bridge";
 export {
   AGENT_MODELS,
   AGENT_LABEL,
@@ -627,6 +627,39 @@ export {
   replaceTypingWithReply,
   type CortexActions,
 } from "./cortex/mutations";
+export {
+  teamKeys,
+  workspaceKeys,
+  invitationKeys,
+  squadMemberKeys,
+  invalidateAfterCreateSquad,
+  invalidateAfterMembershipChange,
+  invalidateAfterAcceptInvitation,
+  invalidateAfterRemoveMember,
+  createSquadErrorKey,
+  joinSquadErrorKey,
+  inviteMemberErrorKey,
+  acceptInvitationErrorKey,
+  updateSquadErrorKey,
+  removeMemberErrorKey,
+  resolveWorkspaceRole,
+  canManageWorkspace,
+  mapSquadMemberRows,
+  type SquadMemberRow,
+  useSquadsQuery,
+  useCreateSquad,
+  useCreateJoinCode,
+  useJoinByCode,
+  useLeaveSquad,
+  useWorkspaceMembers,
+  useInviteMember,
+  useMyInvitations,
+  useAcceptInvitation,
+  useDeclineInvitation,
+  useUpdateSquad,
+  useSquadMembers,
+  useRemoveSquadMember,
+} from "./cortex/teams";
 export { CONTACTS, GROUPS, CONVOS, FILE_DIFFS, ORGS, findContact, whoMeta } from "./mock/data";
 export {
   i18n,

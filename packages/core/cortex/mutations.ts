@@ -7,7 +7,22 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Contact, Conversation, Message, RichText } from "../types";
-import { conversationKeys } from "./queries";
+import { ApiError, type ApiClient } from "../api/client";
+import type { AvatarConversationTurn } from "../api/types";
+import { useCoreContext } from "../provider";
+import { useCortexUIStore } from "../store/ui";
+import { conversationKeys, contactKeys } from "./queries";
+import {
+  applyTaskMessage,
+  getAvatarSession,
+  initAvatarSession,
+  isSessionBusy,
+  isStaleGeneration,
+  messagesToConversation,
+  withAvatarSession,
+  type AvatarSessionState,
+  type AvatarTaskMessageFrame,
+} from "./session-stream";
 import { nowHHMM, uid } from "./time";
 
 type ConvoOrNull = Conversation | null | undefined;
@@ -134,6 +149,129 @@ function pickReply(contactId: string): Message {
   return { kind: "text", who: tpl.who(contactId), time: nowHHMM(), text: tpl.text, uid: uid("r") };
 }
 
+// ── 团队分身（共享角色）真实调用：invoke + 流式 + 取消 ──────────────────────────
+// 说明：core 侧的会话流式引擎（保序/去重/终态/渲染）在 session-stream.ts；这里只做「发起 → 写
+// 缓存 → 驱动传输」的编排。传输选型（M1）：HTTP 轮询 conversation turn messages（内容 + 终态）。
+// task queue 只是服务端/owner daemon 的内部执行单元；用户侧聊天只依赖 conversation/turn API。
+
+// 分身回复消息的作者标识：用 role_label 作 who（whoMeta 兜底为该名 + 「?」头像，M1 可接受；
+// 更贴合的头像映射留后续）。
+function avatarWho(contact: Contact | undefined): string {
+  return contact?.role || contact?.name || "avatar";
+}
+
+// 轮询间隔与上限：1s 一拍，最多 ~5min（与主进程/渲染端看门狗量级一致，防孤儿轮询长跑）。
+const AVATAR_POLL_MS = 1000;
+const AVATAR_POLL_MAX_TICKS = 300;
+
+export interface AvatarPollingTransportSnapshot {
+  frames: AvatarTaskMessageFrame[];
+  turn: AvatarConversationTurn;
+  conversationId: string;
+}
+
+export async function loadAvatarPollingSnapshot(
+  api: ApiClient,
+  conversationId: string,
+  turnId: string,
+  sinceSeq: number,
+): Promise<AvatarPollingTransportSnapshot> {
+  const result = await api.getAvatarConversationTurn(conversationId, turnId, sinceSeq || undefined);
+  return {
+    frames: result.turn.messages as AvatarTaskMessageFrame[],
+    turn: result.turn,
+    conversationId: result.conversation_id,
+  };
+}
+
+export interface AvatarPollingSnapshot {
+  contact: Contact | undefined;
+  generation: number;
+  frames: AvatarTaskMessageFrame[];
+  next: {
+    taskId: string;
+    conversationId?: string;
+    phase: AvatarSessionState["phase"];
+    outcome: AvatarSessionState["outcome"];
+  };
+}
+
+export interface AvatarPollingSnapshotResult {
+  conversation: ConvoOrNull;
+  terminal: boolean;
+  terminalConversationId?: string;
+}
+
+export function applyAvatarPollingSnapshot(
+  prev: ConvoOrNull,
+  snapshot: AvatarPollingSnapshot,
+): AvatarPollingSnapshotResult {
+  if (!prev) return { conversation: prev, terminal: false };
+  const cur = getAvatarSession(prev);
+  // 代际丢弃：更晚的发起已接管本会话，忽略这批迟到帧（防串场）。
+  if (cur && isStaleGeneration(cur.generation, snapshot.generation)) {
+    return { conversation: prev, terminal: false };
+  }
+
+  let rows = cur?.rows ?? [];
+  for (const f of snapshot.frames) rows = applyTaskMessage(rows, f);
+  const anchor = cur?.replyAnchor ?? prev.messages.length;
+  const lastSeq = rows.reduce((max, r) => Math.max(max, r.seq), cur?.lastSeq ?? 0);
+  // time 留空：避免每拍轮询用 nowHHMM() 刷新导致回复时间戳抖动（与 buildAvatarConversation 一致）。
+  const reply = messagesToConversation(rows, { who: avatarWho(snapshot.contact) });
+  const messages = [...prev.messages.slice(0, anchor), ...reply];
+  const terminal = snapshot.next.outcome !== null;
+  const state: AvatarSessionState = {
+    taskId: terminal ? null : snapshot.next.taskId,
+    conversationId: snapshot.next.conversationId ?? cur?.conversationId ?? null,
+    phase: terminal ? null : snapshot.next.phase,
+    outcome: snapshot.next.outcome,
+    generation: snapshot.generation,
+    lastSeq,
+    rows,
+    replyAnchor: anchor,
+  };
+  return {
+    conversation: withAvatarSession({ ...prev, messages }, state),
+    terminal,
+    terminalConversationId: terminal ? snapshot.next.conversationId : undefined,
+  };
+}
+
+// 把一次会话的流式帧折进会话缓存：读当前缓存 → 代际校验 → 合帧 → 重渲当前回复 → 回写。
+// 返回是否已终态（供轮询决定是否停止）。纯写缓存，不做网络。
+function foldSessionIntoCache(
+  qc: QueryClient,
+  wsId: string,
+  contactId: string,
+  contact: Contact | undefined,
+  generation: number,
+  frames: AvatarTaskMessageFrame[],
+  next: {
+    taskId: string;
+    conversationId?: string;
+    phase: AvatarSessionState["phase"];
+    outcome: AvatarSessionState["outcome"];
+  },
+): Pick<AvatarPollingSnapshotResult, "terminal" | "terminalConversationId"> {
+  let terminal = false;
+  let terminalConversationId: string | undefined;
+  qc.setQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId), (prev) => {
+    const result = applyAvatarPollingSnapshot(prev, { contact, generation, frames, next });
+    terminal = result.terminal;
+    terminalConversationId = result.terminalConversationId;
+    return result.conversation;
+  });
+  return { terminal, terminalConversationId };
+}
+
+export function restoreAvatarBusySession(convo: ConvoOrNull): ConvoOrNull {
+  if (!convo) return convo;
+  const cur = getAvatarSession(convo);
+  if (!cur || cur.outcome !== null || !cur.taskId) return convo;
+  return withAvatarSession(convo, { ...cur, phase: cur.phase ?? "running" });
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────
 export interface CortexActions {
   sendMessage: (contactId: string, contact: Contact | undefined, text: string) => void;
@@ -143,11 +281,15 @@ export interface CortexActions {
     msgUid: string,
     decision: Decision,
   ) => string; // returns a toast string for the caller to surface
+  // 团队分身：取消在途会话（原路 kill 拥有者机 CLI）；mock/无 apiClient 时为 no-op。
+  cancelSession: (contactId: string, contact: Contact | undefined) => void;
 }
 
 export function useCortexActions(wsId: string, qcOverride?: QueryClient): CortexActions {
   const qcFromCtx = useQueryClient();
   const qc = qcOverride ?? qcFromCtx;
+  // apiClient 存在 = 真实后端在线 → 分身走真实 invoke/流式；null = 回落 mock（行为不变）。
+  const { apiClient } = useCoreContext();
 
   const setConvo = useCallback(
     (contactId: string, updater: (prev: ConvoOrNull) => ConvoOrNull) => {
@@ -156,9 +298,176 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
     [qc, wsId],
   );
 
+  // 轮询驱动一次分身会话流：直到终态或超上限；每拍合帧写缓存，终态后失效通讯录（daily_used 变化）。
+  const pollAvatarSession = useCallback(
+    async (
+      contactId: string,
+      contact: Contact | undefined,
+      conversationId: string,
+      turnId: string,
+      generation: number,
+      api: ApiClient,
+    ) => {
+      for (let tick = 0; tick < AVATAR_POLL_MAX_TICKS; tick++) {
+        // 代际早退：期间有更晚的发起接管本会话即停。
+        const curState = getAvatarSession(qc.getQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId)));
+        if (curState && isStaleGeneration(curState.generation, generation)) return;
+        try {
+          const sinceSeq = curState?.lastSeq ?? 0;
+          const { frames, turn, conversationId: resolvedConversationId } = await loadAvatarPollingSnapshot(
+            api,
+            conversationId,
+            turnId,
+            sinceSeq,
+          );
+          const outcome = turn.outcome ?? null;
+          const phase = turn.phase ?? "running";
+          const { terminal } = foldSessionIntoCache(
+            qc,
+            wsId,
+            contactId,
+            contact,
+            generation,
+            frames,
+            {
+              taskId: turn.turn_id || turn.task_id || turnId,
+              conversationId: resolvedConversationId,
+              phase,
+              outcome,
+            },
+          );
+          if (terminal) {
+            // 终态：当前会话走权威历史 refetch 补齐可能漏掉的末帧；通讯录在线态 / 今日已用次数也失效重取。
+            void qc.invalidateQueries({ queryKey: conversationKeys.detail(wsId, contactId) });
+            void qc.invalidateQueries({ queryKey: contactKeys.list(wsId) });
+            return;
+          }
+        } catch {
+          // 单拍网络抖动忽略，继续轮询；持续失败由上限兜底停止。
+        }
+        await new Promise((r) => setTimeout(r, AVATAR_POLL_MS));
+      }
+      // 轮询上限耗尽仍未见终态：不能伪造一个 8 值 outcome(与服务端终态契约逐字对齐,
+      // 见 avatar-types.ts 注释——服务端任务可能仍在跑,也可能是孤儿 task,并非真已终态)。
+      // 仿 handleInvokeError 的「非终态失败」分支:解除 busy 放行用户重试/重发,并用 toast
+      // 显式告知,而非让 UI 静默永久卡在「思考中」(此前的 bug:循环耗尽后直接 return,
+      // 缓存里 phase 仍非空、outcome 仍为 null,isSessionBusy 永远为真)。
+      const curState = getAvatarSession(qc.getQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId)));
+      if (curState && !isStaleGeneration(curState.generation, generation) && isSessionBusy(curState)) {
+        useCortexUIStore.getState().pushToast("长时间未收到分身响应，已停止等待（任务可能仍在后台执行）", { kind: "error" });
+        setConvo(contactId, (prev) => {
+          if (!prev) return prev;
+          const cur = getAvatarSession(prev);
+          if (!cur || isStaleGeneration(cur.generation, generation)) return prev;
+          return withAvatarSession(prev, { ...cur, taskId: null, phase: null });
+        });
+      }
+    },
+    [qc, wsId, setConvo],
+  );
+
+  // 受理失败呈现：429 → 超限终态横幅；409 → 忙碌 toast 并解禁输入；503/其它 → toast + 解禁。
+  const handleInvokeError = useCallback(
+    (contactId: string, generation: number, err: unknown, previousConvo?: ConvoOrNull) => {
+      const toast = useCortexUIStore.getState().pushToast;
+      const code = err instanceof ApiError ? err.code : undefined;
+      if (code === "conversation_busy") {
+        toast("上一轮仍在服务端收尾，请稍候再试", { kind: "error" });
+        if (previousConvo !== undefined) {
+          setConvo(contactId, () => restoreAvatarBusySession(previousConvo));
+        } else {
+          setConvo(contactId, (prev) => {
+            if (!prev) return prev;
+            const cur = getAvatarSession(prev);
+            if (!cur || isStaleGeneration(cur.generation, generation)) return prev;
+            return null;
+          });
+        }
+        void qc.invalidateQueries({ queryKey: conversationKeys.detail(wsId, contactId) });
+        void qc.invalidateQueries({ queryKey: contactKeys.list(wsId) });
+        return;
+      }
+      // 终态化：超限（受理即拒，无 task）落 rejected_quota 横幅。
+      if (code === "quota_exceeded" || code === "caller_quota_exceeded") {
+        setConvo(contactId, (prev) => {
+          if (!prev) return prev;
+          const cur = getAvatarSession(prev);
+          if (!cur || isStaleGeneration(cur.generation, generation)) return prev;
+          return withAvatarSession(prev, { ...cur, taskId: null, phase: null, outcome: "rejected_quota" });
+        });
+        return;
+      }
+      // 非终态失败：解除 busy（phase=null）让用户可重试，并 toast 说明。
+      const msg =
+        code === "avatar_offline"
+            ? "分身已离线，无法应答"
+            : code === "avatar_unavailable"
+              ? "分身在线但本机 CLI 不可用"
+              : "发起失败，请稍后重试";
+      toast(msg, { kind: "error" });
+      setConvo(contactId, (prev) => {
+        if (!prev) return prev;
+        const cur = getAvatarSession(prev);
+        if (!cur || isStaleGeneration(cur.generation, generation)) return prev;
+        return withAvatarSession(prev, { ...cur, taskId: null, phase: null });
+      });
+    },
+    [qc, setConvo, wsId],
+  );
+
+  // 分身真实发起：乐观插入用户消息 → invoke → 存 task/代际 → 轮询流式；受理失败按 code 呈现。
+  const invokeAvatar = useCallback(
+    async (contactId: string, contact: Contact, text: string, api: ApiClient) => {
+      const runtimeId = contact.runtimeId ?? contact.id;
+      // 串行约束（R11）：已有在途会话时禁止再发（UI 亦禁用输入，此处双重兜底）。
+      const existing = getAvatarSession(qc.getQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId)));
+      if (isSessionBusy(existing)) {
+        useCortexUIStore.getState().pushToast("当前对话进行中，请等回答结束后再发送", { kind: "info" });
+        return;
+      }
+      // 乐观插入用户消息，并以 messages 末尾为 replyAnchor（其后渲染分身回复）。
+      // 首次向该分身提问时缓存可能为 null（mock 无此会话）→ 兜底建空会话，否则乐观插入会被丢弃。
+      const generation = (existing?.generation ?? 0) + 1;
+      const previousConvo = qc.getQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId));
+      setConvo(contactId, (prev) => {
+        const seed: Conversation = prev ?? { headerStatus: { dot: "online", text: "" }, metaRow: [], messages: [] };
+        const withUser = applySendMessage(seed, text, nowHHMM());
+        return withAvatarSession(withUser, { ...initAvatarSession(generation), replyAnchor: withUser.messages.length });
+      });
+
+      try {
+        const { conversation_id, turn_id, task_id, approval_required } = await api.invokeAvatar(runtimeId, text);
+        const turnId = turn_id || task_id;
+        if (!conversation_id || !turnId) {
+          throw new Error("avatar invoke response missing conversation_id or turn_id");
+        }
+        setConvo(contactId, (prev) => {
+          if (!prev) return prev;
+          const cur = getAvatarSession(prev);
+          if (!cur) return prev;
+          return withAvatarSession(prev, {
+            ...cur,
+            taskId: turnId,
+            conversationId: conversation_id,
+            phase: approval_required ? "waiting_approval" : "running",
+          });
+        });
+        void pollAvatarSession(contactId, contact, conversation_id, turnId, generation, api);
+      } catch (err) {
+        handleInvokeError(contactId, generation, err, previousConvo);
+      }
+    },
+    [qc, wsId, setConvo, pollAvatarSession, handleInvokeError],
+  );
+
   const sendMessage = useCallback<CortexActions["sendMessage"]>(
     (contactId, contact, text) => {
       if (!text.trim()) return;
+      // 团队分身 + 真实后端 → 走 invoke/流式；否则回落 mock（个人/演示/无后端）。
+      if (apiClient && contact?.kind === "avatar") {
+        void invokeAvatar(contactId, contact, text, apiClient);
+        return;
+      }
       setConvo(contactId, (prev) => (prev ? applySendMessage(prev, text, nowHHMM()) : prev));
 
       // Fake Agent reply for non-self contacts: typing indicator, then a reply.
@@ -181,7 +490,30 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
         }, 1800);
       }
     },
-    [setConvo],
+    [setConvo, apiClient, invokeAvatar],
+  );
+
+  // 取消在途分身会话：调 conversation turn cancel（服务端 → daemon → kill CLI 进程组），本地立即落
+  // canceled 终态（保留已流式的 partial 输出，AE9）；轮询侧观察到 cancelled 亦幂等一致。
+  const cancelSession = useCallback<CortexActions["cancelSession"]>(
+    (contactId, contact) => {
+      if (!apiClient || contact?.kind !== "avatar") return;
+      const cur = getAvatarSession(qc.getQueryData<Conversation | null>(conversationKeys.detail(wsId, contactId)));
+      const turnId = cur?.taskId;
+      const conversationId = cur?.conversationId;
+      if (!turnId || !conversationId) return;
+      void apiClient.cancelAvatarTurn(conversationId, turnId).catch(() => {
+        useCortexUIStore.getState().pushToast("取消请求发送失败，请重试", { kind: "error" });
+      });
+      setConvo(contactId, (prev) => {
+        if (!prev) return prev;
+        const s = getAvatarSession(prev);
+        if (!s) return prev;
+        return withAvatarSession(prev, { ...s, taskId: null, phase: null, outcome: "canceled" });
+      });
+      void qc.invalidateQueries({ queryKey: contactKeys.list(wsId) });
+    },
+    [apiClient, qc, wsId, setConvo],
   );
 
   const approveChange = useCallback<CortexActions["approveChange"]>(
@@ -205,5 +537,5 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
     [setConvo],
   );
 
-  return { sendMessage, approveChange };
+  return { sendMessage, approveChange, cancelSession };
 }

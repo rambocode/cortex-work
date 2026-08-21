@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   CoreProvider,
   useCortexUIStore,
@@ -10,10 +10,34 @@ import { CortexDesktopView } from "@cortex-work/views/cortex-desktop";
 // macOS uses a frameless window (titleBarStyle: hiddenInset) so the app's
 // titlebar must reserve space for the native traffic lights.
 const isMac = typeof window !== "undefined" && window.desktopAPI?.appInfo.os === "macos";
-const runtimeConfig = typeof window !== "undefined" ? window.desktopAPI?.runtimeConfig : undefined;
-const workspaceId = runtimeConfig?.workspaceId || "demo-workspace";
 // 个人工作区的桌面能力桥（preload personal 与 core DesktopBridge 形状一致）。
 const rawDesktopBridge = typeof window !== "undefined" ? (window.desktopAPI?.personal ?? null) : null;
+
+// 渲染端统一的「已启用后端」配置（W1）。来源三选一，优先级从高到低：
+//   ① env 注入（CORTEX_API_URL 等，CI/开发向后兼容）→ 作为初始 state。
+//   ② 持久化登录态（auth-config.json，冷启动异步读回）。
+//   ③ 应用内登录成功回调（handleAuthenticated）。
+// apiConfig（是否启用 ApiClient）单一读此 state，避免双数据源漂移。
+interface ActiveConfig {
+  apiUrl: string;
+  authToken?: string;
+  workspaceId?: string;
+  workspaceSlug?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+}
+
+const envRuntime = typeof window !== "undefined" ? window.desktopAPI?.runtimeConfig : undefined;
+// env 有 apiUrl 即视为最高优先级配置（向后兼容既有 env 注入路径）；否则为 null，挂载后读持久化填充。
+const initialEnvConfig: ActiveConfig | null = envRuntime?.apiUrl
+  ? {
+      apiUrl: envRuntime.apiUrl,
+      authToken: envRuntime.authToken,
+      workspaceId: envRuntime.workspaceId,
+      workspaceSlug: envRuntime.workspaceSlug,
+    }
+  : null;
 
 // 核心路径埋点的 dev/prod 级别 gating（U7）:dev/prod 判断只能留在壳（core/views 禁用 import.meta.env）。
 // dev 透传全部级别；prod 只透传 warn/error，丢弃 info/debug 以免高频核心路径埋点污染生产日志。
@@ -52,6 +76,71 @@ export default function App() {
     if (!isMac) return;
     document.documentElement.setAttribute("data-vibrancy", "sidebar");
   }, []);
+
+  // 已启用后端配置的单一数据源（W1）。初始值取 env 注入（最高优先级）；env 缺失时 null，
+  // 由下方启动 effect 异步读持久化登录态填充。
+  const [config, setConfig] = useState<ActiveConfig | null>(initialEnvConfig);
+  const workspaceId = config?.workspaceId || "demo-workspace";
+
+  // 启动接线（W1）：env 配置已作为初始 state（最高优先级，直接返回）；否则读持久化登录态填充。
+  // 执行点在服务器侧 daemon（本仓不做桌面执行节点），故此处只恢复渲染端登录态，无需接线主进程。
+  // workspaceId 需为 UUID（服务端契约）。
+  useEffect(() => {
+    if (initialEnvConfig) return;
+    let cancelled = false;
+    void rawDesktopBridge?.authGetConfig?.().then((persisted) => {
+      if (cancelled || !persisted) return;
+      setConfig({
+        apiUrl: persisted.baseUrl,
+        authToken: persisted.token,
+        workspaceId: persisted.workspaceId,
+        workspaceSlug: persisted.workspaceSlug,
+        userId: persisted.userId,
+        userName: persisted.userName,
+        userEmail: persisted.userEmail,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 应用内登录成功（W1）：更新 state（驱动 apiConfig 启用真实后端）+ 持久化（token 主进程加密）。
+  const handleAuthenticated = (cfg: {
+    apiUrl: string;
+    token: string;
+    workspaceId: string;
+    workspaceSlug?: string;
+    userId?: string;
+    userName?: string;
+    userEmail?: string;
+  }): void => {
+    setConfig({
+      apiUrl: cfg.apiUrl,
+      authToken: cfg.token,
+      workspaceId: cfg.workspaceId,
+      workspaceSlug: cfg.workspaceSlug,
+      userId: cfg.userId,
+      userName: cfg.userName,
+      userEmail: cfg.userEmail,
+    });
+    void rawDesktopBridge?.authSetConfig?.({
+      baseUrl: cfg.apiUrl,
+      workspaceId: cfg.workspaceId,
+      workspaceSlug: cfg.workspaceSlug,
+      userId: cfg.userId,
+      userName: cfg.userName,
+      userEmail: cfg.userEmail,
+      token: cfg.token,
+    });
+  };
+
+  // 登出（W1）：清持久化 + 清 state（apiConfig 随之停用真实后端，团队侧回落登录卡）。
+  // 仅清渲染端登录态与本地持久化，避免登出流程阻塞在网络往返。
+  const handleLogout = (): void => {
+    void rawDesktopBridge?.authClearConfig?.();
+    setConfig(null);
+  };
 
   // 快捷回复设置快照 → 主进程（KTD3）：起草在主进程组装 prompt 需要最新 reply 设置（含专属
   // providerId/model 与 userProfile），它们活在渲染端 store。此处推给主进程缓存
@@ -127,20 +216,36 @@ export default function App() {
   return (
     <CoreProvider
       wsId={workspaceId}
-      identity={{ userId: "me", name: "我" }}
+      // userId 优先取团队登录态里的真实用户 id(服务端 UUID,与 ApiAvatar.owner.id 同格式，
+      // 供"我的角色会话"等 owner 视角功能匹配)；未登录/env 兜底路径无该字段时回退 "me"
+      // 占位——个人工作区本地功能不依赖真实 userId，不受影响。
+      identity={{ userId: config?.userId || "me", name: "我" }}
       apiConfig={{
-        enabled: !!runtimeConfig?.apiUrl && (!!runtimeConfig?.workspaceId || !!runtimeConfig?.workspaceSlug),
-        baseUrl: runtimeConfig?.apiUrl,
-        token: runtimeConfig?.authToken,
-        workspaceId: runtimeConfig?.workspaceId,
-        workspaceSlug: runtimeConfig?.workspaceSlug,
+        enabled: !!config?.apiUrl && (!!config?.workspaceId || !!config?.workspaceSlug),
+        baseUrl: config?.apiUrl,
+        token: config?.authToken,
+        workspaceId: config?.workspaceId,
+        workspaceSlug: config?.workspaceSlug,
         platform: "desktop",
         version: window.desktopAPI?.appInfo.version,
         os: window.desktopAPI?.appInfo.os,
       }}
       desktopBridge={desktopBridge}
     >
-      <CortexDesktopView nativeTitlebar={isMac} onOpenFlashNote={openFlashNote} onOpenProjectsWindow={openProjectsWindow} />
+      <CortexDesktopView
+        nativeTitlebar={isMac}
+        onOpenFlashNote={openFlashNote}
+        onOpenProjectsWindow={openProjectsWindow}
+        auth={{
+          // 已登录并可启用真实后端（有 apiUrl + token + workspace）时 enabled=true → 不显示登录卡。
+          enabled: !!config?.apiUrl && !!config?.authToken && (!!config?.workspaceId || !!config?.workspaceSlug),
+          userName: config?.userName,
+          userEmail: config?.userEmail,
+          defaultBaseUrl: config?.apiUrl || "http://127.0.0.1:8080",
+          onAuthenticated: handleAuthenticated,
+          onLogout: handleLogout,
+        }}
+      />
     </CoreProvider>
   );
 }

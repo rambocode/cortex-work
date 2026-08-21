@@ -2,7 +2,8 @@
 
 import type { Locale } from "../i18n/locales";
 
-export type AgentStatus = "idle" | "working" | "review" | "online" | "offline";
+// unavailable = 在线但不可执行（分身两级在线态的下位：online_unavailable 映射到此）。
+export type AgentStatus = "idle" | "working" | "review" | "online" | "offline" | "unavailable";
 export type GroupId = "pinned" | "team" | "shared" | "groups";
 
 export interface Avatar {
@@ -51,6 +52,12 @@ export interface Contact {
   pinned?: boolean;
   mention?: boolean;
   badgeTag?: "my" | "shared";
+  // ── 团队分身（共享角色）：分身 Contact 的额外元数据（人类联系人不带这些字段）。 ──
+  // 分身 Contact.id = runtime_id。kind 缺省视为 "human"，运行时据 kind 区分渲染。
+  ownerId?: string; // 分身拥有者成员 id
+  ownerName?: string; // 分身拥有者展示名（列表副标题「来自 X」）
+  kind?: "human" | "avatar";
+  runtimeId?: string; // 分身 runtime id（= id，冗余存放便于消费方直取）
 }
 
 export interface Group {

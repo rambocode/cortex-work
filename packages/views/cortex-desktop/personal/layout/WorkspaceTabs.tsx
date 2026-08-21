@@ -2,9 +2,9 @@
 
 import { useCortexUIStore } from "@cortex-work/core";
 
-// 团队工作区尚未实现,暂时隐藏切换 tab 以免对用户产生歧义;默认仍进个人工作区
-// （store 默认 workspace="personal"）。团队功能在独立分支实现后置 true 即可恢复。
-const TEAM_WORKSPACE_ENABLED = false;
+// 团队工作区已随「服务器工作区」(feat/team-server-workspace)真实化,恢复切换
+// tab;默认仍进个人工作区（store 默认 workspace="personal"）。
+const TEAM_WORKSPACE_ENABLED = true;
 
 export function WorkspaceTabs() {
   const workspace = useCortexUIStore((s) => s.workspace);
