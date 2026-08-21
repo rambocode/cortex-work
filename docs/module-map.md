@@ -23,6 +23,7 @@
 |---|---|
 | `main/ipc/register.ts` | 主进程全部 40+ IPC 域一屏可见，找主进程功能先看这里 |
 | `views/personal/layout/PersonalWorkspace.tsx` | 个人工作区三栏容器，主区视图互斥切换总表 |
+| `views/personal/right-panel/registry.ts` | 右栏全部面板的唯一清单（11 个 descriptor 的集中注册表），找右栏功能先看这里 |
 | `core/store/personal.ts` | 视图开关（`designOpen`/`writingOpen`/…）与个人工作区客户端态总店。注意 `designOpen` 目前**没有任何渲染方**（死开关），新入口勿挂 `openDesign()`，设计稿走 `/skill:design`；深度研究无整窗视图态，入口是会话 `/skill:research`，右栏 `rightView:"research"` 展示 |
 
 ## 一级功能名词表
@@ -36,6 +37,7 @@
 
 | 名词（含别名） | views | core | main |
 |---|---|---|---|
+| 右栏面板 / 右侧面板 / 面板注册表（2026-08 注册表化重构） | `personal/right-panel/`（`types.ts` descriptor 合同 + `registry.ts` 集中清单/`KnownPanelId` 派生/未知 id 回退 files + `open.ts` 的 `openPanel(id, payload?)`/`consumePanelRequest` 类型化入口 + `context.tsx` PanelHost 软合同 + `PresenceGuard.tsx` 空态自动收起）、`personal/layout/PersonalRightPanel.tsx`（通用宿主:React.lazy 懒加载面板主体,标题/宽度档/放大/自定义头全由 descriptor 驱动）、`personal/layout/PersonalRightRail.tsx`（rail 从 `railItems()` 派生）。**加新面板 = 面板目录写 descriptor(+懒加载 wrapper panel.tsx) + registry 加一行 import**;仅当需要自定义宽度公式时才在 `cortex-desktop.css` 加一条 `:has(面板根类名)` 规则（刻意保留的 CSS 触点）。跨栏「打开面板并携带载荷」一律走 `openPanel`,禁止再造逐面板 request 槽 | `store/personal.ts`（`rightView: string` 无知通道 + `panelRequest` 统一请求单槽,nonce 单调/last-wins/不匹配不清槽） | — |
 | 会话 / 跑 Agent / CLI 流式管线 / 工具与思考过程 / 拖放拆分窗格 | `personal/chat/PersonalChatArea.tsx`（可显式绑定 session）、`personal/chat/ConversationProcessTimeline.tsx`（紧凑 Activity Ledger：运行中展开、完成折叠，绝不内联终端/input/output）、`personal/chat/processTimeline.ts`（`buildProcessPresentation()` 统一负责 read 聚合、相对路径、状态与稳定 key；工具 start/end 配对下沉到 core 的 `personal/process-archive.ts`，与归档共用）、`personal/chat/PersonalProcessPanel.tsx`（消费 `ProcessPanelTarget` 的完整运行详情宿主）、`personal/chat/AgentTranscriptDialog.tsx` + `personal/chat/trajectory/`（运行过程详情的 Trajectory 形态，参照 deepseek-harness ui-trajectory 复刻：`TrajectoryView` 编排 + 工具栏/概览时间线（框选聚焦、滚轮缩放、右键平移）/两列台账（轮折叠、assistant 工具组折叠、请求边界圆点）/详情检查器（页签 + 拖拽调宽），纯逻辑层 `trajectory-layout.ts`（RunEvent→轮/步折叠）、`trajectory-timeline-model.ts`、`trajectory-search.ts`）、`personal/layout/ConversationSplitView.tsx`（任意叶子窗格四向拖放拆分，数量不限）、`personal/layout/conversation-layout.ts`（二维拆分树）、`personal/layout/conversation-drag.ts`（拖放 MIME 与方向判定）、`chat/composer/PersonalComposer.tsx`、`chat/composer/ComposerShell.tsx` | `personal/messages.ts`（持久正文流 + 瞬态过程流 + 轮末过程归档）、`personal/process-archive.ts`（工作过程归档：每轮的过程流 + 工具输入/输出快照，落 `chats/<id>.process.json`，与正文分文件；上限/截断与锚点语义都在这里） | `ipc/cli.ts`（spawn+流式）、`ipc/chat.ts`（消息持久化 + `chat:loadProcess`/`chat:saveProcess` 过程归档） |
 | 会话状态徽标（侧栏会话行:等待确认 / 正在运行 / 已结束,看过即清） | `personal/layout/PersonalSidebar.tsx`（SessionRow 三态派生 + `.pw-session-status` 状态点） | `store/personal.ts`（`runOutcomeBySession` 瞬态终局 + `markRunOutcome`/`clearRunOutcome`,active 守卫内聚）、`personal/messages.ts`（`finalizeRun`/`crashed` 收尾落终局,`run.stopping` 跳过） | — |
 | 个人工作区元数据持久化 / 会话索引恢复 | `personal/layout/PersonalWorkspace.tsx`（唯一挂载持久化 hook 的主窗口） | `desktop/usePersonalPersistence.ts`（hydrate 完成前禁止全量保存）、`store/personal.ts` | `ipc/store.ts`（原子写入 + 破坏性清零前恢复索引）、`scripts/recover-personal-workspace.mjs`（事故恢复；详见 `docs/personal-workspace-persistence.md`） |
