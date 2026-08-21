@@ -407,10 +407,15 @@ export class ApiClient {
   }
 
   // 占用/排队列表（「被 X 占用 · 排队 N」提示的数据源；实时增量走 server_workspace:queue 事件）。
-  // 服务端封套：{server_workspace_id, queue: [...], queue_depth}。
-  listServerWorkspaceQueue(id: string): Promise<{ server_workspace_id: string; queue: ServerWorkspaceQueueItem[]; queue_depth: number }> {
-    return this.get<{ server_workspace_id: string; queue: ServerWorkspaceQueueItem[]; queue_depth: number }>(
-      `/api/server-workspaces/${encodeURIComponent(id)}/queue`,
-    );
+  // 服务端封套：{server_workspace_id, items: [...], queue_depth}（迁移期兼容旧 queue 字段）。
+  listServerWorkspaceQueue(
+    id: string,
+  ): Promise<{ server_workspace_id: string; items?: ServerWorkspaceQueueItem[]; queue?: ServerWorkspaceQueueItem[]; queue_depth: number }> {
+    return this.get<{
+      server_workspace_id: string;
+      items?: ServerWorkspaceQueueItem[];
+      queue?: ServerWorkspaceQueueItem[];
+      queue_depth: number;
+    }>(`/api/server-workspaces/${encodeURIComponent(id)}/queue`);
   }
 }

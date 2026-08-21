@@ -120,7 +120,7 @@ export function serverWorkspaceQueueOptions(wsId: string, swId: string, api: Api
     queryKey: serverWorkspaceKeys.queue(wsId, swId),
     queryFn: async (): Promise<ServerWorkspaceQueueItem[]> => {
       const resp = await api!.listServerWorkspaceQueue(swId);
-      return resp.queue ?? [];
+      return resp.items ?? resp.queue ?? [];
     },
     enabled: !!api && !!wsId && !!swId,
     staleTime: 10_000,

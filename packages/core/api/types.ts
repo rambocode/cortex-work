@@ -434,6 +434,7 @@ export interface ServerWorkspaceQueueItem {
   instance_id: string;
   status: "queued" | "dispatched" | "running";
   caller_id?: string;
+  caller_name?: string;
   prompt?: string;
   created_at: string;
 }
