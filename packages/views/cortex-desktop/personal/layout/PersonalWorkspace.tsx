@@ -25,6 +25,7 @@ import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
 import { PersonalRightRail } from "./PersonalRightRail";
 import { openPanel } from "../right-panel/open";
+import { usePrewarmPanels } from "../right-panel/prewarm";
 import { TerminalPanel } from "../terminal/TerminalPanel";
 import { NewSessionLanding } from "../home/NewSessionLanding";
 import { AutomationView } from "../automation/AutomationView";
@@ -180,6 +181,8 @@ export function PersonalWorkspace({
   useCloseRightPanelOnHome(homeOpen);
   // 窗口宽度 < 770pt 时自动收缩左栏（保住中栏 440px 下限）；恢复宽度后由用户主动展开。
   useResponsiveLeftCollapsed();
+  // 空闲预热右栏 11 个懒加载面板 chunk(dev 首开顿挫消除;web 降级页不预热)。
+  usePrewarmPanels(!!bridge);
 
   // 启动时探测本机已安装的 agent CLI（claude/codex…）,供新建会话默认值与
   // agent 下拉禁用态使用;探测失败静默,UI 退化为不标注未安装。
