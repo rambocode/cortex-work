@@ -40,9 +40,10 @@ import { collectModelOptions, useProviderViews } from "../../settings/provider/u
 import { useDismissableMenu } from "../../shared/useDismissableMenu";
 import { RESEARCH_SKILL_PILL } from "./useSlashCommands"; // 只取常量;反向引用是 import type,无运行时循环
 import { MentionDropdown, useMentionAutocomplete } from "./MentionAutocomplete";
-import { PROMPT_DRAG_MIME } from "../../skills/PromptPanel";
-import { TODO_DRAG_MIME } from "../../tasks/TodosView";
-import { FILE_DRAG_MIME } from "../../files/FilesView";
+// 三个拖拽 MIME 走独立轻模块:直接 import 面板组件会把整个面板拖进主 chunk,破坏右栏懒加载。
+import { PROMPT_DRAG_MIME } from "../../skills/dragMime";
+import { TODO_DRAG_MIME } from "../../tasks/dragMime";
+import { FILE_DRAG_MIME } from "../../files/dragMime";
 import {
   MAX_IMAGES_PER_MESSAGE,
   checkImageFile,

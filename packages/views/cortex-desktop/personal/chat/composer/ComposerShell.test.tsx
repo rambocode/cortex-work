@@ -8,7 +8,7 @@ import { CoreProvider, usePersonalStore, type AgentKind, type DerivedAgentMeta, 
 import { defaultAsrSettings, type AsrSettings } from "@cortex-work/core/desktop/media-gen-types";
 import type { LocalAsrModelStatus } from "@cortex-work/core/asr/local-models";
 import { ComposerShell, matchSlashCommands, rankSlashMatch, type SlashCommand } from "./ComposerShell";
-import { FILE_DRAG_MIME } from "../../files/FilesView";
+import { FILE_DRAG_MIME } from "../../files/dragMime";
 import { DOC_ACCEPT_ATTR } from "./docIntake";
 
 const bridge = { loadChat: async () => [], saveChat: async () => {} } as unknown as DesktopBridge;

@@ -19,7 +19,9 @@ import {
 import type { ProjectMeta, TaskFileInfo, TaskFilesResult, TodoMeta } from "@cortex-work/core";
 import { relTime } from "../layout/PersonalSidebar";
 
-export const TODO_DRAG_MIME = "application/x-cortex-todo";
+// 常量本体已抽到 ./dragMime(懒加载解耦),此处 re-export 保旧 import 面兼容。
+import { TODO_DRAG_MIME } from "./dragMime";
+export { TODO_DRAG_MIME };
 
 function TodoStatusButton({ todo }: { todo: TodoMeta }) {
   const updateTodo = usePersonalStore((s) => s.updateTodo);

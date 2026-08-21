@@ -40,7 +40,9 @@ type Mode = "all" | "changes";
 
 // 文件拖入会话(U6):应用内自定义 MIME,payload {path,name};ComposerShell 据此读内容入附件。
 // 仿 PROMPT_DRAG_MIME/TODO_DRAG_MIME 的「应用内拖拽」范式,不经 Electron 主进程、不需 webUtils。
-export const FILE_DRAG_MIME = "application/x-cortex-file";
+// 常量本体已抽到 ./dragMime(懒加载解耦),此处 re-export 保旧 import 面兼容。
+import { FILE_DRAG_MIME } from "./dragMime";
+export { FILE_DRAG_MIME };
 
 const isMarkdownName = (name: string) => /\.(md|markdown|mdx)$/i.test(name);
 

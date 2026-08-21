@@ -9,7 +9,9 @@ import type { PromptNode } from "@cortex-work/core";
 import { FileIcon, fileIconSpec } from "../shared/fileIcons";
 import { SkillFilePreview } from "./SkillFilePreview";
 
-export const PROMPT_DRAG_MIME = "application/x-cortex-prompt";
+// 常量本体已抽到 ./dragMime(懒加载解耦),此处 re-export 保旧 import 面兼容。
+import { PROMPT_DRAG_MIME } from "./dragMime";
+export { PROMPT_DRAG_MIME };
 
 // 文件树行图标:SKILL.md 用 Sparkle 强调;其余按扩展名取专属徽章(json/py 等),无则通用文件图标。
 function RowIcon({ name, isSkill }: { name: string; isSkill: boolean }) {
