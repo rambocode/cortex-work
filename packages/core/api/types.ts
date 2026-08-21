@@ -428,11 +428,12 @@ export interface ServerRuntime {
   online: boolean;
 }
 
-// GET /api/server-workspaces/{id}/queue 列表项（占用中/排队中任务的展示摘要）。
+// GET /api/server-workspaces/{id}/queue 列表项（占用中/排队中任务的展示摘要，字段对齐服务端 DTO）。
 export interface ServerWorkspaceQueueItem {
   task_id: string;
-  caller_id: string;
-  caller_name?: string;
+  instance_id: string;
   status: "queued" | "dispatched" | "running";
+  caller_id?: string;
+  prompt?: string;
   created_at: string;
 }

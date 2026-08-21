@@ -392,13 +392,25 @@ export class ApiClient {
   }
 
   // 在指定服务器工作区上发起会话轮次：服务端 find-or-create conversation + 建任务 + 唤醒 daemon。
-  // isolated 模式首次调用可能触发实例 provision（服务端返回 202 时抛 ApiError.code=instance_provisioning）。
-  invokeServerWorkspace(id: string, body: { prompt: string; runtime_id: string }): Promise<ServerWorkspaceInvokeResponse> {
-    return this.post<ServerWorkspaceInvokeResponse>(`/api/server-workspaces/${encodeURIComponent(id)}/invoke`, body);
+  // 服务端契约注意：isolated 首次调用触发实例 provision 时返回 **202 + 错误体 {code:"instance_provisioning"}**
+  // ——202 属 2xx，fetch 不会走 ApiError 路径，故此处自查 body：无 conversation_id 且带 code 时
+  // 归一化抛 ApiError（调用方按 err.code 分支，与其余错误码同一处理面）。
+  async invokeServerWorkspace(id: string, body: { prompt: string; runtime_id: string }): Promise<ServerWorkspaceInvokeResponse> {
+    const resp = await this.post<ServerWorkspaceInvokeResponse & { code?: string; error?: string }>(
+      `/api/server-workspaces/${encodeURIComponent(id)}/invoke`,
+      body,
+    );
+    if (!resp?.conversation_id && resp?.code) {
+      throw new ApiError(resp.error || resp.code, 202, "Accepted", resp.code);
+    }
+    return resp;
   }
 
   // 占用/排队列表（「被 X 占用 · 排队 N」提示的数据源；实时增量走 server_workspace:queue 事件）。
-  listServerWorkspaceQueue(id: string): Promise<{ items: ServerWorkspaceQueueItem[] }> {
-    return this.get<{ items: ServerWorkspaceQueueItem[] }>(`/api/server-workspaces/${encodeURIComponent(id)}/queue`);
+  // 服务端封套：{server_workspace_id, queue: [...], queue_depth}。
+  listServerWorkspaceQueue(id: string): Promise<{ server_workspace_id: string; queue: ServerWorkspaceQueueItem[]; queue_depth: number }> {
+    return this.get<{ server_workspace_id: string; queue: ServerWorkspaceQueueItem[]; queue_depth: number }>(
+      `/api/server-workspaces/${encodeURIComponent(id)}/queue`,
+    );
   }
 }

@@ -335,7 +335,8 @@
     "errDeleteFailed": "Failed to delete workspace",
     "errProvisioning": "Your worktree is being provisioned, try again shortly",
     "errOffline": "Server node is offline",
-    "errInvokeFailed": "Failed to send to the server workspace"
+    "errInvokeFailed": "Failed to send to the server workspace",
+    "errNotReady": "Server workspace is not ready yet"
   },
   "teamChat": {
     "humanHint": "Direct chat with people isn't supported yet. Ask their avatar instead.",

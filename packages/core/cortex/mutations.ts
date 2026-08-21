@@ -517,8 +517,10 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
             ...cur,
             taskId: turnId,
             conversationId: conversation_id,
-            phase: queue_position > 0 ? "queued" : "running",
-            queuedBehind: queue_position > 0 ? queue_position : undefined,
+            // 服务端 queue_position 是**含自身**的位次(同事务 count,1=队首即将被 claim)：
+            // >1 才是真排队,前方任务数 = position-1。
+            phase: queue_position > 1 ? "queued" : "running",
+            queuedBehind: queue_position > 1 ? queue_position - 1 : undefined,
           });
         });
         registerAvatarTask(turnId, { contactId, contact, generation, conversationId: conversation_id });
@@ -531,9 +533,9 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
           setConvo(contactId, () => restoreAvatarBusySession(previousConvo));
           return;
         }
-        if (code === "runtime_offline" || code === "server_workspace_not_ready") {
+        if (code === "runtime_offline" || code === "runtime_unavailable" || code === "workspace_not_ready") {
           useCortexUIStore.getState().pushToast(
-            code === "runtime_offline" ? "服务器执行节点离线" : "服务器工作区尚未就绪", { kind: "error" });
+            code === "workspace_not_ready" ? "服务器工作区尚未就绪" : "服务器执行节点离线或不可用", { kind: "error" });
           setConvo(contactId, () => restoreAvatarBusySession(previousConvo));
           return;
         }

@@ -335,7 +335,8 @@
     "errDeleteFailed": "删除工作区失败",
     "errProvisioning": "你的专属工作树正在准备，稍候重试",
     "errOffline": "服务器执行节点离线",
-    "errInvokeFailed": "发送到服务器工作区失败"
+    "errInvokeFailed": "发送到服务器工作区失败",
+    "errNotReady": "服务器工作区尚未就绪（仍在准备或出错）"
   },
   "teamChat": {
     "humanHint": "真人条目暂不支持对话。如需协作，请直接向 TA 的分身提问。",

@@ -77,14 +77,16 @@ export function pickRuntime(group: ServerWorkspaceGroup): ServerRuntime | undefi
 export function createServerWorkspaceErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return "serverWs.errNeedAdmin";
-    if (err.code === "slug_conflict" || err.status === 409) return "serverWs.errNameConflict";
+    if (err.code === "slug_taken" || err.status === 409) return "serverWs.errNameConflict";
   }
   return "serverWs.errCreateFailed";
 }
 export function invokeServerWorkspaceErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "instance_provisioning") return "serverWs.errProvisioning";
-    if (err.code === "runtime_offline" || err.code === "avatar_offline") return "serverWs.errOffline";
+    if (err.code === "workspace_not_ready") return "serverWs.errNotReady";
+    if (err.code === "runtime_offline" || err.code === "runtime_unavailable" || err.code === "avatar_offline")
+      return "serverWs.errOffline";
   }
   return "serverWs.errInvokeFailed";
 }
@@ -118,7 +120,7 @@ export function serverWorkspaceQueueOptions(wsId: string, swId: string, api: Api
     queryKey: serverWorkspaceKeys.queue(wsId, swId),
     queryFn: async (): Promise<ServerWorkspaceQueueItem[]> => {
       const resp = await api!.listServerWorkspaceQueue(swId);
-      return resp.items ?? [];
+      return resp.queue ?? [];
     },
     enabled: !!api && !!wsId && !!swId,
     staleTime: 10_000,
