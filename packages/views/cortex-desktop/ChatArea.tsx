@@ -33,7 +33,8 @@ function isBlankMessageText(text: Extract<Message, { kind: "text" }>["text"]): b
   return text.parts.every((part) => part.v.trim().length === 0);
 }
 
-function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
+// 团队会话包装层（team/TeamChatArea）复用头部，故导出。
+export function ChatHeader({ contact, convo }: { contact: Contact; convo: Conversation | null | undefined }) {
   const { t } = useTranslation("chat");
   const isShared = contact.group === "shared";
   const isGroup = contact.group === "groups";
@@ -1084,7 +1085,8 @@ interface Attachment {
   kind: string;
 }
 
-function Composer({
+// 团队会话包装层（team/TeamChatArea）在 Composer 外拼装选择 pill / 排队态，故导出。
+export function Composer({
   contact,
   onSend,
   onToast,

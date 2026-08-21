@@ -677,6 +677,8 @@ export {
   type ServerWorkspaceListData,
 } from "./cortex/server-workspaces";
 export { useTeamUIStore, type ServerWorkspaceSelection } from "./store/team";
+export { useTeamRealtime, deriveWsUrl } from "./cortex/realtime";
+export { registerAvatarTask, unregisterAvatarTask, type ActiveTaskBinding } from "./cortex/task-registry";
 export { CONTACTS, GROUPS, CONVOS, FILE_DIFFS, ORGS, findContact, whoMeta } from "./mock/data";
 export {
   i18n,

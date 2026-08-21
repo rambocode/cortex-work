@@ -16174,3 +16174,19 @@ button.sb-row {
 .serverws-picker-row:disabled { opacity: 0.5; cursor: default; }
 .serverws-picker-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .serverws-picker-row small { margin-left: auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }
+
+/* Composer 上方的服务器工作区选择 pill 行（TeamChatArea/ComposerWithWorkspace）。 */
+.serverws-composer-wrap { display: flex; flex-direction: column; }
+.serverws-pill-row { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 18px 6px; }
+.serverws-pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px;
+  border-radius: 12px; border: 1px solid var(--line); background: transparent;
+  color: var(--text-3); font-size: 12px; cursor: pointer;
+}
+.serverws-pill:hover { color: var(--text-2); border-color: var(--line-2, var(--line)); }
+.serverws-pill.is-set { color: var(--text-1); border-color: var(--text-4); }
+.serverws-pill-clear {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; border: 0; background: transparent; color: var(--text-4); cursor: pointer;
+}
+.serverws-pill-clear:hover { color: var(--text-2); background: var(--bg-2, rgba(0, 0, 0, 0.05)); }

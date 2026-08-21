@@ -20,6 +20,9 @@ export interface CoreContextValue {
   liveDataEnabled: boolean;
   // 桌面端能力桥（个人工作区）。web 端为 null。
   desktopBridge: DesktopBridge | null;
+  // 只读连接快照（团队实时层用）：realtime hook 需要 baseUrl/token 派生 ws url 并做首帧鉴权，
+  // 不应反向去掏 ApiClient 的私有 config。liveDataEnabled=false 时为 null。
+  apiConfig: { baseUrl: string; token?: string; workspaceId: string; workspaceSlug?: string } | null;
 }
 
 const CoreContext = createContext<CoreContextValue | null>(null);
@@ -58,6 +61,19 @@ export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBr
     wsId,
   ]);
   const bridge = desktopBridge ?? null;
+  // 与 apiClient 同门控的只读快照（memo 保引用稳定，避免消费方 effect 反复重跑）。
+  const apiConfigSnapshot = useMemo(
+    () =>
+      apiClient && apiConfig?.baseUrl
+        ? {
+            baseUrl: apiConfig.baseUrl,
+            token: apiConfig.token,
+            workspaceId: apiConfig.workspaceId ?? wsId,
+            workspaceSlug: apiConfig.workspaceSlug,
+          }
+        : null,
+    [apiClient, apiConfig?.baseUrl, apiConfig?.token, apiConfig?.workspaceId, apiConfig?.workspaceSlug, wsId],
+  );
   // 核心路径埋点（U7）:挂载时记一条初始化信息（wsId / 是否启用 liveData / 是否有桌面桥）。
   // 只调注入抽象,dev/prod 级别 gating 由壳决定;web 端 bridge=null 即安全 no-op。
   useEffect(() => {
@@ -69,7 +85,7 @@ export function CoreProvider({ wsId, identity, apiConfig, queryClient, desktopBr
   }, [bridge, wsId, apiClient]);
   return (
     <CoreContext.Provider
-      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: bridge }}
+      value={{ wsId, identity, apiClient, liveDataEnabled: !!apiClient, desktopBridge: bridge, apiConfig: apiConfigSnapshot }}
     >
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </CoreContext.Provider>

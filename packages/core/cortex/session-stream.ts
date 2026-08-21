@@ -58,6 +58,10 @@ export interface AvatarSessionState {
   lastSeq: number; // 已消费的最大 seq（HTTP 增量 since 用）
   rows: AvatarTaskMessageFrame[]; // 当前 task 的原始帧（保序去重后）
   replyAnchor: number; // Conversation.messages 中「当前回复」起始下标（其前为历史+用户提问）
+  // 服务器工作区（共享模式）排队态（加性可选，分身直连会话恒缺省）：
+  // queuedBehind = invoke 受理时前方任务数（>0 → phase 应为 "queued"，任务开跑后清零）。
+  serverWorkspaceId?: string;
+  queuedBehind?: number;
 }
 
 // Conversation 的加性视图：avatarSession 为可选挂载字段。
@@ -326,6 +330,9 @@ export interface AvatarSessionClientOptions {
   onTaskMessage?: (payload: AvatarTaskMessageFrame) => void;
   onTaskState?: (payload: AvatarTaskStatePayload) => void;
   onAvatarUpdated?: (payload: { runtime_id: string }) => void;
+  // 其余 workspace 广播事件（member:*/squad:*/invitation:*/server_workspace:* 等）的透传口：
+  // 消费方只应据此做 React Query invalidation（事件只触发失效，不塞数据）。
+  onWorkspaceEvent?: (type: string, payload: unknown) => void;
   reconnect?: boolean; // 断线是否自动重连（默认 true）；测试可关
 }
 
@@ -424,7 +431,11 @@ export class AvatarSessionClient {
       case "avatar:updated":
         this.opts.onAvatarUpdated?.(env.payload as { runtime_id: string });
         break;
-      // pong / subscribe_ack / subscribe_error / 未知 type：静默忽略（前向兼容）。
+      default:
+        // 领域事件（形如 "domain:action"）透传给 onWorkspaceEvent 做 invalidation；
+        // pong / subscribe_ack / subscribe_error 等控制帧静默忽略（前向兼容）。
+        if (env.type.includes(":")) this.opts.onWorkspaceEvent?.(env.type, env.payload);
+        break;
     }
   }
 

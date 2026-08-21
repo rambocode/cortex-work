@@ -25,6 +25,8 @@ import { SectionPage } from "./Sections";
 import { PersonalWorkspace } from "./personal/layout/PersonalWorkspace";
 import { Pet } from "./pet/Pet";
 import { LoginGate, type AuthedResult } from "./auth/LoginGate";
+import { TeamChatArea } from "./team/TeamChatArea";
+import { TeamRealtimeMount } from "./team/TeamRealtimeMount";
 import { PetBridge } from "./pet/PetBridge";
 import { VoiceAssistantController } from "./personal/voice-assistant/VoiceAssistantController";
 import { useTweaksPersistence } from "./useTweaksPersistence";
@@ -141,6 +143,8 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
             </div>
           ) : (
           <>
+          {/* 团队实时层:WS 直连后端做流式折帧与 invalidation;未登录(teamLocked)不建连。 */}
+          {teamLocked ? null : <TeamRealtimeMount />}
           <TitleBar
             contact={contact}
             rightOpen={rightOpen}
@@ -177,6 +181,19 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
               <LoginGate defaultBaseUrl={auth!.defaultBaseUrl} onAuthenticated={auth!.onAuthenticated} />
             ) : activeSection === "chat" ? (
               <>
+                {/* 团队 Contact（kind 有值:成员/分身）→ TeamChatArea（降级/排队/工作区选择）;
+                    kind 缺省（mock/legacy）→ 原 ChatArea,零回归。 */}
+                {contact?.kind ? (
+                  <TeamChatArea
+                    contact={contact}
+                    convo={convo}
+                    onSelectFile={handleSelectFile}
+                    activeFile={activeFile}
+                    onSend={(text) => sendMessage(activeContactId, contact, text)}
+                    onApprove={handleApprove}
+                    onToast={pushToast}
+                  />
+                ) : (
                 <ChatArea
                   contact={contact}
                   convo={convo}
@@ -186,6 +203,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
                   onApprove={handleApprove}
                   onToast={pushToast}
                 />
+                )}
                 {rightOpen ? (
                   <RightPanel
                     contact={contact}

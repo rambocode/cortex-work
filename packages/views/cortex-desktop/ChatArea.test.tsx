@@ -747,10 +747,12 @@ describe("MessageStream 自动贴底", () => {
 });
 
 describe("ChatArea.tsx 导出面未变（R12 / KTD9）", () => {
-  it("仅导出 MessageStream / ChatArea / ChatAreaProps（未把团队侧私有渲染件提为导出）", () => {
+  it("导出面 = ChatArea/ChatHeader/Composer/MessageStream（团队包装层 TeamChatArea 复用后三者），私有渲染件不泄漏", () => {
     // 运行时可见导出名（type/interface 编译后不在运行时,故只校验值导出 + 关键私有件未泄漏）。
+    // ChatHeader/Composer 是 feat/team-server-workspace 刻意开放给 team/TeamChatArea 的
+    // （避免 ChatArea 本体再膨胀）;守卫升级为锁定这个新导出面,防继续扩散。
     const exportedNames = Object.keys(ChatAreaModule).sort();
-    expect(exportedNames).toEqual(["ChatArea", "MessageStream"]);
+    expect(exportedNames).toEqual(["ChatArea", "ChatHeader", "Composer", "MessageStream"]);
     // 团队侧私有渲染件绝不被导出（KTD9:个人区用新建 ProcessStep,不复用这两个私有 const）。
     expect((ChatAreaModule as Record<string, unknown>).AgentLogMessage).toBeUndefined();
     expect((ChatAreaModule as Record<string, unknown>).ReasoningMessage).toBeUndefined();
