@@ -552,7 +552,7 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   const deepenNotes = useDeepenNotes();
   const cancelDeepen = useCancelDeepen();
   // 点击列表某条闪记 → 进入中心区宽写作面(占据 .pw-center-col);
-  // 右栏内 NoteDetail 仅保留给跨栏 requestNoteDetail 速览(时间线卡片跳转,不抢占中心区)。
+  // 右栏内 NoteDetail 仅保留给跨栏 openPanel("notes") 速览(时间线卡片跳转,不抢占中心区)。
   const openNoteEditor = usePersonalStore((s) => s.openNoteEditor);
   // 闪记按「当前会话所在项目」过滤所需:活跃会话 id + 会话列表(从会话取 projectId)。
   const sessions = usePersonalStore((s) => s.sessions);

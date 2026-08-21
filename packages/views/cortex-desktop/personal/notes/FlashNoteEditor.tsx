@@ -223,7 +223,7 @@ export function FlashNoteEditor({
       </div>
 
       {/* 深化产物 / 来源会话 / 生成 plan / 放弃深化(迁移自 NoteDetail,行为不变)。
-          产物文档经 requestFilePreview 在右栏文件视图打开,不与中心区编辑器争夺。 */}
+          产物文档经 openPanel("files") 在右栏文件视图打开,不与中心区编辑器争夺。 */}
       {note.status === "deepening" || note.status === "deepened" || docPaths.length > 0 || conversationIds.length > 0 ? (
         <footer className="pw-note-editor-links">
           <div className="pw-note-links-h">

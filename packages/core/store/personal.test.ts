@@ -452,26 +452,6 @@ describe("文件片段发送中转（终端 / composer）", () => {
   });
 });
 
-describe("整仓 diff 请求中转", () => {
-  it("requestGitDiff 记录请求并把右栏切到 files,消费后清空", () => {
-    usePersonalStore.setState({ gitDiffRequest: undefined, rightView: "todos" });
-    usePersonalStore.getState().requestGitDiff("p1");
-    expect(usePersonalStore.getState().gitDiffRequest).toEqual({ projectId: "p1" });
-    expect(usePersonalStore.getState().rightView).toBe("files");
-
-    expect(usePersonalStore.getState().consumeGitDiffRequest()).toEqual({ projectId: "p1" });
-    expect(usePersonalStore.getState().gitDiffRequest).toBeUndefined();
-    // 再次消费拿不到（防 FilesView 重挂载误触发）
-    expect(usePersonalStore.getState().consumeGitDiffRequest()).toBeUndefined();
-  });
-
-  it("gitDiffRequest 不进入持久化快照", () => {
-    usePersonalStore.getState().requestGitDiff("p1");
-    expect("gitDiffRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
-    usePersonalStore.getState().consumeGitDiffRequest();
-  });
-});
-
 describe("统一面板请求通道 panelRequest", () => {
   it("requestPanel 存请求 + 内联切 rightView,消费后清空且再次消费拿不到", () => {
     usePersonalStore.setState({ panelRequest: undefined, rightView: "todos" });
@@ -1127,67 +1107,6 @@ describe("lastActiveProjectId 最近活跃项目持久化（浮层默认归属�
     // round-trip：把快照再 hydrate 回去，结果一致。
     usePersonalStore.getState().hydrate({ ...persisted });
     expect(usePersonalStore.getState().lastActiveProjectId).toBe("A");
-  });
-});
-
-describe("filePreviewRequest 文件预览请求(消费即清)", () => {
-  const req = { projectId: "p1", path: "/code/p1/src/a.ts", name: "a.ts" };
-
-  it("requestFilePreview 存入请求并切右栏到 files", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().requestFilePreview(req);
-    const s = usePersonalStore.getState();
-    expect(s.filePreviewRequest).toEqual(req);
-    expect(s.rightView).toBe("files");
-  });
-
-  it("consumeFilePreviewRequest 首次返回请求,之后清空", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().requestFilePreview(req);
-    expect(usePersonalStore.getState().consumeFilePreviewRequest()).toEqual(req);
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
-    // 二次消费返回 undefined（消费即清不重复触发）。
-    expect(usePersonalStore.getState().consumeFilePreviewRequest()).toBeUndefined();
-  });
-
-  it("瞬态:不进 toPersistedState 快照", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().requestFilePreview(req);
-    expect("filePreviewRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
-  });
-});
-
-describe("noteDetailRequest 闪记详情请求(消费即清)", () => {
-  const req = { noteId: "note-1" };
-
-  it("requestNoteDetail 存入请求并切右栏到 notes", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.setState({ rightView: "todos", noteDetailRequest: undefined });
-    usePersonalStore.getState().requestNoteDetail(req);
-    const s = usePersonalStore.getState();
-    expect(s.noteDetailRequest).toEqual(req);
-    expect(s.rightView).toBe("notes");
-  });
-
-  it("consumeNoteDetailRequest 首次返回请求,之后清空", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().requestNoteDetail(req);
-    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toEqual(req);
-    expect(usePersonalStore.getState().noteDetailRequest).toBeUndefined();
-    // 二次消费返回 undefined（消费即清不重复触发）。
-    expect(usePersonalStore.getState().consumeNoteDetailRequest()).toBeUndefined();
-  });
-
-  it("瞬态:不进 toPersistedState 快照", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().requestNoteDetail(req);
-    expect("noteDetailRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
-  });
-
-  it("setRightView 可切到 notes", () => {
-    usePersonalStore.getState().hydrate(base);
-    usePersonalStore.getState().setRightView("notes");
-    expect(usePersonalStore.getState().rightView).toBe("notes");
   });
 });
 

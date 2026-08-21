@@ -51,7 +51,6 @@ export {
   type ProcessPanelFocusTarget,
   type ProcessPanelTarget,
   type PersonalState,
-  type RightView,
 } from "./store/personal";
 // Provider Catalog 驱动的模型能力（只读）：发送前 vision 阻断与模型选择器共用同一份缓存。
 export {

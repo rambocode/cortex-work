@@ -92,10 +92,6 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// 右栏当前视图 id。core 只当无知的通道:合法 id 清单与类型安全（KnownPanelId 联合）
-// 由 views 层的右栏注册表（personal/right-panel/registry）派生,未知 id 由宿主回退 files。
-// 这样加新面板不再需要改 core;未来第三方面板的运行时 id 也天然装得下。
-export type RightView = string;
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan 模式下 agent 尝试被该模式禁止的工具(写/执行)时,
 // 在 composer 上方提示用户一键切「自动执行」并自动重发本轮(仅 plan 会触发,见 restrictedToolForMode)。
@@ -198,23 +194,7 @@ export interface PersonalState {
   // 不做真源(pill 的真源仍是 ComposerShell 内部 state),避免会话切换时 pill 跨会话残留。
   // 瞬态,不进 toPersistedState。
   composerSkill?: { cmd: string; displayName: string };
-  // 整仓 diff 请求请求（FilesView 消费后即清,不持久化;不用 nonce——
-  // FilesView 可能在请求发出时未挂载,消费即清才能让挂载后的 effect 接到）。
-  gitDiffRequest?: { projectId: string };
-  // 首页点 Task 请求:右栏 TodosView 消费后打开该 task 文件详情（消费即清,仿 gitDiffRequest）。
-  taskDetailRequest?: { projectId: string; path: string; name: string };
-  // 会话消息文件链接点击请求:右栏 FilesView 消费后 openFile 预览（消费即清,仿 gitDiffRequest）。
-  // path 为已解析的绝对路径;瞬态,不进 toPersistedState。
-  filePreviewRequest?: { projectId: string; path: string; name: string };
-  // 点击收件箱/时间线某条闪记 → 跨栏打开详情;消费即清,瞬态,不进 toPersistedState。
-  noteDetailRequest?: { noteId: string };
-  // 在内嵌浏览器打开某 URL 的请求(卡片点击 / auto_open)。BrowserView 监听 nonce 变化
-  // 后加载;nonce 让「同 URL 再次请求」也能触发重载。瞬态,不进 toPersistedState。
-  browserUrlRequest?: { url: string; nonce: number };
-  // 打开某篇知识库文档预览的请求(点会话正文里的 kb:// 引用)。右栏据此拉正文渲染;
-  // nonce 让「同一篇再次点击」也能重新拉取(文档可能已更新)。瞬态,不进 toPersistedState。
-  knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
-  // 右栏统一「打开面板并携带载荷」请求单槽（替代上面 6 个逐面板槽,旧槽迁完即删）。
+  // 右栏统一「打开面板并携带载荷」请求单槽（原 6 个逐面板槽已收编于此）。
   // 单槽 last-wins:后到请求覆盖先到——旧多槽模型里未消费的请求同样不可见(rightView 已切走),
   // 语义无实损。nonce 全局单调递增,兼容两类消费端:消费即清(consumePanelRequest)与
   // nonce 订阅去重(browser/knowledge 这类「同载荷重复请求也要重新触发」的面板,不 consume)。
@@ -229,7 +209,10 @@ export interface PersonalState {
   // (安全/正确性评审)。瞬态,不进 toPersistedState。
   autoOpenedPreviewKeys: string[];
   // 右栏当前视图（顶栏下拉选择）。
-  rightView: RightView;
+  // core 只当无知的 string 通道:合法面板 id 清单与类型安全（KnownPanelId 联合）由 views 层
+  // 右栏注册表（personal/right-panel/registry）派生,未知 id 由宿主回退 files。
+  // 这样加新面板不需要改 core;未来第三方面板的运行时 id 也天然装得下。
+  rightView: string;
   // 右侧面板自定义宽度（px,拖拽调整,持久化）;undefined 走 CSS 自动档位。
   rightPanelWidth?: number;
   // 右侧面板放大态:绝对定位盖住中栏（产物编辑器用,见 .pw-prompts.is-maximized）。
@@ -422,22 +405,6 @@ export interface PersonalState {
   ) => void;
   // ComposerShell 镜像当前 skill pill(传 undefined 表示已清除)。
   setComposerSkill: (skill?: { cmd: string; displayName: string }) => void;
-  // ± 统计徽章(当前无 UI 入口):右栏切到文件视图并请求整仓 diff 预览。
-  requestGitDiff: (projectId: string) => void;
-  consumeGitDiffRequest: () => { projectId: string } | undefined;
-  // 首页点 Task:右栏切到 Tasks 视图并请求打开该 task 文件详情。
-  requestTaskDetail: (req: { projectId: string; path: string; name: string }) => void;
-  consumeTaskDetailRequest: () => { projectId: string; path: string; name: string } | undefined;
-  // 会话消息文件链接点击:右栏切到文件视图并请求预览该文件（path 为绝对路径）。
-  requestFilePreview: (req: { projectId: string; path: string; name: string }) => void;
-  consumeFilePreviewRequest: () => { projectId: string; path: string; name: string } | undefined;
-  // 收件箱/时间线点闪记:右栏切到 notes 视图并请求打开该闪记详情（消费即清,仿 filePreview）。
-  requestNoteDetail: (req: { noteId: string }) => void;
-  consumeNoteDetailRequest: () => { noteId: string } | undefined;
-  // 在内嵌浏览器打开 URL:右栏切到 browser 视图并请求加载(右栏开关由调用方补,同 requestGitDiff)。
-  requestBrowserUrl: (url: string) => void;
-  // 会话正文里点 kb:// 引用:右栏切到知识库视图并请求拉取该文档正文。
-  openKnowledgeDoc: (ref: { sourceId: string; relPath: string }) => void;
   // 统一面板请求通道:存请求 + 内联切 rightView（不写 rightOpen,由 views 层 openPanel helper 补,
   // 与旧逐面板 request action 语义对齐）。payload 类型由 views 层 PanelPayloadMap 约束。
   requestPanel: (panelId: string, payload?: unknown) => void;
@@ -446,7 +413,7 @@ export interface PersonalState {
   consumePanelRequest: (panelId: string) => unknown;
   // auto_open 去重:记录已自动打开的「会话:URL」键。
   markAutoOpenedPreview: (key: string) => void;
-  setRightView: (view: RightView) => void;
+  setRightView: (view: string) => void;
   // 传 undefined 恢复自动宽度（双击拖拽条重置）。
   setRightPanelWidth: (width: number | undefined) => void;
   setRightPanelMaximized: (maximized: boolean) => void;
@@ -1386,56 +1353,6 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     })),
 
   setComposerSkill: (skill) => set({ composerSkill: skill }),
-
-  requestGitDiff: (projectId) => set({ gitDiffRequest: { projectId }, rightView: "files" }),
-
-  consumeGitDiffRequest: () => {
-    const req = get().gitDiffRequest;
-    if (req) set({ gitDiffRequest: undefined });
-    return req;
-  },
-
-  // 首页点 Task:切右栏到 Tasks 并存请求,TodosView 消费后打开该文件详情。
-  // 不动 homeOpen（保持落地页不切走）,只在右栏展示详情。
-  requestTaskDetail: (req) => set({ taskDetailRequest: req, rightView: "todos" }),
-
-  consumeTaskDetailRequest: () => {
-    const req = get().taskDetailRequest;
-    if (req) set({ taskDetailRequest: undefined });
-    return req;
-  },
-
-  // 会话消息点文件链接:切右栏到文件视图并存请求,FilesView 消费后 openFile 预览。
-  // 右栏开关(rightOpen,属 useCortexUIStore)由调用方补,与 requestGitDiff/TaskDetail 一致。
-  requestFilePreview: (req) => set({ filePreviewRequest: req, rightView: "files" }),
-
-  consumeFilePreviewRequest: () => {
-    const req = get().filePreviewRequest;
-    if (req) set({ filePreviewRequest: undefined });
-    return req;
-  },
-
-  // 收件箱/时间线点闪记:切右栏到 notes 视图并存请求,NotesView 消费后打开详情。
-  // 消费即清而非 nonce:NotesView 可能在请求发出时未挂载,取出即清才能让挂载后 effect 接到。
-  requestNoteDetail: (req) => set({ noteDetailRequest: req, rightView: "notes" }),
-
-  consumeNoteDetailRequest: () => {
-    const req = get().noteDetailRequest;
-    if (req) set({ noteDetailRequest: undefined });
-    return req;
-  },
-
-  requestBrowserUrl: (url) =>
-    set((s) => ({
-      browserUrlRequest: { url, nonce: (s.browserUrlRequest?.nonce ?? 0) + 1 },
-      rightView: "browser",
-    })),
-  // nonce 自增:同一篇文档再次点击也要重新拉取(知识库内容可能已被更新)。
-  openKnowledgeDoc: (ref) =>
-    set((s) => ({
-      knowledgeDocRequest: { ...ref, nonce: (s.knowledgeDocRequest?.nonce ?? 0) + 1 },
-      rightView: "knowledge",
-    })),
 
   // 统一面板请求:nonce 全局单调递增（同面板同载荷重复请求也能触发 nonce 订阅型消费端）。
   requestPanel: (panelId, payload) =>

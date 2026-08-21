@@ -31,7 +31,7 @@ describe("HomeView", () => {
       homeOpen: true,
       activeSessionId: undefined,
       activeProjectId: undefined,
-      taskDetailRequest: undefined,
+      panelRequest: undefined,
       rightView: "files",
       projects: [
         { id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW - 86400_000 },
