@@ -173,7 +173,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
       sessions: [{ id: "s1", projectId: "p1", title: "Session 1", agent: "claude", createdAt: NOW, updatedAt: NOW }],
       activeProjectId: "p1",
       activeSessionId: "s1",
-      filePreviewRequest: undefined,
+      panelRequest: undefined,
     });
     useCortexUIStore.setState({ rightOpen: false });
   });
@@ -188,7 +188,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(link).toHaveAttribute("title", "packages/core/x.ts");
     fireEvent.click(link);
     const s = usePersonalStore.getState();
-    expect(s.filePreviewRequest).toEqual({
+    expect(s.panelRequest?.payload).toEqual({
+      kind: "filePreview",
       projectId: "p1",
       path: "/code/alpha/packages/core/x.ts",
       name: "x.ts",
@@ -215,16 +216,17 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     ]);
     const rowInternal = await screen.findByText("src/a.ts");
     fireEvent.click(rowInternal);
-    expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+    expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
       projectId: "p1",
       path: "/code/alpha/src/a.ts",
       name: "a.ts",
     });
 
     // 项目外路径:短路,不覆盖上一次请求(handleOpenFile within=false 直接返回)。
-    usePersonalStore.setState({ filePreviewRequest: undefined });
+    usePersonalStore.setState({ panelRequest: undefined });
     fireEvent.click(screen.getByText("/etc/passwd"));
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
   });
 
   it("ref 缺目录但项目内能定位 → 用真实绝对路径派发(本次反馈核心 bug)", async () => {
@@ -245,7 +247,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("002.md")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("002.md"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: "/code/alpha/outputs/yuque-kb/docs/002.md",
         name: "002.md",
@@ -276,7 +279,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     expect(screen.getByText("monthly.pdf")).toHaveAttribute("title", "/data/outputs/x/monthly.pdf");
     fireEvent.click(screen.getByText("monthly.pdf"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: "/data/outputs/x/monthly.pdf",
         name: "monthly.pdf",
@@ -304,7 +308,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("monthly.xlsx")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("monthly.xlsx"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: "/data/outputs/x/monthly.xlsx",
         name: "monthly.xlsx",
@@ -335,7 +340,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     fireEvent.click(screen.getByText("报告"));
 
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: abs,
         name: "report.docx",
@@ -365,7 +371,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("演示文稿")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("演示文稿"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: abs,
         name: "slides.pptx",
@@ -400,7 +407,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "预览附件：季度报告.docx" }));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "p1",
         path: abs,
         name: "report.docx",
@@ -435,7 +443,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     fireEvent.click(screen.getByText("报告"));
 
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "__noproject__",
         path: abs,
         name: "report.docx",
@@ -473,7 +482,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     // 右栏 FilesView 的无项目回退根依赖 documentsCortexRoot;桥缺失时请求会永远无人消费,
     // 应直接回退系统打开而非派发悬挂请求。
     await waitFor(() => expect(openPath).toHaveBeenCalledWith(abs));
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
   });
 
   it("历史会话:file:/// HTML 链接保留绝对路径并在内置浏览器打开", async () => {
@@ -518,10 +527,11 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
 
     await waitFor(() => expect(browserResolveLocalHtml).toHaveBeenCalledWith(expectedPath));
     expect(fileExists).toHaveBeenCalledWith(expectedPath);
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe(fileUrl);
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe(fileUrl);
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
     expect(openPath).not.toHaveBeenCalled();
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    // 统一请求槽:走的是 browser 通路而非文件预览通路。
+    expect(usePersonalStore.getState().panelRequest?.panelId).toBe("browser");
   });
 
   it("无项目会话:codex 绝对路径产物(.docx)经 fileExists 命中 → 可点 + 系统打开(截图回归)", async () => {
@@ -549,7 +559,7 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("报告")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("报告"));
     await waitFor(() => expect(openPath).toHaveBeenCalledWith(abs));
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
   });
 
   it("无项目会话:xlsx + 二进制桥 → 右栏 FilesView 预览(__noproject__ 哨兵),不走系统打开", async () => {
@@ -579,7 +589,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     fireEvent.click(screen.getByText("工作簿"));
     // 派发右栏预览请求(FilesView 侧以 __noproject__ 回退项目消费)并展开右栏;不再交系统应用打开。
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "__noproject__",
         path: abs,
         name: "财务分析.xlsx",
@@ -617,7 +628,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("content-schema.md")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("content-schema.md"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "__noproject__",
         path: abs,
         name: "content-schema.md",
@@ -651,7 +663,8 @@ describe("PersonalChatArea 文件链接点击 → 右栏预览", () => {
     await waitFor(() => expect(screen.getByText("文档")).toHaveClass("file-link"));
     fireEvent.click(screen.getByText("文档"));
     await waitFor(() =>
-      expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+      expect(usePersonalStore.getState().panelRequest?.payload).toEqual({
+      kind: "filePreview",
         projectId: "__noproject__",
         path: abs,
         name: "沟通建议.md",

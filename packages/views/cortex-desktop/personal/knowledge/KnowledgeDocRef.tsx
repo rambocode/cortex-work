@@ -8,7 +8,8 @@
 // 用户点一下引用不该触发一次 agent 回合。
 import { useCallback, type ReactNode } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useCortexUIStore, usePersonalStore, type DesktopBridge } from "@cortex-work/core";
+import type { DesktopBridge } from "@cortex-work/core";
+import { openPanel } from "../right-panel/open";
 
 /// 引用 URL 的 scheme。skill 里要求 agent 按 `kb://<sourceId>/<relPath>` 输出。
 const KB_SCHEME = "kb://";
@@ -83,7 +84,6 @@ export function KnowledgeDocAnchor({
   children: ReactNode;
   bridge: DesktopBridge | null;
 } & Record<string, unknown>) {
-  const openDoc = usePersonalStore((s) => s.openKnowledgeDoc);
   const label = typeof children === "string" ? children.trim() : "";
   // label 与路径同形（agent 常写 `[kb://a/b.md](kb://a/b.md)`）时收敛成文件名，
   // 与 FileAnchor 的 compact 形态同一取舍：完整坐标留在 title 里。
@@ -94,12 +94,10 @@ export function KnowledgeDocAnchor({
     (e: React.MouseEvent) => {
       e.preventDefault(); // Electron 里 a 默认导航会替换整个窗口
       if (!canOpen) return;
-      openDoc(refDoc);
-      // 必须显式展开右栏：openKnowledgeDoc 只设 rightView（内容），面板显示与否由 rightOpen 决定。
-      // 漏掉这行时右栏是收起态的用户点了完全没反应——与 openInInternalBrowser 同一约定。
-      useCortexUIStore.getState().setRightOpen(true);
+      // openPanel 统一入口:切 knowledge 视图 + 展开右栏（收起态点击也有反应）+ 预取面板 chunk。
+      openPanel("knowledge", { sourceId: refDoc.sourceId, relPath: refDoc.relPath });
     },
-    [canOpen, openDoc, refDoc],
+    [canOpen, refDoc],
   );
 
   // 中键 / Cmd+点击在 Electron 里会走「新窗口」通路，绕过 onClick 的 preventDefault，

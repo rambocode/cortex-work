@@ -58,7 +58,7 @@ function activePane(): Element | null {
 describe("BrowserView 多标签壳", () => {
   afterEach(() => cleanup());
   beforeEach(() => {
-    usePersonalStore.setState({ browserUrlRequest: undefined });
+    usePersonalStore.setState({ panelRequest: undefined });
   });
 
   it("默认一个空标签,标签条含「新标签页」与新建按钮", () => {
@@ -103,21 +103,21 @@ describe("BrowserView 多标签壳", () => {
   it("browserUrlRequest 路由到活跃标签加载;新建标签不重复消费旧请求", () => {
     renderBrowser();
     // store 变更发生在 React 之外,需 act() 才会同步刷新组件。
-    act(() => usePersonalStore.setState({ browserUrlRequest: { url: "https://example.com/", nonce: 7 } }));
+    act(() => usePersonalStore.setState({ panelRequest: { panelId: "browser", payload: { url: "https://example.com/" }, nonce: 7 } }));
     // 活跃 pane 的 iframe 加载该 URL
     expect(activePane()!.querySelector("iframe")?.getAttribute("src")).toBe("https://example.com/");
     // 新建标签:新 pane 是空标签,不重复消费 nonce=7 的旧请求
     fireEvent.click(screen.getByRole("button", { name: "新建标签页" }));
     expect(activePane()!.querySelector("iframe")).toBeNull();
     // 新请求路由到当前活跃(新)标签,旧标签内容不变
-    act(() => usePersonalStore.setState({ browserUrlRequest: { url: "https://foo.dev/", nonce: 8 } }));
+    act(() => usePersonalStore.setState({ panelRequest: { panelId: "browser", payload: { url: "https://foo.dev/" }, nonce: 8 } }));
     expect(activePane()!.querySelector("iframe")?.getAttribute("src")).toBe("https://foo.dev/");
     const all = panes();
     expect(all[0]!.querySelector("iframe")?.getAttribute("src")).toBe("https://example.com/");
   });
 
   it("挂载时消费当前 pending 请求(面板被本次请求打开的场景,首击不空白)", () => {
-    usePersonalStore.setState({ browserUrlRequest: { url: "https://pending.io/", nonce: 3 } });
+    usePersonalStore.setState({ panelRequest: { panelId: "browser", payload: { url: "https://pending.io/" }, nonce: 3 } });
     renderBrowser();
     expect(activePane()!.querySelector("iframe")?.getAttribute("src")).toBe("https://pending.io/");
   });

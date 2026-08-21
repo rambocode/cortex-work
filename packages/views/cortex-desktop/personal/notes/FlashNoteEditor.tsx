@@ -20,6 +20,7 @@ import { NoteCodeMirrorEditor, type NoteEditorAppearance } from "../editor/NoteC
 import { useNoteAutosave } from "./useNoteAutosave";
 import { noteTitle, STATUS_LABEL } from "./noteDisplay";
 import { relTime } from "../layout/PersonalSidebar";
+import { openPanel } from "../right-panel/open";
 
 type Mode = "source" | "live" | "preview";
 
@@ -57,7 +58,6 @@ export function FlashNoteEditor({
   const deleteNote = useDeleteNote();
   const generatePlan = useGeneratePlan();
   const cancelDeepen = useCancelDeepen();
-  const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const sessions = usePersonalStore((s) => s.sessions);
 
@@ -252,7 +252,7 @@ export function FlashNoteEditor({
                   title={`在文件视图打开 ${name}`}
                   onClick={() =>
                     note.projectId
-                      ? requestFilePreview({ projectId: note.projectId, path: p, name })
+                      ? openPanel("files", { kind: "filePreview", projectId: note.projectId, path: p, name })
                       : onToast("该闪记无项目,无法打开产物文档")
                   }
                 >

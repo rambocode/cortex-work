@@ -2,7 +2,7 @@
 // inline code 与相对链接渲染为可点击元素,点击经 onOpenFile 接到右栏文件预览。
 // - 仅个人区(传入 onOpenFile + projectPath)启用;团队侧不传 → 不使用本工厂,零回归。
 // - inline 判定:无 language-* className 的 code(块级 fenced 带语言或含换行,isLikelyFilePath 天然拒绝)。
-// - 外链行为:http(s) 点击 → 在右栏内置浏览器打开(requestBrowserUrl + setRightOpen),
+// - 外链行为:http(s) 点击 → 在右栏内置浏览器打开(openPanel("browser")),
 //   不再默认丢给系统浏览器;系统浏览器作为下方「网页预览」卡片「打开方式」的备选项。
 // - 网页预览卡片:每条外链所在段落正下方紧跟一张静态卡片(地球图标 + 「网页预览」+ 域名),
 //   点击主体进内置浏览器,「打开方式」下拉可选内置 / 系统浏览器。
@@ -19,10 +19,10 @@ import {
   isLikelyFilePath,
   isLocalImagePath,
   resolveProjectFileRef,
-  useCortexUIStore,
   usePersonalStore,
 } from "@cortex-work/core";
 import type { DesktopBridge } from "@cortex-work/core";
+import { openPanel } from "../right-panel/open";
 import { canProbeFile, resolveExistingFile } from "./resolveFileRef";
 import { ChatInlineImage } from "./ChatInlineImage";
 import { findLocalHtmlPathsInText } from "@cortex-work/core/personal/devPreviewDetection";
@@ -231,8 +231,7 @@ function HtmlPreviewButton({ path, bridge }: { path: string; bridge: DesktopBrid
     }
     void resolve(path).then((fileUrl) => {
       if (!fileUrl) return;
-      usePersonalStore.getState().requestBrowserUrl(fileUrl);
-      useCortexUIStore.getState().setRightOpen(true);
+      openPanel("browser", { url: fileUrl });
     });
   };
   return (
@@ -243,11 +242,10 @@ function HtmlPreviewButton({ path, bridge }: { path: string; bridge: DesktopBrid
   );
 }
 
-// 在右栏内置浏览器打开 URL:bump nonce 触发 BrowserView 加载,并确保右栏展开。
+// 在右栏内置浏览器打开 URL:统一走 openPanel(bump nonce 触发 BrowserView 加载并展开右栏)。
 // 与 HtmlPreviewButton / dev 预览 auto_open 走同一通路,行为统一。
 function openInInternalBrowser(url: string): void {
-  usePersonalStore.getState().requestBrowserUrl(url);
-  useCortexUIStore.getState().setRightOpen(true);
+  openPanel("browser", { url });
 }
 
 // 本地/loopback URL 判定——仅这类受「本地 URL 打开目标」偏好控制(外链恒进内置,保留既有决策)。

@@ -35,14 +35,15 @@ import { MonacoViewer, type SelectionAnchor } from "./MonacoViewer";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { buildContextSnippet, shellQuotePath, toTildePath, wrapBracketedPaste } from "./sendContext";
 import { FileContextMenu, type FileCtxTarget } from "./FileContextMenu";
-
-type Mode = "all" | "changes";
-
+import { consumePanelRequest } from "../right-panel/open";
+import type { FilesPanelPayload } from "../right-panel/types";
 // 文件拖入会话(U6):应用内自定义 MIME,payload {path,name};ComposerShell 据此读内容入附件。
 // 仿 PROMPT_DRAG_MIME/TODO_DRAG_MIME 的「应用内拖拽」范式,不经 Electron 主进程、不需 webUtils。
 // 常量本体已抽到 ./dragMime(懒加载解耦),此处 re-export 保旧 import 面兼容。
 import { FILE_DRAG_MIME } from "./dragMime";
 export { FILE_DRAG_MIME };
+
+type Mode = "all" | "changes";
 
 const isMarkdownName = (name: string) => /\.(md|markdown|mdx)$/i.test(name);
 
@@ -351,29 +352,6 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     };
   }, [bridge, project, mode, refresh]);
 
-  // 消费整仓 diff 请求(当前无 UI 触发入口,保留消费侧),打开聚合 diff 预览。消费即清,
-  // 防 FilesView 重挂载时误触发;项目不匹配则不消费(等切到对应项目)。
-  const gitDiffRequest = usePersonalStore((s) => s.gitDiffRequest);
-  const consumeGitDiffRequest = usePersonalStore((s) => s.consumeGitDiffRequest);
-  useEffect(() => {
-    if (!gitDiffRequest || !bridge?.gitDiffAll || !project) return;
-    if (gitDiffRequest.projectId !== project.id) return;
-    consumeGitDiffRequest();
-    void (async () => {
-      const res = await bridge.gitDiffAll!(project.path).catch(() => null);
-      if (!res) return;
-      setEditMode(false);
-      setDirty(false);
-      setSelection("");
-      setPreview({
-        name: t("allChanges"),
-        content: res.diff.trim() ? res.diff : t("noChanges"),
-        isDiff: true,
-        truncated: res.truncated || undefined,
-      });
-    })();
-  }, [gitDiffRequest, bridge, project, consumeGitDiffRequest]);
-
   const closePreview = () => {
     setPreview(null);
     setEditMode(false);
@@ -450,18 +428,39 @@ export function FilesView({ onToast }: { onToast: (text: string) => void }) {
     await openTextFile(path, name);
   };
 
-  // 会话消息点文件链接:消费预览请求,复用 openFile 渲染(Monaco/Markdown/二进制占位按类型)。
-  // 消费即清(防重挂载误触发);项目不匹配则不消费(等切到对应项目,与 gitDiff effect 一致)。
-  const filePreviewRequest = usePersonalStore((s) => s.filePreviewRequest);
-  const consumeFilePreviewRequest = usePersonalStore((s) => s.consumeFilePreviewRequest);
+  // 统一面板请求通道:消费 files 面板的两类载荷（kind 判别:整仓 diff / 单文件预览）。
+  // 消费即清(防重挂载误触发);项目不匹配则不消费(等切到对应项目)。
+  const filesPanelRequest = usePersonalStore((s) =>
+    s.panelRequest?.panelId === "files" ? s.panelRequest : undefined,
+  );
   useEffect(() => {
-    if (!filePreviewRequest || !bridge || !project) return;
-    if (filePreviewRequest.projectId !== project.id) return;
-    consumeFilePreviewRequest();
-    void openFile(filePreviewRequest.path, filePreviewRequest.name);
-    // openFile 故意不入 deps(每次渲染新建,由 request 门控执行;入 deps 会每渲染重跑)。
+    if (!filesPanelRequest || !bridge || !project) return;
+    const payload = filesPanelRequest.payload as FilesPanelPayload | undefined;
+    if (!payload || payload.projectId !== project.id) return;
+    if (payload.kind === "gitDiff") {
+      // 整仓 diff(当前无 UI 触发入口,保留消费侧):打开聚合 diff 预览。
+      if (!bridge.gitDiffAll) return;
+      consumePanelRequest("files");
+      void (async () => {
+        const res = await bridge.gitDiffAll!(project.path).catch(() => null);
+        if (!res) return;
+        setEditMode(false);
+        setDirty(false);
+        setSelection("");
+        setPreview({
+          name: t("allChanges"),
+          content: res.diff.trim() ? res.diff : t("noChanges"),
+          isDiff: true,
+          truncated: res.truncated || undefined,
+        });
+      })();
+      return;
+    }
+    consumePanelRequest("files");
+    void openFile(payload.path, payload.name);
+    // openFile/t 故意不入 deps(每次渲染新建,由 request 门控执行;入 deps 会每渲染重跑)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePreviewRequest, bridge, project, consumeFilePreviewRequest]);
+  }, [filesPanelRequest, bridge, project]);
 
   const openChange = async (f: ChangedFile) => {
     if (!bridge || !project) return;

@@ -14,7 +14,6 @@ import {
   parseSkillSlash,
   resolveDefaultAgent,
   useDesktopBridge,
-  useCortexUIStore,
   usePersonalActions,
   presetSessionTitle,
   usePersonalStore,
@@ -43,6 +42,7 @@ import {
   upsertConversationResearch,
 } from "../chat/researchDispatch";
 import { ProjectBar } from "../projects/ProjectBar";
+import { openPanel } from "../right-panel/open";
 import {
   buildConversationArtifactPrompt,
   prepareArtifactDispatch,
@@ -79,8 +79,6 @@ export function NewSessionLanding({
   const defaultModelRef = usePersonalStore((s) => s.defaultModelRef);
   const createSession = usePersonalStore((s) => s.createSession);
   const updateSession = usePersonalStore((s) => s.updateSession);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const { send, appendLocalUserMessage } = usePersonalActions();
 
   // 新会话默认「不使用项目」(selectedProjectId=undefined),可随时在 ProjectBar 切到具体项目。
@@ -176,8 +174,7 @@ export function NewSessionLanding({
         researchSessions: upsertConversationResearch(sess.researchSessions, ref),
         activeResearchSessionId: ref.sessionId,
       });
-      setRightView("research");
-      setRightOpen(true);
+      openPanel("research");
       // 存 objective 而非原始 text:不让 /skill:research 前缀进会话流与标题(用户反馈)。
       await appendLocalUserMessage(sess, ref.objective);
       return true;
@@ -208,8 +205,7 @@ export function NewSessionLanding({
         activeArtifact: dispatch.artifact,
         artifacts: upsertConversationArtifact(sess.artifacts, dispatch.artifact),
       });
-      setRightView("artifact");
-      setRightOpen(true);
+      openPanel("artifact");
     }
     return send(
       sess,

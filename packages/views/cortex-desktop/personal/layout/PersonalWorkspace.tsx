@@ -24,6 +24,7 @@ import { PersonalProcessPanel } from "../chat/PersonalProcessPanel";
 import { PersonalRightPanel } from "./PersonalRightPanel";
 import { PersonalCenterHeader } from "./PersonalTopBar";
 import { PersonalRightRail } from "./PersonalRightRail";
+import { openPanel } from "../right-panel/open";
 import { TerminalPanel } from "../terminal/TerminalPanel";
 import { NewSessionLanding } from "../home/NewSessionLanding";
 import { AutomationView } from "../automation/AutomationView";
@@ -91,7 +92,6 @@ export function PersonalWorkspace({
 }) {
   const bridge = useDesktopBridge();
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const leftCollapsed = useCortexUIStore((s) => s.leftCollapsed);
   // 研究完成通知用（见下方 useEffect）。
   const pushToast = useCortexUIStore((s) => s.pushToast);
@@ -152,7 +152,6 @@ export function PersonalWorkspace({
   const closeNoteEditor = usePersonalStore((s) => s.closeNoteEditor);
   const setAgentsAvailable = usePersonalStore((s) => s.setAgentsAvailable);
   const setDerivedAgents = usePersonalStore((s) => s.setDerivedAgents);
-  const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   usePersonalPersistence();
   // pushSettings 跨窗口镜像：项目管理窗口经窄通道改推送开关时，主窗口 store 必须同步跟进——
   // 否则主窗口后续任一全量落盘会用陈旧值把该开关静默改回去（clobber）。
@@ -195,28 +194,22 @@ export function PersonalWorkspace({
   }, [bridge, setDerivedAgents]);
 
   // 订阅主进程「打开浏览器面板」请求:agent 的 browser_navigate 在面板未开时触发。
-  // 须 setRightOpen(true) 展开右栏 + requestBrowserUrl 切 browser 视图并导航——二者缺一面板不可见
-  // (与现有「点 URL 开浏览器」一致,见 chatMarkdown/PersonalChatArea)。bridge 无该方法时空转。
+  // openPanel 统一入口:切 browser 视图并导航 + 展开右栏(与「点 URL 开浏览器」同一通路)。
+  // bridge 无该方法时空转。
   useEffect(
-    () =>
-      bridge?.onBrowserOpenPanel?.((url) => {
-        setRightOpen(true);
-        requestBrowserUrl(url);
-      }),
-    [bridge, requestBrowserUrl, setRightOpen],
+    () => bridge?.onBrowserOpenPanel?.((url) => openPanel("browser", { url })),
+    [bridge],
   );
 
   // pi 会话产物「打开面板」信号(onBrowserOpenPanel 同款模式):artifacts 工具产出/步骤卡片点击
   // 经 store 的 openReq nonce 驱动。仅当前活跃会话的请求生效——后台会话的产物不抢当前面板。
   const piArtifactOpenReq = usePiArtifactsStore((s) => s.openReq);
-  const setRightView = usePersonalStore((s) => s.setRightView);
   const activeSessionIdForArtifacts = usePersonalStore((s) => s.activeSessionId);
   useEffect(() => {
     if (!piArtifactOpenReq || piArtifactOpenReq.sessionId !== activeSessionIdForArtifacts) return;
-    setRightOpen(true);
-    setRightView("piArtifacts");
+    openPanel("piArtifacts");
     // activeFilename 已由 requestOpen 顺带写入 store,面板打开即显示目标产物。
-  }, [piArtifactOpenReq, activeSessionIdForArtifacts, setRightOpen, setRightView]);
+  }, [piArtifactOpenReq, activeSessionIdForArtifacts]);
 
   if (!bridge) {
     return (

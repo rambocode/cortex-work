@@ -51,7 +51,7 @@ describe("chatMarkdownComponents", () => {
   beforeEach(() => {
     // 外链点击/卡片改写全局 store(browserUrlRequest / rightOpen),逐用例复位避免串场。
     usePersonalStore.setState((s) => ({
-      browserUrlRequest: undefined,
+      panelRequest: undefined,
       // 复位浏览器控制偏好,避免「本地 URL 打开目标」用例间串场。
       generalSettings: { ...s.generalSettings, browserControl: undefined },
     }));
@@ -115,7 +115,7 @@ describe("chatMarkdownComponents", () => {
     const el = container.querySelector("a.file-link");
     expect(el).not.toBeNull();
     fireEvent.click(el!);
-    const req = usePersonalStore.getState().knowledgeDocRequest;
+    const req = usePersonalStore.getState().panelRequest?.payload as { sourceId: string; relPath: string } | undefined;
     expect(req?.sourceId).toBe("src-1");
     expect(req?.relPath).toBe("制度/差旅报销.md");
     expect(usePersonalStore.getState().rightView).toBe("knowledge");
@@ -131,7 +131,7 @@ describe("chatMarkdownComponents", () => {
     const ev = new MouseEvent("auxclick", { button: 1, bubbles: true, cancelable: true });
     el.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    expect(usePersonalStore.getState().knowledgeDocRequest?.relPath).toBe("制度/差旅报销.md");
+    expect((usePersonalStore.getState().panelRequest?.payload as { relPath?: string } | undefined)?.relPath).toBe("制度/差旅报销.md");
   });
 
   // 文件名带空格是知识库文档的常态，链接经 normalizeKnowledgeLinks 归一后必须仍能解析出原始路径。
@@ -141,13 +141,13 @@ describe("chatMarkdownComponents", () => {
     const el = container.querySelector("a.file-link");
     expect(el).not.toBeNull();
     fireEvent.click(el!);
-    expect(usePersonalStore.getState().knowledgeDocRequest?.relPath).toBe("开发/DX0B511 采集与上报链路.md");
+    expect((usePersonalStore.getState().panelRequest?.payload as { relPath?: string } | undefined)?.relPath).toBe("开发/DX0B511 采集与上报链路.md");
   });
 
   it("markdown 外链 → 点击进内置浏览器(requestBrowserUrl + 展开右栏),不触发 openExternal / onOpenFile", () => {
     const { container, onOpenFile, openExternal } = renderMd("[site](https://x.com)");
     fireEvent.click(container.querySelector("a")!);
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://x.com");
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe("https://x.com");
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
     expect(openExternal).not.toHaveBeenCalled();
     expect(onOpenFile).not.toHaveBeenCalled();
@@ -158,14 +158,14 @@ describe("chatMarkdownComponents", () => {
     const { container, openExternal } = renderMd("[local](http://localhost:3000)");
     fireEvent.click(container.querySelector("a")!);
     expect(openExternal).toHaveBeenCalledWith("http://localhost:3000");
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBeUndefined();
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBeUndefined();
   });
 
   it("localUrlOpenTarget=system:外链仍进内置(外链不受偏好影响)(U3)", () => {
     setLocalUrlTarget("system");
     const { container, openExternal } = renderMd("[site](https://x.com)");
     fireEvent.click(container.querySelector("a")!);
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://x.com");
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe("https://x.com");
     expect(openExternal).not.toHaveBeenCalled();
   });
 
@@ -176,7 +176,7 @@ describe("chatMarkdownComponents", () => {
     expect(container.querySelector(".pw-link-preview-title")?.textContent).toBe("网页预览");
     expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("example.com");
     fireEvent.click(container.querySelector(".pw-link-preview-main")!);
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://example.com/path");
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe("https://example.com/path");
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
   });
 
@@ -192,7 +192,7 @@ describe("chatMarkdownComponents", () => {
     const codeLink = container.querySelector("code.url-link");
     expect(codeLink).not.toBeNull();
     fireEvent.click(codeLink!);
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("http://localhost:3000");
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe("http://localhost:3000");
     expect(useCortexUIStore.getState().rightOpen).toBe(true);
     // 段落下方仍渲染预览卡片,域名取 host(含端口)。
     expect(container.querySelector(".pw-link-preview-host")?.textContent).toBe("localhost:3000");
@@ -202,7 +202,7 @@ describe("chatMarkdownComponents", () => {
     const { container } = renderMd("地址 `https://k.io/p`");
     const codeLink = container.querySelector("code.url-link")!;
     fireEvent.keyDown(codeLink, { key: "Enter" });
-    expect(usePersonalStore.getState().browserUrlRequest?.url).toBe("https://k.io/p");
+    expect((usePersonalStore.getState().panelRequest?.payload as { url?: string } | undefined)?.url).toBe("https://k.io/p");
   });
 
   it("内联 code 非 URL(如 dev:web)仍是普通 code,不渲染卡片", () => {

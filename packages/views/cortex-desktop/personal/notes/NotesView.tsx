@@ -23,6 +23,7 @@ import { MarkdownView } from "../markdown/MarkdownView";
 import { MoveToProjectMenu } from "./MoveToProjectMenu";
 import { noteTitle, STATUS_LABEL } from "./noteDisplay";
 import { relTime } from "../layout/PersonalSidebar";
+import { consumePanelRequest, openPanel } from "../right-panel/open";
 
 // 深化产物文档(磁盘 .md)内联查看/编辑:readFile 预览 + textarea 编辑 + writeFile 写回
 // (白名单内,经 fs.assertAllowed 放行)。读盘失败 → 友好降级提示,不崩(链接悬挂降级:
@@ -249,7 +250,6 @@ function NoteDetail({
   const docPaths = note.docPaths ?? [];
   // 深化(来源)会话 = conversationIds(深化新会话);可逐段跳回(契约 U10#2)。
   const conversationIds = note.conversationIds ?? [];
-  const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const sessions = usePersonalStore((s) => s.sessions);
 
@@ -393,7 +393,7 @@ function NoteDetail({
                           title={t("detail.openInFileView", { name })}
                           onClick={() =>
                             note.projectId
-                              ? requestFilePreview({ projectId: note.projectId, path: p, name })
+                              ? openPanel("files", { kind: "filePreview", projectId: note.projectId, path: p, name })
                               : onToast(t("detail.noProjectForFileView"))
                           }
                         >
@@ -570,17 +570,18 @@ export function NotesView({ onToast }: { onToast: (text: string) => void }) {
   // 首次点击只切到确认态,再次点击才取消旧深化并重发。失焦/清空选择即撤销。
   const [confirmReDeepen, setConfirmReDeepen] = useState(false);
 
-  // 跨栏跳转:消费 store 请求,在右栏打开该闪记详情(消费即清,仿 TodosView)。
-  const noteDetailRequest = usePersonalStore((s) => s.noteDetailRequest);
-  const consumeNoteDetailRequest = usePersonalStore((s) => s.consumeNoteDetailRequest);
+  // 跨栏跳转:消费统一面板请求,在右栏打开该闪记详情(消费即清,仿 TodosView)。
+  const notesPanelRequest = usePersonalStore((s) =>
+    s.panelRequest?.panelId === "notes" ? s.panelRequest : undefined,
+  );
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
   useEffect(() => {
-    if (!noteDetailRequest) return;
-    const req = consumeNoteDetailRequest();
+    if (!notesPanelRequest) return;
+    const req = consumePanelRequest("notes");
     // 若中心区写作面正在编辑同一条闪记,不再在右栏开一份并行详情,避免两面同编互相覆盖
     // (code-review:adversarial)。其他闪记仍照常右栏速览。
     if (req && req.noteId !== noteEditorId) setSelected({ kind: "note", id: req.noteId });
-  }, [noteDetailRequest, consumeNoteDetailRequest, noteEditorId]);
+  }, [notesPanelRequest, noteEditorId]);
 
   // 仅活跃(未归档)项目可作归档目标。
   const liveProjects = useMemo(() => projects.filter((p) => p.archivedAt == null), [projects]);

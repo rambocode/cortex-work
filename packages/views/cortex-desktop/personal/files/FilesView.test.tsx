@@ -82,21 +82,21 @@ describe("FilesView 消费 filePreviewRequest", () => {
     usePersonalStore.setState({
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
       activeProjectId: "p1",
-      filePreviewRequest: undefined,
+      panelRequest: undefined,
     });
   });
 
   it("项目匹配 → readFile(abs) 并渲染预览,请求被消费清空;.md 默认渲染预览(MarkdownView)", async () => {
     const bridge = makeBridge();
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" }, nonce: 1 },
     });
     const { container } = renderView(bridge);
     await waitFor(() => expect(bridge.readFile).toHaveBeenCalledWith("/code/alpha/docs/a.md"));
     // .md 默认渲染预览(editMode=false → MarkdownView),点「编辑」才进 Monaco。
     await waitFor(() => expect(container.querySelector(".pw-file-md")).not.toBeNull());
     expect(container.querySelector(".pw-mona-wrap")).toBeNull();
-    expect(usePersonalStore.getState().filePreviewRequest).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
   });
 
   it("预览工具栏收敛:低频动作(复制/打开/访达)在 ⋯ 菜单里,点「打开」走系统应用", async () => {
@@ -104,7 +104,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     const revealInFolder = vi.fn().mockResolvedValue(undefined);
     const bridge = makeBridge({ openPath, revealInFolder });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/docs/a.md", name: "a.md" }, nonce: 2 },
     });
     renderView(bridge);
     await waitFor(() => expect(bridge.readFile).toHaveBeenCalled());
@@ -124,13 +124,14 @@ describe("FilesView 消费 filePreviewRequest", () => {
   it("项目不匹配 → 不消费、不调 readFile", async () => {
     const bridge = makeBridge();
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p2", path: "/code/beta/x.md", name: "x.md" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p2", path: "/code/beta/x.md", name: "x.md" }, nonce: 3 },
     });
     renderView(bridge);
     // 等挂载 effect 跑完(scanDirTree 被调用)后再断言未读文件。
     await waitFor(() => expect(bridge.scanDirTree).toHaveBeenCalled());
     expect(bridge.readFile).not.toHaveBeenCalled();
-    expect(usePersonalStore.getState().filePreviewRequest).toEqual({
+    expect((usePersonalStore.getState().panelRequest?.payload as Record<string, unknown> | undefined)).toEqual({
+      kind: "filePreview",
       projectId: "p2",
       path: "/code/beta/x.md",
       name: "x.md",
@@ -141,7 +142,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     const openPath = vi.fn().mockResolvedValue("");
     const bridge = makeBridge({ openPath });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/logo.png", name: "logo.png" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/logo.png", name: "logo.png" }, nonce: 4 },
     });
     renderView(bridge);
     await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/logo.png"));
@@ -152,7 +153,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     const openPath = vi.fn().mockResolvedValue("");
     const bridge = makeBridge({ openPath });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" }, nonce: 5 },
     });
     renderView(bridge);
     await waitFor(() => expect(openPath).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
@@ -165,7 +166,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     const readFileBinary = vi.fn().mockResolvedValue({ data: "AAAA", truncated: false, size: 3, mtimeMs: 1 });
     const bridge = makeBridge({ openPath, readFileBinary });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/outputs/monthly.xlsx", name: "monthly.xlsx" }, nonce: 6 },
     });
     renderView(bridge);
     await waitFor(() => expect(readFileBinary).toHaveBeenCalledWith("/code/alpha/outputs/monthly.xlsx"));
@@ -183,7 +184,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
     const bridge = makeBridge({ openPath, readFileBinary });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/outputs/report.docx", name: "report.docx" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/outputs/report.docx", name: "report.docx" }, nonce: 7 },
     });
 
     renderView(bridge);
@@ -208,7 +209,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     });
     const bridge = makeBridge({ openPath, readFileBinary });
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path, name },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path, name }, nonce: 8 },
     });
 
     renderView(bridge);
@@ -224,7 +225,7 @@ describe("FilesView 消费 filePreviewRequest", () => {
     const bridge = makeBridge({ readFile: vi.fn().mockRejectedValue(new Error("EACCES")) });
     const onToast = vi.fn();
     usePersonalStore.setState({
-      filePreviewRequest: { projectId: "p1", path: "/code/alpha/secret.txt", name: "secret.txt" },
+      panelRequest: { panelId: "files", payload: { kind: "filePreview", projectId: "p1", path: "/code/alpha/secret.txt", name: "secret.txt" }, nonce: 9 },
     });
     renderView(bridge, onToast);
     await waitFor(() => expect(onToast).toHaveBeenCalledWith(expect.stringContaining("读取失败")));
@@ -238,7 +239,7 @@ describe("FilesView 搜索/过滤", () => {
     usePersonalStore.setState({
       projects: [{ id: "p1", name: "alpha", path: "/code/alpha", addedAt: NOW }],
       activeProjectId: "p1",
-      filePreviewRequest: undefined,
+      panelRequest: undefined,
     });
   });
 

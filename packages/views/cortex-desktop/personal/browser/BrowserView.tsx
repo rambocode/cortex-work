@@ -15,8 +15,11 @@ export { canUseElectronWebviewEnvironment } from "./BrowserTabPane";
 
 export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
   const { t } = useTranslation("browser");
-  // 监听「在浏览器打开」请求(卡片点击 / auto_open)。nonce 变化即路由给活跃标签。
-  const browserUrlRequest = usePersonalStore((s) => s.browserUrlRequest);
+  // 监听「在浏览器打开」请求(卡片点击 / auto_open)。走统一面板请求槽,按 panelId 过滤;
+  // nonce 订阅型消费(不 consume):同 URL 再次请求 nonce 也变,才能触发重载。
+  const browserUrlRequest = usePersonalStore((s) =>
+    s.panelRequest?.panelId === "browser" ? s.panelRequest : undefined,
+  );
 
   // 标签只存自增 id;标题/URL 由各 pane 上报(metaById),加载请求按 id 路由(loadById)。
   const [tabIds, setTabIds] = useState<number[]>([0]);
@@ -33,7 +36,8 @@ export function BrowserView({ onToast }: { onToast?: (text: string) => void }) {
     if (!browserUrlRequest) return;
     if (browserUrlRequest.nonce === lastRequestNonceRef.current) return;
     lastRequestNonceRef.current = browserUrlRequest.nonce;
-    const { nonce, url } = browserUrlRequest;
+    const { nonce } = browserUrlRequest;
+    const { url } = browserUrlRequest.payload as { url: string };
     setLoadById((prev) => ({ ...prev, [activeId]: { nonce, url } }));
   }, [browserUrlRequest, activeId]);
 

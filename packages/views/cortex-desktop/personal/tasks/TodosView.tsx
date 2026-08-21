@@ -18,6 +18,7 @@ import {
 } from "@cortex-work/core";
 import type { ProjectMeta, TaskFileInfo, TaskFilesResult, TodoMeta } from "@cortex-work/core";
 import { relTime } from "../layout/PersonalSidebar";
+import { consumePanelRequest } from "../right-panel/open";
 
 // 常量本体已抽到 ./dragMime(懒加载解耦),此处 re-export 保旧 import 面兼容。
 import { TODO_DRAG_MIME } from "./dragMime";
@@ -676,14 +677,15 @@ export function TodosView({ onToast }: { onToast: (text: string) => void }) {
   const projectMode = !homeOpen && !!currentProjectId;
   const [selected, setSelected] = useState<SelectedItem | null>(null);
 
-  // 首页点 Task:消费 store 请求,在右栏打开该文件详情（仿 gitDiffRequest;首页为只读模式）。
-  const taskDetailRequest = usePersonalStore((s) => s.taskDetailRequest);
-  const consumeTaskDetailRequest = usePersonalStore((s) => s.consumeTaskDetailRequest);
+  // 首页点 Task:消费统一面板请求,在右栏打开该文件详情（消费即清,防重挂载误触发）。
+  const todosPanelRequest = usePersonalStore((s) =>
+    s.panelRequest?.panelId === "todos" ? s.panelRequest : undefined,
+  );
   useEffect(() => {
-    if (!taskDetailRequest) return;
-    const req = consumeTaskDetailRequest();
+    if (!todosPanelRequest) return;
+    const req = consumePanelRequest("todos");
     if (req) setSelected({ kind: "file", path: req.path, name: req.name });
-  }, [taskDetailRequest, consumeTaskDetailRequest]);
+  }, [todosPanelRequest]);
 
   // 项目模式:扫描当前项目 tasks/ 目录（自动提取 md 文档）,watch 自动刷新。
   const currentProject = projectMode ? projects.find((p) => p.id === currentProjectId) : undefined;

@@ -90,7 +90,7 @@ function note(patch: Partial<NoteMeta> & Pick<NoteMeta, "id">): NoteMeta {
 async function openDetailViaRequest(noteId: string, waitText: string) {
   await screen.findByText(waitText); // 确保列表已渲染
   act(() => {
-    usePersonalStore.getState().requestNoteDetail({ noteId });
+    usePersonalStore.getState().requestPanel("notes", { noteId });
   });
 }
 
@@ -110,7 +110,7 @@ describe("NotesView 列表/详情", () => {
       // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
       // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
       agentsAvailable: { claude: true },
-      noteDetailRequest: undefined,
+      panelRequest: undefined,
       noteEditorId: undefined,
     });
   });
@@ -399,7 +399,7 @@ describe("NotesView 列表/详情", () => {
     renderNotes(bridge);
     await screen.findByText("跨栏跳转目标");
 
-    usePersonalStore.getState().requestNoteDetail({ noteId: "n1" });
+    usePersonalStore.getState().requestPanel("notes", { noteId: "n1" });
     // 详情态出现编辑入口
     expect(await screen.findByTitle("编辑")).toBeInTheDocument();
   });
@@ -434,7 +434,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
       // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
       // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
       agentsAvailable: { claude: true },
-      noteDetailRequest: undefined,
+      panelRequest: undefined,
       noteEditorId: undefined,
     });
   });
@@ -477,7 +477,7 @@ describe("NotesView U10 深化产物查看与生成 plan", () => {
     fireEvent.click(screen.getByTitle(`在文件视图打开 brainstorm.md`));
     await waitFor(() => {
       const st = usePersonalStore.getState();
-      expect(st.filePreviewRequest?.path).toBe(docA);
+      expect((st.panelRequest?.payload as { path?: string } | undefined)?.path).toBe(docA);
       expect(st.rightView).toBe("files");
     });
 
@@ -623,7 +623,7 @@ describe("NotesView 深化健壮性", () => {
       // 深化新会话默认 agent 走 defaultAgent;钉 claude 让深化编排走单发 startCli 路径
       // （否则回退 pi → RPC piOpen,与本测试关注的 cwd/outPath/systemPrompt 注入无关）。
       agentsAvailable: { claude: true },
-      noteDetailRequest: undefined,
+      panelRequest: undefined,
       noteEditorId: undefined,
       // 清空跨测试残留的 running 映射(前序深化集成测试 setRunning 会留痕,影响 cancelDeepen)。
       runningBySession: {},
@@ -726,7 +726,7 @@ describe("NotesView 按会话所在项目过滤", () => {
         { id: "s-none", title: "无项目会话", agent: "claude" as const, model: "", createdAt: NOW, updatedAt: NOW },
       ],
       agentsAvailable: { claude: true },
-      noteDetailRequest: undefined,
+      panelRequest: undefined,
       noteEditorId: undefined,
       runningBySession: {},
     });

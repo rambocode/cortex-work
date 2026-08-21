@@ -13,7 +13,19 @@ import { MarkdownView } from "../markdown/MarkdownView";
 
 export function KnowledgeDocPanel() {
   const bridge = useDesktopBridge();
-  const req = usePersonalStore((s) => s.knowledgeDocRequest);
+  // 统一面板请求槽是单槽 last-wins:别的面板一发请求,这里的选择器就变回 undefined。
+  // 把最近一次请求的坐标拷进本地 seed,渲染与空态判断只读本地——否则已打开的文档
+  // 会被无关面板的后续请求打回空态(本次迁移唯一需要改消费端状态模型的面板)。
+  const incoming = usePersonalStore((s) =>
+    s.panelRequest?.panelId === "knowledge" ? s.panelRequest : undefined,
+  );
+  const [req, setReq] = useState<{ sourceId: string; relPath: string; nonce: number } | null>(null);
+  useEffect(() => {
+    if (!incoming) return;
+    const payload = incoming.payload as { sourceId: string; relPath: string } | undefined;
+    if (!payload) return;
+    setReq({ sourceId: payload.sourceId, relPath: payload.relPath, nonce: incoming.nonce });
+  }, [incoming]);
   const [doc, setDoc] = useState<KnowledgeDocResult | null>(null);
   const [loading, setLoading] = useState(false);
 

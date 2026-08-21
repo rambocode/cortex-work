@@ -69,6 +69,7 @@ import { useCanvasViewportStore } from "@cortex-work/core/design/canvas/canvas-v
 import { useDesignWorkspaceStore } from "@cortex-work/core/design/design-workspace-store";
 import { useTranslation } from "@cortex-work/core/i18n";
 import { createWhiteboardFilePort } from "../whiteboard/file-port";
+import { openPanel } from "../right-panel/open";
 import { ensureWhiteboardWorkspaceRoot } from "../whiteboard/workspace";
 
 // 稳定 noop：个人工作区无审批流,onApprove 传它而非每渲染新建的箭头函数(保 ApproveMessage memo)。
@@ -209,17 +210,13 @@ export function PersonalChatArea({
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
   const providerSettings = usePersonalStore((s) => s.providerSettings);
-  const requestFilePreview = usePersonalStore((s) => s.requestFilePreview);
-  const requestBrowserUrl = usePersonalStore((s) => s.requestBrowserUrl);
   const autoOpenedPreviewKeys = usePersonalStore((s) => s.autoOpenedPreviewKeys);
   const markAutoOpenedPreview = usePersonalStore((s) => s.markAutoOpenedPreview);
-  const setRightView = usePersonalStore((s) => s.setRightView);
   const rightView = usePersonalStore((s) => s.rightView);
   const setSessionGoal = usePersonalStore((s) => s.setSessionGoal);
   const setSessionGoalStatus = usePersonalStore((s) => s.setSessionGoalStatus);
   const clearSessionGoal = usePersonalStore((s) => s.clearSessionGoal);
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
   const bridge = useDesktopBridge();
   const whiteboardFilePort = useMemo(() => createWhiteboardFilePort(bridge), [bridge]);
 
@@ -282,8 +279,7 @@ export function PersonalChatArea({
         updateSession,
       });
       if (!workspaceRoot || !whiteboardFilePort) return undefined;
-      setRightView("canvas");
-      setRightOpen(true);
+      openPanel("canvas");
       return buildCodeCanvasOutboundText({
         baseText: "",
         canvasBrief: text,
@@ -305,8 +301,6 @@ export function PersonalChatArea({
       rightOpen,
       rightView,
       session,
-      setRightOpen,
-      setRightView,
       updateSession,
       whiteboardFilePort,
     ],
@@ -413,10 +407,9 @@ export function PersonalChatArea({
         void bridge.openExternal(url).catch(() => {});
         return;
       }
-      requestBrowserUrl(url);
-      setRightOpen(true);
+      openPanel("browser", { url });
     },
-    [requestBrowserUrl, setRightOpen, bridge],
+    [bridge],
   );
 
   // auto_open:输出明确像 dev server 且为环回时自动打开内嵌浏览器,按「会话:URL」去重,
@@ -530,8 +523,7 @@ export function PersonalChatArea({
                 onToast(`无法预览网页：${name}`);
                 return;
               }
-              requestBrowserUrl(fileUrl);
-              setRightOpen(true);
+              openPanel("browser", { url: fileUrl });
             })
             .catch(() => onToast(`无法预览网页：${name}`));
           return;
@@ -542,8 +534,7 @@ export function PersonalChatArea({
         const documentKind = inAppDocumentKind(name);
         const rightFilesReady = !!realProject || !!bridge?.documentsCortexRoot;
         if ((documentKind || isSpreadsheetLike(name)) && bridge?.readFileBinary && rightFilesReady && project) {
-          requestFilePreview({ projectId: project.id, path: abs, name });
-          setRightOpen(true);
+          openPanel("files", { kind: "filePreview", projectId: project.id, path: abs, name });
           return;
         }
         // 图片/office/pdf/媒体/二进制(内置编辑器打不开)→ 系统打开;
@@ -553,8 +544,7 @@ export function PersonalChatArea({
           return;
         }
         // 文本类(含 markdown)→ 右栏内置预览,所有会话统一(无项目会话走 __noproject__ 哨兵)。
-        requestFilePreview({ projectId: project.id, path: abs, name });
-        setRightOpen(true);
+        openPanel("files", { kind: "filePreview", projectId: project.id, path: abs, name });
       };
       // 无任何探测能力(web/旧壳):沿用原乐观逻辑(仅项目内相对路径,凭 within 放行)。
       if (!bridge?.fileExists && !bridge?.resolveProjectFile) {
@@ -568,7 +558,7 @@ export function PersonalChatArea({
         else onToast(`未找到文件：${ref}`);
       });
     },
-    [project, realProject, bridge, requestBrowserUrl, requestFilePreview, setRightOpen, onToast],
+    [project, realProject, bridge, onToast],
   );
 
   // typing 仍打开当前主会话整轮过程；子代理卡自己的“查看过程”直接进入独立 side 会话。
@@ -912,8 +902,7 @@ export function PersonalChatArea({
           className="pw-artifact-card"
           onClick={() => {
             updateSession(session.id, { activeArtifact: artifact });
-            setRightView("artifact");
-            setRightOpen(true);
+            openPanel("artifact");
           }}
         >
           <Icon.Sparkle size={15} />
@@ -937,8 +926,7 @@ export function PersonalChatArea({
             className="pw-artifact-card"
             onClick={() => {
               updateSession(session.id, { activeResearchSessionId: research.sessionId });
-              setRightView("research");
-              setRightOpen(true);
+              openPanel("research");
             }}
           >
             <Icon.Search size={15} />
@@ -1001,8 +989,7 @@ export function PersonalChatArea({
                   artifacts: upsertConversationArtifact(session.artifacts, artifact),
                 });
               }
-              setRightView("artifact");
-              setRightOpen(true);
+              openPanel("artifact");
             }
             setEditing(null);
             void editResend(
@@ -1054,8 +1041,7 @@ export function PersonalChatArea({
               researchSessions: upsertConversationResearch(session.researchSessions, ref),
               activeResearchSessionId: ref.sessionId,
             });
-            setRightView("research");
-            setRightOpen(true);
+            openPanel("research");
             // 会话流里留一条本地用户消息:研究本身不产生 agent 轮次,没有这一条的话
             // 用户回头翻会话只能看到一张卡片,记不起当时问的是什么。
             // 存 objective 而非原始 text:/skill:research 前缀是派发指令不是内容,
@@ -1083,8 +1069,7 @@ export function PersonalChatArea({
                 artifacts: upsertConversationArtifact(session.artifacts, artifact),
               });
             }
-            setRightView("artifact");
-            setRightOpen(true);
+            openPanel("artifact");
           }
           const parsed = parseSkillSlash(text);
           if (!artifactDispatch.handledSkill && session.agent !== "pi") {

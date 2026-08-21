@@ -12,6 +12,7 @@ import { ComposerShell } from "./ComposerShell";
 import { SessionStatsLine } from "../SessionStatsLine";
 import { upsertConversationArtifact } from "../artifactDispatch";
 import { useResearchSkillAvailable, useSlashCommands } from "./useSlashCommands";
+import { openPanel } from "../../right-panel/open";
 
 export function PersonalComposer({
   session,
@@ -71,7 +72,6 @@ export function PersonalComposer({
   // slash 命令(内建 + 已启用 skill),与新会话落地页共用同一 hook(见 useSlashCommands)。
   const slashCommands = useSlashCommands(session);
   const updateSession = usePersonalStore((s) => s.updateSession);
-  const setRightView = usePersonalStore((s) => s.setRightView);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
 
   // 会话预热:首字符输入时提前拉起 pi 进程(消除首轮冷启)。每会话只发一次请求
@@ -141,10 +141,7 @@ export function PersonalComposer({
       onToast={onToast}
       onPrewarm={handlePrewarm}
       artifact={session.activeArtifact}
-      onOpenArtifact={() => {
-        setRightView("artifact");
-        setRightOpen(true);
-      }}
+      onOpenArtifact={() => openPanel("artifact")}
       onRemoveArtifact={() => {
         updateSession(session.id, {
           activeArtifact: undefined,
