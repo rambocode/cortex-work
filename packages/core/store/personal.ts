@@ -92,21 +92,10 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// 右栏当前视图（顶栏下拉选择）。后续新增视图只需扩此联合,不必逐处改字面量。
-export type RightView =
-  | "files"
-  | "skills"
-  | "todos"
-  | "notes"
-  | "browser"
-  | "canvas"
-  | "subagents"
-  | "artifact"
-  | "research"
-  // 知识库文档预览（点会话正文里的 kb:// 引用打开）。
-  | "knowledge"
-  // pi 会话产物（artifacts 工具,pi-web-ui 移植;内存态,与落盘型 "artifact" 是两个概念）。
-  | "piArtifacts";
+// 右栏当前视图 id。core 只当无知的通道:合法 id 清单与类型安全（KnownPanelId 联合）
+// 由 views 层的右栏注册表（personal/right-panel/registry）派生,未知 id 由宿主回退 files。
+// 这样加新面板不再需要改 core;未来第三方面板的运行时 id 也天然装得下。
+export type RightView = string;
 
 // 运行模式拦截提示（瞬态,不持久化）。当 plan 模式下 agent 尝试被该模式禁止的工具(写/执行)时,
 // 在 composer 上方提示用户一键切「自动执行」并自动重发本轮(仅 plan 会触发,见 restrictedToolForMode)。
@@ -225,6 +214,13 @@ export interface PersonalState {
   // 打开某篇知识库文档预览的请求(点会话正文里的 kb:// 引用)。右栏据此拉正文渲染;
   // nonce 让「同一篇再次点击」也能重新拉取(文档可能已更新)。瞬态,不进 toPersistedState。
   knowledgeDocRequest?: { sourceId: string; relPath: string; nonce: number };
+  // 右栏统一「打开面板并携带载荷」请求单槽（替代上面 6 个逐面板槽,旧槽迁完即删）。
+  // 单槽 last-wins:后到请求覆盖先到——旧多槽模型里未消费的请求同样不可见(rightView 已切走),
+  // 语义无实损。nonce 全局单调递增,兼容两类消费端:消费即清(consumePanelRequest)与
+  // nonce 订阅去重(browser/knowledge 这类「同载荷重复请求也要重新触发」的面板,不 consume)。
+  // payload 形状与类型安全由 views 层 PanelPayloadMap + openPanel<K> helper 保证,core 不感知。
+  // 瞬态,不进 toPersistedState。
+  panelRequest?: { panelId: string; payload?: unknown; nonce: number };
   // 展开「执行过程」面板的请求。目标只保存一次性 UI 意图，不持久化；事件已被环形裁剪时，
   // 消费端必须安全退回整轮 overview，而不能让活动行点击变成报错。
   processPanelOpenReq?: ProcessPanelTarget & { nonce: number };
@@ -442,6 +438,12 @@ export interface PersonalState {
   requestBrowserUrl: (url: string) => void;
   // 会话正文里点 kb:// 引用:右栏切到知识库视图并请求拉取该文档正文。
   openKnowledgeDoc: (ref: { sourceId: string; relPath: string }) => void;
+  // 统一面板请求通道:存请求 + 内联切 rightView（不写 rightOpen,由 views 层 openPanel helper 补,
+  // 与旧逐面板 request action 语义对齐）。payload 类型由 views 层 PanelPayloadMap 约束。
+  requestPanel: (panelId: string, payload?: unknown) => void;
+  // 仅当当前请求的 panelId 匹配时清槽并返回 payload;不匹配返回 undefined 且**不清槽**
+  // （别的面板的 pending 请求不能被无关面板的挂载 effect 误吞）。
+  consumePanelRequest: (panelId: string) => unknown;
   // auto_open 去重:记录已自动打开的「会话:URL」键。
   markAutoOpenedPreview: (key: string) => void;
   setRightView: (view: RightView) => void;
@@ -1434,6 +1436,20 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       knowledgeDocRequest: { ...ref, nonce: (s.knowledgeDocRequest?.nonce ?? 0) + 1 },
       rightView: "knowledge",
     })),
+
+  // 统一面板请求:nonce 全局单调递增（同面板同载荷重复请求也能触发 nonce 订阅型消费端）。
+  requestPanel: (panelId, payload) =>
+    set((s) => ({
+      panelRequest: { panelId, payload, nonce: (s.panelRequest?.nonce ?? 0) + 1 },
+      rightView: panelId,
+    })),
+
+  consumePanelRequest: (panelId) => {
+    const req = get().panelRequest;
+    if (!req || req.panelId !== panelId) return undefined;
+    set({ panelRequest: undefined });
+    return req.payload;
+  },
   markAutoOpenedPreview: (key) =>
     set((s) =>
       s.autoOpenedPreviewKeys.includes(key)

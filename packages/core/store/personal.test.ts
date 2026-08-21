@@ -472,6 +472,54 @@ describe("整仓 diff 请求中转", () => {
   });
 });
 
+describe("统一面板请求通道 panelRequest", () => {
+  it("requestPanel 存请求 + 内联切 rightView,消费后清空且再次消费拿不到", () => {
+    usePersonalStore.setState({ panelRequest: undefined, rightView: "todos" });
+    usePersonalStore.getState().requestPanel("files", { kind: "gitDiff", projectId: "p1" });
+    expect(usePersonalStore.getState().panelRequest?.panelId).toBe("files");
+    expect(usePersonalStore.getState().rightView).toBe("files");
+
+    expect(usePersonalStore.getState().consumePanelRequest("files")).toEqual({
+      kind: "gitDiff",
+      projectId: "p1",
+    });
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
+    // 再次消费拿不到（防面板重挂载误触发）
+    expect(usePersonalStore.getState().consumePanelRequest("files")).toBeUndefined();
+  });
+
+  it("panelId 不匹配时返回 undefined 且不清槽（无关面板挂载不误吞 pending 请求）", () => {
+    usePersonalStore.setState({ panelRequest: undefined });
+    usePersonalStore.getState().requestPanel("notes", { noteId: "n1" });
+    expect(usePersonalStore.getState().consumePanelRequest("files")).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest?.panelId).toBe("notes");
+    expect(usePersonalStore.getState().consumePanelRequest("notes")).toEqual({ noteId: "n1" });
+  });
+
+  it("nonce 全局单调递增,后到请求覆盖先到（last-wins）", () => {
+    usePersonalStore.setState({ panelRequest: undefined });
+    usePersonalStore.getState().requestPanel("browser", { url: "https://a" });
+    const first = usePersonalStore.getState().panelRequest?.nonce ?? 0;
+    usePersonalStore.getState().requestPanel("browser", { url: "https://a" });
+    const second = usePersonalStore.getState().panelRequest?.nonce ?? 0;
+    // 同面板同载荷重复请求 nonce 也要变,nonce 订阅型消费端(browser/knowledge)靠它重新触发
+    expect(second).toBe(first + 1);
+    usePersonalStore.getState().requestPanel("knowledge", { sourceId: "s", relPath: "a.md" });
+    expect(usePersonalStore.getState().panelRequest?.panelId).toBe("knowledge");
+    expect(usePersonalStore.getState().panelRequest?.nonce).toBe(second + 1);
+    usePersonalStore.setState({ panelRequest: undefined });
+  });
+
+  it("payload 可省略（纯切视图型请求）,且 panelRequest 不进入持久化快照", () => {
+    usePersonalStore.setState({ panelRequest: undefined });
+    usePersonalStore.getState().requestPanel("subagents");
+    expect(usePersonalStore.getState().rightView).toBe("subagents");
+    expect("panelRequest" in toPersistedState(usePersonalStore.getState())).toBe(false);
+    expect(usePersonalStore.getState().consumePanelRequest("subagents")).toBeUndefined();
+    expect(usePersonalStore.getState().panelRequest).toBeUndefined();
+  });
+});
+
 describe("openHome 右栏联动", () => {
   it("回首页时右栏从 files 切回 todos（全部项目列表）", () => {
     usePersonalStore.getState().hydrate(base);
