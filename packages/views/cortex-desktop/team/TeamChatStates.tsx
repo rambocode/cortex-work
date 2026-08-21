@@ -1,9 +1,10 @@
 // 团队会话的状态化 UI 小件（自 feat/team-avatar-invocation 分支迁入并扩展排队态）：
 // CenteredNotice（降级/空态提示）/ DisabledComposer（不可发起）/ BusyComposer（进行中 +
-// 排队中）/ AvatarOutcomeBanner（终态横幅）。文案暂为 zh-Hans 硬编码，P4 统一收敛 i18n。
+// 排队中）/ AvatarOutcomeBanner（终态横幅）。文案走 i18n common:teamChat.*。
 
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
+import { useTranslation } from "@cortex-work/core/i18n";
 import type { Contact } from "@cortex-work/core/types";
 import type { AvatarSessionState } from "@cortex-work/core/cortex/session-stream";
 
@@ -75,16 +76,17 @@ export function BusyComposer({
   queuedBehind?: number;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   const hint =
     phase === "queued"
       ? queuedBehind && queuedBehind > 0
-        ? `排队中 · 前方 ${queuedBehind} 个任务`
-        : "排队中，等待工作区空闲…"
+        ? t("teamChat.queuedAhead", { n: queuedBehind })
+        : t("teamChat.queuedWaiting")
       : phase === "waiting_approval"
-        ? "等待拥有者确认…"
+        ? t("teamChat.waitingApproval")
         : hasReply
-          ? "正在收尾…"
-          : "正在思考…";
+          ? t("teamChat.finishing")
+          : t("teamChat.thinking");
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     setElapsed(0);
@@ -98,11 +100,15 @@ export function BusyComposer({
           <span className="spinner" />
           <span style={{ color: "var(--text-3)", fontSize: 13, flex: 1 }}>
             {hint}
-            {elapsed > 0 ? `（已等待 ${elapsed}s）` : ""}
+            {elapsed > 0 ? t("teamChat.waitedFor", { s: elapsed }) : ""}
           </span>
-          <button className="btn danger-ghost" onClick={onCancel} title={phase === "queued" ? "取消排队" : "取消本次提问"}>
+          <button
+            className="btn danger-ghost"
+            onClick={onCancel}
+            title={phase === "queued" ? t("teamChat.cancelQueue") : t("teamChat.cancelAsk")}
+          >
             <Icon.X size={13} />
-            取消
+            {t("teamChat.cancel")}
           </button>
         </div>
       </div>

@@ -90,8 +90,8 @@ function LastMessage({ item, mode }: { item: Contact; mode: SidebarMode }) {
       online: { c: "var(--green)", text: item.statusText || t("sidebar.online") },
       idle: { c: "var(--text-3)", text: item.statusText || t("sidebar.idle") },
       offline: { c: "var(--text-4)", text: item.statusText || t("sidebar.offline") },
-      // 分身「在线但本机 CLI 不可执行」态，与 offline 区分呈现（AE11）。i18n key 缺省时回退中文。
-      unavailable: { c: "var(--amber)", text: item.statusText || "在线 · 本机 CLI 不可用" },
+      // 分身「在线但本机 CLI 不可执行」态，与 offline 区分呈现（AE11）。
+      unavailable: { c: "var(--amber)", text: item.statusText || t("teamChat.unavailableStatus") },
     };
     const s = map[status] || map.idle!;
     return (
@@ -197,6 +197,16 @@ function matches(c: Contact, search: string): boolean {
   return c.name.toLowerCase().includes(q) || (c.role || "").toLowerCase().includes(q);
 }
 
+// 零分身成员空态行（独立小组件：OwnerBlock 本体不持 useTranslation，避免 hooks 传染）。
+function OwnerEmptyHint() {
+  const { t } = useTranslation();
+  return (
+    <div className="sb-owner-empty" style={{ paddingLeft: 26, color: "var(--text-4)", fontSize: 12 }}>
+      {t("teamChat.noSharedAvatars")}
+    </div>
+  );
+}
+
 // 成员段：一条 human 成员行 + 其名下缩进的分身行。零分身成员显示「暂未共享分身」空态
 // （与离线态文案区分，见 R5）。搜索时：成员或其任一分身命中即展示；命中成员则展开其全部分身，
 // 否则仅展示命中的分身。
@@ -224,7 +234,7 @@ function OwnerBlock({
       <ContactRow item={human} active={human.id === activeId} onClick={onSelect} mode={mode} isHuman />
       {avatars.length === 0 ? (
         // 真正零分身的成员才显示空态；搜索把分身过滤空不算（不误导为「未共享」）。
-        search ? null : <div className="sb-owner-empty" style={{ paddingLeft: 26, color: "var(--text-4)", fontSize: 12 }}>暂未共享分身</div>
+        search ? null : <OwnerEmptyHint />
       ) : (
         visibleAvatars.map((a) => (
           <ContactRow key={a.id} item={a} active={a.id === activeId} onClick={onSelect} mode={mode} isChild />

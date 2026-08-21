@@ -336,5 +336,30 @@
     "errProvisioning": "Your worktree is being provisioned, try again shortly",
     "errOffline": "Server node is offline",
     "errInvokeFailed": "Failed to send to the server workspace"
+  },
+  "teamChat": {
+    "humanHint": "Direct chat with people isn't supported yet. Ask their avatar instead.",
+    "humanDisabled": "Direct chat with people isn't supported yet",
+    "offlineTitle": "Avatar offline",
+    "unavailableTitle": "Avatar unavailable",
+    "offlineHint": "The avatar is offline (its owner is away). Come back later, or pick a server workspace to run on the server.",
+    "unavailableHint": "The avatar is online but its owner's local CLI is unavailable. Pick a server workspace to run on the server instead.",
+    "emptyHint": "No conversation yet. Send the first message to ask.",
+    "queuedAhead": "Queued · {{n}} task(s) ahead",
+    "queuedWaiting": "Queued, waiting for the workspace to free up…",
+    "waitingApproval": "Waiting for the owner's approval…",
+    "finishing": "Finishing up…",
+    "thinking": "Thinking…",
+    "waitedFor": " (waited {{s}}s)",
+    "cancel": "Cancel",
+    "cancelQueue": "Leave the queue",
+    "cancelAsk": "Cancel this question",
+    "pillPlaceholder": "Server workspace",
+    "pillTitle": "Pick a server workspace (unset = run on the avatar owner's machine)",
+    "pillClear": "Clear selection, back to direct avatar",
+    "modeSharedShort": "Shared",
+    "modeIsolatedShort": "Isolated",
+    "noSharedAvatars": "No shared avatars yet",
+    "unavailableStatus": "Online · local CLI unavailable"
   }
 }

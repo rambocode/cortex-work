@@ -336,5 +336,30 @@
     "errProvisioning": "你的专属工作树正在准备，稍候重试",
     "errOffline": "服务器执行节点离线",
     "errInvokeFailed": "发送到服务器工作区失败"
+  },
+  "teamChat": {
+    "humanHint": "真人条目暂不支持对话。如需协作，请直接向 TA 的分身提问。",
+    "humanDisabled": "真人条目暂不支持对话",
+    "offlineTitle": "分身离线",
+    "unavailableTitle": "分身暂不可用",
+    "offlineHint": "分身离线，拥有者当前不在线。可稍后再来，或选择服务器工作区在服务器上执行。",
+    "unavailableHint": "分身在线，但拥有者本机 CLI 不可用。可选择一个服务器工作区改在服务器上执行。",
+    "emptyHint": "尚无对话。发送第一条消息即可提问。",
+    "queuedAhead": "排队中 · 前方 {{n}} 个任务",
+    "queuedWaiting": "排队中，等待工作区空闲…",
+    "waitingApproval": "等待拥有者确认…",
+    "finishing": "正在收尾…",
+    "thinking": "正在思考…",
+    "waitedFor": "（已等待 {{s}}s）",
+    "cancel": "取消",
+    "cancelQueue": "取消排队",
+    "cancelAsk": "取消本次提问",
+    "pillPlaceholder": "服务器工作区",
+    "pillTitle": "选择服务器工作区（不选则由分身拥有者的机器执行）",
+    "pillClear": "清除选择，改回分身直连",
+    "modeSharedShort": "共享",
+    "modeIsolatedShort": "独立",
+    "noSharedAvatars": "暂未共享分身",
+    "unavailableStatus": "在线 · 本机 CLI 不可用"
   }
 }

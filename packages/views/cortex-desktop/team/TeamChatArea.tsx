@@ -2,11 +2,12 @@
 // 在 ChatArea 导出的 ChatHeader/MessageStream/Composer 之上拼装团队态——真人不可聊、
 // 分身离线/不可用、零消息空态、进行中禁用+取消、排队态、终态横幅，以及
 // 「(runtime · 服务器工作区)」选择 pill + 弹层。ChatArea 本体零改动（已逼近行数上限）。
-// 文案暂为 zh-Hans 硬编码，P4 统一收敛 i18n。
+// 文案走 i18n common:teamChat.*。
 
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexActions, useServerWorkspaces, useTeamUIStore, useWorkspaceId } from "@cortex-work/core";
+import { useTranslation } from "@cortex-work/core/i18n";
 import {
   avatarOutcomeBanner,
   getAvatarSession,
@@ -20,6 +21,7 @@ import { ServerWorkspacePicker } from "./ServerWorkspacePicker";
 
 export function TeamChatArea({ contact, convo, onSelectFile, activeFile, onSend, onApprove, onToast }: ChatAreaProps) {
   // 取消动作经 useCortexActions 自服务（无需 CortexDesktopView 额外传 prop）；hooks 必须在早退前调用。
+  const { t } = useTranslation();
   const wsId = useWorkspaceId();
   const { cancelSession } = useCortexActions(wsId);
   // 选择态用 hook 订阅（选定/清除工作区要触发本组件重渲，切换离线降级/可发送分支）。
@@ -44,12 +46,8 @@ export function TeamChatArea({ contact, convo, onSelectFile, activeFile, onSend,
     return (
       <main className="chat">
         <ChatHeader contact={contact} convo={convo} />
-        <CenteredNotice
-          contact={contact}
-          title={contact.name}
-          hint="真人条目暂不支持对话。如需协作，请直接向 TA 的分身提问。"
-        />
-        <DisabledComposer text="真人条目暂不支持对话" />
+        <CenteredNotice contact={contact} title={contact.name} hint={t("teamChat.humanHint")} />
+        <DisabledComposer text={t("teamChat.humanDisabled")} />
       </main>
     );
   }
@@ -58,10 +56,8 @@ export function TeamChatArea({ contact, convo, onSelectFile, activeFile, onSend,
   // 注意：选定了服务器工作区时不受分身本体在线态限制（执行点在服务器 daemon），
   // 故仅在「未选服务器工作区」时才走离线降级。
   if (isAvatar && (offline || unavailable) && !selection) {
-    const title = unavailable ? "分身暂不可用" : "分身离线";
-    const hint = unavailable
-      ? "分身在线，但拥有者本机 CLI 不可用。可选择一个服务器工作区改在服务器上执行。"
-      : "分身离线，拥有者当前不在线。可稍后再来，或选择服务器工作区在服务器上执行。";
+    const title = unavailable ? t("teamChat.unavailableTitle") : t("teamChat.offlineTitle");
+    const hint = unavailable ? t("teamChat.unavailableHint") : t("teamChat.offlineHint");
     return (
       <main className="chat">
         <ChatHeader contact={contact} convo={convo} />
@@ -87,7 +83,7 @@ export function TeamChatArea({ contact, convo, onSelectFile, activeFile, onSend,
     return (
       <main className="chat">
         <ChatHeader contact={contact} convo={convo} />
-        <CenteredNotice contact={contact} title={contact.name} hint="尚无对话。发送第一条消息即可提问。" />
+        <CenteredNotice contact={contact} title={contact.name} hint={t("teamChat.emptyHint")} />
         <ComposerWithWorkspace contact={contact} onSend={onSend} onToast={onToast} />
       </main>
     );
@@ -135,6 +131,7 @@ function ComposerWithWorkspace({
   onToast: (text: string) => void;
   disabledText?: string;
 }) {
+  const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
   const selection = useTeamUIStore((s) => s.selection[contact.id]);
   const setSelection = useTeamUIStore((s) => s.setSelection);
@@ -153,15 +150,19 @@ function ComposerWithWorkspace({
       <div className="serverws-pill-row">
         <button
           className={`serverws-pill ${selected ? "is-set" : ""}`}
-          title="选择服务器工作区（不选则由分身拥有者的机器执行）"
+          title={t("teamChat.pillTitle")}
           onClick={() => setPickerOpen((v) => !v)}
         >
           <Icon.Globe size={12} />
-          <span>{selected ? `${selected.name} · ${selected.mode === "shared" ? "共享" : "独立"}` : "服务器工作区"}</span>
+          <span>
+            {selected
+              ? `${selected.name} · ${selected.mode === "shared" ? t("teamChat.modeSharedShort") : t("teamChat.modeIsolatedShort")}`
+              : t("teamChat.pillPlaceholder")}
+          </span>
           <Icon.Chevron size={11} />
         </button>
         {selected ? (
-          <button className="serverws-pill-clear" title="清除选择，改回分身直连" onClick={() => setSelection(contact.id, undefined)}>
+          <button className="serverws-pill-clear" title={t("teamChat.pillClear")} onClick={() => setSelection(contact.id, undefined)}>
             <Icon.X size={11} />
           </button>
         ) : null}

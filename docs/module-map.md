@@ -105,6 +105,11 @@
 | 通知卡片（**瞬态**弹窗，看完即弃；要找可回溯的历史见上面「消息中心」） | `NotificationCard.tsx` | — | `ipc/notification-window.ts` |
 | 设置（个人工作区整页） | `personal/settings/SettingsMenu.tsx` + 各 `*SettingsSection.tsx` | `store/personal.ts` | `ipc/store.ts`（持久化总仓） |
 | 团队工作区（issue/智能体/用量看板） | `CortexDesktopView.tsx`、`Sections.tsx`、`Sidebar.tsx`、`ChatArea.tsx` | `cortex/`、`mock/`、`api/`、`live/` | — |
+| 团队登录（邮箱验证码/工作区选择/退出登录） | `auth/LoginGate.tsx`、`auth/auth-helpers.ts`、`OrgSwitcher.tsx` | `api/client.ts`（auth 端点）、`desktop/bridge.ts`（`AuthConfig`/auth*） | `ipc/auth-config.ts`（token safeStorage 加密持久化） |
+| 团队管理（squad/邀请/加入码/成员） | `team/TeamManageModal.tsx`、`team/TeamInvitesTab.tsx`、`team/SquadCard.tsx` | `cortex/teams.ts`、`cortex/contacts-map.ts` | — |
+| 团队分身会话（成员→分身两级通讯录/流式回复/取消/终态横幅） | `team/TeamChatArea.tsx`、`team/TeamChatStates.tsx`、`Sidebar.tsx`（OwnerBlock） | `cortex/session-stream.ts`、`cortex/mutations.ts`（invokeAvatar）、`cortex/avatar-sessions.ts`、`cortex/avatar-audit.ts` | — |
+| **服务器工作区**（内网服务器 daemon 托管的持久 git checkout，共享=全队串行排队 / 独立=每人一份 worktree；后端见 `../server` 的 `internal/daemon/serverws/` 与 `/api/server-workspaces`） | `team/RuntimeSettingsPage.tsx`（设置页管理）、`team/ServerWorkspacePicker.tsx`（Composer 选择弹层）、`team/TeamChatArea.tsx`（选择 pill/排队态） | `cortex/server-workspaces.ts`、`cortex/mutations.ts`（invokeServerWorkspace）、`store/team.ts`（选择态） | — |
+| 团队实时层（WS 直连后端 /ws：流式折帧 + 事件 invalidation） | `team/TeamRealtimeMount.tsx` | `cortex/realtime.ts`、`cortex/task-registry.ts` | — |
 | 外观 Tweaks（主题/字号/密度） | `useTweaksPersistence.ts` | `store/ui.ts`（`DEFAULT_TWEAKS`，不在 ui 包！） | — |
 
 ## 独立窗口清单
@@ -149,7 +154,7 @@
 | `writing/` | 写作台：spaces / threads / file-tree / doc-list（左栏列表：隐藏 md 后缀、重命名后缀回填、排序、时间格式化、目录定位与面包屑、文档计数）/ inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
 | `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头） |
 | `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
-| `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client |
+| `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client；`cortex/teams.ts`（squad/成员/邀请）、`cortex/server-workspaces.ts`（服务器工作区）、`cortex/session-stream.ts`（流式保序）、`cortex/realtime.ts`（WS 接线）、`cortex/task-registry.ts`（在途任务登记） |
 | `store/` | 全部 Zustand 客户端态：`ui.ts`（Tweaks）、`personal.ts`（视图开关总店）、`pet.ts`、`piArtifacts.ts`（pi 会话产物）、`memory.ts`、`reply.ts`、`archivedSessions.ts` |
 | `desktop/` | 桥接层：`bridge.ts`（`DesktopBridge` 契约）+ 各 `*-types.ts` 类型镜像 + 持久化 wiring hooks |
 | `pet/` | 桌面宠物状态机：活动位模型 / `derivePetState` 优先级链 / 去抖引擎 / petdex 网格探测（两端共享） |
