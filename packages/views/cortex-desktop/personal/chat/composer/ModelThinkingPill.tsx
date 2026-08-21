@@ -126,6 +126,11 @@ export function ModelThinkingPill({
     : (modelOpts.find((o) => o.value === currentModelValue) ?? modelOpts[0]);
   const currentModelLabel =
     currentModelOpt?.label ?? (isPi ? t("composer.noProvider") : "");
+  // 触发器上的展示级缩短:带命名空间的模型 id(如 mlx-community/Qwen3.5-…)只显示末段,
+  // 全名保留在 title 与下拉菜单里。避免超长模型名把输入框底部一行吃满(清爽化改版)。
+  const triggerModelLabel = currentModelLabel.includes("/")
+    ? currentModelLabel.slice(currentModelLabel.lastIndexOf("/") + 1)
+    : currentModelLabel;
   const effectiveModelValue = currentModelOpt?.value ?? currentModelValue;
 
   const currentThinking = thinkingOptions.find((o) => o.value === resolvedThinkingValue);
@@ -258,7 +263,9 @@ export function ModelThinkingPill({
             <Icon.Lightning size={11} />
           </span>
         )}
-        {currentModelLabel}
+        <span title={currentModelLabel === triggerModelLabel ? undefined : currentModelLabel}>
+          {triggerModelLabel}
+        </span>
         {reasoningShort ? <span className="pw-mt-reason">{reasoningShort}</span> : null}
         <Icon.Chevron size={11} className="chev" />
       </button>

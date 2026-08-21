@@ -9,12 +9,13 @@ import type { Contact } from "@cortex-work/core/types";
 // 而 core 不能反向依赖 views。这里只做透传，方便 views 内既有的 import 路径不变。
 export { AGENT_LABEL };
 
-// 各 agent 头像视觉（claude/codex 沿用原值）。pi 对用户呈现为 "Cortex"，故用首字母 "C" + 靛蓝底；
+// 各 agent 头像视觉(2026-08 黑白灰改版:识别靠首字母而非彩色底——红色专职警示,
+// 其它 UI 彩色一律退场)。pi 对用户呈现为 "Cortex"，故用首字母 "C"；
 // 不用 "CX"——那是 Codex 的缩写，两者并列时会撞车。
 export const AGENT_AVATAR: Record<AgentKind, { initials: string; bg: string }> = {
-  claude: { initials: "CC", bg: "#c96442" },
-  codex: { initials: "CX", bg: "#1a1916" },
-  pi: { initials: "C", bg: "#4338ca" },
+  claude: { initials: "CC", bg: "#555553" },
+  codex: { initials: "CX", bg: "#8a8a88" },
+  pi: { initials: "C", bg: "#171717" },
 };
 
 const BUILT_IN: readonly string[] = ["claude", "codex", "pi"];

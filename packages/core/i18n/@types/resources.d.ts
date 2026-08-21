@@ -308,7 +308,9 @@ export default interface Resources {
     },
     "stats": {
       "cacheHit": "缓存命中 {{percent}}%",
+      "collapse": "收起",
       "counts": "{{turns}} 轮 · {{steps}} 步",
+      "expand": "详情",
       "llm": "LLM {{duration}}",
       "tokens": "输入 {{input}} tok · 输出 {{output}} tok",
       "tokensPerSecond": "{{throughput}} tok/s",

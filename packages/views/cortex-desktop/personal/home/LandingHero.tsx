@@ -1,10 +1,10 @@
-// 落地页 Hero 区：生物荧光水母（SVG,自带漂浮/光晕/触手摆动动画）+ 激励问候语。
+// 落地页 Hero 区：安静问候语(2026-08 清爽化改版:水母插画与紫色光晕退场,
+// 落地页遵循「一个焦点」原则——输入框是唯一视觉重心,hero 只留两行文案)。
 // 文案优先用「每日 LLM 增强」(useDailyEncouragement,基于默认 agent 按天生成并缓存);
 // 无 LLM 文案(web/未配默认 agent/生成中/失败)时回退静态精选池(pickEncouragement)。
 // 停留在落地页时每 30 分钟自动调用默认 agent 刷新文案,用 fade 动画切换。
-// 水母为 Cortex 视觉化身,见 ./Jellyfish。
 // tabs:可选的场景 tab 槽位(日常办公/设计创意,由 SceneChips 经 render prop 注入),
-// 渲染在副标题下方,与标题/副标题同一条左缘。
+// 渲染在副标题下方居中。
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -15,7 +15,6 @@ import {
   useDailyEncouragement,
   usePersonalStore,
 } from "@cortex-work/core";
-import { Jellyfish } from "./Jellyfish";
 import { pickEncouragement } from "./encouragements";
 
 const ROTATE_MS = 30 * 60 * 1000; // 30 分钟轮换一次
@@ -64,7 +63,6 @@ export function LandingHero({ tabs }: { tabs?: ReactNode }) {
 
   return (
     <section className="pw-hero">
-      <Jellyfish className="pw-hero-jelly" />
       <div className={`pw-hero-content${visible ? "" : " pw-hero-content--out"}`}>
         <h1 className="pw-hero-title">{current.title}</h1>
         <p className="pw-hero-sub">{current.sub}</p>

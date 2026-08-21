@@ -82,7 +82,26 @@ export function SessionStatsLine({ messages }: SessionStatsLineProps) {
   const { t } = useTranslation("chat");
   // 折叠要遍历整条消息流，长会话下不该每次父组件重渲都重算一遍。
   const stats = useMemo(() => foldSessionStats(messages), [messages]);
-  const groups = buildStatsGroups(stats, t as (key: string, opts?: Record<string, unknown>) => string);
+  const fullGroups = buildStatsGroups(stats, t as (key: string, opts?: Record<string, unknown>) => string);
+  // 清爽化改版:默认只露「轮数/步数 + 缓存命中」一行摘要,其余(耗时/吞吐/token)收进「详情」。
+  // 摘要组直接重算而非从 fullGroups 挑选——fullGroups 是无键的字符串数组,按下标挑会随分组
+  // 增删悄悄错位。门控与 buildStatsGroups 同源:缺数据的组整组消失,不显示 0。
+  const summaryGroups = useMemo(() => {
+    const groups: string[] = [];
+    if (stats.turns > 0) {
+      groups.push(
+        stats.steps > 0
+          ? t("stats.counts", { turns: stats.turns, steps: stats.steps })
+          : t("stats.turnsOnly", { turns: stats.turns }),
+      );
+    }
+    const hit = stats.hasUsage ? cacheHitPercent(stats) : null;
+    if (hit !== null) groups.push(t("stats.cacheHit", { percent: hit }));
+    return groups;
+  }, [stats, t]);
+  const [expanded, setExpanded] = useState(false);
+  const hasMore = fullGroups.length > summaryGroups.length;
+  const groups = expanded ? fullGroups : summaryGroups;
   const line = groups.join(" | ");
 
   // 窄栏下这行会被省略号截断，此时才挂 title 把完整内容交出去。
@@ -100,7 +119,7 @@ export function SessionStatsLine({ messages }: SessionStatsLineProps) {
     return () => observer.disconnect();
   }, [line]);
 
-  if (groups.length === 0) return null;
+  if (fullGroups.length === 0) return null;
   return (
     <div ref={rootRef} className="pw-stats-line" {...(truncated ? { title: line } : {})}>
       {groups.map((group, i) => (
@@ -109,6 +128,16 @@ export function SessionStatsLine({ messages }: SessionStatsLineProps) {
           {group}
         </span>
       ))}
+      {hasMore ? (
+        <button
+          type="button"
+          className="pw-stats-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? t("stats.collapse") : t("stats.expand")}
+        </button>
+      ) : null}
     </div>
   );
 }

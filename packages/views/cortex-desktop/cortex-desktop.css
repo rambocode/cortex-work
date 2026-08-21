@@ -1,38 +1,43 @@
 :root {
   --bg-app: #ffffff;
-  --bg-sidebar: #f7f6f3;
-  --bg-right: #fafaf9;
-  --bg-card: #f3f1ec;
-  --bg-card-2: #faf8f4;
-  --bg-hover: #ecebe6;
-  --bg-active: #e4e2dc;
+  --bg-sidebar: #f6f6f6;
+  --bg-right: #fafafa;
+  --bg-card: #f1f1f0;
+  --bg-card-2: #f8f8f7;
+  --bg-hover: #ebebeb;
+  --bg-active: #e3e3e2;
   --bg-input: #ffffff;
-  --bg-chip: #efede8;
+  --bg-chip: #efefee;
 
-  --border: #e6e4dd;
-  --border-soft: #efede7;
-  --border-strong: #d3d0c8;
+  --border: #e6e6e5;
+  --border-soft: #efefee;
+  --border-strong: #d2d2d1;
 
-  --text-1: #1a1916;
-  --text-2: #5e5c56;
-  --text-3: #94918a;
-  --text-4: #b8b5ac;
+  --text-1: #171717;
+  --text-2: #555553;
+  --text-3: #919191;
+  --text-4: #b5b5b4;
 
-  /* 品牌色:紫色（原 twilight 色板,palette 机制已移除,固化为唯一默认） */
-  --accent: #7c3aed;
-  --accent-soft: #ede5fd;
-  --link: #2563eb;
+  /* 品牌色:黑白灰体系(2026-08 清爽化改版,原紫色 #7c3aed 退场)。
+     --accent = 近黑,只用于主操作/选中态;--accent-fg 是 accent 底上的文字色
+     (亮色黑底白字,暗色浅底黑字),accent 背景的按钮一律配 var(--accent-fg),不再写死 #fff。
+     红色是全 UI 唯一彩色,只用于警示(审批/失败/高危权限)。 */
+  --accent: #171717;
+  --accent-fg: #ffffff;
+  --accent-soft: #efefee;
+  --link: #171717;
 
   --green: #16a34a;
-  --green-soft: #e6f4ea;
+  --green-soft: #ececeb;
   --amber: #d97706;
-  --amber-soft: #fcf0d7;
+  --amber-soft: #ececeb;
   --red: #dc2626;
   --red-soft: #fbe7e7;
-  --blue: #2563eb;
-  --blue-soft: #e5edfb;
-  --violet: #7c3aed;
-  --violet-soft: #ede5fd;
+  /* 非警示状态色降级为灰阶:蓝/紫不再作为 UI 彩色出现 */
+  --blue: #555553;
+  --blue-soft: #ececeb;
+  --violet: #555553;
+  --violet-soft: #ececeb;
 
   --code-add-bg: #e8f6ec;
   --code-add-gutter: #16a34a;
@@ -76,32 +81,37 @@
 /* 明暗主题基础 token（通用设置 主题 → documentElement[data-theme]）。覆盖中性色,
    品牌主色保留；逐组件 light/dark 视觉打磨为迭代项。 */
 [data-theme="dark"] {
-  --bg-app: #1a1916;
-  --bg-sidebar: #1f1e1a;
-  --bg-right: #1c1b18;
-  --bg-card: #242320;
-  --bg-card-2: #1f1e1a;
-  --bg-hover: #2b2a26;
-  --bg-active: #34332e;
-  --bg-input: #242320;
-  --bg-chip: #2b2a26;
+  --bg-app: #1b1b1b;
+  --bg-sidebar: #1f1f1f;
+  --bg-right: #1d1d1d;
+  --bg-card: #242424;
+  --bg-card-2: #1f1f1f;
+  --bg-hover: #2b2b2b;
+  --bg-active: #343434;
+  --bg-input: #242424;
+  --bg-chip: #2b2b2b;
 
-  --border: #34332e;
-  --border-soft: #2b2a26;
-  --border-strong: #45433c;
+  --border: #343434;
+  --border-soft: #2b2b2b;
+  --border-strong: #454545;
 
-  --text-1: #ece9e1;
-  --text-2: #b6b3aa;
-  --text-3: #8a877f;
-  --text-4: #66635c;
+  --text-1: #ececec;
+  --text-2: #b3b3b3;
+  --text-3: #888888;
+  --text-4: #646464;
 
-  /* 深色下的品牌软底:紫调暗色（与本块 --violet-soft 同值） */
-  --accent-soft: #251a38;
-  --green-soft: #16271f;
-  --amber-soft: #2c2310;
+  /* 暗色黑白灰:accent 反转为浅灰、其上文字为深色(--accent-fg);软底一律中性灰。 */
+  --accent: #ececec;
+  --accent-fg: #171717;
+  --accent-soft: #2e2e2e;
+  --link: #ececec;
+  --blue: #b3b3b3;
+  --violet: #b3b3b3;
+  --green-soft: #282828;
+  --amber-soft: #282828;
   --red-soft: #2e1a1a;
-  --blue-soft: #1a2238;
-  --violet-soft: #251a38;
+  --blue-soft: #282828;
+  --violet-soft: #282828;
 
   --code-add-bg: #16271f;
   --code-del-bg: #2e1a1a;
@@ -271,20 +281,11 @@ input, textarea { font: inherit; color: inherit; }
 }
 .pw-sh-titleblock { flex: 1; min-width: 0; }
 .pw-sh-titlerow { display: flex; align-items: center; gap: 10px; }
-.pw-sh-avatar {
-  width: 28px; height: 28px; border-radius: 8px; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
-}
+/* (清爽化改版:标题行的 agent 头像方块 .pw-sh-avatar 与标签 chip .pw-sh-tag 已删——
+   同一身份右侧 AgentSelect 已承载,Cortex 不再在头部出现三次。) */
 .pw-sh-title {
-  font-size: 16px; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em;
+  font-size: 15px; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.pw-sh-tag {
-  flex: none;
-  font-size: 11.5px; font-weight: 600;
-  color: var(--accent); background: var(--accent-soft);
-  padding: 2px 9px; border-radius: 6px;
 }
 .pw-sh-pathbtn {
   width: 24px; height: 24px; flex: none; padding: 0;
@@ -297,7 +298,8 @@ input, textarea { font: inherit; color: inherit; }
 .pw-sh-chev.is-open { transform: rotate(180deg); }
 .pw-sh-path {
   display: flex; align-items: center; gap: 8px;
-  margin-top: 6px; padding-left: 38px; min-width: 0;
+  /* 左缩进原为 38px 对齐 agent 头像方块;头像已删,直接与标题左缘对齐。 */
+  margin-top: 6px; padding-left: 0; min-width: 0;
   font-size: 12.5px;
 }
 .pw-sh-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
@@ -309,7 +311,6 @@ input, textarea { font: inherit; color: inherit; }
 }
 /* Agent 选择器（自定义下拉,按钮内含 agent 小头像）。 */
 .pw-sh-agent { display: flex; align-items: center; gap: 9px; flex: none; }
-.pw-sh-agent-label { font-size: 13px; color: var(--text-3); }
 .pw-sh-agent-btn {
   display: flex; align-items: center; gap: 9px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px;
@@ -445,7 +446,9 @@ input, textarea { font: inherit; color: inherit; }
 /* 个人工作区(独有 .pw-main):中栏铺满做底,右栏浮起为卡片(左栏已改回贴边通栏,见 .sidebar)。
    .body 底色 = --bg-app(中栏同色),右栏卡片外边距透出此底,即「中栏铺底、右栏浮其上」。 */
 .body:has(.pw-main) {
-  --pw-workspace-surface: #f4f4f1;
+  /* 清爽化改版:workspace 铺底从灰(#f4f4f1)改为 --bg-app(亮白/暗深)——
+     与设计稿一致:三栏里只有左侧栏是灰的,中栏/右栏全白,层次靠边线与阴影。 */
+  --pw-workspace-surface: var(--bg-app);
   background: var(--pw-workspace-surface);
 }
 
@@ -465,10 +468,10 @@ input, textarea { font: inherit; color: inherit; }
      box-shadow,故侧栏需 position+z-index 自建层叠层级,让投影绘到中栏白底之上。 */
   position: relative;
   z-index: 1;
-  --bg-sidebar: var(--pw-workspace-surface);
-  background: var(--pw-workspace-surface);
-  border-right: 1px solid var(--border);
-  box-shadow: inset -3px 0px 20px 0px rgb(180 177 169 / 18%)
+  /* 左栏保持灰底(--bg-sidebar):workspace 铺底已改白,若继续跟随 surface 左栏会跟着变白,
+     与设计稿「唯一灰色区域是左栏」相悖。设计稿只用 1px 边线分隔,原内扩散投影一并移除。 */
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
 }
 .body:has(.pw-main) .pw-sidebar-head {
   border-bottom: none;
@@ -496,9 +499,10 @@ input, textarea { font: inherit; color: inherit; }
 :root[data-vibrancy="sidebar"] .pw-main {
   background: var(--pw-workspace-surface);
 }
-/* 个人工作区要求三栏使用固定底色；此处覆盖 vibrancy 叠色，避免左栏受壁纸颜色影响。 */
+/* 个人工作区要求三栏使用固定底色；此处覆盖 vibrancy 叠色，避免左栏受壁纸颜色影响。
+   注意用 --bg-sidebar 而非 workspace surface——后者已改白,左栏要保持灰。 */
 :root[data-vibrancy="sidebar"] .body:has(.pw-main) > .sidebar {
-  background: var(--pw-workspace-surface);
+  background: var(--bg-sidebar);
 }
 
 /* ---------- Org / workspace switcher ---------- */
@@ -791,7 +795,7 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 9px;
   padding: 0 5px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -1211,10 +1215,10 @@ input, textarea { font: inherit; color: inherit; }
 .pw-subagent-card-process:hover,
 .pw-subagent-card-process.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
 .pw-subagent-card-process.is-primary {
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
 }
-.pw-subagent-card-process.is-primary:hover { color: #fff; background: color-mix(in srgb, var(--accent) 86%, #000); }
+.pw-subagent-card-process.is-primary:hover { color: var(--accent-fg); background: color-mix(in srgb, var(--accent) 86%, #000); }
 
 /* 子代理实时预览：使用 portal 脱离消息滚动区裁剪，位置由卡片预览按钮计算。 */
 .pw-subagent-peek {
@@ -1712,6 +1716,14 @@ input, textarea { font: inherit; color: inherit; }
   text-overflow: ellipsis;
 }
 .pw-stats-sep { margin: 0 8px; opacity: 0.5; }
+/* 摘要行末尾的「详情/收起」切换:与统计文本同字号,仅略抬色示意可点。 */
+.pw-stats-toggle {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  margin-left: 8px; padding: 0;
+  font-size: 11px; line-height: 18px;
+  color: var(--text-3);
+}
+.pw-stats-toggle:hover { color: var(--text-1); }
 .composer .attach-row {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 6px 10px 0;
@@ -1744,15 +1756,16 @@ input, textarea { font: inherit; color: inherit; }
 .composer .send {
   width: 32px; height: 32px;
   flex: 0 0 32px;
-  /* 圆形发送按钮:配合 ArrowUp 图标,对齐主流 AI 输入框形态 */
+  /* 圆形发送按钮:配合 ArrowUp 图标,对齐主流 AI 输入框形态。
+     黑白灰改版:底色走 --accent(亮黑/暗浅灰),文字用 --accent-fg,不再写死紫色。 */
   border-radius: 50%;
-  background: #7c5cff; color: #fff;
+  background: var(--accent); color: var(--accent-fg);
   display: flex; align-items: center; justify-content: center;
 }
-.composer .send:hover { background: #6a48f0; }
-/* 空输入态：保留品牌底色但淡化，与左侧「新会话」按钮协调 */
-.composer .send.muted { background: #b9abff; color: #fff; }
-.composer .send.muted:hover { background: #b9abff; }
+.composer .send:hover { background: color-mix(in srgb, var(--accent) 86%, var(--bg-app)); }
+/* 空输入态：同底色降透明度，而非换一个更浅的色值 */
+.composer .send.muted { background: var(--accent); color: var(--accent-fg); opacity: 0.35; }
+.composer .send.muted:hover { opacity: 0.35; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -3706,7 +3719,7 @@ button.sb-row {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
 }
 .toast.t-success .toast-icon { background: var(--green); }
@@ -3824,7 +3837,7 @@ button.sb-row {
 /* 录制式快捷键控件(HotkeyCapture):常态显示键位 + 「点击修改」,录制态高亮提示。 */
 .twk-hotkey { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 10px; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 8px; background: rgba(255, 255, 255, 0.9); color: inherit; font: inherit; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
 .twk-hotkey:hover { border-color: rgba(0, 0, 0, 0.28); }
-.twk-hotkey.is-recording { border-color: var(--accent, #7c3aed); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #7c3aed) 22%, transparent); }
+.twk-hotkey.is-recording { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
 .twk-hotkey-val { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .twk-hotkey.is-recording .twk-hotkey-val { font-weight: 500; color: rgba(41, 38, 27, 0.6); }
 /* 录制态按到无法识别的键:红色闪边框 + 提示文字,短暂后由组件恢复常态。 */
@@ -3860,31 +3873,29 @@ button.sb-row {
 }
 
 /* ---------- Personal workspace (pw-*) ---------- */
+/* 清爽化改版:模式条从「灰底槽 + 白色抬块」的分段控件退为安静文字 tab,
+   选中项黑色下划线(与落地页场景 tab 同款语言),少一层底色容器。 */
 .pw-sidebar-modes {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 3px;
-  margin: 8px 10px 10px;
-  padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--text-1) 6%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 6px 16px 8px;
   flex-shrink: 0;
 }
 .pw-sidebar-modes button {
   min-width: 0;
-  padding: 7px 6px;
-  border-radius: 7px;
+  padding: 4px 0 5px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+  transition: color 0.14s ease, border-color 0.14s ease;
 }
 .pw-sidebar-modes button:hover { color: var(--text-1); }
 .pw-sidebar-modes button.is-active {
   color: var(--text-1);
-  background: var(--bg-app);
-  box-shadow: 0 1px 3px rgba(20, 18, 12, 0.08);
+  border-bottom-color: var(--accent);
   font-weight: 600;
 }
 /* 模式按钮上的运行中角标（当前只有「研究」用）。按钮格子很窄，所以角标紧贴文字排在同一行，
@@ -3904,71 +3915,7 @@ button.sb-row {
   vertical-align: middle;
 }
 
-.pw-context-card {
-  position: relative;
-  margin: 0 10px 8px;
-  padding: 11px;
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-card) 84%, transparent);
-  box-shadow: 0 5px 16px rgba(20, 18, 12, 0.04);
-  flex-shrink: 0;
-}
-.pw-context-card-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  color: var(--text-2);
-}
-.pw-context-card-title strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-1);
-  font-size: 13px;
-  font-weight: 600;
-}
-.pw-context-card-title > span {
-  margin-left: auto;
-  flex: none;
-  padding: 2px 7px;
-  border-radius: 999px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  font-size: 10px;
-  font-weight: 600;
-}
-.pw-context-card-menu { width: 22px; height: 22px; }
-.pw-context-card-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 6px;
-  margin-top: 10px;
-}
-.pw-context-card-actions > button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 0;
-  min-height: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
-  background: var(--bg-card-2);
-  color: var(--text-2);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: color 0.14s ease, background 0.14s ease;
-}
-.pw-context-card-actions > button:hover { color: var(--text-1); background: var(--bg-hover); }
-.pw-context-card-actions > button.is-primary {
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 24%, transparent);
-}
-.pw-context-card-actions > button.is-primary:hover { color: #fff; filter: brightness(0.96); }
+/* (清爽化改版:原「当前项目」嵌套卡片 pw-context-card 已拆除,上下文并入分组标题行) */
 
 .pw-sidebar-scroll {
   flex: 1;
@@ -4259,7 +4206,6 @@ button.sb-row {
   border-color: var(--border-soft);
 }
 .pw-sidebar-modes button:focus-visible,
-.pw-context-card button:focus-visible,
 .pw-project-switch-main:focus-visible,
 .pw-sidebar-shortcut:focus-visible {
   outline: 2px solid var(--accent);
@@ -4268,17 +4214,23 @@ button.sb-row {
 
 @media (prefers-reduced-motion: reduce) {
   .pw-sidebar-modes button,
-  .pw-context-card-actions > button,
   .pw-project-switch-row,
   .pw-sidebar-shortcut { transition: none; }
 }
 
 .pw-section-h {
   display: flex; align-items: center; justify-content: space-between;
+  gap: 4px;
   padding: 14px 14px 6px;
   font-size: 10.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--text-3);
+}
+/* 标题占满剩余宽度:右侧可能有多颗图标钮(归档/项目菜单/项目管理/添加项目),
+   标题吃掉中间空间让按钮靠右成组;超长项目名省略号截断。 */
+.pw-section-h > span:first-child {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pw-icon-btn {
   width: 24px; height: 24px;
@@ -4387,6 +4339,18 @@ button.sb-row {
 }
 .pw-session-row:hover .pw-session-actions { opacity: 1; }
 .pw-session-row:hover .pw-session-time { opacity: 0; }
+
+/* ── 侧栏样式三档(设置 → 通用)· 个人工作区左栏 ──
+   [data-sidebar] 的行样式规则原本只作用于团队工作区联系人列表(.contact),个人左栏仅联动
+   宽度(220/270/320,见团队区块的 .sidebar 宽度规则),三档感知上「无效」。此处按档语义补齐:
+   rich = 默认(270px,时间戳 hover 让位);
+   minimal = 极简(220px,隐藏时间戳/置顶星标/会话计数,只留标题);
+   activity = 活动(320px,行距更松,信息保持全量)。 */
+[data-sidebar="minimal"] .pw-session-time,
+[data-sidebar="minimal"] .pw-project-pin { display: none; }
+[data-sidebar="minimal"] .pw-session { padding-top: 4px; padding-bottom: 4px; }
+[data-sidebar="activity"] .pw-session { padding-top: 8px; padding-bottom: 8px; }
+[data-sidebar="activity"] .pw-session-time { font-size: 11.5px; color: var(--text-3); }
 .pw-session-act { width: auto; padding: 3px; }
 .pw-session-act.is-danger, .pw-session-act.is-danger svg { color: var(--red); }
 .pw-session-act.is-danger:hover { background: var(--red-soft); }
@@ -4466,8 +4430,11 @@ button.sb-row {
 /* 右栏浮起卡片:去分隔线,加圆角/阴影,左侧间隙改由中栏透出(margin-left:0)。
    不用 overflow:hidden(否则裁掉左缘拖拽条 .pw-rp-resizer),改给顶部头加圆角。 */
 .body:has(.pw-main) .pw-upper > .right {
-  --bg-right: var(--pw-workspace-surface);
-  background: var(--pw-workspace-surface);
+  /* 清爽化改版:右栏浮起卡片用 --bg-app(亮色纯白/暗色深底),白卡浮在灰色
+     workspace 底上层次更清楚;原先卡片与铺底同色(--pw-workspace-surface),
+     设计/写作等右栏面板整片发灰。 */
+  --bg-right: var(--bg-app);
+  background: var(--bg-app);
   border-left: none;
   margin: var(--pw-float-gap);
   margin-left: 0;
@@ -4618,6 +4585,17 @@ button.sb-row {
 }
 /* 放大态不可拖宽(宽度由 inset 决定,拖拽条留着只会写入一个不生效的变量)。 */
 .pw-prompts.is-maximized .pw-rp-resizer { display: none; }
+/* headless 面板(headMode:"none",如画板)的宿主浮动控制钮:右上角白底小胶囊,
+   z-index 需压过画布自带工具栏(其 titlebar 为 z-50)——这是放大态唯一的还原/关闭出口。 */
+.pw-rp-float-ctrls {
+  position: absolute; top: 12px; right: 12px; z-index: 60;
+  display: flex; align-items: center; gap: 2px;
+  padding: 3px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
 /* 浮起卡片形态下,放大态四边都要留出与其它面板一致的间隙(默认 margin-left 是 0)。 */
 .body:has(.pw-main) .pw-upper > .right.is-maximized { margin: var(--pw-float-gap); }
 .pw-artifact-editor {
@@ -5272,7 +5250,7 @@ button.sb-row {
   color: transparent;
   cursor: pointer;
 }
-.pw-note-check.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pw-note-check.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .pw-note-title {
   flex: 1; min-width: 0;
   display: flex; align-items: baseline; gap: 8px;
@@ -6854,8 +6832,9 @@ button.sb-row {
 .pw-customize-pill { display: inline-flex; align-items: center; gap: 5px; }
 .pw-customize-pill > span { font-size: 13px; }
 /* 「完全访问」(auto)警示态:pill 整体橙色,一眼可见全盘权限已放开(参照 Codex 审批选择器)。 */
+/* 「完全访问」高危档:整条 pill(图标+文字)用警示红——红色是全 UI 唯一彩色,专职警示。 */
 .pw-customize-pill.is-warn,
-.pw-customize-pill.is-warn > span { color: var(--perm-warn, #e5602c); }
+.pw-customize-pill.is-warn > span { color: var(--red); }
 /* 权限选择菜单:标题问句 + 两行式档位项,需容纳副标题说明,加宽。 */
 /* 宽度按最长副标题(「可不受限制地访问互联网和您电脑上的任何文件」约 22 字)单行容纳:
    文案 ~264px + 图标/间距/内边距/选中勾,300px 会折行,340px 刚好一行。 */
@@ -6872,11 +6851,11 @@ button.sb-row {
 .pw-perm-item-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
 .pw-perm-item-desc { font-size: 12px; line-height: 1.4; color: var(--text-3); }
 /* 「完全访问」项整行橙色警示(标题/副标题/图标同色)。 */
+/* 菜单里的「完全访问」档:标题与图标用警示红(黑白灰主题下红色专职警示),副标题保持灰。 */
 .pw-perm-item.is-warn .pw-perm-item-title,
-.pw-perm-item.is-warn .pw-perm-item-desc,
-.pw-perm-item.is-warn > svg:first-child { color: var(--perm-warn, #e5602c); }
+.pw-perm-item.is-warn > svg:first-child { color: var(--red); }
 /* 选中勾:与警示行同色呼应,非警示行沿用 accent(基类规则)。 */
-.pw-perm-item.is-warn > svg:last-child:not(:first-child) { color: var(--perm-warn, #e5602c); }
+.pw-perm-item.is-warn > svg:last-child:not(:first-child) { color: var(--red); }
 /* 分组标题:小字弱化,区隔执行模式 / 工作区两组。 */
 .pw-tb-menu-group-h {
   padding: 6px 9px 3px;
@@ -7585,8 +7564,8 @@ button.sb-row {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .pw-fu-composer:focus-within {
-  border-color: var(--accent, #7c3aed);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent),
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent),
     0 4px 16px rgba(20, 18, 12, 0.04);
 }
 .pw-fu-input {
@@ -7798,7 +7777,7 @@ button.sb-row {
 .pw-askq-badge {
   font-size: 10.5px;
   font-weight: 600;
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
   border-radius: 999px;
   padding: 1px 7px;
@@ -8043,11 +8022,11 @@ button.sb-row {
 /* 主按钮（「新建」，工具栏唯一主动作）：accent 实底白字；暗色下改 accent 软底 + accent 字（实底过亮）。 */
 .pw-wb-btn.is-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .pw-wb-btn.is-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, #000);
-  color: #fff;
+  color: var(--accent-fg);
 }
 [data-theme="dark"] .pw-wb-btn.is-primary {
   background: var(--accent-soft);
@@ -9012,11 +8991,11 @@ button.sb-row {
   background: var(--bg-soft); cursor: pointer; text-align: left; width: 100%;
 }
 .pw-prov-item:hover { border-color: var(--text-3); }
-.pw-prov-item.is-active { border-color: var(--accent, #7c3aed); background: var(--bg-app); }
+.pw-prov-item.is-active { border-color: var(--accent); background: var(--bg-app); }
 .pw-prov-item-name { font-size: 13px; font-weight: 600; color: var(--text-1, #1a1916); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .pw-prov-item-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .pw-prov-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: var(--border); color: var(--text-3); }
-.pw-prov-badge.is-default { background: var(--accent, #7c3aed); color: #fff; }
+.pw-prov-badge.is-default { background: var(--accent); color: var(--accent-fg); }
 .pw-prov-detail { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft); }
 .pw-prov-detail textarea.pw-set-input { resize: vertical; min-height: 52px; line-height: 1.5; font-family: var(--mono, ui-monospace, monospace); }
 .pw-prov-probe { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -9364,57 +9343,33 @@ button.sb-row {
 .pw-home-section > .pw-section-h { padding: 0; }
 .pw-home-loading { font-size: 11px; color: var(--text-4); }
 
-/* ── 落地页 Hero（LandingHero：浏览器 mockup + 吉祥物 + 标题/副标题） ────────
-   借鉴 kun 的「迷你工作台」hero。纯展示,色调取 --accent 浅蓝调,与既有主题变量对齐。 */
-/* 落地页 Hero：生物荧光水母(SVG,自带漂浮/光晕/触手摆动动画,见 Jellyfish.tsx) + 按时段
-   问候标题 + 副标题。水母是 Cortex 视觉化身(蓝紫渐变),配色独立于 UI accent。
-   顶部光晕不画在 750px 的 hero 盒子上(会被裁成硬边矩形),而是铺在全宽滚动容器
-   .pw-home 背景上(见下方 .pw-landing .pw-home),从顶部锚定向下渐隐、四周径向羽化。 */
+/* ── 落地页 Hero(LandingHero:安静问候语,2026-08 清爽化改版) ────────
+   紫色光晕渐变与水母插画整体退场(「一个焦点」原则:输入框是落地页唯一视觉重心)。
+   问候标题从 30px/800 降为 21px/600,副标题 13px,居中排列;fade 轮换机制保留。 */
 .pw-hero {
   display: flex; flex-direction: row; align-items: center; justify-content: center;
-  gap: 20px;
   padding: 20px 0 12px;
-  text-align: left;
+  text-align: center;
 }
-/* 顶部羽化光晕:铺在整个中栏 .pw-center-col 背景(仅落地页时,用 :has 限定),透过透明的标题栏、
-   「新会话」栏与看板从窗口最顶端连续向下发散。椭圆中心锚在顶部上方,向下/向两侧渐隐到透明、
-   无可见上边缘;铺在整宽中栏而非 750px 窄列,横向不出现矩形边;明暗主题皆适用。 */
-.pw-center-col:has(.pw-landing) {
-  background-image: radial-gradient(720px 540px at 50% -20px,
-    color-mix(in srgb, #8b5cf6 20%, transparent) 0%,
-    color-mix(in srgb, #7b78ff 11%, transparent) 32%,
-    color-mix(in srgb, #6a8bff 5%, transparent) 54%,
-    transparent 70%);
-  background-repeat: no-repeat;
-}
-/* 落地页内容层透明,让中栏光晕透上来(白底由 .body 的 --bg-app 兜底);标题栏在落地页去掉底部
-   分隔线,「个人工作区」标题浮在光晕上、与顶部连成一片(会话页标题栏不受影响)。 */
+/* 落地页标题栏去掉底部分隔线,「个人工作区」小字与内容连成一片(会话页标题栏不受影响)。 */
 .pw-landing { background-color: transparent; }
 .pw-center-col:has(.pw-landing) > .pw-center-head { border-bottom-color: transparent; }
-/* 水母 SVG：viewBox 已裁到内容包围盒(410×516),按宽度等比缩放;drop-shadow 在水母自身 halo 之外再补一层柔光。 */
-.pw-hero-jelly {
-  width: 128px;
-  height: auto;
-  display: block;
-  filter: drop-shadow(0 10px 24px color-mix(in srgb, #6a8bff 34%, transparent));
-}
-/* 文案包裹层：横向布局下靠 logo 右侧左对齐排列;支持 fade 动画切换
-   (30 分钟轮换时淡出→换内容→淡入) */
+/* 文案包裹层:居中排列;支持 fade 动画切换(30 分钟轮换时淡出→换内容→淡入) */
 .pw-hero-content {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   opacity: 1;
   transition: opacity 0.5s ease;
 }
 .pw-hero-content--out { opacity: 0; }
 .pw-hero-title {
   margin: 0;
-  font-size: 30px; font-weight: 800; letter-spacing: 0.3px;
+  font-size: 21px; font-weight: 600; letter-spacing: 0.2px;
   color: var(--text-1);
 }
 .pw-hero-sub {
   margin: 0;
   max-width: 440px;
-  font-size: 14px; line-height: 1.7;
+  font-size: 13px; line-height: 1.6;
   color: var(--text-3);
 }
 
@@ -9426,27 +9381,23 @@ button.sb-row {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 2px 0 4px;
 }
-/* Hero 文案下的场景 tab:与上方副标题留出间距,左缘与标题对齐(hero-content 左对齐) */
-.pw-hero-content .pw-scene-tabs { margin-top: 14px; }
-/* 分段 pill：外层一枚胶囊底槽，内部两个 tab 共享，选中项抬色而非描边（避免宽度跳动） */
+/* Hero 文案下的场景 tab:与上方副标题留出间距(hero 居中,tab 跟随居中) */
+.pw-hero-content .pw-scene-tabs { margin-top: 10px; }
+/* 清爽化:去掉胶囊底槽,tab 退为安静文字,选中项只抬字色加下划线(不再有色块) */
 .pw-scene-tabs {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
-  background: var(--bg-card-2);
+  display: inline-flex; align-items: center; gap: 16px;
 }
 .pw-scene-tab {
   appearance: none; cursor: pointer;
-  padding: 5px 16px;
+  padding: 3px 0;
   border: 0;
-  border-radius: 999px;
+  border-bottom: 2px solid transparent;
   background: transparent;
   font-size: 12.5px; color: var(--text-3);
-  transition: background 0.14s, color 0.14s;
+  transition: color 0.14s, border-color 0.14s;
 }
 .pw-scene-tab:hover { color: var(--text-1); }
-.pw-scene-tab.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 600; }
+.pw-scene-tab.is-active { border-bottom-color: var(--accent); color: var(--text-1); font-weight: 600; }
 .pw-scene-chips {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
 }
@@ -9613,38 +9564,26 @@ button.sb-row {
   max-width: var(--pw-landing-col);
   margin-inline: auto;
 }
-/* 项目条:输入框正下方一张浅灰卡片(与输入框同宽略收,视觉上像输入框的"底座"),
-   内部只有项目选择器。会话页不再有任何项目/git 信息条,这里是唯一入口。 */
-/* 比输入框窄一档（左右各内缩 16px）、紧贴输入框底部,像输入框的一层"底座"。
-   72 = 输入框自身预留的 40(两侧各 20)+ 再内缩 32:窄列下底座始终比输入框窄一档。 */
+/* 项目条(清爽化改版):不再做浅灰"底座"卡片——输入框下方一行居中小字,
+   视觉上只是输入框的注脚。仍是全应用唯一的项目选择入口(会话页无项目/git 信息条)。 */
 .pw-project-bar {
   width: calc(100% - 72px);
   max-width: calc(var(--pw-landing-col) - 32px);
   margin: 0 auto;
-  padding: 8px 10px;
-  border-radius: 14px;
-  background: var(--bg-card);
+  padding: 0;
+  background: transparent;
+  display: flex;
+  justify-content: center;
   flex-shrink: 0;
 }
-/* 紧贴输入框底边:上移吃掉 .composer-wrap 的 14px 底部内边距,再多压 6px 与输入框重叠——
-   输入框自带 1px 描边 + 悬浮投影,只做「零间距」仍会因投影看出一条缝,重叠后由输入框
-   压在项目条上方(见下方 z-index),视觉上像从输入框下沿长出来的底座。
-   重叠的 6px 用等量 padding-top 补回,卡片内容不被吃掉。 */
-.composer-wrap + .pw-project-bar {
-  margin-top: -20px;
-  padding-top: 14px;
-  border-radius: 0 0 14px 14px;
-  position: relative;
-  z-index: 0;
-}
-/* 输入框压在项目条之上,让它的投影落到项目条上而不是被项目条遮住。 */
+.composer-wrap + .pw-project-bar { margin-top: 2px; }
 .pw-landing .pw-landing-composer { position: relative; z-index: 1; }
 .pw-project-bar .pw-proj-picker-trigger {
-  padding: 4px 8px;
-  font-size: 13px;
-  color: var(--text-1);
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-3);
 }
-.pw-project-bar .pw-proj-picker-trigger:hover { background: var(--bg-hover); }
+.pw-project-bar .pw-proj-picker-trigger:hover { background: var(--bg-hover); color: var(--text-1); }
 /* 底部输入框:封顶居中,并清零 composer-wrap 的横向内边距,使输入框 .composer
    撑满 --pw-landing-col、与上方看板/分区左右对齐。选择器带 .chat 三连:压过
    [data-density] .composer-wrap 的 padding 档位,以及空会话落地态下源码更靠后的
@@ -10391,11 +10330,11 @@ button.sb-row {
   padding: 6px 16px; font-size: 12.5px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--border); background: var(--bg-2, #f5f5f5); color: var(--text-1);
 }
-.pw-browser-error-btn.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.pw-browser-error-btn.is-primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
 .pw-browser-error-btn:hover { filter: brightness(0.97); }
 
 /* 工具栏按钮激活态(标注模式开启时 Comment 按钮高亮,计划 U5) */
-.pw-icon-btn.is-active { background: var(--accent); color: #fff; }
+.pw-icon-btn.is-active { background: var(--accent); color: var(--accent-fg); }
 
 /* ── 标注模式宿主批量发送条(BrowserAnnotator,固定 stage 底部)────── */
 .pw-browser-annot-bar {
@@ -10408,7 +10347,7 @@ button.sb-row {
 .pw-browser-annot-actions { display: flex; gap: 6px; }
 .pw-browser-annot-send {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px;
-  font-size: 12px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  font-size: 12px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
 }
 .pw-browser-annot-send:disabled { opacity: 0.45; cursor: default; }
 .pw-browser-annot-send:not(:disabled):hover { filter: brightness(0.96); }
@@ -11097,7 +11036,8 @@ button.sb-row {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--pw-workspace-surface, var(--bg-app));
+  /* 与右栏浮起卡片同底(白):不再用灰色 workspace 铺底色。 */
+  background: var(--bg-app);
 }
 .pw-rp-head.is-subagents {
   height: 46px;
@@ -11319,7 +11259,7 @@ button.sb-row {
   font-size: 10.5px;
 }
 .pw-sa-filters button:hover { background: var(--bg-hover); }
-.pw-sa-filters button.is-active { color: #fff; border-color: var(--accent); background: var(--accent); }
+.pw-sa-filters button.is-active { color: var(--accent-fg); border-color: var(--accent); background: var(--accent); }
 .pw-sa-list-scroll {
   min-height: 0;
   flex: 1;
@@ -11609,7 +11549,7 @@ button.sb-row {
   gap: 7px;
   padding: 0 13px;
   border-radius: 999px;
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
   font-size: 11.5px;
   font-weight: 600;
@@ -11903,7 +11843,7 @@ button.sb-row {
   justify-content: center;
   gap: 7px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
   font-size: 11.5px;
   font-weight: 600;
@@ -12505,7 +12445,7 @@ button.sb-row {
   font-size: 12px; color: var(--text-2); background: var(--bg-hover);
 }
 .pw-ps-btn:hover { color: var(--text-1); }
-.pw-ps-btn--primary { background: var(--accent); color: #fff; }
+.pw-ps-btn--primary { background: var(--accent); color: var(--accent-fg); }
 .pw-ps-btn--primary:hover { color: #fff; opacity: 0.9; }
 .pw-ps-btn--danger { background: var(--red-soft); color: var(--red); }
 .pw-ps-form { display: flex; flex-direction: column; gap: 8px; }
@@ -13025,43 +12965,43 @@ button.sb-row {
   /* 写作工作区「完全复制」Kun 写作台冷蓝视觉,不跟随 cortex 暖色主题。作用域上移到 root,
      供左栏与中栏顶栏共用。以下 --w-* 为 Kun 亮色字面量(源:Kun styles/base-shell.css :root 与
      tailwind ds.* / SidebarPrimitives)。仅被 pw-writing-left / pw-wt-* 引用,不影响中栏编辑器内核配色。 */
-  --w-accent: #3b82d8;                       /* Kun --ds-accent(选中/强调) */
-  --w-accent-soft: rgba(59, 130, 216, 0.12); /* Kun bg-accent/10-12(文件图标底/激活项底) */
-  --w-panel-bg: #eef2fa;                      /* Kun --bg-sidebar(侧栏底) */
+  --w-accent: #171717;                       /* Kun --ds-accent(选中/强调) */
+  --w-accent-soft: rgba(23, 23, 23, 0.07); /* Kun bg-accent/10-12(文件图标底/激活项底) */
+  --w-panel-bg: #f6f6f6;                      /* Kun --bg-sidebar(侧栏底) */
   --w-ink: #343434;                           /* Kun 行文字 text-[#343434] */
   --w-ink-strong: #1f1f1f;                    /* Kun hover/选中文字 text-[#1f1f1f] */
-  --w-muted: #54678c;                         /* Kun --ds-text-muted */
-  --w-faint: #8492b1;                         /* Kun --ds-text-faint */
-  --w-section: #9aa5b5;                       /* Kun SidebarSectionHeader 文字 */
+  --w-muted: #555553;                         /* Kun --ds-text-muted */
+  --w-faint: #919191;                         /* Kun --ds-text-faint */
+  --w-section: #9a9a9a;                       /* Kun SidebarSectionHeader 文字 */
   --w-icon: #9a9a9a;                          /* Kun SidebarIconButton 默认图标色 */
-  --w-row-hover: rgba(108, 162, 221, 0.1);    /* Kun --ds-sidebar-row-hover */
-  --w-row-active: rgba(216, 232, 249, 0.85);  /* Kun --ds-sidebar-row-active(浅蓝胶囊底) */
-  --w-row-ring: rgba(108, 162, 221, 0.2);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
-  --w-border: rgba(20, 47, 95, 0.13);         /* Kun --border-soft */
+  --w-row-hover: rgba(23, 23, 23, 0.05);    /* Kun --ds-sidebar-row-hover */
+  --w-row-active: rgba(23, 23, 23, 0.08);  /* Kun --ds-sidebar-row-active(浅蓝胶囊底) */
+  --w-row-ring: rgba(23, 23, 23, 0.12);     /* Kun --ds-sidebar-row-ring(胶囊内描边) */
+  --w-border: rgba(23, 23, 23, 0.10);         /* Kun --border-soft */
   --w-menu-bg: #ffffff;                       /* Kun 下拉菜单底(bg-white) */
   --w-canvas: #fefefe;                        /* 协作区(中栏编辑区)底色 */
-  --w-danger: #d6493f;                        /* Kun --ds-danger(删除 hover) */
-  --w-danger-soft: rgba(214, 73, 63, 0.1);
+  --w-danger: #dc2626;                        /* Kun --ds-danger(删除 hover) */
+  --w-danger-soft: rgba(220, 38, 38, 0.08);
 }
 /* 暗色主题:照 Kun 暗色 token 覆盖(源:base-shell.css [data-theme="dark"]),保持写作栏 theme-aware。 */
 [data-theme="dark"] .pw-writing-root {
-  --w-accent: #6fb0e8;
-  --w-accent-soft: rgba(111, 176, 232, 0.16);
-  --w-panel-bg: #121829;
+  --w-accent: #ececec;
+  --w-accent-soft: rgba(236, 236, 236, 0.10);
+  --w-panel-bg: #1f1f1f;
   --w-ink: rgba(255, 255, 255, 0.75);
   --w-ink-strong: #ffffff;
-  --w-muted: #bdc9de;
-  --w-faint: #8593b1;
+  --w-muted: #b3b3b3;
+  --w-faint: #888888;
   --w-section: rgba(255, 255, 255, 0.35);
   --w-icon: rgba(255, 255, 255, 0.45);
-  --w-row-hover: rgba(151, 192, 235, 0.09);
-  --w-row-active: rgba(151, 192, 235, 0.13);
-  --w-row-ring: rgba(151, 192, 235, 0.1);
-  --w-border: rgba(151, 192, 235, 0.13);
-  --w-menu-bg: #131722;                       /* Kun 暗色菜单底 */
-  --w-canvas: #0f1421;                        /* 协作区暗色底(比侧栏 --w-panel-bg 更深一档,拉出层次) */
-  --w-danger: #f8736a;
-  --w-danger-soft: rgba(248, 115, 106, 0.12);
+  --w-row-hover: rgba(255, 255, 255, 0.06);
+  --w-row-active: rgba(255, 255, 255, 0.10);
+  --w-row-ring: rgba(255, 255, 255, 0.10);
+  --w-border: rgba(255, 255, 255, 0.10);
+  --w-menu-bg: #1f1f1f;                       /* Kun 暗色菜单底 */
+  --w-canvas: #171717;                        /* 协作区暗色底(比侧栏 --w-panel-bg 更深一档,拉出层次) */
+  --w-danger: #f87171;
+  --w-danger-soft: rgba(248, 113, 113, 0.12);
 }
 /* ── diff 审阅视图(U6):头部吸顶 + CM 宿主滚动 + 红绿块配色(对齐 Kun write-editor.css)──
    merge 包 baseTheme 的底色只有 8% alpha 几乎不可见,必须在宿主作用域下覆盖(压过包内样式)。 */
@@ -13424,7 +13364,7 @@ button.sb-row {
 }
 .pw-writing-rename-btn:hover { background: var(--w-row-hover, var(--bg-hover)); }
 .pw-writing-rename-btn.is-primary {
-  border-color: transparent; background: var(--w-accent, var(--accent)); color: #fff;
+  border-color: transparent; background: var(--w-accent, var(--accent)); color: var(--accent-fg);
 }
 .pw-writing-rename-btn.is-primary:hover { filter: brightness(1.06); }
 .pw-writing-rename-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -14037,14 +13977,13 @@ button.sb-row {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px;
 }
-/* 三行图标配色:accent 走写作栏主蓝(随主题),绿/橙沿用 emerald/amber 的 500/10 底 + 600 前景 */
-.pw-wa-act-ic[data-tone="accent"] {
-  background: var(--w-accent-soft, var(--accent-soft)); color: var(--w-accent, var(--accent));
+/* 三行图标配色(黑白灰改版):彩色 tile 退场,三档统一中性灰底/灰前景——
+   红色专职警示,快捷动作不属于警示语义。data-tone 标记保留,便于以后要区分时只改这里。 */
+.pw-wa-act-ic[data-tone="accent"],
+.pw-wa-act-ic[data-tone="emerald"],
+.pw-wa-act-ic[data-tone="amber"] {
+  background: var(--w-accent-soft, var(--accent-soft)); color: var(--w-muted, var(--text-2));
 }
-.pw-wa-act-ic[data-tone="emerald"] { background: rgba(16, 185, 129, 0.1); color: #2e9e5b; }
-.pw-wa-act-ic[data-tone="amber"] { background: rgba(245, 158, 11, 0.12); color: #c77e1f; }
-[data-theme="dark"] .pw-wa-act-ic[data-tone="emerald"] { color: #6ee7b7; }
-[data-theme="dark"] .pw-wa-act-ic[data-tone="amber"] { color: #fcd34d; }
 .pw-wa-act-tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .pw-wa-act-t { font-size: 13px; font-weight: 500; color: var(--w-ink-strong, var(--text-1)); }
 .pw-wa-act-s {
@@ -14158,7 +14097,7 @@ button.sb-row {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; flex-shrink: 0;
   border-radius: 50%; cursor: pointer;
-  background: var(--w-accent, var(--accent)); color: #fff;
+  background: var(--w-accent, var(--accent)); color: var(--accent-fg);
 }
 .pw-wa-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .pw-wa-send.is-stop { background: var(--w-danger, var(--red)); }
@@ -14277,9 +14216,9 @@ button.sb-row {
 .pw-pip-tabs { display: flex; align-items: center; gap: 2px; margin-top: 16px; padding-bottom: 2px; border-bottom: 1px solid var(--border); overflow-x: auto; }
 .pw-pip-tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; margin-bottom: -3px; font-size: 12.5px; color: var(--text-3); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
 .pw-pip-tab:hover { color: var(--text-1); }
-.pw-pip-tab.is-on { color: var(--accent, #7c3aed); font-weight: 600; border-bottom-color: var(--accent, #7c3aed); }
+.pw-pip-tab.is-on { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
 .pw-pip-tab-n { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--border); color: var(--text-3); }
-.pw-pip-tab.is-on > .pw-pip-tab-n { background: color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent); color: var(--accent, #7c3aed); }
+.pw-pip-tab.is-on > .pw-pip-tab-n { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 /* 分区：小节标题 + 副说明 */
 .pw-pip-sec { margin-top: 18px; }
 .pw-pip-sec-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
@@ -14333,7 +14272,7 @@ button.sb-row {
 .pw-pip-grouplbl:first-of-type { margin-top: 0; }
 .pw-pip-keyinput { flex: 1 1 auto; min-width: 0; }
 .pw-pip-baseurl { flex: 1 1 auto; min-width: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pw-pip-more { padding: 10px 14px; font-size: 12.5px; color: var(--accent, #7c3aed); background: none; border: none; text-align: left; cursor: pointer; }
+.pw-pip-more { padding: 10px 14px; font-size: 12.5px; color: var(--accent); background: none; border: none; text-align: left; cursor: pointer; }
 .pw-pip-more:hover { background: var(--bg-hover); }
 /* 「N 模型」徽标按钮与只读模型列表 popover(浮层,不撑开行/卡片) */
 .pw-pip-badge-btn { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; padding: 1px 7px; border: none; border-radius: 6px; background: var(--border); color: var(--text-3); cursor: pointer; white-space: nowrap; }
@@ -14350,7 +14289,7 @@ button.sb-row {
    绝对定位元素,向上翻出行顶会被整块裁掉(云平台行实测:114 模型的高浮层几乎全部不可见)。
    行内没有满宽背景的子元素,圆角无需裁剪兜底。 */
 .pw-pip-cloud { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); }
-.pw-pip-cloud.is-open { border-color: color-mix(in srgb, var(--accent, #7c3aed) 35%, var(--border)); }
+.pw-pip-cloud.is-open { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .pw-pip-cloud-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 14px; background: none; border: none; text-align: left; cursor: pointer; color: var(--text-1); }
 .pw-pip-cloud-state { font-size: 11.5px; color: var(--text-3); }
 .pw-pip-cloud-state.is-on { color: #16a34a; }
@@ -14359,7 +14298,7 @@ button.sb-row {
 .pw-pip-cloud-keyrow > .pw-set-input { flex: 1 1 auto; min-width: 0; }
 .pw-pip-cloud-foot { display: flex; align-items: center; gap: 8px; }
 /* 主按钮 / 文字按钮 / 图标按钮 */
-.pw-pip-primary { height: 30px; padding: 0 14px; font-size: 12.5px; font-weight: 600; color: #fff; background: var(--accent, #7c3aed); border: none; border-radius: 8px; cursor: pointer; flex: 0 0 auto; }
+.pw-pip-primary { height: 30px; padding: 0 14px; font-size: 12.5px; font-weight: 600; color: var(--accent-fg); background: var(--accent); border: none; border-radius: 8px; cursor: pointer; flex: 0 0 auto; }
 .pw-pip-primary:hover { background: #6a48f0; }
 .pw-pip-primary:disabled { opacity: 0.45; cursor: default; }
 /* 无待保存改动时退成描边态。此前空表单里也是一块实心紫,一列排下来全是高亮块,
@@ -14368,9 +14307,9 @@ button.sb-row {
 .pw-pip-primary.is-idle:hover { background: transparent; }
 /* 次要行动按钮（「配置」）：比 primary 弱、比纯文字链接强,适合每行都有一个的场景。 */
 .pw-pip-ghost { height: 26px; padding: 0 12px; font-size: 12px; color: var(--text-2); background: var(--bg-app); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
-.pw-pip-ghost:hover { border-color: var(--accent, #7c3aed); color: var(--accent, #7c3aed); }
+.pw-pip-ghost:hover { border-color: var(--accent); color: var(--accent); }
 .pw-pip-ghost:disabled { opacity: 0.5; cursor: default; }
-.pw-pip-ghost.is-on { color: var(--accent, #7c3aed); border-color: color-mix(in srgb, var(--accent, #7c3aed) 45%, var(--border)); }
+.pw-pip-ghost.is-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .pw-pip-linkbtn { padding: 4px 6px; font-size: 12px; color: var(--text-3); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .pw-pip-linkbtn:hover { color: var(--text-1); }
 .pw-pip-linkbtn:disabled { opacity: 0.5; cursor: default; }
@@ -14379,7 +14318,7 @@ button.sb-row {
 .pw-pip-iconbtn:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-pip-iconbtn.is-off { color: var(--text-3); }
 /* is-active = 该开关背后已有配置（如已设自定义地址）；is-on = 面板当前展开。 */
-.pw-pip-iconbtn.is-active { color: var(--accent, #7c3aed); }
+.pw-pip-iconbtn.is-active { color: var(--accent); }
 .pw-pip-iconbtn.is-on { background: var(--bg-hover); }
 /* 紧凑连接测试：按钮 + 短结果 chip（完整过程/参数在 .pw-pip-testpanel 浮层里） */
 .pw-pip-test { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
@@ -14414,7 +14353,7 @@ button.sb-row {
 .pw-pip-teststep-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; flex: 0 0 auto; color: var(--text-4, var(--text-3)); }
 .pw-pip-teststep.is-ok > .pw-pip-teststep-icon { color: #16a34a; }
 .pw-pip-teststep.is-error > .pw-pip-teststep-icon { color: #dc2626; }
-.pw-pip-teststep-spin { width: 9px; height: 9px; border: 1.5px solid var(--border-strong, var(--border)); border-top-color: var(--accent, #7c3aed); border-radius: 999px; animation: pw-pip-spin 0.7s linear infinite; }
+.pw-pip-teststep-spin { width: 9px; height: 9px; border: 1.5px solid var(--border-strong, var(--border)); border-top-color: var(--accent); border-radius: 999px; animation: pw-pip-spin 0.7s linear infinite; }
 @keyframes pw-pip-spin { to { transform: rotate(360deg); } }
 .pw-pip-teststep-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .pw-pip-teststep-name { font-size: 11.5px; color: var(--text-1); }
@@ -14427,15 +14366,15 @@ button.sb-row {
 .pw-pip-testverdict.is-error { color: #dc2626; background: color-mix(in srgb, #dc2626 8%, transparent); }
 /* 自定义分区：虚线添加入口 + 内联编辑器容器 */
 .pw-pip-add { width: 100%; padding: 13px; font-size: 12.5px; color: var(--text-3); background: none; border: 1.5px dashed var(--border-strong, var(--border)); border-radius: 12px; text-align: center; cursor: pointer; }
-.pw-pip-add:hover { border-color: var(--accent, #7c3aed); color: var(--accent, #7c3aed); }
-.pw-pip-editor { padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent, #7c3aed) 35%, var(--border)); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); }
+.pw-pip-add:hover { border-color: var(--accent); color: var(--accent); }
+.pw-pip-editor { padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 12px; background: var(--bg-card-2, var(--bg-soft)); }
 /* 自定义供应商预制表单（对齐原型:预设 chips + 双列字段 + 能力声明行） */
 .pw-pip-form { display: flex; flex-direction: column; gap: 11px; }
 .pw-pip-form-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pw-pip-form-title { font-size: 13.5px; font-weight: 650; color: var(--text-1); }
 .pw-pip-chip { height: 25px; padding: 0 11px; font-size: 11.5px; color: var(--text-2); background: var(--bg-app); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; white-space: nowrap; }
-.pw-pip-chip:hover { border-color: var(--accent, #7c3aed); }
-.pw-pip-chip.is-active { color: var(--accent, #7c3aed); background: color-mix(in srgb, var(--accent, #7c3aed) 8%, transparent); border-color: color-mix(in srgb, var(--accent, #7c3aed) 45%, var(--border)); }
+.pw-pip-chip:hover { border-color: var(--accent); }
+.pw-pip-chip.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .pw-pip-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .pw-pip-mono { font-family: var(--mono, ui-monospace, monospace); }
 .pw-pip-optional { font-weight: 400; color: var(--text-4, var(--text-3)); }
@@ -14560,45 +14499,45 @@ button.sb-row {
    保证同一套组件在两种主题下都有正确对比度（规格只覆盖浅色，这里补齐暗色）。 */
 .pw-personal-chat {
   --pcm-card: #ffffff;
-  --pcm-inset: #f1efe9;
-  --pcm-inset-hover: #ece9e0;
-  --pcm-panel: #fbfaf7;
-  --pcm-terminal: #2d2b27;
-  --pcm-terminal-text: #b8b4ab;
-  --pcm-terminal-dim: #8a8578;
+  --pcm-inset: #f0f0ef;
+  --pcm-inset-hover: #ebebea;
+  --pcm-panel: #fafafa;
+  --pcm-terminal: #2b2b2b;
+  --pcm-terminal-text: #b5b5b4;
+  --pcm-terminal-dim: #888886;
   --pcm-terminal-ok: #4ade80;
   --pcm-terminal-err: #f87171;
-  --pcm-terminal-link: #a5b4fc;
-  --pcm-line: #eceae4;
-  --pcm-line-2: #eae7df;
-  --pcm-line-hover: #d6d2c9;
-  --pcm-text: #1f1e1c;
-  --pcm-text-2: #4a463f;
-  --pcm-text-3: #5c584f;
-  --pcm-thinking: #8a8578;
-  --pcm-meta: #a29d92;
-  --pcm-meta-2: #b8b4ab;
-  --pcm-meta-3: #c4c0b7;
-  --pcm-accent: #4f46e5;
-  --pcm-accent-hover: #4338ca;
-  --pcm-accent-ring: #dedbf5;
+  --pcm-terminal-link: #c9c9c9;
+  --pcm-line: #ebebea;
+  --pcm-line-2: #e9e9e8;
+  --pcm-line-hover: #d4d4d3;
+  --pcm-text: #1e1e1e;
+  --pcm-text-2: #494947;
+  --pcm-text-3: #5b5b59;
+  --pcm-thinking: #888886;
+  --pcm-meta: #a0a09e;
+  --pcm-meta-2: #b5b5b4;
+  --pcm-meta-3: #c2c2c0;
+  --pcm-accent: #171717;
+  --pcm-accent-hover: #000000;
+  --pcm-accent-ring: #e3e3e2;
   --pcm-success: #16a34a;
   --pcm-success-soft: #ecf7ee;
   --pcm-success-track: #f0ede6;
   --pcm-danger: #dc2626;
-  --pcm-track: #e7e3da;
-  --pcm-dot: #d6d2c9;
-  --pcm-strike: #a8a396;
-  --pcm-ring-idle: #ddd9cf;
+  --pcm-track: #e5e5e4;
+  --pcm-dot: #d4d4d3;
+  --pcm-strike: #a6a6a4;
+  --pcm-ring-idle: #dbdbda;
 }
 [data-theme="dark"] .pw-personal-chat {
   --pcm-card: var(--bg-card);
   --pcm-inset: var(--bg-hover);
   --pcm-inset-hover: var(--bg-active);
   --pcm-panel: var(--bg-card-2);
-  --pcm-terminal: #16150f;
-  --pcm-terminal-text: #b6b3aa;
-  --pcm-terminal-dim: #8a877f;
+  --pcm-terminal: #161616;
+  --pcm-terminal-text: #b3b3b3;
+  --pcm-terminal-dim: #888888;
   --pcm-line: var(--border);
   --pcm-line-2: var(--border);
   --pcm-line-hover: var(--border-strong);
@@ -14609,9 +14548,9 @@ button.sb-row {
   --pcm-meta: var(--text-3);
   --pcm-meta-2: var(--text-3);
   --pcm-meta-3: var(--text-4);
-  --pcm-accent: #8b83f0;
-  --pcm-accent-hover: #a49df5;
-  --pcm-accent-ring: #3a3560;
+  --pcm-accent: #ececec;
+  --pcm-accent-hover: #ffffff;
+  --pcm-accent-ring: #454545;
   --pcm-success-soft: var(--green-soft);
   --pcm-success-track: var(--bg-active);
   --pcm-track: var(--border);
@@ -14684,16 +14623,16 @@ button.sb-row {
   font-size: 14.5px;
   line-height: 1.78;
 }
-/* 用户气泡：右对齐、白底描边、右下角收窄的圆角。 */
+/* 用户气泡：右对齐、灰底、右下角收窄的圆角。
+   中栏铺底改白后(清爽化改版),气泡从「灰底上的白卡」反转为「白底上的灰卡」,
+   靠底色区分即可,描边与投影一并移除。 */
 .pw-personal-chat .msg.is-me .m-text {
   max-width: 70%;
   padding: 12px 16px;
-  border: 1px solid var(--pcm-line);
   border-radius: 16px 16px 4px 16px;
-  background: var(--pcm-card);
+  background: var(--pcm-inset);
   font-size: 13.5px;
   line-height: 1.7;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
 }
 /* 时间戳：用户消息在气泡右下方；Agent 的已并入头像行，底部不再重复漂浮。 */
 .pw-personal-chat .msg.is-me .m-msg-time { color: var(--pcm-meta-3); font-size: 11px; }

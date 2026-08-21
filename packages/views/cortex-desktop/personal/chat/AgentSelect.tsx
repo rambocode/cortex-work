@@ -42,7 +42,7 @@ export function AgentSelect({
 
   return (
     <div className="pw-sh-agent">
-      <span className="pw-sh-agent-label">Agent</span>
+      {/* 清爽化改版:去掉「Agent」前缀文字标签——按钮本身(头像+名称)已自明,标签是冗余重复 */}
       <div
         className="pw-tb-menu-wrap"
         ref={menu.wrapRef}

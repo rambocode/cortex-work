@@ -8,12 +8,7 @@ import { useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
 import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
 import { UpdateButton } from "../../UpdateButton";
-import {
-  agentDisplayAvatar,
-  agentDisplayLabel,
-  buildAgentSwitchPatch,
-  useChatViewActive,
-} from "../chat/agentMeta";
+import { buildAgentSwitchPatch, useChatViewActive } from "../chat/agentMeta";
 import { AgentSelect } from "../chat/AgentSelect";
 import { SidebarLeftControls } from "./SidebarControls";
 
@@ -68,9 +63,6 @@ function PersonalSessionHeader() {
   }
 
   const agent = session.agent;
-  // 显示用「派生优先」键:有 derivedAgentId 时显示派生名/头像,否则内置(U7)。
-  const displayKey = session.derivedAgentId ?? agent;
-  const avatar = agentDisplayAvatar(displayKey, derivedAgents);
   const realProject = session.projectId ? projects.find((p) => p.id === session.projectId) : undefined;
   const projectName = realProject?.name ?? "无项目";
   const projectPath = realProject?.path ?? session.noProjectDir ?? "";
@@ -83,13 +75,11 @@ function PersonalSessionHeader() {
       {leftCollapsed ? <SidebarLeftControls /> : null}
       <div className="pw-sh-titleblock">
         <div className="pw-sh-titlerow">
-          <span className="pw-sh-avatar" style={{ background: avatar.bg }}>
-            {avatar.initials}
-          </span>
+          {/* 清爽化改版:标题行不再放 agent 头像方块与 agent 标签 chip——同一信息右侧
+              AgentSelect 已完整承载(此前 Cortex 在头部出现 3 次)。 */}
           <span className="pw-sh-title" title={session.title}>
             {session.title}
           </span>
-          <span className="pw-sh-tag">{agentDisplayLabel(displayKey, derivedAgents)}</span>
           <button
             type="button"
             className="pw-sh-pathbtn"

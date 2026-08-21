@@ -174,7 +174,25 @@ export function PersonalRightPanel({ onToast }: { onToast: (text: string) => voi
         onMouseDown={startResize}
         onDoubleClick={() => setWidth(undefined)}
       />
-      {desc.headMode === "none" ? null : (
+      {desc.headMode === "none" ? (
+        /* headless 面板(画板等自带工具栏):整行头部不渲染,但 放大/还原 与 关闭 必须由宿主
+           以右上角浮层补上——放大态(is-maximized)盖满整个右侧含工具 rail,若无此浮层,
+           headless 面板一旦放大就没有任何还原/关闭出口(白板实测卡死)。 */
+        <div className="pw-rp-float-ctrls">
+          {canMax ? (
+            <button
+              className="pw-icon-btn"
+              title={maximized ? "还原面板" : "放大面板"}
+              onClick={() => setMaximized(!maximized)}
+            >
+              {maximized ? <Icon.Minimize size={14} /> : <Icon.Maximize size={14} />}
+            </button>
+          ) : null}
+          <button className="pw-icon-btn" title="关闭面板" onClick={close}>
+            <Icon.X size={14} />
+          </button>
+        </div>
+      ) : (
         <div className={`pw-col-head pw-rp-head${desc.headClassName ? ` ${desc.headClassName}` : ""}`}>
           {RenderHead ? <RenderHead /> : <PanelHeadTitle title={desc.title} />}
           {canMax ? (

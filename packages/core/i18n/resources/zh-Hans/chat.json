@@ -73,7 +73,9 @@
     "ttftAverage": "首 token 平均 {{duration}}",
     "tokensPerSecond": "{{throughput}} tok/s",
     "cacheHit": "缓存命中 {{percent}}%",
-    "tokens": "输入 {{input}} tok · 输出 {{output}} tok"
+    "tokens": "输入 {{input}} tok · 输出 {{output}} tok",
+    "expand": "详情",
+    "collapse": "收起"
   },
   "diff": {
     "applied": "已应用",

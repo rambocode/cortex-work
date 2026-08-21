@@ -73,7 +73,9 @@
     "ttftAverage": "TTFT avg {{duration}}",
     "tokensPerSecond": "{{throughput}} tok/s",
     "cacheHit": "Cache hit {{percent}}%",
-    "tokens": "Input {{input}} tok · Output {{output}} tok"
+    "tokens": "Input {{input}} tok · Output {{output}} tok",
+    "expand": "Details",
+    "collapse": "Collapse"
   },
   "diff": {
     "applied": "Applied",

@@ -225,6 +225,8 @@ function SessionRow({
 
 // 单个分组内默认显示的会话条数上限。超过则默认只显示前 N 条,底部挂「展开显示」按钮。
 const DEFAULT_VISIBLE_SESSIONS = 5;
+// 「项目」分组默认露出的项目行数(清爽化改版:项目列表不再长期全量展开,超出收进「全部项目」)。
+const DEFAULT_VISIBLE_PROJECTS = 5;
 
 // 分组会话列表:超过 DEFAULT_VISIBLE_SESSIONS 条时默认只显示前 N 条,底部「展开显示 (剩余数)」
 // 按钮展开全部,展开后按钮变「折叠显示」。避免会话多的项目把侧栏撑高、把其它项目/分组挤下去。
@@ -363,6 +365,8 @@ export function PersonalSidebar({
   const [editors, setEditors] = useState<EditorInfo[]>([]);
   // 「已归档」分组折叠态（本地,默认折叠）。
   const [archivedOpen, setArchivedOpen] = useState(false);
+  // 「项目」分组展开态(默认只露前 DEFAULT_VISIBLE_PROJECTS 行)。
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [revealedArchiveProjectId, setRevealedArchiveProjectId] = useState<string>();
 
@@ -411,6 +415,10 @@ export function PersonalSidebar({
     : [];
   const showContextArchived = contextProject?.id === revealedArchiveProjectId;
   const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
+  // 默认只露前 N 个项目,其余收进「全部项目」展开钮(与会话列表的「展开显示」同款交互)。
+  const visibleProjectChoices = projectsExpanded
+    ? projectChoices
+    : projectChoices.slice(0, DEFAULT_VISIBLE_PROJECTS);
   const archivedChoices = archived.filter((project) => project.id !== contextProject?.id);
   const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
   // 深度研究**不再是左栏模式**：它已改为会话内的 `/skill:research`，进度与报告在会话右栏。
@@ -462,9 +470,14 @@ export function PersonalSidebar({
   return (
     <aside className="sidebar">
       {/* 左栏顶部头:三栏各自顶天后承担窗口拖拽区,并为 macOS 红绿灯预留左侧空间。
-          红绿灯右侧放「折叠侧栏 / 搜索会话」控制。 */}
+          红绿灯右侧放「折叠侧栏 / 搜索会话」控制;右端是「新建会话」(清爽化改版:
+          原「当前项目」卡片里的大 primary 按钮降级为这颗顶部图标钮,语义不变——按当前上下文新建)。 */}
       <div className="pw-col-head pw-sidebar-head">
         <SidebarLeftControls />
+        <div className="spacer" />
+        <button className="icon-btn" title="新建会话" aria-label="新建会话" onClick={createContextSession}>
+          <Icon.Plus />
+        </button>
       </div>
       <div className="pw-sidebar-modes" aria-label="工作模式">
         <button className={conversationModeOpen ? "is-active" : ""} onClick={openHome} aria-pressed={conversationModeOpen}>
@@ -477,66 +490,45 @@ export function PersonalSidebar({
         ) : null}
       </div>
 
-      <section className="pw-context-card" aria-label="当前项目">
-        <div className="pw-context-card-title">
-          {contextProject ? <Icon.Folder size={15} /> : <Icon.File size={15} />}
-          <strong>{contextProject?.name ?? (contextIsNoProject ? "无项目会话" : "选择一个项目开始")}</strong>
-          {contextProject ? <span>当前项目</span> : null}
-          {contextProject && contextArchivedSessions.length > 0 ? (
-            <button
-              className={`pw-icon-btn pw-context-card-menu ${showContextArchived ? "is-active" : ""}`}
-              title={showContextArchived ? "隐藏已归档会话" : `显示已归档会话 (${contextArchivedSessions.length})`}
-              onClick={() => setRevealedArchiveProjectId(showContextArchived ? undefined : contextProject.id)}
-            >
-              <Icon.File size={13} />
-            </button>
-          ) : null}
-          {contextProject ? (
-            <button
-              className={`pw-icon-btn pw-context-card-menu ${contextMenuAnchor ? "is-active" : ""}`}
-              title="更多项目操作"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setContextMenuAnchor({ x: rect.right, y: rect.bottom + 4 });
-              }}
-            >
-              <Icon.More size={13} />
-            </button>
-          ) : null}
-        </div>
-        <div className="pw-context-card-actions">
-          <button className="is-primary" onClick={createContextSession}>
-            <Icon.Plus size={13} />
-            <span>新建会话</span>
-          </button>
-          {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-            <button
-              className="pw-projects-entry"
-              onClick={onOpenProjectsWindow}
-              title="项目管理（独立窗口：项目树 / 任务清单 / 详情）"
-            >
-              <Icon.Folder size={13} />
-              <span>项目管理</span>
-            </button>
-          ) : null}
-        </div>
-        {contextProject && contextMenuAnchor ? (
-          <ProjectMenu
-            project={contextProject}
-            archived={contextProject.archivedAt != null}
-            editors={editors}
-            anchor={contextMenuAnchor}
-            onClose={() => setContextMenuAnchor(null)}
-            onToast={onToast}
-          />
-        ) : null}
-      </section>
-
       <div className="pw-sidebar-scroll">
+        {/* 清爽化改版:原「当前项目」嵌套卡片(pw-context-card)拆除——上下文名直接做分组标题,
+            归档切换/项目菜单收进标题行右侧,消灭「无项目会话」标签出现两次的重复。 */}
         <section className="pw-context-sessions">
           <div className="pw-section-h">
-            <span>{contextIsNoProject ? "无项目会话" : "当前项目会话"}</span>
+            {/* 标题避免用裸「会话」:与顶部模式 tab 文案撞车(a11y/测试 getByText 会歧义) */}
+            <span>{contextProject?.name ?? (contextIsNoProject ? "无项目会话" : "最近")}</span>
+            {contextProject && contextArchivedSessions.length > 0 ? (
+              <button
+                className={`pw-icon-btn ${showContextArchived ? "is-active" : ""}`}
+                title={showContextArchived ? "隐藏已归档会话" : `显示已归档会话 (${contextArchivedSessions.length})`}
+                onClick={() => setRevealedArchiveProjectId(showContextArchived ? undefined : contextProject.id)}
+              >
+                <Icon.File size={13} />
+              </button>
+            ) : null}
+            {contextProject ? (
+              <button
+                className={`pw-icon-btn ${contextMenuAnchor ? "is-active" : ""}`}
+                title="更多项目操作"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setContextMenuAnchor({ x: rect.right, y: rect.bottom + 4 });
+                }}
+              >
+                <Icon.More size={13} />
+              </button>
+            ) : null}
           </div>
+          {contextProject && contextMenuAnchor ? (
+            <ProjectMenu
+              project={contextProject}
+              archived={contextProject.archivedAt != null}
+              editors={editors}
+              anchor={contextMenuAnchor}
+              onClose={() => setContextMenuAnchor(null)}
+              onToast={onToast}
+            />
+          ) : null}
           {contextSessions.length > 0 ? (
             <SessionList
               sessions={contextSessions}
@@ -565,12 +557,22 @@ export function PersonalSidebar({
 
         <section className="pw-project-switcher">
           <div className="pw-section-h">
-            <span>切换项目</span>
+            <span>项目</span>
+            {/* 清爽化改版:原卡片里的「项目管理」文字按钮收进分组标题右侧的图标入口 */}
+            {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+              <button
+                className="pw-icon-btn"
+                title="项目管理（独立窗口：项目树 / 任务清单 / 详情）"
+                onClick={onOpenProjectsWindow}
+              >
+                <Icon.Folder size={14} />
+              </button>
+            ) : null}
             <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
               <Icon.FolderPlus size={14} />
             </button>
           </div>
-          {projectChoices.map((project) => (
+          {visibleProjectChoices.map((project) => (
             <ProjectSwitchRow
               key={project.id}
               project={project}
@@ -580,6 +582,20 @@ export function PersonalSidebar({
               onToast={onToast}
             />
           ))}
+          {projectChoices.length > DEFAULT_VISIBLE_PROJECTS ? (
+            <button
+              className="pw-session-more"
+              data-collapsed={!projectsExpanded}
+              onClick={() => setProjectsExpanded((v) => !v)}
+            >
+              <span className="chev">
+                <Icon.Chevron size={10} />
+              </span>
+              <span>
+                {projectsExpanded ? "折叠项目" : `全部项目 (${projectChoices.length - DEFAULT_VISIBLE_PROJECTS})`}
+              </span>
+            </button>
+          ) : null}
           {noProjectSessions.length > 0 && !contextIsNoProject ? (
             <button
               className="pw-project-switch-main pw-no-project-switch"

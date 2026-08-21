@@ -1,6 +1,7 @@
 // 个人工作区侧栏项目上下文布局测试：
 // - 顶部模式切换承载会话 / 写作 / 设计；
-// - 当前项目卡片承载新建会话 / 项目管理；
+// - 清爽化改版:新建会话是顶部图标钮;上下文名直接做会话分组标题(无嵌套卡片);
+//   项目管理收进「项目」分组标题的图标入口；
 // - 底部固定用户行承载头像菜单（闪记 / 自动化 / Loop / 显示宠物 / 设置）与消息铃铛。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
@@ -97,7 +98,7 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
     expect(modes?.textContent).toContain("会话");
     expect(modes?.textContent).toContain("写作");
     expect(modes?.textContent).not.toContain("设计");
-    expect(container.querySelector(".pw-context-card")?.textContent).toContain("项目管理");
+    expect(container.querySelector('.pw-project-switcher button[title*="项目管理"]')).toBeTruthy();
   });
 
   it("点击「会话」触发 openHome（homeOpen=true、writingOpen 复位）", () => {
@@ -119,7 +120,7 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
   it("点击「项目管理」调用注入的 onOpenProjectsWindow（不碰 window.desktopAPI）", () => {
     const open = vi.fn();
     renderSidebar(bridgeWith(), { onOpenProjectsWindow: open });
-    fireEvent.click(screen.getByText("项目管理"));
+    fireEvent.click(screen.getByTitle(/项目管理/));
     expect(open).toHaveBeenCalledTimes(1);
   });
 
@@ -128,7 +129,7 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
     expect(screen.getByText("会话")).toBeTruthy();
     expect(screen.queryByText("写作")).toBeNull();
     expect(screen.queryByText("设计")).toBeNull();
-    expect(container.querySelector(".pw-projects-entry")).toBeNull();
+    expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes).toBeTruthy();
     expect(modes?.querySelectorAll("button").length).toBe(1);
@@ -137,25 +138,22 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
   it("缺任务能力（bridge 无 tasksListProjects）→ 项目管理隐藏，写作仍在（双门控臂一）", () => {
     const { container } = renderSidebar(bridgeWith({ projects: false }), { onOpenProjectsWindow: () => {} });
     expect(screen.getByText("写作")).toBeTruthy();
-    expect(container.querySelector(".pw-projects-entry")).toBeNull();
+    expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
   });
 
   it("缺窗口回调（onOpenProjectsWindow 未注入）→ 项目管理隐藏，写作仍在（双门控臂二）", () => {
     const { container } = renderSidebar(bridgeWith());
     expect(screen.getByText("写作")).toBeTruthy();
-    expect(container.querySelector(".pw-projects-entry")).toBeNull();
+    expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
   });
 
-  it("项目管理入口位于当前项目卡片内并早于滚动内容", () => {
+  it("项目管理入口位于「项目」分组标题行内", () => {
     const { container } = renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
-    const entry = container.querySelector(".pw-projects-entry");
-    const scroll = container.querySelector(".pw-sidebar-scroll");
-    const card = container.querySelector(".pw-context-card");
+    const entry = container.querySelector('button[title*="项目管理"]');
+    const switcherHead = container.querySelector(".pw-project-switcher .pw-section-h");
     expect(entry).toBeTruthy();
-    expect(scroll).toBeTruthy();
-    expect(card).toBeTruthy();
-    expect(card?.contains(entry)).toBe(true);
-    expect(entry && scroll ? entry.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+    expect(switcherHead).toBeTruthy();
+    expect(switcherHead?.contains(entry)).toBe(true);
   });
 });
 
@@ -227,11 +225,9 @@ describe("PersonalSidebar 项目上下文结构", () => {
       homeOpen: false,
     });
     const { container } = renderSidebar(bridgeWith());
-    const card = container.querySelector(".pw-context-card");
     const contextSessions = container.querySelector(".pw-context-sessions");
-    expect(card).toBeTruthy();
     expect(contextSessions).toBeTruthy();
-    expect(card?.textContent).toContain("cortex-work");
+    expect(contextSessions?.textContent).toContain("cortex-work");
     expect(contextSessions?.textContent).toContain("当前项目会话");
     const switcher = container.querySelector(".pw-project-switcher");
     expect(switcher).toBeTruthy();
@@ -257,7 +253,7 @@ describe("PersonalSidebar 项目上下文结构", () => {
     const state = usePersonalStore.getState();
     expect(state.activeSessionId).toBeUndefined();
     expect(state.activeProjectId).toBe(projectA.id);
-    expect(container.querySelector(".pw-context-card")?.textContent).toContain("cortex-work");
+    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("cortex-work");
   });
 
   it("删除当前无项目会话后仍停留在无项目会话列表", () => {
@@ -292,11 +288,11 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(state.activeSessionId).toBeUndefined();
     expect(state.activeProjectId).toBeUndefined();
     expect(state.sessions.map((session) => session.id)).toEqual([remaining.id]);
-    expect(container.querySelector(".pw-context-card")?.textContent).toContain("无项目会话");
+    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("无项目会话");
     expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("保留无项目会话");
   });
 
-  it("当前项目卡片保留项目更多操作入口", () => {
+  it("当前项目上下文保留项目更多操作入口(在分组标题行)", () => {
     usePersonalStore.setState({
       projects: [projectA],
       sessions: [sessionA],
@@ -305,9 +301,9 @@ describe("PersonalSidebar 项目上下文结构", () => {
       homeOpen: false,
     });
     const { container } = renderSidebar(bridgeWith());
-    const card = container.querySelector(".pw-context-card");
-    expect(card).toBeTruthy();
-    expect(card?.querySelector('button[title="更多项目操作"]')).toBeTruthy();
+    const head = container.querySelector(".pw-context-sessions .pw-section-h");
+    expect(head).toBeTruthy();
+    expect(head?.querySelector('button[title="更多项目操作"]')).toBeTruthy();
   });
 
   it("当前项目可展开和隐藏已归档会话", () => {
@@ -367,7 +363,7 @@ describe("PersonalSidebar 项目上下文结构", () => {
     const { container } = renderSidebar(bridgeWith());
     fireEvent.click(screen.getByRole("button", { name: /无项目/ }));
     expect(usePersonalStore.getState().activeSessionId).toBe(noProject.id);
-    expect(container.querySelector(".pw-context-card")?.textContent).toContain("无项目会话");
+    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("无项目会话");
   });
 });
 
