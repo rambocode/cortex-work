@@ -7,7 +7,7 @@ export const notesPanel = {
   title: "闪记",
   icon: Icon.Pin,
   widthTier: "normal",
-  canMaximize: false,
+  canMaximize: true,
   rail: { order: 4 },
   load: () => import("./panel"),
 } as const satisfies RightPanelDescriptor;

@@ -8,7 +8,7 @@ export const browserPanel = {
   title: "浏览器",
   icon: Icon.Globe,
   widthTier: "normal",
-  canMaximize: false,
+  canMaximize: true,
   rail: { order: 5 },
   load: () => import("./panel"),
 } as const satisfies RightPanelDescriptor;

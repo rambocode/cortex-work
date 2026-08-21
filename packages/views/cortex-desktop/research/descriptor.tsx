@@ -8,7 +8,7 @@ export const researchPanel = {
   id: "research",
   title: "深度研究",
   widthTier: "wide",
-  canMaximize: false,
+  canMaximize: true,
   usePresence: () =>
     usePersonalStore((s) => {
       const session = s.sessions.find((item) => item.id === s.activeSessionId);

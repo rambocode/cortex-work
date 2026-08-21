@@ -191,8 +191,8 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     expect(aside.classList.contains("is-maximized")).toBe(false);
   });
 
-  // 放大态是「盖住中栏」的强状态，切到窄面板还留着会让用户以为会话没了。
-  it("从知识库切到窄面板(文件)时自动退出放大态", async () => {
+  // 2026-08 起全部面板可放大:切面板保持放大态(用户显式放大的意图不因换视图被吞)。
+  it("从知识库切到文件面板时保持放大态,且放大/还原按钮仍在", () => {
     usePersonalStore.setState({ rightView: "knowledge", rightPanelMaximized: true });
     useCortexUIStore.setState({ rightOpen: true });
     const { rerender } = renderPanel();
@@ -203,7 +203,8 @@ describe("PersonalRightPanel 拖拽调宽", () => {
         <PersonalRightPanel onToast={() => {}} />
       </CoreProvider>,
     );
-    await waitFor(() => expect(usePersonalStore.getState().rightPanelMaximized).toBe(false));
+    expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+    expect(screen.getByTitle("还原面板")).toBeInTheDocument();
   });
 
   it("自定义宽度以 --rp-custom-width 变量注入(只作用于详情态档位);未设置时无变量", () => {
@@ -563,37 +564,32 @@ describe("PersonalRightPanel 拖拽调宽", () => {
       expect(container.querySelector("aside.pw-prompts")?.className).not.toContain("is-maximized");
     });
 
-    it("非产物视图不给放大按钮,且切走时自动还原(否则文件面板会莫名盖住会话)", () => {
-      seedArtifactSession();
-      const { rerender } = renderPanel();
+    // 2026-08 用户反馈:头部只剩「×」找不到展开入口 → 全部面板统一开放放大/还原按钮。
+    it("非产物视图(Tasks/文件列表态)同样有放大按钮,可放大并还原", () => {
+      usePersonalStore.setState({ rightView: "todos", rightPanelMaximized: false });
+      useCortexUIStore.setState({ rightOpen: true });
+      const { container } = renderPanel();
       fireEvent.click(screen.getByTitle("放大面板"));
-
-      usePersonalStore.setState({ rightView: "files", rightPanelMaximized: true });
-      rerender(
-        <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-          <PersonalRightPanel onToast={() => {}} />
-        </CoreProvider>,
-      );
-      expect(screen.queryByTitle("放大面板")).toBeNull();
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+      expect(container.querySelector("aside.pw-prompts")?.className).toContain("is-maximized");
+      fireEvent.click(screen.getByTitle("还原面板"));
       expect(usePersonalStore.getState().rightPanelMaximized).toBe(false);
     });
 
-    it("文件视图:列表态无放大按钮,文件预览态(filePreviewOpen)开放放大,退回列表自动还原", async () => {
+    it("文件视图:列表态与预览态都有放大按钮,退出预览不影响放大态", () => {
       usePersonalStore.setState({ rightView: "files", filePreviewOpen: false, rightPanelMaximized: false });
       useCortexUIStore.setState({ rightOpen: true });
       renderPanel();
-      expect(screen.queryByTitle("放大面板")).toBeNull();
+      expect(screen.getByTitle("放大面板")).toBeInTheDocument();
 
-      // 进入文件预览(FilesView 镜像 preview → store)后头部出现放大按钮
-      usePersonalStore.setState({ filePreviewOpen: true });
-      await waitFor(() => expect(screen.getByTitle("放大面板")).toBeInTheDocument());
       fireEvent.click(screen.getByTitle("放大面板"));
       expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
 
-      // 返回列表:预览关闭,放大态自动还原(否则窄列表盖住中栏)
+      // 预览开/关不再影响放大权与放大态(2026-08 全面板可放大后 filePreviewOpen 与放大解耦)
+      usePersonalStore.setState({ filePreviewOpen: true });
       usePersonalStore.setState({ filePreviewOpen: false });
-      await waitFor(() => expect(usePersonalStore.getState().rightPanelMaximized).toBe(false));
-      expect(screen.queryByTitle("放大面板")).toBeNull();
+      expect(usePersonalStore.getState().rightPanelMaximized).toBe(true);
+      expect(screen.getByTitle("还原面板")).toBeInTheDocument();
     });
 
     it("放大态盖住中栏是 CSS 契约(绝对定位铺满 .pw-upper)", () => {

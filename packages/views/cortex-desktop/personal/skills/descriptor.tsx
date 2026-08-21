@@ -7,7 +7,7 @@ export const skillsPanel = {
   title: "Skills",
   icon: Icon.Sparkle,
   widthTier: "normal",
-  canMaximize: false,
+  canMaximize: true,
   rail: { order: 2 },
   load: () => import("./panel"),
 } as const satisfies RightPanelDescriptor;

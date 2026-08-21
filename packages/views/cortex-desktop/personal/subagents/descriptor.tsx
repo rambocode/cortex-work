@@ -19,7 +19,7 @@ export const subagentsPanel = {
   title: "子代理",
   icon: Icon.Bot,
   widthTier: "normal",
-  canMaximize: false,
+  canMaximize: true,
   rail: { order: 7 },
   renderHead: SubagentsPanelHead,
   headClassName: "is-subagents",

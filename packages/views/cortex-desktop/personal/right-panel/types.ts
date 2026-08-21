@@ -20,10 +20,11 @@ export interface RightPanelDescriptor {
   /** 拖拽调宽时给中栏保留的档位:wide=660(产物级宽面板),normal=488。 */
   widthTier: PanelWidthTier;
   /**
-   * 放大（绝对定位盖住中栏）开放策略。"filePreview" 是数据令牌(非函数,守住纯数据约束):
-   * 仅文件预览态可放大,files 面板专用——列表态盖上去用户会以为会话不见了。
+   * 放大（绝对定位盖住中栏）按钮开关。2026-08 用户反馈后全部内置面板开放
+   * （此前窄面板只留关闭「×」,用户找不到展开/收缩入口）;保留开关是给未来
+   * 确有理由禁用的面板留的口子。
    */
-  canMaximize: boolean | "filePreview";
+  canMaximize: boolean;
   /** 出现在右侧竖向工具栏（PersonalRightRail）;order 决定排序。缺省 = 无常驻入口。 */
   rail?: { order: number };
   /**

@@ -7,7 +7,7 @@ export const todosPanel = {
   title: "Tasks",
   icon: Icon.Task,
   widthTier: "normal",
-  canMaximize: false,
+  canMaximize: true,
   rail: { order: 3 },
   load: () => import("./panel"),
 } as const satisfies RightPanelDescriptor;

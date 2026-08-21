@@ -38,12 +38,6 @@ function reservedWidthFor(desc: RightPanelDescriptor): number {
   return desc.widthTier === "wide" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
 }
 
-/// 放大（绝对定位盖住中栏）判定:canMaximize 的 "filePreview" 数据令牌表示
-/// 仅文件打开预览态开放（列表态盖上去用户会以为会话不见了,files 专用）。
-function canMaximizeFor(desc: RightPanelDescriptor, filePreviewOpen: boolean): boolean {
-  return desc.canMaximize === true || (desc.canMaximize === "filePreview" && filePreviewOpen);
-}
-
 // React.lazy 组件按面板 id 做模块级缓存:每次 render 重建 lazy 会让面板反复卸载重挂
 // （丢内部状态、BrowserView 的 webview 重载）,缓存保证组件身份稳定。
 const lazyPanelCache = new Map<string, React.LazyExoticComponent<React.ComponentType>>();
@@ -60,7 +54,6 @@ export function PersonalRightPanel({ onToast }: { onToast: (text: string) => voi
   const view = usePersonalStore((s) => s.rightView);
   // 未知 id（脏运行态/已卸载的未来动态面板）回退 files,宿主绝不因 id 不认识而崩。
   const desc = resolvePanel(view);
-  const filePreviewOpen = usePersonalStore((s) => s.filePreviewOpen);
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const maximized = usePersonalStore((s) => s.rightPanelMaximized);
   const setMaximized = usePersonalStore((s) => s.setRightPanelMaximized);
@@ -73,9 +66,9 @@ export function PersonalRightPanel({ onToast }: { onToast: (text: string) => voi
     return s.projects.find((project) => project.id === session?.projectId)?.path ?? session?.noProjectDir ?? "";
   });
 
-  const canMax = canMaximizeFor(desc, filePreviewOpen);
+  const canMax = desc.canMaximize;
 
-  // 切到不可放大的视图(或文件预览退回列表)时自动还原,避免窄面板盖着中栏让用户以为会话不见了。
+  // 切到不可放大的视图时自动还原(当前全部内置面板可放大,此守卫为未来禁用面板兜底)。
   useEffect(() => {
     if (!canMax && maximized) setMaximized(false);
   }, [canMax, maximized, setMaximized]);
