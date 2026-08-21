@@ -1,45 +1,22 @@
-// 个人工作区右栏容器。视图由最右侧竖向工具栏选择（状态在
-// usePersonalStore.rightView），面板内不再重复放 tab 行。
-//   文件   → FilesView（项目全部文件 + 最近变更/diff）
-//   Skills → PromptPanel（Prompt 库,可拖入聊天）
+// 个人工作区右栏通用宿主。渲染哪个面板、标题/宽度档/放大策略/自定义头,全部由
+// personal/right-panel/registry 的 descriptor 驱动——本文件不认识任何具体面板,
+// 新增面板零改动（写 descriptor + registry 加一行即可,2026-08-21 注册表重构共识）。
+// 面板主体经 React.lazy 懒加载（独立 chunk,首开才解析）;头部/拖拽条/放大按钮是宿主
+// chrome,同步渲染。视图由最右侧竖向工具栏选择（状态在 usePersonalStore.rightView）。
 // 仅查看文件（Tasks 详情 / 文件预览）时左缘可拖拽调宽（宽度经 --rp-custom-width
 // 注入,只作用于详情态的 CSS 档位,返回列表恢复固定 320px）;双击恢复自动宽度。
 // 拖拽条的显示时机由 CSS :has 控制（见 .pw-rp-resizer）。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
+import type * as React from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useCortexUIStore, useDesktopBridge, usePersonalStore } from "@cortex-work/core";
-import { usePiArtifactsStore } from "@cortex-work/core/store/piArtifacts";
-import { FilesView } from "../files/FilesView";
-import { PiArtifactsPanel } from "../chat/artifacts/PiArtifactsPanel";
-import { KnowledgeDocPanel } from "../knowledge/KnowledgeDocPanel";
-import { PromptPanel } from "../skills/PromptPanel";
-import { TasksView } from "../tasks/TasksView";
-import { NotesView } from "../notes/NotesView";
-import { BrowserView } from "../browser/BrowserView";
-import { SubagentsPanel } from "../subagents/SubagentsPanel";
-import { PersonalWhiteboardPanel } from "./PersonalWhiteboardPanel";
-import { ArtifactEditorPanel } from "../../design/ArtifactEditorPanel";
-import { SlidesDeckHeadActions } from "../../design/slides/SlidesDeckHeadActions";
-import { ResearchArtifactPanel } from "../../research/ResearchArtifactPanel";
-import type { ResearchExportTarget } from "../../research/ResearchRunView";
-import type { ResearchModelDisplay } from "../../research/modelDisplay";
-
-// 右栏视图 → 顶部头标题（内容沿用现有视图名）。
-const RIGHT_VIEW_TITLE: Record<string, string> = {
-  files: "文件",
-  skills: "Skills",
-  todos: "Tasks",
-  notes: "闪记",
-  browser: "浏览器",
-  canvas: "画板",
-  subagents: "子代理",
-  artifact: "产物",
-  research: "深度研究",
-  knowledge: "知识库文档",
-  // pi 会话产物（artifacts 工具,内存态）——与落盘型 "artifact"(设计稿/演示文稿)是两个概念。
-  piArtifacts: "会话产物",
-};
+import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
+import { resolvePanel } from "../right-panel/registry";
+import { PanelHostProvider, type PanelHost } from "../right-panel/context";
+import { openPanel } from "../right-panel/open";
+import { PresenceGuard } from "../right-panel/PresenceGuard";
+import { PanelHeadTitle } from "../right-panel/PanelHeadTitle";
+import type { RightPanelDescriptor } from "../right-panel/types";
 
 // 导出供测试引用,调参不破坏断言。
 export const RP_MIN_WIDTH = 280;
@@ -50,90 +27,74 @@ export const RP_RAIL_SAFE = 48;
 // 488 = 中栏最小宽 440(CSS 的 --pw-center-min)+ 右侧 rail 48;与 CSS 各档
 // min-width 公式是同一基准,改一处必须同步另一处。
 export const RP_LEFT_RESERVED = 488;
-// 产物编辑器(演示文稿 / 设计稿)与深度研究面板例外:两者默认就展得很宽,若沿用 250px 的保留,
-// 中栏会被压成放不下消息气泡与输入框控件的窄条,故把中栏下限抬到 660px。
+// 宽面板(widthTier="wide":产物/研究/知识库/画板/文件预览)例外:默认就展得很宽,
+// 若沿用 250px 的保留,中栏会被压成放不下消息气泡与输入框控件的窄条,故把中栏下限抬到 660px。
 // 与 CSS 里 .pw-prompts:has(.pw-artifact-editor) / :has(.pw-research-panel) 的默认宽度公式
 // 是同一个数,改一处要改三处(两条 CSS 规则 + 本常量)。
 export const RP_LEFT_RESERVED_ARTIFACT = 660;
 
-/// 这些视图按「宽面板」档位给中栏保留 660px；其余走 RP_LEFT_RESERVED。
-/// knowledge 同档的理由：知识库文档常含宽表格，320px 窄栏里每列会被压成一列一个字。
-/// files 同档：文件预览态是与产物同款的 in-flow 展宽面板（中栏压缩自适应,非覆盖）。
-function isWidePanel(view: string): boolean {
-  // piArtifacts 同档:HTML 产物(仪表盘/图表)在 320px 窄栏里没有可用性。
-  return view === "artifact" || view === "research" || view === "knowledge" || view === "piArtifacts" || view === "canvas";
+/// 拖拽调宽时给中栏保留的最小宽度:按 descriptor 的 widthTier 二档取值。
+function reservedWidthFor(desc: RightPanelDescriptor): number {
+  return desc.widthTier === "wide" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
 }
 
-/// 拖拽调宽时给中栏保留的最小宽度（按当前视图档位）。
-function reservedWidthForView(view: string): number {
-  return isWidePanel(view) || view === "files" ? RP_LEFT_RESERVED_ARTIFACT : RP_LEFT_RESERVED;
+/// 放大（绝对定位盖住中栏）判定:canMaximize 的 "filePreview" 数据令牌表示
+/// 仅文件打开预览态开放（列表态盖上去用户会以为会话不见了,files 专用）。
+function canMaximizeFor(desc: RightPanelDescriptor, filePreviewOpen: boolean): boolean {
+  return desc.canMaximize === true || (desc.canMaximize === "filePreview" && filePreviewOpen);
 }
 
-/// 允许放大（绝对定位盖住中栏）的视图。放大是强状态，只给「读长文/宽内容」的面板开放；
-/// 文件 / Tasks 这类窄面板盖上去用户会以为会话不见了。files 例外:文件打开预览态
-/// (filePreviewOpen)本就是覆盖中栏的宽层,与产物/知识库同权开放放大/收缩。
-function canMaximize(view: string, filePreviewOpen: boolean): boolean {
-  return view === "artifact" || view === "knowledge" || view === "piArtifacts" || view === "canvas" || (view === "files" && filePreviewOpen);
+// React.lazy 组件按面板 id 做模块级缓存:每次 render 重建 lazy 会让面板反复卸载重挂
+// （丢内部状态、BrowserView 的 webview 重载）,缓存保证组件身份稳定。
+const lazyPanelCache = new Map<string, React.LazyExoticComponent<React.ComponentType>>();
+function lazyPanel(desc: RightPanelDescriptor): React.LazyExoticComponent<React.ComponentType> {
+  let cached = lazyPanelCache.get(desc.id);
+  if (!cached) {
+    cached = lazy(desc.load);
+    lazyPanelCache.set(desc.id, cached);
+  }
+  return cached;
 }
 
-export function PersonalRightPanel({
-  onToast,
-  researchModel,
-  researchExportTargets,
-}: {
-  onToast: (text: string) => void;
-  // 研究面板的两个展示型注入（由 PersonalWorkspace 按设置解析）：
-  // views 层不读个人工作区的设置 store，保持研究组件可在任意宿主里复用。
-  researchModel?: ResearchModelDisplay;
-  researchExportTargets?: readonly ResearchExportTarget[];
-}) {
+export function PersonalRightPanel({ onToast }: { onToast: (text: string) => void }) {
   const view = usePersonalStore((s) => s.rightView);
+  // 未知 id（脏运行态/已卸载的未来动态面板）回退 files,宿主绝不因 id 不认识而崩。
+  const desc = resolvePanel(view);
   const filePreviewOpen = usePersonalStore((s) => s.filePreviewOpen);
   const width = usePersonalStore((s) => s.rightPanelWidth);
   const maximized = usePersonalStore((s) => s.rightPanelMaximized);
   const setMaximized = usePersonalStore((s) => s.setRightPanelMaximized);
   const setWidth = usePersonalStore((s) => s.setRightPanelWidth);
   const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
-  const bridge = useDesktopBridge();
   const cancelResizeRef = useRef<(() => void) | null>(null);
-  const activeSession = usePersonalStore((s) =>
-    s.sessions.find((session) => session.id === s.activeSessionId),
-  );
-  const activeArtifact = activeSession?.activeArtifact;
-  const researchRefs = activeSession?.researchSessions;
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const activeProjectPath = usePersonalStore((s) => {
     const session = s.sessions.find((item) => item.id === s.activeSessionId);
     return s.projects.find((project) => project.id === session?.projectId)?.path ?? session?.noProjectDir ?? "";
   });
 
-  // 面板内「回看另一条研究」的临时选择（D6：只切展示，不写回会话归属）。
-  // 换会话即失效——上一条对话看到哪儿，不该带进下一条对话。
-  const [viewingResearchId, setViewingResearchId] = useState<string | null>(null);
-  useEffect(() => setViewingResearchId(null), [activeSessionId]);
-  const researchSessionId =
-    viewingResearchId ??
-    activeSession?.activeResearchSessionId ??
-    researchRefs?.[researchRefs.length - 1]?.sessionId ??
-    null;
+  const canMax = canMaximizeFor(desc, filePreviewOpen);
 
   // 切到不可放大的视图(或文件预览退回列表)时自动还原,避免窄面板盖着中栏让用户以为会话不见了。
   useEffect(() => {
-    if (!canMaximize(view, filePreviewOpen) && maximized) setMaximized(false);
-  }, [filePreviewOpen, maximized, setMaximized, view]);
-
-  // pi 会话产物:当前会话一个产物都没有(或产物全被删)时自动收起,同 artifact/research 语义。
-  const hasPiArtifacts = usePiArtifactsStore(
-    (s) => !!activeSessionId && (s.sessions[activeSessionId]?.order.length ?? 0) > 0,
-  );
-
-  useEffect(() => {
-    if (view === "artifact" && !activeArtifact) setRightOpen(false);
-    // 研究面板同理：会话解除全部研究绑定后面板没有可展示的内容，自动收起而不是留一个空壳。
-    if (view === "research" && !researchSessionId) setRightOpen(false);
-    if (view === "piArtifacts" && !hasPiArtifacts) setRightOpen(false);
-  }, [activeArtifact, hasPiArtifacts, researchSessionId, setRightOpen, view]);
+    if (!canMax && maximized) setMaximized(false);
+  }, [canMax, maximized, setMaximized]);
   useEffect(() => () => cancelResizeRef.current?.(), []);
+
+  const close = useCallback(() => setRightOpen(false), [setRightOpen]);
+
+  // PanelHost 软合同:面板 wrapper 的共性依赖注入点（见 right-panel/context.tsx）。
+  const host = useMemo<PanelHost>(
+    () => ({
+      panelId: desc.id,
+      close,
+      openPanel,
+      toast: onToast,
+      activeSessionId,
+      projectPath: activeProjectPath,
+    }),
+    [desc.id, close, onToast, activeSessionId, activeProjectPath],
+  );
 
   const startResize = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -148,7 +109,7 @@ export function PersonalRightPanel({
       const startWidth = rect.width || RP_MIN_WIDTH;
       // 用位移增量算宽度,不依赖 rect.left/right 是否等于视觉拖拽条位置。正常状态给
       // 左侧保留空间;若起始布局已经超过这个保留区,本次拖拽允许到父容器宽度,不能反向夹小。
-      const reserved = reservedWidthForView(view);
+      const reserved = reservedWidthFor(resolvePanel(view));
       const reservedMax = Math.max(RP_MIN_WIDTH, parentWidth - reserved);
       // 硬上限与 CSS 的 --rp-avail(calc(100% - 48px),给右侧 rail 留位)同界:拖拽写入的
       // 宽度不会被 CSS 再夹(无首帧跳变),也不可能把面板头部 X/右栏 rail 推出视口。
@@ -201,6 +162,9 @@ export function PersonalRightPanel({
     [setWidth, view],
   );
 
+  const Body = lazyPanel(desc);
+  const RenderHead = desc.renderHead;
+
   return (
     <aside
       className={`right pw-prompts${maximized ? " is-maximized" : ""}`}
@@ -217,78 +181,33 @@ export function PersonalRightPanel({
         onMouseDown={startResize}
         onDoubleClick={() => setWidth(undefined)}
       />
-      {view === "canvas" ? null : <div className={`pw-col-head pw-rp-head${view === "subagents" ? " is-subagents" : ""}`}>
-        {/* 演示文稿产物:标题与播放/导出并入这一行,面板内不再叠第二条工具栏(省一行高度)。 */}
-        {view === "artifact" && activeArtifact?.kind === "slides" ? (
-          <SlidesDeckHeadActions fallbackTitle={activeArtifact.title} />
-        ) : view === "subagents" ? (
-          <>
-            <Icon.Bot size={17} />
-            <span className="pw-col-head-title">子代理</span>
-            <span className="pw-rp-head-subtitle">· 配置模型</span>
-            <div className="spacer" />
-          </>
-        ) : (
-          <>
-            <span className="pw-col-head-title">{RIGHT_VIEW_TITLE[view] ?? "面板"}</span>
-            <div className="spacer" />
-          </>
-        )}
-        {canMaximize(view, filePreviewOpen) ? (
-          <button
-            className="pw-icon-btn"
-            title={maximized ? "还原面板" : "放大面板"}
-            onClick={() => setMaximized(!maximized)}
-          >
-            {maximized ? <Icon.Minimize size={14} /> : <Icon.Maximize size={14} />}
+      {desc.headMode === "none" ? null : (
+        <div className={`pw-col-head pw-rp-head${desc.headClassName ? ` ${desc.headClassName}` : ""}`}>
+          {RenderHead ? <RenderHead /> : <PanelHeadTitle title={desc.title} />}
+          {canMax ? (
+            <button
+              className="pw-icon-btn"
+              title={maximized ? "还原面板" : "放大面板"}
+              onClick={() => setMaximized(!maximized)}
+            >
+              {maximized ? <Icon.Minimize size={14} /> : <Icon.Maximize size={14} />}
+            </button>
+          ) : null}
+          <button className="pw-icon-btn" title="关闭面板" onClick={close}>
+            <Icon.X size={14} />
           </button>
+        </div>
+      )}
+      {/* Provider 在 Suspense 外层:fallback 期与面板期 context 一致,懒加载首帧也取得到。 */}
+      <PanelHostProvider value={host}>
+        {/* 空态自动收起:keyed 子组件跑当前面板的 usePresence（Hook 序列恒定,见 PresenceGuard）。 */}
+        {desc.usePresence ? (
+          <PresenceGuard key={desc.id} usePresence={desc.usePresence} onAbsent={close} />
         ) : null}
-        <button className="pw-icon-btn" title="关闭面板" onClick={() => setRightOpen(false)}>
-          <Icon.X size={14} />
-        </button>
-      </div>}
-      {view === "artifact" ? (
-        activeArtifact ? <ArtifactEditorPanel artifact={activeArtifact} /> : null
-      ) : view === "research" ? (
-        <ResearchArtifactPanel
-          bridge={bridge?.research ?? null}
-          sessionId={researchSessionId}
-          refs={researchRefs ?? []}
-          onSelect={setViewingResearchId}
-          {...(researchModel ? { model: researchModel } : {})}
-          {...(researchExportTargets ? { exportTargets: researchExportTargets } : {})}
-        />
-      ) : view === "knowledge" ? (
-        <KnowledgeDocPanel />
-      ) : view === "files" ? (
-        <FilesView onToast={onToast} />
-      ) : view === "todos" ? (
-        <TasksView onToast={onToast} />
-      ) : view === "notes" ? (
-        <NotesView onToast={onToast} />
-      ) : view === "browser" ? (
-        <BrowserView onToast={onToast} />
-      ) : view === "canvas" ? (
-        activeSessionId ? (
-          <PersonalWhiteboardPanel
-            sessionId={activeSessionId}
-            workspaceRoot={activeProjectPath}
-            onCollapse={() => setRightOpen(false)}
-          />
-        ) : (
-          <div className="pw-canvas-empty" role="status">
-            <Icon.Palette size={30} />
-            <strong>请先选择会话</strong>
-            <span>画板与当前会话关联，选择或新建会话后即可使用。</span>
-          </div>
-        )
-      ) : view === "subagents" ? (
-        <SubagentsPanel />
-      ) : view === "piArtifacts" ? (
-        <PiArtifactsPanel />
-      ) : view === "skills" ? (
-        <PromptPanel onToast={onToast} bare />
-      ) : null}
+        <Suspense fallback={null}>
+          <Body />
+        </Suspense>
+      </PanelHostProvider>
     </aside>
   );
 }

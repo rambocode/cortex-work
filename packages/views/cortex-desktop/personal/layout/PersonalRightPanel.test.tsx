@@ -36,14 +36,16 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     });
   });
 
-  it("画板没有当前会话时显示专用空态，不回退到 Skills 库", () => {
+  it("画板没有当前会话时显示专用空态，不回退到 Skills 库", async () => {
     usePersonalStore.setState({ rightView: "canvas", activeSessionId: undefined });
     useCortexUIStore.setState({ rightOpen: true });
 
     renderPanel();
 
+    // 面板主体经 React.lazy 懒加载,首帧是 Suspense 空窗 → findBy 等 chunk 解析完成。
+    // 全量套件并行跑时 chunk 转译可能超过默认 1s,放宽超时防负载抖动。
+    expect(await screen.findByText("请先选择会话", undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByText("Skills 库")).not.toBeInTheDocument();
-    expect(screen.getByText("请先选择会话")).toBeInTheDocument();
   });
 
   it("子代理侧栏使用 Kun 同款标题层级", () => {
@@ -79,7 +81,7 @@ describe("PersonalRightPanel 拖拽调宽", () => {
   // ── 深度研究面板（/skill:research 的右栏视图）──────────────────────────────
   // 与产物面板同构：同为右栏视图、同为 660px 中栏保留宽度、同样在失去绑定时自动收起。
 
-  it("会话绑定了研究时渲染研究面板，标题是「深度研究」", () => {
+  it("会话绑定了研究时渲染研究面板，标题是「深度研究」", async () => {
     usePersonalStore.setState({
       sessions: [{
         id: "s1",
@@ -95,7 +97,11 @@ describe("PersonalRightPanel 拖拽调宽", () => {
     });
     useCortexUIStore.setState({ rightOpen: true });
     const { container } = renderPanel();
-    expect(container.querySelector(".pw-research-panel")).not.toBeNull();
+    // 面板主体懒加载:等 chunk 解析后 .pw-research-panel 才出现;头部是宿主 chrome,同步可断。
+    // 超时同上放宽,防全量套件并行负载下的转译抖动。
+    await waitFor(() => expect(container.querySelector(".pw-research-panel")).not.toBeNull(), {
+      timeout: 5000,
+    });
     expect(container.querySelector(".pw-col-head-title")?.textContent).toBe("深度研究");
   });
 

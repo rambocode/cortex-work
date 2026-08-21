@@ -34,8 +34,6 @@ import { normalizeResearchEngineSettings } from "@cortex-work/core/research/sett
 import { useResearchBackgroundStore } from "@cortex-work/core/research/background-watch";
 import { useResearchLiveSync } from "@cortex-work/core/research/live-sync";
 import { useResearchCompletionRelay } from "../../research/useResearchCompletionRelay";
-import { useResearchExportTargets } from "../../research/useResearchExportTargets";
-import { useResearchModelDisplay } from "../../research/modelDisplay";
 import { FlashNoteEditor } from "../notes/FlashNoteEditor";
 import { PiToolConfirmDialog } from "../chat/PiToolConfirmDialog";
 import { PersonalSettingsView } from "../settings/SettingsMenu";
@@ -108,8 +106,6 @@ export function PersonalWorkspace({
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
   // 写作工作区整窗覆盖层(desktop-only;瞬态,与设计/设置同级 z-40)。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
-  // 报告的产物去向（存为写作文档 / 闪记）。按当前可用能力动态增减，见 hook 内注释。
-  const researchExportTargets = useResearchExportTargets();
 
   // ── 研究事件的唯一常驻订阅（喂 ui-store 完整状态 + 后台观察的角标/完成通知）──────
   //
@@ -150,18 +146,6 @@ export function PersonalWorkspace({
       clearFinished(item.sessionId);
     }
   }, [finishedResearch, pushToast]);
-  // 解析「本次研究会用哪个模型 + 数据会去哪」。走 useResearchModelDisplay —— 与设置页
-  // **以及主进程的 llm-hooks-wiring** 同一套「研究偏好 → 全局默认，两级各自成套」规则，
-  // 所以界面显示的就是实际会用的那个；两级都悬空时显示未配置，不会假装有个模型在跑。
-  const researchModel = useResearchModelDisplay(
-    useMemo(() => {
-      const research = normalizeResearchEngineSettings(researchEngineSettings);
-      return {
-        ...(research.modelProviderId ? { providerId: research.modelProviderId } : {}),
-        ...(research.modelId ? { modelId: research.modelId } : {}),
-      };
-    }, [researchEngineSettings]),
-  );
   // 设置整页：全屏覆盖层叠加在工作区之上（不卸载 pw-main → 终端 PTY 存活）。
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const noteEditorId = usePersonalStore((s) => s.noteEditorId);
@@ -279,14 +263,10 @@ export function PersonalWorkspace({
             {/* 完整运行详情弹层宿主。可见入口位于会话内联过程段；宿主与 rightOpen/rightView 解耦。 */}
             <PersonalProcessPanel />
           </div>
-          {/* researchModel / researchExportTargets 透传给右栏的研究面板：模型是按设置解析出的
-              「本次会用谁、正文出不出本机」，产物去向是本机可用能力，两者都只有宿主知道。 */}
+          {/* 右栏通用宿主:面板选择/标题/宽度档由 personal/right-panel 注册表驱动。研究面板的
+              模型显示与产物去向已收拢进其 descriptor wrapper,宿主不再逐面板透传特殊 props。 */}
           {!workflowOpen && !automationOpen && rightOpen ? (
-            <PersonalRightPanel
-              onToast={onToast}
-              researchModel={researchModel}
-              researchExportTargets={researchExportTargets}
-            />
+            <PersonalRightPanel onToast={onToast} />
           ) : null}
           <PersonalRightRail />
         </div>

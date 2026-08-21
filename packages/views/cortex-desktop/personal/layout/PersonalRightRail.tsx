@@ -1,22 +1,13 @@
 // 个人工作区右侧竖向工具栏。原先藏在顶部下拉中的右栏视图与终端入口全部在这里常驻，
 // 点击当前已打开项会收起面板；点击其他项会切换内容并确保面板展开。
+// 入口清单不再手写:从右栏注册表按 descriptor.rail.order 派生（registry 是唯一真相）。
 
 import { Icon } from "@cortex-work/ui/icons";
-import { useCortexUIStore, usePersonalStore, type RightView } from "@cortex-work/core";
+import { useCortexUIStore, usePersonalStore } from "@cortex-work/core";
+import { railItems } from "../right-panel/registry";
 
-const ITEMS: Array<{
-  view: RightView;
-  label: string;
-  icon: typeof Icon.Folder;
-}> = [
-  { view: "files", label: "文件", icon: Icon.Folder },
-  { view: "skills", label: "Skills", icon: Icon.Sparkle },
-  { view: "todos", label: "Tasks", icon: Icon.Task },
-  { view: "notes", label: "闪记", icon: Icon.Pin },
-  { view: "browser", label: "浏览器", icon: Icon.Globe },
-  { view: "canvas", label: "画板", icon: Icon.Palette },
-  { view: "subagents", label: "子代理", icon: Icon.Bot },
-];
+// registry 是静态清单,模块级求值一次即可（引用稳定,不破坏 memo）。
+const RAIL_ITEMS = railItems();
 
 export function PersonalRightRail() {
   const rightOpen = useCortexUIStore((s) => s.rightOpen);
@@ -26,31 +17,33 @@ export function PersonalRightRail() {
   const terminalOpen = usePersonalStore((s) => s.terminalOpen);
   const toggleTerminal = usePersonalStore((s) => s.toggleTerminal);
 
-  const open = (view: RightView) => {
+  const open = (view: string, load: () => Promise<unknown>) => {
     if (rightOpen && rightView === view) {
       setRightOpen(false);
       return;
     }
     setRightView(view);
     setRightOpen(true);
+    // 同步预取面板 chunk,缩短懒加载首开的 Suspense 空窗。
+    void load();
   };
 
   return (
     <nav className="pw-right-rail" aria-label="右侧工具栏">
-      {ITEMS.map((item) => {
+      {RAIL_ITEMS.map((item) => {
         const ItemIcon = item.icon;
-        const active = rightOpen && rightView === item.view;
+        const active = rightOpen && rightView === item.id;
         return (
           <button
             type="button"
-            key={item.view}
+            key={item.id}
             className={active ? "is-active" : ""}
             aria-pressed={active}
-            aria-label={item.label}
-            title={item.label}
-            onClick={() => open(item.view)}
+            aria-label={item.title}
+            title={item.title}
+            onClick={() => open(item.id, item.load)}
           >
-            <ItemIcon size={18} />
+            {ItemIcon ? <ItemIcon size={18} /> : null}
           </button>
         );
       })}
