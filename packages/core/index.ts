@@ -660,6 +660,23 @@ export {
   useSquadMembers,
   useRemoveSquadMember,
 } from "./cortex/teams";
+export {
+  serverWorkspaceKeys,
+  groupServerWorkspaces,
+  workspaceOccupancy,
+  pickRuntime,
+  createServerWorkspaceErrorKey,
+  invokeServerWorkspaceErrorKey,
+  serverWorkspaceListOptions,
+  serverWorkspaceQueueOptions,
+  useServerWorkspaces,
+  useCreateServerWorkspace,
+  useDeleteServerWorkspace,
+  type ServerWorkspaceGroup,
+  type ServerWorkspaceOccupancy,
+  type ServerWorkspaceListData,
+} from "./cortex/server-workspaces";
+export { useTeamUIStore, type ServerWorkspaceSelection } from "./store/team";
 export { CONTACTS, GROUPS, CONVOS, FILE_DIFFS, ORGS, findContact, whoMeta } from "./mock/data";
 export {
   i18n,

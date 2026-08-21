@@ -21,6 +21,11 @@ import type {
   SquadJoinResponse,
   SquadMember,
   SquadResponse,
+  CreateServerWorkspaceRequest,
+  ServerRuntime,
+  ServerWorkspace,
+  ServerWorkspaceInvokeResponse,
+  ServerWorkspaceQueueItem,
   Workspace,
   WorkspaceMember,
 } from "./types";
@@ -363,5 +368,37 @@ export class ApiClient {
   // POST /api/invitations/{id}/decline：拒绝邀请（204 无响应体）。
   declineInvitation(invitationId: string): Promise<void> {
     return this.post<void>(`/api/invitations/${encodeURIComponent(invitationId)}/decline`);
+  }
+
+  // ── 服务器工作区（server workspace）：daemon 托管的持久 git checkout ──────────
+  // 契约与 Go 服务端 /api/server-workspaces 组对齐（前后端裁定）；排队不是错误，
+  // invoke 受理即返回 queue_position。
+
+  // 响应附带 runtimes（daemon → 可用 runtime 映射），供选择器分组与 invoke 绑定 runtime_id。
+  listServerWorkspaces(
+    params: { runtime_id?: string } = {},
+  ): Promise<{ server_workspaces: ServerWorkspace[]; runtimes: ServerRuntime[] }> {
+    return this.get<{ server_workspaces: ServerWorkspace[]; runtimes: ServerRuntime[] }>(
+      appendSearch("/api/server-workspaces", params),
+    );
+  }
+
+  createServerWorkspace(body: CreateServerWorkspaceRequest): Promise<ServerWorkspace> {
+    return this.post<ServerWorkspace>("/api/server-workspaces", body);
+  }
+
+  deleteServerWorkspace(id: string): Promise<void> {
+    return this.del<void>(`/api/server-workspaces/${encodeURIComponent(id)}`);
+  }
+
+  // 在指定服务器工作区上发起会话轮次：服务端 find-or-create conversation + 建任务 + 唤醒 daemon。
+  // isolated 模式首次调用可能触发实例 provision（服务端返回 202 时抛 ApiError.code=instance_provisioning）。
+  invokeServerWorkspace(id: string, body: { prompt: string; runtime_id: string }): Promise<ServerWorkspaceInvokeResponse> {
+    return this.post<ServerWorkspaceInvokeResponse>(`/api/server-workspaces/${encodeURIComponent(id)}/invoke`, body);
+  }
+
+  // 占用/排队列表（「被 X 占用 · 排队 N」提示的数据源；实时增量走 server_workspace:queue 事件）。
+  listServerWorkspaceQueue(id: string): Promise<{ items: ServerWorkspaceQueueItem[] }> {
+    return this.get<{ items: ServerWorkspaceQueueItem[] }>(`/api/server-workspaces/${encodeURIComponent(id)}/queue`);
   }
 }

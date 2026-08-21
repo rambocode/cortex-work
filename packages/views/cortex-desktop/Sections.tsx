@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
+import { RuntimeSettingsPage } from "./team/RuntimeSettingsPage";
 import {
   agentActivity30dOptions,
   agentListOptions,
@@ -735,7 +736,7 @@ function SettingsPage() {
       <div className="settings-content">
         {active === "profile" ? <ProfileSettings /> : null}
         {active === "config" ? <ConfigSettings /> : null}
-        {active === "runtime" ? <RuntimeSettings /> : null}
+        {active === "runtime" ? <RuntimeSettingsPage onToast={(text) => useCortexUIStore.getState().pushToast(text)} /> : null}
         {active === "skill" ? <SkillSettings /> : null}
       </div>
     </MulticaPageShell>
@@ -840,84 +841,6 @@ function DiagnosticsRow({ label, value, mono }: { label: string; value: ReactNod
       <span>{label}</span>
       <b className={mono ? "mono" : ""}>{value}</b>
     </div>
-  );
-}
-
-function RuntimeSettings() {
-  const machines = [
-    { id: "local", title: "MacBook-Pro.local", subtitle: "daemon local-codex-mbp", section: "Local", health: "online", runtimes: 2, busy: 0 },
-    { id: "remote", title: "Build Runner", subtitle: "remote ssh runtime", section: "Remote", health: "issues", runtimes: 1, busy: 1 },
-  ];
-  return (
-    <section className="settings-full-panel runtime-aligned">
-      <div className="aligned-page-header">
-        <div>
-          <Icon.Terminal size={15} />
-          <h1>Runtimes</h1>
-          <span>3</span>
-        </div>
-        <button className="mc-primary-btn"><Icon.Plus size={14} />Connect Remote</button>
-      </div>
-
-      <div className="runtime-split">
-        <aside className="runtime-machine-pane">
-          <div className="runtime-machine-toolbar">
-            <label className="mc-searchbox"><Icon.Search size={14} /><input placeholder="Search machines..." readOnly /></label>
-            <div className="mc-chip-group">
-              <button className="mc-chip is-active">All 2</button>
-              <button className="mc-chip"><span className="mini-dot green" />Online 1</button>
-              <button className="mc-chip"><span className="mini-dot amber" />Issues 1</button>
-            </div>
-          </div>
-          <div className="machine-section-label"><span>Local</span><i /></div>
-          {machines.filter((m) => m.section === "Local").map((machine) => (
-            <button key={machine.id} className="machine-row is-active">
-              <span className="machine-icon"><Icon.Terminal size={14} /><i className="green" /></span>
-              <span>
-                <b>{machine.title}</b>
-                <small>{machine.subtitle}</small>
-              </span>
-              <em>{machine.runtimes} runtimes</em>
-            </button>
-          ))}
-          <div className="machine-section-label"><span>Remote</span><i /></div>
-          {machines.filter((m) => m.section === "Remote").map((machine) => (
-            <button key={machine.id} className="machine-row">
-              <span className="machine-icon"><Icon.Globe size={14} /><i className="amber" /></span>
-              <span>
-                <b>{machine.title}</b>
-                <small>{machine.subtitle}</small>
-              </span>
-              <em>{machine.busy} busy</em>
-            </button>
-          ))}
-        </aside>
-        <main className="runtime-detail-pane">
-          <div className="runtime-detail-head">
-            <span className="runtime-detail-icon"><Icon.Terminal size={18} /></span>
-            <div>
-              <h2>MacBook-Pro.local</h2>
-              <p><span className="mini-dot green" />Healthy · This machine</p>
-            </div>
-          </div>
-          <div className="runtime-detail-grid">
-            <div className="runtime-detail-card"><span>Providers</span><b>Codex, OpenAI</b></div>
-            <div className="runtime-detail-card"><span>Queued</span><b>0</b></div>
-            <div className="runtime-detail-card"><span>Running</span><b>0</b></div>
-            <div className="runtime-detail-card"><span>Version</span><b>v2.14.0</b></div>
-          </div>
-          <div className="runtime-runtime-list">
-            <h3>Runtimes on this machine</h3>
-            {["Codex", "OpenAI Responses"].map((name) => (
-              <div key={name} className="runtime-runtime-row">
-                <span><Icon.Bot size={14} />{name}</span>
-                <b>Idle</b>
-              </div>
-            ))}
-          </div>
-        </main>
-      </div>
-    </section>
   );
 }
 

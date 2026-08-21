@@ -16139,3 +16139,38 @@ button.sb-row {
   font-size: 13.5px;
 }
 .auth-login-card .pw-tl-gen { height: 36px; }
+
+/* ── 服务器工作区（server workspace）：设置页管理 + Composer 选择器 ──────────── */
+.serverws-empty-hint { padding: 18px 14px; color: var(--text-3); font-size: 13px; }
+.serverws-row { position: relative; }
+.serverws-row .serverws-del { opacity: 0; margin-left: 8px; }
+.serverws-row:hover .serverws-del { opacity: 1; }
+.serverws-status-error { color: var(--red, #d33); }
+.serverws-mode-badge {
+  margin-left: 8px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-style: normal;
+  border: 1px solid var(--line-2, var(--line)); color: var(--text-3);
+}
+.serverws-mode-badge.is-shared { border-color: var(--line-2, var(--line)); }
+.serverws-create { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.serverws-create h3 { font-size: 13px; margin: 0; }
+.serverws-create-grid { display: flex; flex-direction: column; gap: 8px; }
+.serverws-create .pw-input { flex: 0 0 auto; height: 34px; padding: 6px 10px; border-radius: 8px; font-size: 13px; }
+.serverws-mode-pick { display: flex; gap: 8px; }
+/* Composer 弹层：绝对定位由挂载处的相对容器决定；兜底钳回视口（浮层老问题）。 */
+.serverws-picker {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 60;
+  min-width: 300px; max-width: min(380px, calc(100vw - 24px)); max-height: 320px; overflow: auto;
+  background: var(--bg-1, #fff); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); padding: 6px;
+}
+.serverws-picker-head { padding: 8px 10px 4px; font-size: 12px; color: var(--text-3); }
+.serverws-picker-machine { display: flex; align-items: center; gap: 6px; padding: 6px 10px 2px; font-size: 12px; color: var(--text-2); }
+.serverws-picker-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 7px 10px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; font-size: 13px;
+}
+.serverws-picker-row:hover { background: var(--bg-2, rgba(0, 0, 0, 0.04)); }
+.serverws-picker-row.is-active { background: var(--bg-2, rgba(0, 0, 0, 0.06)); }
+.serverws-picker-row:disabled { opacity: 0.5; cursor: default; }
+.serverws-picker-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.serverws-picker-row small { margin-left: auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }

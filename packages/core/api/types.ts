@@ -352,3 +352,87 @@ export interface SquadResponse {
   instructions?: string | null;
   avatar_url?: string | null;
 }
+
+// ── 服务器工作区（server workspace）：内网服务器 daemon 托管的持久命名 git checkout ──
+// 契约见 docs/plans（前后端裁定）：mode='shared'（全队同一 checkout，任务按 instance 串行排队）
+// | 'isolated'（每成员一份 worktree）。字段 snake_case 与 Go 服务端对齐。
+
+export type ServerWorkspaceMode = "shared" | "isolated";
+export type ServerWorkspaceStatus = "provisioning" | "ready" | "error" | "archived";
+export type ServerWorkspaceVisibility = "workspace" | "squad";
+
+export interface ServerWorkspace {
+  id: string;
+  workspace_id: string;
+  // 绑定 daemon 机器（同机全部 provider runtime 共享）；invoke 时服务端校验所选
+  // runtime.daemon_id == server_workspace.daemon_id。
+  daemon_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  repo_url: string;
+  default_branch?: string;
+  mode: ServerWorkspaceMode;
+  visibility: ServerWorkspaceVisibility;
+  squad_id?: string | null;
+  status: ServerWorkspaceStatus;
+  status_detail?: string;
+  root_path?: string;
+  disk_usage_bytes?: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  // 列表端点附带的占用/排队摘要（权威实时态走 server_workspace:queue 事件）。
+  running_task_id?: string | null;
+  running_caller_id?: string | null;
+  queue_depth?: number;
+  // isolated 模式：当前用户自己的实例状态（无则尚未 provision）。
+  my_instance?: ServerWorkspaceInstance | null;
+}
+
+export interface ServerWorkspaceInstance {
+  id: string;
+  server_workspace_id: string;
+  member_user_id?: string | null; // null = shared 单例
+  path?: string;
+  branch?: string;
+  status: "provisioning" | "ready" | "error";
+}
+
+export interface CreateServerWorkspaceRequest {
+  name: string;
+  repo_url: string;
+  branch?: string;
+  mode: ServerWorkspaceMode;
+  runtime_id: string; // 服务端由 runtime 反查 daemon_id
+  visibility?: ServerWorkspaceVisibility;
+  squad_id?: string;
+}
+
+// POST /api/server-workspaces/{id}/invoke 响应。排队不是错误：受理即返回
+// queue_position（0=立即执行，>0=前方还有 N 个任务）。
+export interface ServerWorkspaceInvokeResponse {
+  conversation_id: string;
+  turn_id: string;
+  task_id: string;
+  queue_position: number;
+}
+
+// 服务器侧 runtime 摘要（list 响应附带）：把「daemon 机器 → 可用 runtime」绑定起来，
+// invoke 与创建都必须带 runtime_id，而 ServerWorkspace 上只有 daemon_id。
+export interface ServerRuntime {
+  id: string;
+  daemon_id: string;
+  name: string;
+  provider?: string;
+  online: boolean;
+}
+
+// GET /api/server-workspaces/{id}/queue 列表项（占用中/排队中任务的展示摘要）。
+export interface ServerWorkspaceQueueItem {
+  task_id: string;
+  caller_id: string;
+  caller_name?: string;
+  status: "queued" | "dispatched" | "running";
+  created_at: string;
+}
