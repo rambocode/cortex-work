@@ -19,6 +19,7 @@ import {
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { ProjectMenu } from "../projects/ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
+import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SidebarUserBar } from "./SidebarUserBar";
 import { relTime } from "./relTime";
 import { SESSION_DRAG_MIME } from "./conversation-drag";
@@ -479,6 +480,9 @@ export function PersonalSidebar({
           <Icon.Plus />
         </button>
       </div>
+      {/* 「团队工作区 / 个人工作区」切换（feat/team-server-workspace）:此前只在无桥 web
+          回落分支渲染,桌面端没有可见入口——挂在模式行上方,两侧工作区互达。 */}
+      <WorkspaceTabs />
       <div className="pw-sidebar-modes" aria-label="工作模式">
         <button className={conversationModeOpen ? "is-active" : ""} onClick={openHome} aria-pressed={conversationModeOpen}>
           会话
