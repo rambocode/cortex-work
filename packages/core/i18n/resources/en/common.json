@@ -348,7 +348,8 @@
     "browseEmpty": "No subdirectories here",
     "browseFailed": "Directory browse failed (node offline or timeout)",
     "dirIsolatedHint": "Directory mode supports shared only (no per-member worktrees)",
-    "errPathIsolated": "Directory mode does not support isolated worktrees yet"
+    "errPathIsolated": "Directory mode does not support isolated worktrees yet",
+    "errNoAgent": "No agent available for this runtime (auto-create failed)"
   },
   "teamChat": {
     "humanHint": "Direct chat with people isn't supported yet. Ask their avatar instead.",

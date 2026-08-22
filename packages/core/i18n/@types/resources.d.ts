@@ -579,6 +579,7 @@ export default interface Resources {
       "errInvokeFailed": "发送到服务器工作区失败",
       "errNameConflict": "同名工作区已存在",
       "errNeedAdmin": "需要管理员权限",
+      "errNoAgent": "该运行时下没有可用的 Agent（自动创建失败）",
       "errNotReady": "服务器工作区尚未就绪（仍在准备或出错）",
       "errOffline": "服务器执行节点离线",
       "errPathIsolated": "目录模式暂不支持独立工作树",

@@ -91,6 +91,7 @@ export function invokeServerWorkspaceErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "instance_provisioning") return "serverWs.errProvisioning";
     if (err.code === "workspace_not_ready") return "serverWs.errNotReady";
+    if (err.code === "no_agent_for_runtime") return "serverWs.errNoAgent";
     if (err.code === "runtime_offline" || err.code === "runtime_unavailable" || err.code === "avatar_offline")
       return "serverWs.errOffline";
   }

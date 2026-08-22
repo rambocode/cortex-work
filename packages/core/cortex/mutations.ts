@@ -533,9 +533,14 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
           setConvo(contactId, () => restoreAvatarBusySession(previousConvo));
           return;
         }
-        if (code === "runtime_offline" || code === "runtime_unavailable" || code === "workspace_not_ready") {
+        if (code === "runtime_offline" || code === "runtime_unavailable" || code === "workspace_not_ready" || code === "no_agent_for_runtime") {
           useCortexUIStore.getState().pushToast(
-            code === "workspace_not_ready" ? "服务器工作区尚未就绪" : "服务器执行节点离线或不可用", { kind: "error" });
+            code === "workspace_not_ready"
+              ? "服务器工作区尚未就绪"
+              : code === "no_agent_for_runtime"
+                ? "该运行时下没有可用的 Agent（自动创建失败），请到「智能体」页检查"
+                : "服务器执行节点离线或不可用",
+            { kind: "error" });
           setConvo(contactId, () => restoreAvatarBusySession(previousConvo));
           return;
         }

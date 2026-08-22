@@ -348,7 +348,8 @@
     "browseEmpty": "该目录下没有子目录",
     "browseFailed": "目录浏览失败（节点离线或超时）",
     "dirIsolatedHint": "目录模式暂不支持独立工作树，仅支持共享",
-    "errPathIsolated": "目录模式暂不支持独立工作树"
+    "errPathIsolated": "目录模式暂不支持独立工作树",
+    "errNoAgent": "该运行时下没有可用的 Agent（自动创建失败）"
   },
   "teamChat": {
     "humanHint": "真人条目暂不支持对话。如需协作，请直接向 TA 的分身提问。",
