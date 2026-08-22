@@ -724,6 +724,8 @@ export default interface Resources {
       "pillTitle": "选择服务器工作区（不选则由分身拥有者的机器执行）",
       "queuedAhead": "排队中 · 前方 {{n}} 个任务",
       "queuedWaiting": "排队中，等待工作区空闲…",
+      "serverOffline": "服务器执行节点离线",
+      "serverOfflineHint": "这个工作区所在的服务器当前离线，恢复后即可继续对话。",
       "thinking": "正在思考…",
       "unavailableHint": "分身在线，但拥有者本机 CLI 不可用。可选择一个服务器工作区改在服务器上执行。",
       "unavailableStatus": "在线 · 本机 CLI 不可用",

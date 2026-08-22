@@ -552,7 +552,13 @@ export function useCortexActions(wsId: string, qcOverride?: QueryClient): Cortex
       // 会话目标选定了服务器工作区（useTeamUIStore 客户端态）→ 改走服务器工作区 invoke，
       // 在服务器上的持久 checkout 里执行；未选择 → 维持分身直连（拥有者机器）语义。
       if (apiClient && contact?.kind === "avatar") {
-        const sel = useTeamUIStore.getState().selection[contactId];
+        // 服务器工作区条目自带 invoke 目标（contact.serverWorkspaceId+runtimeId）；
+        // 普通分身条目看用户在 pill 里的选择（useTeamUIStore），未选则分身直连。
+        const fixed =
+          contact.serverWorkspaceId && contact.runtimeId
+            ? { runtimeId: contact.runtimeId, serverWorkspaceId: contact.serverWorkspaceId }
+            : undefined;
+        const sel = fixed ?? useTeamUIStore.getState().selection[contactId];
         if (sel) {
           void invokeServerWorkspace(contactId, contact, text, apiClient, sel);
         } else {

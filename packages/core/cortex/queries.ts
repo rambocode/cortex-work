@@ -6,7 +6,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { getConversation, getFileDiff, listContacts, listOrganizations } from "../mock/api";
 import type { ApiClient } from "../api/client";
 import type { Contact, Conversation } from "../types";
-import { mapAvatarsToContacts } from "./contacts-map";
+import { mapAvatarsToContacts, mapServerWorkspacesToContacts } from "./contacts-map";
 import { buildAvatarConversationFromTurns } from "./session-stream";
 
 // Organizations are global (not workspace-scoped), so their key carries no wsId.
@@ -44,8 +44,17 @@ export const contactListOptions = (wsId: string, api?: ApiClient | null) =>
     queryKey: contactKeys.list(wsId),
     queryFn: async () => {
       if (!api) return listContacts();
-      const { avatars } = await api.listAvatars();
-      return mapAvatarsToContacts(avatars);
+      // 分身与服务器工作区并行拉取；服务器工作区条目排在 shared 分组（点开即聊，
+      // 不依赖任何成员共享分身）。server-workspaces 拉取失败不拖垮通讯录（降级只剩分身）。
+      const [avatarsResp, swResp] = await Promise.all([
+        api.listAvatars(),
+        api.listServerWorkspaces().catch(() => null),
+      ]);
+      const contacts = mapAvatarsToContacts(avatarsResp.avatars);
+      if (swResp) {
+        contacts.push(...mapServerWorkspacesToContacts(swResp.server_workspaces ?? [], swResp.runtimes ?? []));
+      }
+      return contacts;
     },
   });
 
@@ -60,6 +69,15 @@ export const conversationOptions = (wsId: string, contactId: string, api?: ApiCl
     queryKey: conversationKeys.detail(wsId, contactId),
     queryFn: async (): Promise<Conversation | null> => {
       if (!api || contact?.kind !== "avatar") return getConversation(contactId);
+      // 服务器工作区条目：历史走工作区级 sessions 端点（当前调用者自己的会话）。
+      // 端点缺失/无历史 → null（空态引导；流式在会话中实时构建）。
+      if (contact.serverWorkspaceId) {
+        const { sessions } = await api.listServerWorkspaceSessions(contact.serverWorkspaceId).catch(() => ({ sessions: [] }));
+        const latest = [...sessions].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))[0];
+        if (!latest) return null;
+        const { turns } = await api.getAvatarConversation(latest.conversation_id);
+        return buildAvatarConversationFromTurns(turns, { who: contact.name, conversationId: latest.conversation_id });
+      }
       const runtimeId = contact.runtimeId ?? contact.id;
       const { sessions } = await api.listAvatarSessions(runtimeId);
       // 取最近活跃的会话（按 updated_at 降序首条）；无历史 → null（视图渲染空态引导）。

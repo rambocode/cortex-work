@@ -407,6 +407,11 @@ export class ApiClient {
     return resp;
   }
 
+  // 当前调用者在该服务器工作区的会话列表（与 listAvatarSessions 同形状；历史重建用）。
+  listServerWorkspaceSessions(id: string): Promise<{ sessions: AvatarSessionSummary[] }> {
+    return this.get<{ sessions: AvatarSessionSummary[] }>(`/api/server-workspaces/${encodeURIComponent(id)}/sessions`);
+  }
+
   // 远程目录浏览：发起（path 缺省 = daemon 用户 HOME）。可能直接返回结果（同步实现）或
   // 仅返回 request_id（异步实现），调用方统一走 browseServerDirPoll 兜平差异。
   browseServerDirectory(body: { runtime_id: string; path?: string }): Promise<ServerDirBrowseResult & { request_id?: string }> {

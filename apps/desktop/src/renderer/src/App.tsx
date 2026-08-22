@@ -135,6 +135,25 @@ export default function App() {
     });
   };
 
+  // 切换团队(workspace):改 state 的 workspaceId(CoreProvider wsId 变 → 全部 query key
+  // 自动换命名空间,缓存天然隔离)并持久化,重启后进入所选团队。
+  const handleWorkspaceSwitch = (ws: { id: string; name: string; slug?: string }): void => {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, workspaceId: ws.id, workspaceSlug: ws.slug };
+      void rawDesktopBridge?.authSetConfig?.({
+        baseUrl: next.apiUrl,
+        workspaceId: next.workspaceId,
+        workspaceSlug: next.workspaceSlug,
+        userId: next.userId,
+        userName: next.userName,
+        userEmail: next.userEmail,
+        token: next.authToken,
+      });
+      return next;
+    });
+  };
+
   // 登出（W1）：清持久化 + 清 state（apiConfig 随之停用真实后端，团队侧回落登录卡）。
   // 仅清渲染端登录态与本地持久化，避免登出流程阻塞在网络往返。
   const handleLogout = (): void => {
@@ -244,6 +263,7 @@ export default function App() {
           defaultBaseUrl: config?.apiUrl || "http://127.0.0.1:8080",
           onAuthenticated: handleAuthenticated,
           onLogout: handleLogout,
+          onWorkspaceSwitch: handleWorkspaceSwitch,
         }}
       />
     </CoreProvider>

@@ -5,7 +5,7 @@
 // 分身一条 avatar Contact（kind:"avatar"，id = runtime_id）。返回的扁平数组按
 // [human, avatar, avatar, human, avatar, ...] 顺序排列，供 Sidebar 据 ownerId 做两级嵌套渲染。
 
-import type { ApiAvatar, ApiAvatarStatus } from "../api/types";
+import type { ApiAvatar, ApiAvatarStatus, ServerRuntime, ServerWorkspace } from "../api/types";
 import type { AgentStatus, Avatar, Contact } from "../types";
 
 // 零分身成员来源（可选）：当消费端能拿到完整成员名单时传入，用于把「已入团但未共享任何分身」
@@ -136,4 +136,59 @@ export function mapAvatarsToContacts(avatars: ApiAvatar[], members?: AvatarConta
     }
   }
   return result;
+}
+
+// ── 服务器工作区 → 通讯录条目 ───────────────────────────────────────────────
+// 每个非归档服务器工作区一条 Contact（group:"shared" =「项目 / 共享 Agent」分组），
+// kind:"avatar" 复用会话链路，serverWorkspaceId 驱动 sendMessage 走 invokeServerWorkspace。
+// runtimeId 取同 daemon 下优先在线的 runtime（全离线取第一个，让服务端给明确错误）。
+export function mapServerWorkspacesToContacts(
+  workspaces: ServerWorkspace[],
+  runtimes: ServerRuntime[],
+): Contact[] {
+  const byDaemon = new Map<string, ServerRuntime[]>();
+  for (const rt of runtimes) {
+    const list = byDaemon.get(rt.daemon_id) ?? [];
+    list.push(rt);
+    byDaemon.set(rt.daemon_id, list);
+  }
+  const out: Contact[] = [];
+  for (const sw of workspaces) {
+    if (sw.status === "archived") continue;
+    const rts = byDaemon.get(sw.daemon_id) ?? [];
+    const runtime = rts.find((r) => r.online) ?? rts[0];
+    const online = rts.some((r) => r.online);
+    const busy = !!sw.running_task_id;
+    const statusText =
+      sw.status === "provisioning"
+        ? "准备中（clone）…"
+        : sw.status === "error"
+          ? "创建失败"
+          : busy
+            ? "执行中"
+            : online
+              ? sw.mode === "shared"
+                ? "共享工作区"
+                : "独立工作区"
+              : "服务器离线";
+    out.push({
+      id: sw.id,
+      name: sw.name,
+      group: "shared",
+      role: sw.mode === "shared" ? "共享工作区" : "独立工作区",
+      avatar: {
+        initials: initialsOf(sw.name, "WS"),
+        bg: AVATAR_BG_PALETTE[stableIndex(sw.id, AVATAR_BG_PALETTE.length)]!,
+      },
+      agentStatus: sw.status !== "ready" ? "idle" : busy ? "working" : online ? "online" : "offline",
+      statusText,
+      last: "",
+      time: "",
+      unread: 0,
+      kind: "avatar",
+      runtimeId: runtime?.id,
+      serverWorkspaceId: sw.id,
+    });
+  }
+  return out;
 }

@@ -58,6 +58,9 @@ export interface Contact {
   ownerName?: string; // 分身拥有者展示名（列表副标题「来自 X」）
   kind?: "human" | "avatar";
   runtimeId?: string; // 分身 runtime id（= id，冗余存放便于消费方直取）
+  // 服务器工作区会话条目（通讯录直连服务器工作区,无需先有分身）：id = server_workspace id,
+  // 发消息时经 invokeServerWorkspace 路由到 (runtimeId, serverWorkspaceId)。
+  serverWorkspaceId?: string;
 }
 
 export interface Group {

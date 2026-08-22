@@ -52,10 +52,32 @@ export function TeamChatArea({ contact, convo, onSelectFile, activeFile, onSend,
     );
   }
 
+  // 服务器工作区条目 + 服务器离线：给专属降级文案（与分身拥有者语境区分）。
+  if (contact.serverWorkspaceId && offline) {
+    return (
+      <main className="chat">
+        <ChatHeader contact={contact} convo={convo} />
+        {convo ? (
+          <MessageStream
+            contact={contact}
+            convo={convo}
+            onSelectFile={onSelectFile}
+            activeFile={activeFile}
+            onApprove={onApprove}
+            markdownBodies
+          />
+        ) : (
+          <CenteredNotice contact={contact} title={contact.name} hint={t("teamChat.serverOfflineHint")} />
+        )}
+        <DisabledComposer text={t("teamChat.serverOffline")} />
+      </main>
+    );
+  }
+
   // 分身离线/不可用：可回看历史（有则渲染 MessageStream），但禁止发起、文案区分。
   // 注意：选定了服务器工作区时不受分身本体在线态限制（执行点在服务器 daemon），
-  // 故仅在「未选服务器工作区」时才走离线降级。
-  if (isAvatar && (offline || unavailable) && !selection) {
+  // 服务器工作区条目自带目标也不受限，故仅在两者都无时才走离线降级。
+  if (isAvatar && (offline || unavailable) && !selection && !contact.serverWorkspaceId) {
     const title = unavailable ? t("teamChat.unavailableTitle") : t("teamChat.offlineTitle");
     const hint = unavailable ? t("teamChat.unavailableHint") : t("teamChat.offlineHint");
     return (
@@ -134,6 +156,14 @@ function ComposerWithWorkspace({
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
   const selection = useTeamUIStore((s) => s.selection[contact.id]);
+  // 服务器工作区条目自带 invoke 目标：pill 选择器多余，直接渲染纯 Composer。
+  if (contact.serverWorkspaceId) {
+    return disabledText ? (
+      <DisabledComposer text={disabledText} />
+    ) : (
+      <Composer contact={contact} onSend={onSend} onToast={onToast} />
+    );
+  }
   const setSelection = useTeamUIStore((s) => s.setSelection);
   const { data } = useServerWorkspaces();
   const selected = selection

@@ -373,6 +373,8 @@
     "modeSharedShort": "共享",
     "modeIsolatedShort": "独立",
     "noSharedAvatars": "暂未共享分身",
-    "unavailableStatus": "在线 · 本机 CLI 不可用"
+    "unavailableStatus": "在线 · 本机 CLI 不可用",
+    "serverOffline": "服务器执行节点离线",
+    "serverOfflineHint": "这个工作区所在的服务器当前离线，恢复后即可继续对话。"
   }
 }

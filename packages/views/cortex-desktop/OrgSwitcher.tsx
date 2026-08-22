@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@cortex-work/ui/icons";
 import { useTranslation } from "@cortex-work/core/i18n";
-import { organizationListOptions, useCortexUIStore, useMyInvitations } from "@cortex-work/core";
+import {
+  organizationListOptions,
+  useCoreContext,
+  useCortexUIStore,
+  useMyInvitations,
+  useWorkspaceId,
+  workspaceKeys,
+} from "@cortex-work/core";
 import { TeamManageModal } from "./team/TeamManageModal";
 
 // Organization switcher pinned at the top of the sidebar. Org list is server
@@ -10,9 +17,30 @@ import { TeamManageModal } from "./team/TeamManageModal";
 // dropdown switches org or signs out. 团队管理(建团/邀请码/退团,U9)从此菜单进入。
 // onLogout 由桌面壳经 Sidebar 透传(W1 应用内登录);未接线场景(web/旧壳)缺省 →
 // 退出菜单项兜底走原有 toast 占位。
-export function OrgSwitcher({ onLogout }: { onLogout?: () => void }) {
+export function OrgSwitcher({
+  onLogout,
+  onWorkspaceSwitch,
+}: {
+  onLogout?: () => void;
+  // 真实 workspace 切换（apiClient 可用时）:上抛给壳改 wsId + 持久化;缺省回落 toast 占位。
+  onWorkspaceSwitch?: (ws: { id: string; name: string; slug?: string }) => void;
+}) {
   const { t } = useTranslation();
-  const { data: orgs = [] } = useQuery(organizationListOptions());
+  const { apiClient } = useCoreContext();
+  const wsId = useWorkspaceId();
+  const { data: mockOrgs = [] } = useQuery(organizationListOptions());
+  // 真实团队列表(登录态):替代 mock orgs。key 不带 wsId(「我所属的全部 workspace」跨租户)。
+  const { data: realWorkspaces = [] } = useQuery({
+    queryKey: workspaceKeys.list(),
+    queryFn: () => apiClient!.listWorkspaces(),
+    enabled: !!apiClient,
+    staleTime: 60_000,
+  });
+  const live = !!apiClient;
+  // 统一形状:{id, name, initials}。live 用真实 workspace(initials 取名称前两字符)。
+  const orgs = live
+    ? realWorkspaces.map((w) => ({ id: w.id, name: w.name, initials: w.name.trim().slice(0, 2) || "·", slug: w.slug }))
+    : mockOrgs;
   // 我的 pending 邀请数(仅 apiClient 可用时启用;mock/web 无后端 → 空闲);用于团队管理入口徽标。
   const { data: invitations = [] } = useMyInvitations();
   const pendingInvites = invitations.length;
@@ -32,7 +60,8 @@ export function OrgSwitcher({ onLogout }: { onLogout?: () => void }) {
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(logoutTimerRef.current), []);
 
-  const current = orgs.find((o) => o.id === currentOrgId) ?? orgs[0];
+  // live 按真实 wsId 定位当前团队;mock 沿用 Zustand currentOrgId。
+  const current = live ? (orgs.find((o) => o.id === wsId) ?? orgs[0]) : (orgs.find((o) => o.id === currentOrgId) ?? orgs[0]);
 
   useEffect(() => {
     if (!open) return;
@@ -44,8 +73,20 @@ export function OrgSwitcher({ onLogout }: { onLogout?: () => void }) {
   }, [open]);
 
   const selectOrg = (id: string, name: string) => {
-    setCurrentOrg(id);
     setOpen(false);
+    if (live) {
+      if (id === wsId) return;
+      const ws = orgs.find((o) => o.id === id);
+      if (onWorkspaceSwitch && ws) {
+        // 真实切换:壳改 wsId(全部 query key 换命名空间)并持久化。
+        onWorkspaceSwitch({ id: ws.id, name: ws.name, slug: (ws as { slug?: string }).slug });
+        pushToast(t("orgSwitcher.switchedTo", { name }));
+      } else {
+        pushToast(t("orgSwitcher.switchedTo", { name }) + " · 未接线");
+      }
+      return;
+    }
+    setCurrentOrg(id);
     pushToast(t("orgSwitcher.switchedTo", { name }));
   };
 

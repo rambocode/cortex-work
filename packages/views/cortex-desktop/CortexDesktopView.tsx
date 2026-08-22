@@ -56,6 +56,8 @@ export interface CortexDesktopViewProps {
     defaultBaseUrl: string;
     onAuthenticated: (cfg: AuthedResult) => void;
     onLogout: () => void;
+    // 真实 workspace 切换(壳改 wsId + 持久化);缺省 → OrgSwitcher 内兜底 toast。
+    onWorkspaceSwitch?: (ws: { id: string; name: string; slug?: string }) => void;
   };
 }
 
@@ -170,6 +172,7 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
               activeSection={activeSection}
               onNavigate={setSection}
               onLogout={auth?.onLogout}
+              onWorkspaceSwitch={auth?.onWorkspaceSwitch}
               sectionCounts={{
                 tasks: issues?.total,
                 agents: agents?.filter((a) => !a.archived_at).length,

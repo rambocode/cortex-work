@@ -264,11 +264,14 @@ function SidebarSection({
   // kind 驱动的两级条目（成员/分身）与旧扁平条目（mock/legacy，无 kind）并存：
   // 有 human 成员时按两级渲染，否则回落原扁平渲染（零回归）。
   const humans = groupContacts.filter((c) => c.kind === "human");
+  // 无主分身/服务器工作区条目（kind="avatar" 但无 ownerId）：不挂在任何成员名下，
+  // 作为独立顶级行渲染（服务器工作区即此形态——点开即聊）。
+  const standalone = groupContacts.filter((c) => c.kind === "avatar" && !c.ownerId);
   const legacy = groupContacts.filter((c) => c.kind !== "human" && c.kind !== "avatar");
 
   // 扁平回落路径（当前段无成员两级结构）。
   if (humans.length === 0) {
-    const list = legacy.filter((c) => matches(c, search));
+    const list = [...legacy, ...standalone].filter((c) => matches(c, search));
     if (list.length === 0) return null;
     return (
       <div className="sb-section">
@@ -287,10 +290,9 @@ function SidebarSection({
   // 两级路径：按成员分段，各段成员行 + 其名下分身行。
   const avatarsByOwner = new Map<string, Contact[]>();
   for (const c of groupContacts) {
-    if (c.kind !== "avatar") continue;
-    const ownerId = c.ownerId ?? "";
-    if (!avatarsByOwner.has(ownerId)) avatarsByOwner.set(ownerId, []);
-    avatarsByOwner.get(ownerId)!.push(c);
+    if (c.kind !== "avatar" || !c.ownerId) continue; // 无主条目已在 standalone 渲染
+    if (!avatarsByOwner.has(c.ownerId)) avatarsByOwner.set(c.ownerId, []);
+    avatarsByOwner.get(c.ownerId)!.push(c);
   }
   // 计算可见成员段（用于空段整体隐藏与段头计数）。
   const visibleHumans = humans.filter((h) => {
@@ -298,7 +300,7 @@ function SidebarSection({
     if (matches(h, search)) return true;
     return avs.some((a) => matches(a, search));
   });
-  const legacyList = legacy.filter((c) => matches(c, search));
+  const legacyList = [...legacy, ...standalone].filter((c) => matches(c, search));
   if (visibleHumans.length === 0 && legacyList.length === 0) return null;
 
   return (
@@ -346,6 +348,7 @@ export interface SidebarProps {
   // 团队登录退出回调(W1):桌面壳注入,透传给 OrgSwitcher 的退出菜单项。缺省(web/未接线)
   // → OrgSwitcher 兜底走原有 toast 占位行为。
   onLogout?: () => void;
+  onWorkspaceSwitch?: (ws: { id: string; name: string; slug?: string }) => void;
 }
 
 export function Sidebar({
@@ -360,6 +363,7 @@ export function Sidebar({
   onNavigate,
   sectionCounts,
   onLogout,
+  onWorkspaceSwitch,
 }: SidebarProps) {
   const { t } = useTranslation();
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
@@ -374,7 +378,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <WorkspaceTabs />
-      <OrgSwitcher onLogout={onLogout} />
+      <OrgSwitcher onLogout={onLogout} onWorkspaceSwitch={onWorkspaceSwitch} />
       <SidebarTop
         search={search}
         onSearch={onSearch}

@@ -373,6 +373,8 @@
     "modeSharedShort": "Shared",
     "modeIsolatedShort": "Isolated",
     "noSharedAvatars": "No shared avatars yet",
-    "unavailableStatus": "Online · local CLI unavailable"
+    "unavailableStatus": "Online · local CLI unavailable",
+    "serverOffline": "Server node offline",
+    "serverOfflineHint": "The server hosting this workspace is offline. You can chat again once it is back."
   }
 }
