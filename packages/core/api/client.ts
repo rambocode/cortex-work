@@ -22,6 +22,7 @@ import type {
   SquadMember,
   SquadResponse,
   CreateServerWorkspaceRequest,
+  ServerDirBrowseResult,
   ServerRuntime,
   ServerWorkspace,
   ServerWorkspaceInvokeResponse,
@@ -404,6 +405,16 @@ export class ApiClient {
       throw new ApiError(resp.error || resp.code, 202, "Accepted", resp.code);
     }
     return resp;
+  }
+
+  // 远程目录浏览：发起（path 缺省 = daemon 用户 HOME）。可能直接返回结果（同步实现）或
+  // 仅返回 request_id（异步实现），调用方统一走 browseServerDirPoll 兜平差异。
+  browseServerDirectory(body: { runtime_id: string; path?: string }): Promise<ServerDirBrowseResult & { request_id?: string }> {
+    return this.post<ServerDirBrowseResult & { request_id?: string }>("/api/server-workspaces/browse", body);
+  }
+
+  getServerDirBrowseResult(requestId: string): Promise<ServerDirBrowseResult> {
+    return this.get<ServerDirBrowseResult>(`/api/server-workspaces/browse/${encodeURIComponent(requestId)}`);
   }
 
   // 占用/排队列表（「被 X 占用 · 排队 N」提示的数据源；实时增量走 server_workspace:queue 事件）。

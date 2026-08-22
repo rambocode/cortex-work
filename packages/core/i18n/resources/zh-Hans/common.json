@@ -336,7 +336,19 @@
     "errProvisioning": "你的专属工作树正在准备，稍候重试",
     "errOffline": "服务器执行节点离线",
     "errInvokeFailed": "发送到服务器工作区失败",
-    "errNotReady": "服务器工作区尚未就绪（仍在准备或出错）"
+    "errNotReady": "服务器工作区尚未就绪（仍在准备或出错）",
+    "sourceLabel": "来源",
+    "sourceDir": "服务器目录",
+    "sourceGit": "Git 仓库",
+    "dirPath": "服务器上的目录绝对路径",
+    "browse": "浏览…",
+    "browseTitle": "选择服务器目录",
+    "browseClose": "关闭",
+    "browsePick": "选用此目录",
+    "browseEmpty": "该目录下没有子目录",
+    "browseFailed": "目录浏览失败（节点离线或超时）",
+    "dirIsolatedHint": "目录模式暂不支持独立工作树，仅支持共享",
+    "errPathIsolated": "目录模式暂不支持独立工作树"
   },
   "teamChat": {
     "humanHint": "真人条目暂不支持对话。如需协作，请直接向 TA 的分身提问。",

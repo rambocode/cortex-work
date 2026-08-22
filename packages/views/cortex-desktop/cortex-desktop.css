@@ -16190,3 +16190,22 @@ button.sb-row {
   border-radius: 50%; border: 0; background: transparent; color: var(--text-4); cursor: pointer;
 }
 .serverws-pill-clear:hover { color: var(--text-2); background: var(--bg-2, rgba(0, 0, 0, 0.05)); }
+
+/* 目录模式创建行 + 服务器目录浏览器（ServerDirectoryBrowser）。 */
+.serverws-dir-row { position: relative; display: flex; gap: 8px; align-items: center; }
+.serverws-dir-row .pw-input { flex: 1 1 auto; }
+.serverws-dirbrowser {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 70;
+  width: min(420px, calc(100vw - 24px)); max-height: 360px; display: flex; flex-direction: column;
+  background: var(--bg-1, #fff); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+.serverws-dirbrowser-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.serverws-dirbrowser-path { flex: 1; font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.serverws-dirbrowser-list { flex: 1; overflow: auto; padding: 4px; }
+.serverws-dirbrowser-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 10px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; font-size: 13px;
+}
+.serverws-dirbrowser-row:hover { background: var(--bg-2, rgba(0, 0, 0, 0.04)); }
+.serverws-dirbrowser-foot { padding: 8px 10px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; }

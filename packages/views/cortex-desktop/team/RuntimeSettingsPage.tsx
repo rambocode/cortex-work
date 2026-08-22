@@ -18,6 +18,7 @@ import {
 } from "@cortex-work/core";
 import { useCoreContext } from "@cortex-work/core";
 import type { ServerWorkspace, ServerWorkspaceMode } from "@cortex-work/core/api/types";
+import { ServerDirectoryBrowser } from "./ServerDirectoryBrowser";
 
 export function RuntimeSettingsPage({ onToast }: { onToast?: (text: string) => void }) {
   const { liveDataEnabled } = useCoreContext();
@@ -174,11 +175,16 @@ function CreateWorkspaceForm({ group, onToast }: { group: ServerWorkspaceGroup; 
   const { t } = useTranslation();
   const create = useCreateServerWorkspace();
   const [name, setName] = useState("");
+  // 两种来源：dir = 服务器上已有目录（默认，免 clone）；git = 仓库地址 clone。
+  const [source, setSource] = useState<"dir" | "git">("dir");
   const [repoUrl, setRepoUrl] = useState("");
+  const [dirPath, setDirPath] = useState("");
   const [branch, setBranch] = useState("");
   const [mode, setMode] = useState<ServerWorkspaceMode>("shared");
+  const [browserOpen, setBrowserOpen] = useState(false);
   const runtime = pickRuntime(group);
-  const canSubmit = !!name.trim() && !!repoUrl.trim() && !!runtime && !create.isPending;
+  const sourceFilled = source === "git" ? !!repoUrl.trim() : !!dirPath.trim();
+  const canSubmit = !!name.trim() && sourceFilled && !!runtime && !create.isPending;
 
   return (
     <div className="serverws-create">
@@ -190,23 +196,62 @@ function CreateWorkspaceForm({ group, onToast }: { group: ServerWorkspaceGroup; 
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <input
-          className="pw-input"
-          placeholder={t("serverWs.repoUrl")}
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-        />
-        <input
-          className="pw-input"
-          placeholder={t("serverWs.branch")}
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-        />
+        <div className="serverws-mode-pick" role="radiogroup" aria-label={t("serverWs.sourceLabel")}>
+          <button className={`mc-chip ${source === "dir" ? "is-active" : ""}`} onClick={() => setSource("dir")}>
+            {t("serverWs.sourceDir")}
+          </button>
+          <button className={`mc-chip ${source === "git" ? "is-active" : ""}`} onClick={() => setSource("git")}>
+            {t("serverWs.sourceGit")}
+          </button>
+        </div>
+        {source === "git" ? (
+          <>
+            <input
+              className="pw-input"
+              placeholder={t("serverWs.repoUrl")}
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+            />
+            <input
+              className="pw-input"
+              placeholder={t("serverWs.branch")}
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            />
+          </>
+        ) : (
+          <div className="serverws-dir-row">
+            <input
+              className="pw-input"
+              placeholder={t("serverWs.dirPath")}
+              value={dirPath}
+              onChange={(e) => setDirPath(e.target.value)}
+            />
+            <button className="mc-chip" onClick={() => setBrowserOpen(true)} disabled={!runtime}>
+              <Icon.Folder size={13} />
+              {t("serverWs.browse")}
+            </button>
+            {browserOpen && runtime ? (
+              <ServerDirectoryBrowser
+                runtimeId={runtime.id}
+                initialPath={dirPath.trim() || undefined}
+                onPick={(p) => setDirPath(p)}
+                onClose={() => setBrowserOpen(false)}
+              />
+            ) : null}
+          </div>
+        )}
         <div className="serverws-mode-pick" role="radiogroup">
           <button className={`mc-chip ${mode === "shared" ? "is-active" : ""}`} onClick={() => setMode("shared")}>
             {t("serverWs.modeShared")}
           </button>
-          <button className={`mc-chip ${mode === "isolated" ? "is-active" : ""}`} onClick={() => setMode("isolated")}>
+          {/* 目录模式无法做 per-member worktree 隔离 → 独立选项禁用并提示。 */}
+          <button
+            className={`mc-chip ${mode === "isolated" ? "is-active" : ""}`}
+            disabled={source === "dir"}
+            title={source === "dir" ? t("serverWs.dirIsolatedHint") : undefined}
+            onClick={() => setMode("isolated")}
+          >
             {t("serverWs.modeIsolated")}
           </button>
         </div>
@@ -218,15 +263,18 @@ function CreateWorkspaceForm({ group, onToast }: { group: ServerWorkspaceGroup; 
           create.mutate(
             {
               name: name.trim(),
-              repo_url: repoUrl.trim(),
-              branch: branch.trim() || undefined,
-              mode,
+              repo_url: source === "git" ? repoUrl.trim() : undefined,
+              path: source === "dir" ? dirPath.trim() : undefined,
+              branch: source === "git" ? branch.trim() || undefined : undefined,
+              // 目录模式强制 shared（独立选项已禁用，此处兜底）。
+              mode: source === "dir" ? "shared" : mode,
               runtime_id: runtime!.id,
             },
             {
               onSuccess: () => {
                 setName("");
                 setRepoUrl("");
+                setDirPath("");
                 setBranch("");
                 onToast?.(t("serverWs.created"));
               },

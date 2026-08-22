@@ -669,6 +669,7 @@ export {
   invokeServerWorkspaceErrorKey,
   serverWorkspaceListOptions,
   serverWorkspaceQueueOptions,
+  browseServerDir,
   useServerWorkspaces,
   useCreateServerWorkspace,
   useDeleteServerWorkspace,

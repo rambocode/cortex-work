@@ -336,7 +336,19 @@
     "errProvisioning": "Your worktree is being provisioned, try again shortly",
     "errOffline": "Server node is offline",
     "errInvokeFailed": "Failed to send to the server workspace",
-    "errNotReady": "Server workspace is not ready yet"
+    "errNotReady": "Server workspace is not ready yet",
+    "sourceLabel": "Source",
+    "sourceDir": "Server directory",
+    "sourceGit": "Git repository",
+    "dirPath": "Absolute path on the server",
+    "browse": "Browse…",
+    "browseTitle": "Pick a server directory",
+    "browseClose": "Close",
+    "browsePick": "Use this directory",
+    "browseEmpty": "No subdirectories here",
+    "browseFailed": "Directory browse failed (node offline or timeout)",
+    "dirIsolatedHint": "Directory mode supports shared only (no per-member worktrees)",
+    "errPathIsolated": "Directory mode does not support isolated worktrees yet"
   },
   "teamChat": {
     "humanHint": "Direct chat with people isn't supported yet. Ask their avatar instead.",

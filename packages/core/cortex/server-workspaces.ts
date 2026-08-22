@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, type ApiClient } from "../api/client";
 import type {
   CreateServerWorkspaceRequest,
+  ServerDirBrowseResult,
   ServerRuntime,
   ServerWorkspace,
   ServerWorkspaceQueueItem,
@@ -50,7 +51,11 @@ export function groupServerWorkspaces(
     const g = ensure(rt.daemon_id);
     g.runtimes.push(rt);
     if (rt.online) g.online = true;
-    if (g.label === g.daemonId && rt.name) g.label = rt.name;
+  }
+  // 分组标签：优先 daemon 机器名（device_name），避免用第一个 runtime 名冒充整机名；
+  // 老服务端无 device_name 时回退第一个 runtime 名，再退 daemonId。
+  for (const g of byDaemon.values()) {
+    g.label = g.runtimes.find((r) => r.device_name)?.device_name || g.runtimes[0]?.name || g.daemonId;
   }
   for (const sw of workspaces) {
     if (sw.status === "archived") continue;
@@ -77,6 +82,7 @@ export function pickRuntime(group: ServerWorkspaceGroup): ServerRuntime | undefi
 export function createServerWorkspaceErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return "serverWs.errNeedAdmin";
+    if (err.code === "path_isolated_unsupported") return "serverWs.errPathIsolated";
     if (err.code === "slug_taken" || err.status === 409) return "serverWs.errNameConflict";
   }
   return "serverWs.errCreateFailed";
@@ -158,4 +164,24 @@ export function useDeleteServerWorkspace() {
       void qc.invalidateQueries({ queryKey: serverWorkspaceKeys.all(wsId) });
     },
   });
+}
+
+// ── 远程目录浏览（目录模式创建表单用）──────────────────────────────────────
+// 兜平同步/异步两种服务端实现：直接带结果就返回；否则按 request_id 轮询（500ms × 24 ≈ 12s 超时，
+// 与 daemon 侧 10s 超时错开）。imperative 函数而非 hook——浏览器组件按点击驱动调用。
+export async function browseServerDir(
+  api: ApiClient,
+  runtimeId: string,
+  path?: string,
+): Promise<ServerDirBrowseResult> {
+  const first = await api.browseServerDirectory({ runtime_id: runtimeId, path });
+  if (first.status === "ok" || first.status === "error") return first;
+  const requestId = first.request_id;
+  if (!requestId) return { status: "error", error: "browse response missing request_id" };
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const res = await api.getServerDirBrowseResult(requestId);
+    if (res.status !== "pending") return res;
+  }
+  return { status: "error", error: "browse timeout" };
 }

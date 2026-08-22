@@ -370,7 +370,7 @@ export interface ServerWorkspace {
   name: string;
   slug: string;
   description?: string;
-  repo_url: string;
+  repo_url?: string; // 目录模式为空
   default_branch?: string;
   mode: ServerWorkspaceMode;
   visibility: ServerWorkspaceVisibility;
@@ -399,9 +399,12 @@ export interface ServerWorkspaceInstance {
   status: "provisioning" | "ready" | "error";
 }
 
+// 两种来源二选一：repo_url（git clone 模式）或 path（daemon 机器上的已有目录，
+// 目录模式仅支持 shared——无法做 per-member worktree 隔离）。
 export interface CreateServerWorkspaceRequest {
   name: string;
-  repo_url: string;
+  repo_url?: string;
+  path?: string;
   branch?: string;
   mode: ServerWorkspaceMode;
   runtime_id: string; // 服务端由 runtime 反查 daemon_id
@@ -426,6 +429,8 @@ export interface ServerRuntime {
   name: string;
   provider?: string;
   online: boolean;
+  // daemon 注册时的机器名（服务器分组行的标签；缺省时前端回退 runtime name）。
+  device_name?: string;
 }
 
 // GET /api/server-workspaces/{id}/queue 列表项（占用中/排队中任务的展示摘要，字段对齐服务端 DTO）。
@@ -437,4 +442,20 @@ export interface ServerWorkspaceQueueItem {
   caller_name?: string;
   prompt?: string;
   created_at: string;
+}
+
+// 远程目录浏览（「选择目录」选择器）：POST /api/server-workspaces/browse 发起 →
+// GET /browse/{request_id} 轮询结果（daemon 请求-回报模式，server 侧带超时）。
+export interface ServerDirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  has_git?: boolean;
+}
+export interface ServerDirBrowseResult {
+  status: "pending" | "ok" | "error";
+  path?: string;
+  parent?: string | null;
+  entries?: ServerDirEntry[];
+  error?: string;
 }
