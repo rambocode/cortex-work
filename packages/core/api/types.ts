@@ -370,7 +370,8 @@ export interface ServerWorkspace {
   name: string;
   slug: string;
   description?: string;
-  repo_url?: string; // 目录模式为空
+  repo_url?: string; // 目录模式为空串
+  source_path?: string; // 目录模式：daemon 主机上的源目录绝对路径（git 模式为空）
   default_branch?: string;
   mode: ServerWorkspaceMode;
   visibility: ServerWorkspaceVisibility;
