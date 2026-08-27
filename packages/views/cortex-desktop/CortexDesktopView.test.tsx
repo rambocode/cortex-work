@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
-import { CoreProvider, useCortexUIStore, DEFAULT_TWEAKS } from "@cortex-work/core";
+import { CoreProvider, useCortexUIStore, usePersonalStore, DEFAULT_TWEAKS } from "@cortex-work/core";
 import { CortexDesktopView } from "./CortexDesktopView";
 
 function renderApp() {
@@ -13,6 +13,11 @@ function renderApp() {
 
 describe("CortexDesktopView (integration)", () => {
   beforeEach(() => {
+    // 团队工作区入口缺省关闭，且根组件会把停在团队工作区的用户送回个人工作区。
+    // 本套用例整体验证团队工作区，故必须显式打开这个开关，否则一进来就被踢回个人侧。
+    usePersonalStore.setState((s) => ({
+      generalSettings: { ...s.generalSettings, showTeamWorkspace: true },
+    }));
     // Reset UI store between tests (module-level singleton).
     useCortexUIStore.setState({
       workspace: "team",

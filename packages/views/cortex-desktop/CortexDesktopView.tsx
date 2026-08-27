@@ -11,6 +11,7 @@ import {
   useCortexActions,
   useCortexUIStore,
   useDesktopBridge,
+  usePersonalStore,
   useSpotlightIntentRouter,
   useWorkspaceId,
 } from "@cortex-work/core";
@@ -104,6 +105,14 @@ export function CortexDesktopView({ nativeTitlebar = false, onOpenFlashNote, onO
   const { data: convo } = useQuery(conversationOptions(wsId, activeContactId, apiClient, contact));
   const { sendMessage, approveChange } = useCortexActions(wsId);
   const personal = workspace === "personal";
+  // 「显示团队工作区」关闭时的回落：workspace 是持久化的，用户可能上次停在团队工作区，
+  // 或在团队工作区里把开关关掉——两种情况都会让人卡在一个再也没有入口切回来的视图里。
+  // 门控放在根组件而不是 WorkspaceTabs：后者在团队侧的某些布局下未必挂载，靠它兜底会漏。
+  const showTeamWorkspace = usePersonalStore((s) => s.generalSettings.showTeamWorkspace);
+  const setWorkspaceKind = useCortexUIStore((s) => s.setWorkspace);
+  useEffect(() => {
+    if (showTeamWorkspace !== true && workspace === "team") setWorkspaceKind("personal");
+  }, [showTeamWorkspace, workspace, setWorkspaceKind]);
   // 团队工作区未登录锁定态（W1）:仅替换主内容区为登录卡,侧栏与「团队/个人」切换 tab
   // 保持可用——个人工作区必须不受任何登录门控影响(用户可随时切回)。锁定时通讯录传空,
   // 避免未登录还展示 mock 假联系人造成误导。

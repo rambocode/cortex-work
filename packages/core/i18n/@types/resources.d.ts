@@ -2178,6 +2178,8 @@ export default interface Resources {
       "openLogDir": "打开日志目录",
       "restartUpdate": "重启更新",
       "restoreDefault": "恢复默认",
+      "showTeamWorkspace": "显示团队工作区",
+      "showTeamWorkspaceDesc": "开启后，侧栏顶部出现「团队 / 个人工作区」切换入口。关闭时只保留个人工作区。",
       "sidebar": "侧栏样式",
       "startMinimized": "启动时最小化",
       "startMinimizedDesc": "启动后最小化到后台（主要用于 Windows）。",

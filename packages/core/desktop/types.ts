@@ -745,6 +745,9 @@ export interface GeneralSettings {
   computerUse?: ComputerUseSettings;
   // 自动化工具（Agent 在会话中管理定时任务）。主进程读它做注入门控,**进** main 镜像。
   automationTools?: AutomationToolsSettings;
+  // 是否在侧栏显示「团队工作区」入口。**缺省 = 不显示**（只有显式 true 才显示）——
+  // 团队能力对个人用户是可选项,默认不该占据侧栏第一屏。纯 UI 门控,主进程不读,不进 main 镜像。
+  showTeamWorkspace?: boolean;
 }
 
 // 让 Agent 在会话中管理定时任务的总开关（与 apps/desktop/src/main/ipc/types.ts 逐字镜像）。

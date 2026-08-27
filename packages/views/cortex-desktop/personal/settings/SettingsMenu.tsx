@@ -354,6 +354,14 @@ function GeneralSection() {
             onChange={(v) => setTweak("sidebar", v as SidebarMode)}
           />
         </SRow>
+        {/* 团队工作区入口。缺省关闭（只有显式 true 才显示），关掉时若正停在团队工作区，
+            CortexDesktopView 的 effect 会把人送回个人工作区,避免卡在无入口可返回的视图。 */}
+        <SwitchRow
+          label={t("general.showTeamWorkspace")}
+          desc={t("general.showTeamWorkspaceDesc")}
+          value={general.showTeamWorkspace === true}
+          onChange={(v) => setGeneral({ showTeamWorkspace: v })}
+        />
         <SRow label={t("general.workspaceRoot")} desc={t("general.workspaceRootDesc")}>
           <div className="pw-ws-control">
             <input

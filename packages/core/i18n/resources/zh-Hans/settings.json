@@ -279,6 +279,8 @@
     "fontLarge": "大",
     "density": "布局密度",
     "sidebar": "侧栏样式",
+    "showTeamWorkspace": "显示团队工作区",
+    "showTeamWorkspaceDesc": "开启后，侧栏顶部出现「团队 / 个人工作区」切换入口。关闭时只保留个人工作区。",
     "workspaceRoot": "默认工作目录",
     "workspaceRootDesc": "新建无项目会话 / 定时任务未指定项目时,agent 在此目录运行（留空则用主目录）。",
     "workspaceRootPlaceholder": "留空 = 用户主目录",

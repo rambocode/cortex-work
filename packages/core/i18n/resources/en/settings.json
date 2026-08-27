@@ -279,6 +279,8 @@
     "fontLarge": "Large",
     "density": "Layout density",
     "sidebar": "Sidebar style",
+    "showTeamWorkspace": "Show team workspace",
+    "showTeamWorkspaceDesc": "Adds a Team / Personal workspace switcher at the top of the sidebar. When off, only the personal workspace is available.",
     "workspaceRoot": "Default working directory",
     "workspaceRootDesc": "Where the agent runs for new project-less conversations / scheduled tasks without a project (leave empty to use the home directory).",
     "workspaceRootPlaceholder": "Empty = user home directory",
