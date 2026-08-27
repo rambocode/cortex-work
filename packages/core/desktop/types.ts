@@ -814,7 +814,8 @@ export interface ComputerUseStatus {
 // 立即用 safeStorage 加密成 encryptedToken 落盘;UI 连密文都不展示,只看 hasToken 显示「已配置」。
 export interface KnowledgeBaseSettings {
   enabled: boolean;
-  // 知识库服务基址,形如 http://kb.internal:8501（不含 /api/mcp,注入时拼）。
+  // 知识库 MCP 端点地址。填了路径就原样用（如 https://wiki.example.com/mcp）；
+  // 只填主机名时由 normalizeKnowledgeBaseUrl 补默认路径 /api/mcp。
   baseUrl: string;
   // safeStorage 加密后的 MCP 令牌（base64）。只由主进程写。
   encryptedToken?: string;

@@ -20,11 +20,11 @@ const enc = (token: string) => Buffer.from(`enc:${token}`, "utf8").toString("bas
 const full = { enabled: true, baseUrl: "http://kb.internal:8501", encryptedToken: enc("kbmcp_x") };
 
 describe("normalizeKnowledgeBaseUrl", () => {
-  it("补齐 /api/mcp 后缀", () => {
+  it("只填主机名时补默认的 /api/mcp", () => {
     expect(normalizeKnowledgeBaseUrl("http://kb:8501")).toBe("http://kb:8501/api/mcp");
   });
 
-  it("容忍尾部斜杠", () => {
+  it("容忍尾部斜杠（尾斜杠不算填了路径）", () => {
     expect(normalizeKnowledgeBaseUrl("http://kb:8501/")).toBe("http://kb:8501/api/mcp");
     expect(normalizeKnowledgeBaseUrl("http://kb:8501///")).toBe("http://kb:8501/api/mcp");
   });
@@ -34,6 +34,21 @@ describe("normalizeKnowledgeBaseUrl", () => {
   it("已含 /api/mcp 时不重复拼接", () => {
     expect(normalizeKnowledgeBaseUrl("http://kb:8501/api/mcp")).toBe("http://kb:8501/api/mcp");
     expect(normalizeKnowledgeBaseUrl("http://kb:8501/api/mcp/")).toBe("http://kb:8501/api/mcp");
+  });
+
+  // 回归用例：第三方知识库的端点未必在 /api/mcp。旧实现无条件拼后缀，
+  // 把 /mcp 拼成 /mcp/api/mcp，前置 nginx 回 405，用户在界面上无法绕开。
+  it("用户填了自定义路径时原样保留，不再拼后缀", () => {
+    expect(normalizeKnowledgeBaseUrl("https://wiki.example.com/mcp")).toBe("https://wiki.example.com/mcp");
+    expect(normalizeKnowledgeBaseUrl("https://wiki.example.com/mcp/")).toBe("https://wiki.example.com/mcp");
+    expect(normalizeKnowledgeBaseUrl("https://host/a/b/mcp")).toBe("https://host/a/b/mcp");
+  });
+
+  // 畸形输入不在这里报错：原样回传，由 buildKnowledgeMcpServerConfig 的 scheme 白名单拦下
+  // （漏 scheme 的 "kb.internal:8501" 会被 URL 解析成 scheme=kb.internal、path=8501，同样不该补后缀）。
+  it("畸形地址原样返回，不拼后缀", () => {
+    expect(normalizeKnowledgeBaseUrl("kb.internal:8501")).toBe("kb.internal:8501");
+    expect(normalizeKnowledgeBaseUrl("随便一段不是地址的字")).toBe("随便一段不是地址的字");
   });
 
   it("空值返回空串", () => {

@@ -16,8 +16,8 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { usePersonalStore, useDesktopBridge } from "@cortex-work/core";
 import { SettingCard, SRow, SwitchRow } from "./settingsControls";
 
-/// 写入工具名。用于把自检结果翻译成「这枚令牌能不能写」这句人话。
-const WRITE_TOOL = "kb_write_doc";
+/// 自检结果里的角色映射形状（与 DesktopBridge.knowledge.test 对齐）。
+type KnowledgeRoles = { search?: string; read?: string; list?: string; ask?: string; write?: string };
 
 export function KnowledgeSettingsSection(): ReactElement {
   const bridge = useDesktopBridge();
@@ -28,7 +28,12 @@ export function KnowledgeSettingsSection(): ReactElement {
   const [baseUrl, setBaseUrl] = useState(kb?.baseUrl ?? "");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
-  const [probe, setProbe] = useState<{ ok: boolean; message: string; tools?: string[] } | null>(null);
+  const [probe, setProbe] = useState<{
+    ok: boolean;
+    message: string;
+    tools?: string[];
+    roles?: KnowledgeRoles;
+  } | null>(null);
 
   // 外部（如另一个窗口）改动配置时同步输入框，但**不碰 token**——它永远从空开始。
   useEffect(() => setBaseUrl(kb?.baseUrl ?? ""), [kb?.baseUrl]);
@@ -89,12 +94,21 @@ export function KnowledgeSettingsSection(): ReactElement {
     }
   }, [bridge]);
 
-  // 自检回来的工具清单直接反映令牌 scope：没有 kb_write_doc 就是只读令牌。
+  // 自检回来的**角色映射**反映这枚令牌到底能干什么。按角色判定而非固定工具名：
+  // 第三方知识库的写工具可能叫 upload_document，写死 kb_write_doc 会把它误判成只读。
   // 这比放一个客户端「允许写入」开关诚实得多。
+  //
+  // 检索/读取角色缺席时要单独提示：此时 MCP 连得上、工具也在，但 agent 拿不到完整链路，
+  // 用户需要在设置页就知道，而不是等对话里出问题再去猜。
+  const roles = probe?.roles;
   const scopeHint = probe?.tools?.length
-    ? probe.tools.includes(WRITE_TOOL)
-      ? "当前令牌可检索、也可写入沉淀。"
-      : "当前令牌为只读：可检索与问答，不能写入。"
+    ? [
+        roles?.write ? "当前令牌可检索、也可写入沉淀。" : "当前令牌为只读：可检索与问答，不能写入。",
+        !roles?.search && "未识别出检索工具，Agent 可能无法主动查资料。",
+        !roles?.read && "未识别出读取文档工具，会话里的引用将无法展开原文。",
+      ]
+        .filter(Boolean)
+        .join(" ")
     : null;
 
   return (
@@ -107,7 +121,8 @@ export function KnowledgeSettingsSection(): ReactElement {
       />
       <div className="pw-srow-desc">
         知识库以 MCP 方式接入，Claude Code / Codex / Cortex 三端通用。地址与令牌向管理员索取；
-        令牌加密保存在本机，界面不会回显。
+        令牌加密保存在本机，界面不会回显。地址要填到 MCP 端点为止（如 https://wiki.example.com/mcp）；
+        只填主机名时按默认端点 /api/mcp 处理。
       </div>
 
       <label className="pw-set-field">
@@ -129,7 +144,7 @@ export function KnowledgeSettingsSection(): ReactElement {
           className="pw-set-input"
           type="password"
           value={token}
-          placeholder={hasToken ? "如需更换请输入新令牌" : "粘贴 MCP 令牌"}
+          placeholder={hasToken ? "如需更换请输入新令牌" : "粘贴 MCP 令牌（可含 Bearer 前缀，保存时自动去掉）"}
           spellCheck={false}
           autoComplete="off"
           disabled={!canEdit}

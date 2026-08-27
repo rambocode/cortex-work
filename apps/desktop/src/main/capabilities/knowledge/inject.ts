@@ -28,17 +28,33 @@ const log = createLogger("knowledge-inject");
 /// 注入用 server id（= MCP server 名）。须为 TOML 裸键安全（见 mcp-config.isValidServerId）。
 export const KNOWLEDGE_SERVER_ID = "cortex-knowledge";
 
-/// 知识库服务端固定的 MCP 端点路径（与 kbserver 的 kb.McpEndpointPath 对齐，跨仓库契约）。
-const MCP_PATH = "/api/mcp";
+/// 自家 kbserver 的 MCP 端点路径（与 kbserver 的 kb.McpEndpointPath 对齐，跨仓库契约）。
+/// **只是默认值**，不是唯一合法路径——见 normalizeKnowledgeBaseUrl。
+const DEFAULT_MCP_PATH = "/api/mcp";
 
-/// 把用户填的基址归一化成完整的 MCP 端点 URL。
+/// 把用户填的地址归一化成完整的 MCP 端点 URL。
 ///
-/// 容忍两类常见输入：尾部斜杠，以及**整段从 kbserver CLI 输出里复制过来、已经带 /api/mcp 的地址**。
-/// 后者不容错就会拼成 /api/mcp/api/mcp，表现为「配好了却连不上」，且用户几乎不可能自查出来。
+/// 规则只有一条：**用户填了路径就原样用，只有没填路径时才补默认的 `/api/mcp`**。
+///
+/// 为什么不能无条件拼后缀（旧实现的做法）：第三方知识库的端点路径未必是 `/api/mcp`，
+/// 实测某企业 wiki 的 MCP 端点就在 `/mcp`。无条件拼会把 `https://host/mcp` 变成
+/// `https://host/mcp/api/mcp`，请求打到不存在的路径上、由前置 nginx 回 **405 Not Allowed**，
+/// 而用户在设置界面上**没有任何填法能绕开**（只有正好以 /api/mcp 结尾才不拼），只能改代码。
+///
+/// 反过来，「没填路径 → 补 /api/mcp」保留了自家 kbserver 用户只填主机名的便利；
+/// 而「整段从 kbserver CLI 输出复制过来、已带 /api/mcp」的老场景，现在天然落进
+/// 「填了路径 → 原样用」这一支，同样不会拼成 /api/mcp/api/mcp。
 export function normalizeKnowledgeBaseUrl(baseUrl: string): string {
   const trimmed = (baseUrl ?? "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
-  return trimmed.endsWith(MCP_PATH) ? trimmed : `${trimmed}${MCP_PATH}`;
+  try {
+    // 只借 URL 解析判断「有没有填路径」；非法输入不在这里报错，交给调用方的 scheme 白名单拦。
+    const { pathname } = new URL(trimmed);
+    return pathname && pathname !== "/" ? trimmed : `${trimmed}${DEFAULT_MCP_PATH}`;
+  } catch {
+    // 不是合法 URL（如漏了 scheme）：原样返回，让上游给出「地址不是合法 URL」而不是拼出更怪的串。
+    return trimmed;
+  }
 }
 
 /// 解密 safeStorage 密文。失败返回 null 而不是抛错——钥匙串不可用时应表现为「未配置」

@@ -27,6 +27,7 @@ import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
+import { buildKnowledgeSystemPromptBlock } from "../capabilities/knowledge/client";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
@@ -1093,6 +1094,15 @@ export function registerCliHandlers(): void {
       req.appendSystemPrompt = [req.appendSystemPrompt, CODEX_LONG_RUNNING_PROCESS_GUIDANCE]
         .filter(Boolean)
         .join("\n\n");
+    }
+
+    // 公司知识库能力块:把服务端 tools/list **实际返回的方法名**动态注册进系统提示。
+    // 不写死 kb_* 那套自家约定——第三方知识库的工具叫什么由它自己决定,写死的结果是
+    // 「测试连接说十个工具可用,模型却一个都不认识」。内置 skill 只讲检索策略,不点名工具。
+    // 无缓存快照时返回空串(不阻塞启动,后台预热,下一轮生效),见 buildKnowledgeSystemPromptBlock。
+    const knowledgeBlock = await buildKnowledgeSystemPromptBlock();
+    if (knowledgeBlock) {
+      req.appendSystemPrompt = [req.appendSystemPrompt, knowledgeBlock].filter(Boolean).join("\n\n");
     }
 
     // ── ws 传输分流(U5):codex 主交互会话走 app-server WebSocket,在 buildArgs/spawn 之前前置返回 ──

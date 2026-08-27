@@ -1016,8 +1016,19 @@ export interface DesktopBridge {
     }): Promise<KnowledgeBaseSettings>;
     /** 清除已保存的令牌（保留地址与开关）。 */
     clearCredential(): Promise<KnowledgeBaseSettings>;
-    /** 连通性自检：按 MCP 协议真跑 initialize + tools/list,回成败、一句人话与工具名清单。 */
-    test(): Promise<{ ok: boolean; message: string; tools?: string[] }>;
+    /**
+     * 连通性自检：按 MCP 协议真跑 initialize + tools/list,回成败、一句人话与工具名清单。
+     *
+     * `roles` 是「服务端工具名 → 语义角色(search/read/list/ask/write)」的映射结果。
+     * UI 判断读写能力**只看它**,不再按固定工具名去猜——接第三方知识库时工具叫什么
+     * 由对方决定,写死 kb_write_doc 会把一枚可写令牌永远显示成只读。
+     */
+    test(): Promise<{
+      ok: boolean;
+      message: string;
+      tools?: string[];
+      roles?: { search?: string; read?: string; list?: string; ask?: string; write?: string };
+    }>;
     /**
      * 取一篇知识库文档的正文（会话里点开引用时预览）。
      *

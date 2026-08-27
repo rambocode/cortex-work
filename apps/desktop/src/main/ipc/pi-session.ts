@@ -33,6 +33,7 @@ import { buildAgentBrowserMcpServerConfig, migrateLegacyAgentBrowserMcp } from "
 import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate";
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
+import { buildKnowledgeSystemPromptBlock } from "../capabilities/knowledge/client";
 import { GROUNDING_MODEL_ENV, resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
@@ -535,6 +536,18 @@ export async function preparePiOpenRequest(
     // 「同一个开关，claude 能查知识库、pi 不能」这种查起来很费劲的不一致。
     // 无会话级开关,故不必计入 extensionFingerprint(改设置后重开会话即生效)。
     const knowledgeServer = isArtifact ? null : buildKnowledgeMcpServerConfig(gs?.knowledgeBase);
+    // 知识库能力块:与 claude/codex 同源(cli.ts 里有一份对称实现),把服务端 tools/list
+    // 实际返回的方法名动态注册进系统提示——工具名由第三方知识库自己决定,写死 kb_* 只会
+    // 让模型对着一堆它不认识的工具干瞪眼。pi 工具集在 open 时冻结,故只在这里注入一次;
+    // 改配置后重开会话生效,与 knowledgeServer 本身的语义一致。
+    if (knowledgeServer) {
+      const knowledgeBlock = await buildKnowledgeSystemPromptBlock();
+      if (knowledgeBlock) {
+        prepared.appendSystemPrompt = [prepared.appendSystemPrompt, knowledgeBlock]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+    }
     // 媒体生成:pi 走 mcpInjection==="none",必须在此并入——否则「同一开关 claude 能生图、pi 不能」。
     // 工具集在 open 时冻结:改设置后重开会话生效(同 knowledge 语义,不计 extensionFingerprint);
     // handler 每次调用仍读最新设置做 enabled gate,中途禁用会得到可读错误而非静默成功。
