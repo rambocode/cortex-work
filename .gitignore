@@ -31,6 +31,7 @@ apps/desktop/outputs/
 
 # SenseVoice sidecar 与 CMake 缓存均由 prepare-sensevoice-sidecar.mjs 生成，不提交二进制。
 apps/desktop/resources/sensevoice/
+apps/desktop/resources/cortex-runtime/
 
 # openWakeWord 唤醒词 ONNX 模型由 prepare-kws-models.mjs 下载（SHA-256 校验），不提交二进制。
 apps/desktop/resources/kws/

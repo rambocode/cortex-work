@@ -55,6 +55,7 @@ import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
 import { BrowserSection, isSettingsTypingTarget, MediaGenSection, ReplySection } from "./SettingsViewSupport";
 import { SubagentSettingsSection } from "./SubagentSettingsSection";
+import { ImSettingsSection } from "./ImSettingsSection";
 // 译函数最小签名，避免引入 react-i18next 的 TFunction 泛型。
 type TFunction = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -79,7 +80,8 @@ type SettingsTab =
   | "design"
   | "writing"
   | "research"
-  | "knowledge";
+  | "knowledge"
+  | "im";
 // 项元数据唯一来源：label 走 i18n（settings:tabs.*）,故此处只存 tabKey + icon,渲染时即时翻译。
 // 分组（NAV_GROUPS）只描述「哪些项归哪组 + 顺序」,不重复 icon/文案,避免双写漂移（KTD3）。
 const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> = {
@@ -111,6 +113,7 @@ const TAB_META: Record<SettingsTab, { tabKey: string; icon: React.ReactNode }> =
   research: { tabKey: "tabs.research", icon: <Icon.Search size={14} /> },
   // 公司知识库（远端 MCP server，desktop-only；旧壳/Web 无 bridge.knowledge → 由 knowledgeAvailable 过滤隐藏）
   knowledge: { tabKey: "tabs.knowledge", icon: <Icon.Archive size={14} /> },
+  im: { tabKey: "tabs.im", icon: <Icon.Send size={14} /> },
 };
 // 设置左栏分组：组标题走 i18n（settings:tabGroups.*）,组内项按数组顺序渲染。
 // 「应用」组并列「插件」「浏览器」两项（用户确认的 IA）。
@@ -123,7 +126,7 @@ const NAV_GROUPS: { groupKey: string; items: SettingsTab[] }[] = [
     items: ["plugins", "knowledge", "browser", "mediaGen", "design", "writing", "research"],
   },
   { groupKey: "tabGroups.personalization", items: ["pet", "speech", "reply"] },
-  { groupKey: "tabGroups.automation", items: ["push"] },
+  { groupKey: "tabGroups.automation", items: ["im", "push"] },
 ];
 // 个人资料:昵称 + 头像(背景色 + 图标两模式:用户名首字符 / Emoji,参考 Notion 头像编辑器)。
 // 写入 personal store 的 profile 切片(随工作区落盘);会话中 who="me" 的气泡经
@@ -968,6 +971,8 @@ export function PersonalSettingsView() {
             <ResearchSettingsSection />
           ) : tab === "knowledge" ? (
             <KnowledgeSettingsSection />
+          ) : tab === "im" ? (
+            <ImSettingsSection />
           ) : null}
         </div>
       </div>

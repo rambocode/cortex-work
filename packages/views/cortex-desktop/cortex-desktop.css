@@ -8419,6 +8419,30 @@ button.sb-row {
 /* 约束单行输入/下拉最大宽,避免宽窗下拉伸过长(左对齐);不影响 segmented/全宽块/嵌套控件 */
 .pw-settings-page .pw-srow-c > .pw-set-input { max-width: 340px; }
 
+/* IM 渠道：用“接线向导”表达平台→凭据→工作区，沿用设置页黑白灰体系。 */
+.pw-im-settings { display: flex; flex-direction: column; gap: 16px; }
+.pw-im-error, .pw-im-validation { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--red) 8%, transparent); color: var(--red); font-size: 12px; line-height: 1.5; }
+.pw-im-empty { display: flex; flex-direction: column; gap: 4px; padding: 18px 2px; color: var(--text-2); }
+.pw-im-empty span { color: var(--text-3); font-size: 12px; }
+.pw-im-channel-state { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.pw-im-channel-state > span::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--text-4); }
+.pw-im-channel-state > span.is-online::before { background: #2f9e62; box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 13%, transparent); }
+.pw-im-add { padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.pw-im-editor { display: flex; flex-direction: column; gap: 14px; }
+.pw-im-steps { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 10px; padding: 0 4px; color: var(--text-3); font-size: 11px; letter-spacing: .02em; }
+.pw-im-steps i { height: 1px; background: var(--border); }
+.pw-im-steps span.is-active { color: var(--text-1); font-weight: 600; }
+.pw-im-credential-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 12px 2px 14px; }
+.pw-im-credential-head > div { display: flex; flex-direction: column; gap: 4px; }
+.pw-im-credential-head strong { color: var(--text-1); font-size: 13px; }
+.pw-im-credential-head span, .pw-im-secret > span, .pw-im-wechat span { color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.pw-im-secret { padding: 12px 2px; border-top: 1px solid var(--border-soft); }
+.pw-im-secret .pw-set-field { display: grid; grid-template-columns: 40% minmax(0, 1fr); align-items: center; gap: 24px; }
+.pw-im-secret > span { display: block; margin: 5px 0 0 40%; padding-left: 24px; }
+.pw-im-wechat { display: flex; align-items: center; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--border-soft); }
+.pw-im-actions { display: flex; justify-content: flex-end; gap: 8px; padding-bottom: 12px; }
+.pw-im-actions .is-primary { color: var(--bg-app); background: var(--text-1); border-color: var(--text-1); }
+
 /* 浏览器设置(BrowserSettingsSection):pw-bc-* 原语。组件早已使用这些类名但样式缺失,
    导致 fieldset 默认描边泄漏、origin 输入框无样式、确认行内联拥挤——在此补齐。 */
 .pw-bc-sub { border: 0; margin: 0; padding: 0; min-inline-size: 0; }

@@ -122,6 +122,9 @@ files:
   - "!**/node_modules/lodash-es/**"            # 0.6MB
   - "!**/node_modules/@lezer/**"               # codemirror 语法定义
 extraResources:
+  # 通用 Cortex Go Runtime：个人/团队工作区共享的本机能力宿主，随应用安装并由主进程管理生命周期。
+  - from: resources/cortex-runtime/${os}-${arch}
+    to: cortex-runtime
   # agent-browser 原生 CLI；prepackage 脚本只准备当前目标平台/架构，避免把 npm 包内全部平台
   # 二进制打进安装包。`${os}` 在 electron-builder 中展开为 mac/win。
   - from: resources/agent-browser/${os}-${arch}

@@ -125,6 +125,9 @@ import { initLogger, patchConsole, registerLogHandlers } from "./logger";
 import { getRuntimeAppVersion } from "./app-version";
 import { ensureProcessPath } from "./ipc/cli";
 import { primePiGatewayRuntime, shutdownPiGatewayRuntime } from "./agents/pi-gateway/client";
+import { startCortexRuntime, stopCortexRuntime } from "./cortex-runtime";
+import { syncImChannelsToRuntime } from "./ipc/im-channels";
+import { startImRuntimePump, stopImRuntimePump } from "./im-runtime-pump";
 import { installAppMenu } from "./app-menu";
 import { createLogger } from "./log";
 import { createMainWindowOptions } from "./main-window-geometry";
@@ -720,6 +723,8 @@ if (!singleInstanceLockHeld && !app.requestSingleInstanceLock()) {
     // pi gateway 的 fork + ESM 加载会同步占用一段主进程事件循环；首帧后再预热，
     // 仍早于用户通常打开首个会话，同时不与 renderer 的首次解析/布局争抢 CPU。
     primePiGatewayRuntime();
+    // 通用 Go Runtime 随 Desktop 生命周期运行。启动失败只降级相关能力，不阻断主界面。
+    void startCortexRuntime().then(async () => { await syncImChannelsToRuntime(); startImRuntimePump(); }).catch((err) => log.warn("Cortex Runtime 启动失败", err));
 
     // 唤醒词自启:用户显式开启过才拉起常驻 kws 隐藏窗口(默认关,隐私敏感)。
     void getPersistedState().then((state) => {
@@ -926,6 +931,8 @@ if (!singleInstanceLockHeld && !app.requestSingleInstanceLock()) {
     killAllAsk();
     killAllPiSessions();
     shutdownPiGatewayRuntime(); // 常驻 worker 与 Research Worker 同理,不随主进程退出自动消失
+    stopCortexRuntime();
+    stopImRuntimePump();
     shutdownLocalAsrRuntime(); // SenseVoice sidecar 同为常驻子进程，窗口关闭/退出均显式回收
     killAllPty();
     killAllResearchWorkers(); // Research Worker(utilityProcess)不随主进程退出自动消失,必须显式杀

@@ -137,6 +137,7 @@ import type {
 import type { OrchestrateStartRequest } from "../main/ipc/orchestrate";
 import type { RoundtableStartRequest } from "../main/ipc/types";
 import type { AuthConfig } from "@cortex-work/core/desktop/bridge";
+import type { ImChannelInput } from "@cortex-work/core/desktop/im-types";
 import type { SyncInvalidateScope } from "../main/ipc/sync-invalidate";
 // 写作检索(U4）IPC 契约类型(type-only,编译期擦除;与 core/desktop/writing-retrieval-types.ts 镜像）。
 import type {
@@ -414,6 +415,13 @@ const personal = {
   authGetConfig: (): Promise<AuthConfig | null> => ipcRenderer.invoke("auth:get-config"),
   authSetConfig: (cfg: AuthConfig): Promise<void> => ipcRenderer.invoke("auth:set-config", cfg),
   authClearConfig: (): Promise<void> => ipcRenderer.invoke("auth:clear-config"),
+  imListChannels: () => ipcRenderer.invoke("im:list"),
+  imUpsertChannel: (channel: ImChannelInput) => ipcRenderer.invoke("im:upsert", channel),
+  imDeleteChannel: (id: string) => ipcRenderer.invoke("im:delete", id),
+  imListPlatformSpecs: () => ipcRenderer.invoke("im:platforms"),
+  imListStatuses: () => ipcRenderer.invoke("im:statuses"),
+  imWechatQrCode: () => ipcRenderer.invoke("im:wechatQrCode"),
+  imWechatQrStatus: (qrcode: string) => ipcRenderer.invoke("im:wechatQrStatus", qrcode),
   loadState: (): Promise<PersistedState> => ipcRenderer.invoke("store:load"),
   saveState: (state: PersistedState): Promise<void> => ipcRenderer.invoke("store:save", state),
   artifactCreate: (

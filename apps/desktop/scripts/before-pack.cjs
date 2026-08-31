@@ -21,4 +21,9 @@ exports.default = async function beforePack(context) {
     "--platform", platform,
     "--arch", arch,
   ], { stdio: "inherit", cwd: desktopRoot });
+  execFileSync(process.execPath, [
+    join(desktopRoot, "scripts", "prepare-cortex-runtime.mjs"),
+    "--platform", platform,
+    "--arch", arch,
+  ], { stdio: "inherit", cwd: desktopRoot });
 };

@@ -98,7 +98,7 @@ export function deserializeAuthConfig(
 }
 
 // 读回登录配置：文件缺失/损坏/无核心字段 → null。
-function loadConfig(): AuthConfig | null {
+export function loadAuthConfig(): AuthConfig | null {
   try {
     const raw = JSON.parse(readFileSync(configPath(), "utf8")) as unknown;
     return deserializeAuthConfig(raw, decryptSecret);
@@ -126,7 +126,7 @@ function clearConfig(): void {
 
 // register.ts 挂载入口：注册三条 IPC handler。
 export function registerAuthConfigHandlers(): void {
-  ipcMain.handle("auth:get-config", () => loadConfig());
+  ipcMain.handle("auth:get-config", () => loadAuthConfig());
   ipcMain.handle("auth:set-config", (_e, cfg: AuthConfig) => saveConfig(cfg));
   ipcMain.handle("auth:clear-config", () => clearConfig());
 }

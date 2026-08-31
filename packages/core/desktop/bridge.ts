@@ -128,6 +128,7 @@ import type {
   KnowledgeDocResult,
 } from "./types";
 import type { PetdexCacheStats, PetdexManifestResult, PetdexSpriteRef } from "./petdex-types";
+import type { ImChannel, ImChannelInput, ImChannelStatus, ImPlatformSpec, ImWechatLogin, ImWechatQrCode } from "./im-types";
 // 写作检索(U4）IPC 契约类型(与 apps/desktop/src/main/ipc/writing-retrieval-types.ts 镜像）。
 import type { WritingRetrievalRequest, WritingRetrievalResult } from "./writing-retrieval-types";
 // 写作左栏文稿元信息(时间 + 概要）IPC 契约(与 apps/desktop/src/main/ipc/writing-doc-meta-types.ts 镜像）。
@@ -1073,6 +1074,13 @@ export interface DesktopBridge {
   authSetConfig?(cfg: AuthConfig): Promise<void>;
   /** 清除登录配置（登出）。 */
   authClearConfig?(): Promise<void>;
+  imListChannels?(): Promise<ImChannel[]>;
+  imUpsertChannel?(channel: ImChannelInput): Promise<ImChannel>;
+  imDeleteChannel?(id: string): Promise<boolean>;
+  imListPlatformSpecs?(): Promise<ImPlatformSpec[]>;
+  imListStatuses?(): Promise<ImChannelStatus[]>;
+  imWechatQrCode?(): Promise<ImWechatQrCode>;
+  imWechatQrStatus?(qrcode: string): Promise<ImWechatLogin>;
 }
 
 // 团队工作区登录态（W1）：应用内邮箱验证码登录后持久化的配置。token 为 JWT 明文，仅在
