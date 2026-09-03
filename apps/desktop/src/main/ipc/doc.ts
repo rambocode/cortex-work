@@ -1,10 +1,11 @@
 // 聊天文档附件落盘(doc:save)。支持 @firecrawl/anydoc 可解析的全部格式:PDF / Office 新旧全系
-// (.doc/.docx/.xls/.xlsx/.ppt/.pptx 及宏/放映变体)/ OpenDocument / RTF / EPUB / 纯文本(.csv/.txt/.md)。
+// (.doc/.docx/.xls/.xlsx/.ppt/.pptx 及宏/放映变体)/ OpenDocument / RTF / EPUB / 纯文本(.csv/.txt/.md)
+// / HTML(.html/.htm,抽取侧自行剥标签取正文,不经 anydoc)。
 // 文档内容不进消息,由 agent 经文档抽取 MCP 工具(doc-extract)按需读取(见 capabilities/doc-extract)。
 //
 // 安全要点(对齐 image.ts 范式):
 //  - 写侧:扩展名 allowlist(由原始名嗅探)+ 二进制类型 magic-bytes 复核
-//    (PDF=%PDF、zip 系 Office/ODF/EPUB=PK、旧 Office=OLE 复合文档头、RTF={\rtf;纯文本无 magic 跳过)
+//    (PDF=%PDF、zip 系 Office/ODF/EPUB=PK、旧 Office=OLE 复合文档头、RTF={\rtf;纯文本/HTML 无 magic 跳过)
 //    + randomUUID 文件名(原始名不参与路径)
 //    + byteLength 上限 + 目录 0700。
 //  - 读侧(供 doc-extract 工具复用):assertDocPath 做 realpath + lstat 拒符号链接 + 严格根边界
@@ -26,7 +27,7 @@ export const MAX_DOC_BYTES = 50 * 1024 * 1024; // 50MB
 
 const SAFE_ID = /^[\w-]+$/;
 
-// 支持的文档扩展名(anydoc 覆盖二进制类;txt/csv/md 在抽取侧直读)。
+// 支持的文档扩展名(anydoc 覆盖二进制类;txt/csv/md 在抽取侧直读;html/htm 在抽取侧剥标签取正文)。
 export type DocExt =
   | "pdf"
   | "doc"
@@ -50,7 +51,9 @@ export type DocExt =
   | "epub"
   | "csv"
   | "txt"
-  | "md";
+  | "md"
+  | "html"
+  | "htm";
 
 const DOC_EXTS: readonly DocExt[] = [
   "pdf",
@@ -76,6 +79,8 @@ const DOC_EXTS: readonly DocExt[] = [
   "csv",
   "txt",
   "md",
+  "html",
+  "htm",
 ];
 
 // 二进制文档 magic-bytes 复核分组(纯文本无 magic,跳过):
@@ -104,7 +109,8 @@ export function extToDocExt(fileName: string): DocExt | null {
 }
 
 // magic-bytes 复核:PDF=%PDF、zip 系=PK\x03\x04、OLE 系=D0 CF 11 E0 A1 B1 1A E1、RTF={\rtf。
-// 纯文本(csv/txt/md)无 magic,放行。错配即拒,杜绝「exe 改名 pdf」。
+// 纯文本(csv/txt/md)与 HTML(html/htm)无稳定 magic(HTML 可以 BOM/空白/注释/<!DOCTYPE> 开头),放行。
+// 错配即拒,杜绝「exe 改名 pdf」。
 export function sniffDocMatches(buf: Buffer, ext: DocExt): boolean {
   if (ext === "pdf") {
     return buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46; // %PDF
@@ -119,7 +125,7 @@ export function sniffDocMatches(buf: Buffer, ext: DocExt): boolean {
   if (ext === "rtf") {
     return buf.length >= 5 && buf.subarray(0, 5).toString("latin1") === "{\\rtf";
   }
-  return true; // csv/txt/md
+  return true; // csv/txt/md/html/htm
 }
 
 // 取源字节:优先 srcPath(本地路径,先 stat 卡大小再读,避免把超大文件读进内存),否则用内存态 data。
@@ -147,7 +153,7 @@ export async function saveDocInto(
 ): Promise<DocSaveResult> {
   if (!SAFE_ID.test(sessionId)) throw new Error(`非法 session id: ${sessionId}`);
   const ext = extToDocExt(fileName);
-  if (!ext) throw new Error(`不支持的文档格式: ${fileName}(仅 PDF/Office/OpenDocument/RTF/EPUB/纯文本)`);
+  if (!ext) throw new Error(`不支持的文档格式: ${fileName}(仅 PDF/Office/OpenDocument/RTF/EPUB/纯文本/HTML)`);
   const buf = await readSource(source);
   if (buf.byteLength > MAX_DOC_BYTES) throw new Error(`文档过大: ${buf.byteLength} 字节 > 上限 ${MAX_DOC_BYTES}`);
   if (!sniffDocMatches(buf, ext)) throw new Error(`文档 MIME 与真实字节不符: ${fileName}`);

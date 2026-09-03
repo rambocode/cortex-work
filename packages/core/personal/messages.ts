@@ -3541,7 +3541,7 @@ export function buildDocFilesSystemPrompt(files: ChatFileRef[]): string | undefi
   return [
     "<attached-documents>",
     "用户在本条消息中附带了以下文档。需要其内容时,调用 extract_document 工具并传入对应 path 读取",
-    "(支持 PDF / Word / Excel / PPT 新旧格式 / OpenDocument / RTF / EPUB / 纯文本;扫描件可能无文本)。不要臆测文档内容。",
+    "(支持 PDF / Word / Excel / PPT 新旧格式 / OpenDocument / RTF / EPUB / 纯文本 / HTML;扫描件可能无文本)。不要臆测文档内容。",
     list,
     "</attached-documents>",
   ].join("\n");

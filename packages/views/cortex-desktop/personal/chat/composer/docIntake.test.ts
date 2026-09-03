@@ -23,6 +23,12 @@ describe("docExtOf / isAcceptedDoc", () => {
       expect(isAcceptedDoc(n)).toBe(true);
     }
   });
+  it("HTML(.html/.htm) → 支持,MIME 为 text/html", () => {
+    expect(isAcceptedDoc("page.HTML")).toBe(true);
+    expect(isAcceptedDoc("page.htm")).toBe(true);
+    expect(checkDocFile({ name: "page.html", size: 10 })).toBeNull();
+    expect(pendingDocFromPath("/tmp/page.htm", "page.htm").mimeType).toBe("text/html");
+  });
   it("未知扩展名 → 不支持", () => {
     expect(isAcceptedDoc("a.zip")).toBe(false);
     expect(isAcceptedDoc("a.exe")).toBe(false);
@@ -37,7 +43,7 @@ describe("isBinaryDoc(全集减纯文本,区分文本注入 vs 文档通道)", (
     }
   });
   it("文本类/其他 → false", () => {
-    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.zip"]) expect(isBinaryDoc(n)).toBe(false);
+    for (const n of ["a.md", "b.txt", "c.csv", "d.ts", "e.zip", "f.html", "g.htm"]) expect(isBinaryDoc(n)).toBe(false);
   });
 });
 

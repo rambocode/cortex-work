@@ -1,4 +1,4 @@
-// extractDocText 纯逻辑单测:纯文本直读 / 二进制文档走注入 convert / 输出截断 / 扫描件空提示 / 不支持类型。
+// extractDocText 纯逻辑单测:纯文本直读 / HTML 剥标签 / 二进制文档走注入 convert / 输出截断 / 扫描件空提示 / 不支持类型。
 // 不依赖 anydoc 真实原生模块 —— 二进制路径用注入的 fake convert 验证分派与封装。
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -39,6 +39,36 @@ describe("extractDocText 纯文本类(直读,不过 anydoc)", () => {
 
   it("超出 maxBytes → 截断且 truncated=true", async () => {
     const p = write("big.txt", "x".repeat(1000));
+    const r = await extractDocText(p, { maxBytes: 100 });
+    expect(r.truncated).toBe(true);
+    expect(Buffer.byteLength(r.text, "utf8")).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("extractDocText HTML 类(剥标签取正文,不过 anydoc)", () => {
+  it(".html/.htm → 去掉 script/style 后的正文,title 作首行,empty=false", async () => {
+    for (const ext of ["html", "htm"]) {
+      const p = write(
+        `page.${ext}`,
+        `<html><head><title>标题-${ext}</title><style>p{}</style><script>alert(1)</script></head><body><p>正文</p></body></html>`,
+      );
+      const r = await extractDocText(p); // 不需要 convert 注入
+      expect(r.text).toBe(`标题-${ext}\n\n正文`);
+      expect(r.empty).toBe(false);
+      expect(r.truncated).toBe(false);
+      expect(r.note).toBeUndefined();
+    }
+  });
+
+  it("只有 script/style 无可见正文 → empty=true + HTML 提示", async () => {
+    const p = write("shell.html", "<html><head><style>.a{}</style></head><body><script>render()</script></body></html>");
+    const r = await extractDocText(p);
+    expect(r.empty).toBe(true);
+    expect(r.note).toMatch(/HTML 无可见正文/);
+  });
+
+  it("正文超 maxBytes → 截断", async () => {
+    const p = write("big.html", `<p>${"z".repeat(1000)}</p>`);
     const r = await extractDocText(p, { maxBytes: 100 });
     expect(r.truncated).toBe(true);
     expect(Buffer.byteLength(r.text, "utf8")).toBeLessThanOrEqual(100);

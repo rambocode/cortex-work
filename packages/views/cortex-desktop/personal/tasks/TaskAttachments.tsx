@@ -3,7 +3,7 @@
 // bridge.taskDocDelete 删除。落盘/删除后 main 广播 tasks:changed → RQ 失效 → task prop 自动带上新
 // attachments（本组件不本地改状态，遵循「事件只触发 invalidation」约定）。
 //
-// 取舍：本期附件**仅限文档类型**（PDF/Office 新旧全系/OpenDocument/RTF/EPUB/纯文本，由 DOC_ACCEPT_ATTR + checkDocFile
+// 取舍：本期附件**仅限文档类型**（PDF/Office 新旧全系/OpenDocument/RTF/EPUB/纯文本/HTML，由 DOC_ACCEPT_ATTR + checkDocFile
 // 与主进程 extToDocExt allowlist 三处同口径把关），图片附件延后——故不在此扩 accept/校验。
 // 降级：web/旧壳无 bridge.taskDocSave 时隐藏「添加/移除」，仅只读列出既有附件。
 import { useRef, useState } from "react";

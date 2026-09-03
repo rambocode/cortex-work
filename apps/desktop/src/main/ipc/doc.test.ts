@@ -38,6 +38,10 @@ describe("extToDocExt", () => {
       expect(extToDocExt(`a.${ext}`)).toBe(ext);
     }
   });
+  it("HTML(.html/.htm) → 归一", () => {
+    expect(extToDocExt("page.HTML")).toBe("html");
+    expect(extToDocExt("page.htm")).toBe("htm");
+  });
   it("未知扩展名 → null", () => {
     expect(extToDocExt("a.exe")).toBeNull();
     expect(extToDocExt("a.zip")).toBeNull();
@@ -68,6 +72,10 @@ describe("sniffDocMatches", () => {
     expect(sniffDocMatches(TXT, "txt")).toBe(true);
     expect(sniffDocMatches(TXT, "csv")).toBe(true);
     expect(sniffDocMatches(TXT, "md")).toBe(true);
+  });
+  it("HTML 无稳定 magic → 放行(可 DOCTYPE/空白/注释开头)", () => {
+    expect(sniffDocMatches(TXT, "html")).toBe(true);
+    expect(sniffDocMatches(Buffer.from("<!DOCTYPE html><p>x</p>"), "htm")).toBe(true);
   });
 });
 

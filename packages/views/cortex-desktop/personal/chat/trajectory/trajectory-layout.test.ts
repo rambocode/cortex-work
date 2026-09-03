@@ -110,6 +110,85 @@ describe("buildTrajectoryLayout", () => {
     expect(cell.result).toBe("interrupted");
   });
 
+  it("recovered:同轮内失败的 Bash 之后有同名成功调用 → 标 recovered,request 不算 error", () => {
+    const { turns, requests } = build([
+      ev("r1", 0, { type: "tool", name: "Bash", phase: "start", toolCallId: "c1" }),
+      ev("r1", 10, { type: "tool", name: "Bash", phase: "end", toolCallId: "c1", output: "ModuleNotFoundError", isError: true }),
+      ev("r1", 20, { type: "tool", name: "Bash", phase: "start", toolCallId: "c2" }),
+      ev("r1", 30, { type: "tool", name: "Bash", phase: "end", toolCallId: "c2", output: "ok" }),
+      ev("r1", 40, { type: "result", ok: true }),
+    ]);
+    const cells = turns[0]!.groups[0]!.cells;
+    expect(cells[0]!.isError).toBe(true);
+    expect(cells[0]!.recovered).toBe(true);
+    expect(cells[1]!.isError).toBe(false);
+    expect(cells[1]!.recovered).toBeUndefined();
+    expect(requests[0]!.status).toBe("complete");
+  });
+
+  it("recovered:跨 step 也算同轮;失败在成功之后则不算恢复", () => {
+    const { turns, requests } = build([
+      ev("r1", 0, { type: "tool", name: "Bash", phase: "start", toolCallId: "c1" }),
+      ev("r1", 10, { type: "tool", name: "Bash", phase: "end", toolCallId: "c1", output: "boom", isError: true }),
+      ev("r1", 20, { type: "text", delta: "换个方式" }),
+      ev("r1", 30, { type: "tool", name: "Bash", phase: "start", toolCallId: "c2" }),
+      ev("r1", 40, { type: "tool", name: "Bash", phase: "end", toolCallId: "c2", output: "ok" }),
+      ev("r1", 50, { type: "tool", name: "Bash", phase: "start", toolCallId: "c3" }),
+      ev("r1", 60, { type: "tool", name: "Bash", phase: "end", toolCallId: "c3", output: "boom again", isError: true }),
+    ]);
+    const step1 = turns[0]!.groups[0]!.cells;
+    const step2 = turns[0]!.groups[1]!.cells;
+    // 第一步的失败被第二步的同名成功覆盖
+    expect(step1[0]!.recovered).toBe(true);
+    expect(requests[0]!.status).toBe("complete");
+    // 第二步末尾的失败之后再无同名成功:真失败
+    expect(step2[2]!.isError).toBe(true);
+    expect(step2[2]!.recovered).toBeFalsy();
+    expect(requests[1]!.status).toBe("error");
+  });
+
+  it("recovered 反例:失败后没有同名成功(不同工具名成功不算)→ 仍是 error", () => {
+    const { turns, requests } = build([
+      ev("r1", 0, { type: "tool", name: "Bash", phase: "start", toolCallId: "c1" }),
+      ev("r1", 10, { type: "tool", name: "Bash", phase: "end", toolCallId: "c1", output: "boom", isError: true }),
+      ev("r1", 20, { type: "tool", name: "Read", phase: "start", toolCallId: "c2" }),
+      ev("r1", 30, { type: "tool", name: "Read", phase: "end", toolCallId: "c2", output: "ok" }),
+    ]);
+    const cells = turns[0]!.groups[0]!.cells;
+    expect(cells[0]!.isError).toBe(true);
+    expect(cells[0]!.recovered).toBeFalsy();
+    expect(requests[0]!.status).toBe("error");
+  });
+
+  it("recovered 不作用于轮末 result 失败补的 Error 行,也不作用于 interrupted 行", () => {
+    const { turns, requests } = build([
+      ev("r1", 0, { type: "tool", name: "Bash", phase: "start", toolCallId: "c1" }),
+      ev("r1", 10, { type: "tool", name: "Bash", phase: "end", toolCallId: "c1", output: "boom", isError: true }),
+      ev("r1", 20, { type: "tool", name: "Bash", phase: "start", toolCallId: "c2" }),
+      ev("r1", 30, { type: "tool", name: "Bash", phase: "end", toolCallId: "c2", output: "ok" }),
+      ev("r1", 40, { type: "result", ok: false, error: "exit 1" }),
+    ]);
+    const cells = turns[0]!.groups[0]!.cells;
+    expect(cells[0]!.recovered).toBe(true);
+    const errorCell = cells[cells.length - 1]!;
+    expect(errorCell.kind).toBe("context");
+    expect(errorCell.isError).toBe(true);
+    expect(errorCell.recovered).toBeUndefined();
+    // 轮末失败仍让整步为 error
+    expect(requests[0]!.status).toBe("error");
+
+    // interrupted:未配对的 Bash 在会话停止后被判打断,即便后面有同名成功也不算恢复
+    const dead = build([
+      ev("r2", 0, { type: "tool", name: "Bash", phase: "start", toolCallId: "d1" }),
+      ev("r2", 10, { type: "tool", name: "Bash", phase: "start", toolCallId: "d2" }),
+      ev("r2", 20, { type: "tool", name: "Bash", phase: "end", toolCallId: "d2", output: "ok" }),
+    ]);
+    const deadCells = dead.turns[0]!.groups[0]!.cells;
+    expect(deadCells[0]!.result).toBe("interrupted");
+    expect(deadCells[0]!.recovered).toBeUndefined();
+    expect(dead.requests[0]!.status).toBe("error");
+  });
+
   it("只有 prompt 没有事件的轮也出现(run 启动中)", () => {
     const { turns } = build([], [prompt("r1", 0, "你好")]);
     expect(turns).toHaveLength(1);

@@ -15,7 +15,10 @@ export interface TrajectoryTimeRange {
 /** 一条台账记录在时间线上的区段。 */
 export interface TrajectoryTimelineSpan extends TrajectoryTimeRange {
   index: number;
+  /** 未恢复的失败(已恢复的失败此处为 false,由 recovered 单独表达,时间线据此选红/琥珀)。 */
   isError: boolean;
+  /** 失败已被同轮后续同名调用覆盖,见 TrajectoryCellProps.recovered。 */
+  recovered: boolean;
   kind: TrajectoryCellKind;
   label: string;
   lane: number;
@@ -77,7 +80,8 @@ export function deriveTrajectoryTimeline(
           start: spans.length + offset,
           end: spans.length + offset + 1,
           index: cell.index,
-          isError: cell.isError === true,
+          isError: cell.isError === true && cell.recovered !== true,
+          recovered: cell.recovered === true,
           kind: cell.kind,
           label: cell.text,
           lane: laneFor(cell.kind),
@@ -101,7 +105,8 @@ function deriveTimedTimeline(turns: TrajectoryTurnModel[]): TrajectoryTimelineMo
               {
                 ...range,
                 index: cell.index,
-                isError: cell.isError === true,
+                isError: cell.isError === true && cell.recovered !== true,
+                recovered: cell.recovered === true,
                 kind: cell.kind,
                 label: cell.text,
                 lane: laneFor(cell.kind),

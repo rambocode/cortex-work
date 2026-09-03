@@ -28,6 +28,7 @@ const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
 /**
  * 【内部基础设施】剔掉无条件注入的抓包/上下文保护扩展；本 helper 只断言可选业务能力的注册顺序。
  * `cortex-tool-context` 必须在 gateway 常驻会话中常驻，另有专门断言，不应让审批开关测试耦合它。
+ * `cortex-tool-failure-hint`(bash 失败纠偏提示)同样无条件注入,任何权限档位都适用,一并剔除。
  * `native-hooks.ts` 里无条件注入的调试扩展 `cortex-payload-debug`
  *（DeepSeek「关闭思考仍思考」的 before_provider_request 抓包，见该文件注释）。
  * 它必须无条件注入才能覆盖关审批的会话，于是恒占 `extensionFactories[0]`——本层断言的是
@@ -36,7 +37,10 @@ const BASE: PiOpenRequest = { uiSessionId: "ui-1", cwd: "/tmp" };
  */
 function businessExtensions(deps: { extensionFactories?: unknown[] }): Array<{ name: string }> {
   return ((deps.extensionFactories ?? []) as Array<{ name: string }>).filter(
-    (extension) => extension.name !== "cortex-payload-debug" && extension.name !== "cortex-tool-context",
+    (extension) =>
+      extension.name !== "cortex-payload-debug" &&
+      extension.name !== "cortex-tool-failure-hint" &&
+      extension.name !== "cortex-tool-context",
   );
 }
 

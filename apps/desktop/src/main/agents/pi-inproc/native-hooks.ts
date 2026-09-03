@@ -51,6 +51,7 @@ import { DEFAULT_APPROVAL_TOOLS, TODO_TOOL_NAME, normalizePiTodos } from "../pi-
 import { recordAgentTrace } from "../../ipc/agent-trace";
 import { createLogger } from "../../log";
 import { createToolContextExtension, type ToolContextProjectionReport } from "./tool-context";
+import { createToolFailureHintExtension } from "./tool-failure-hints";
 
 const log = createLogger("pi-inproc-hooks");
 
@@ -593,6 +594,9 @@ export function createPiNativeHooks(options: PiNativeHooksOptions): PiNativeHook
   // 【临时调试】发包观测扩展必须无条件注入:审批扩展在「完全访问」档不加载,挂在
   // 那里会漏掉关审批的会话(实测踩到)。定案后连同 createPayloadDebugExtension 一起删。
   extensionFactories.push(createPayloadDebugExtension());
+  // bash 失败纠偏提示无条件注入:它只读工具结果、不改 isError、不弹 UI,任何权限档位都适用;
+  // 与审批扩展不同,没有「关掉它更安全」的场景。见 tool-failure-hints.ts 文件头。
+  extensionFactories.push(createToolFailureHintExtension());
 
   if (options.enableToolApproval) {
     extensionFactories.push(

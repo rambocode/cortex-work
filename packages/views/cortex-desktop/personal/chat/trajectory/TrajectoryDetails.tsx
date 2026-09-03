@@ -88,6 +88,13 @@ interface DetailsResizeDrag {
   startToolRequestOffset: number;
 }
 
+/** 概览「Status」值的着色类:未恢复错误红、已恢复错误琥珀,其余不着色。 */
+function stateClassName(state: RecordState): string | undefined {
+  if (state === "error") return "is-error";
+  if (state === "recovered") return "is-recovered";
+  return undefined;
+}
+
 function clampDetailsWidth(width: number, splitWidth: number): number {
   const maxWidth = Math.max(DETAILS_MIN_WIDTH, Math.min(DETAILS_MAX_WIDTH, splitWidth - TABLE_MIN_WIDTH));
   return Math.round(Math.min(Math.max(width, DETAILS_MIN_WIDTH), maxWidth));
@@ -283,13 +290,16 @@ function RecordPayload({
   const value = direction === "input" ? record.cell.inputDetail : record.cell.outputDetail;
   const missing = direction === "input" ? "No payload captured" : "No result captured";
   if (!value) return <p className="pw-traj-no-payload">{missing}</p>;
-  const error = direction === "output" && record.cell.isError === true;
+  // 已恢复的失败输出降为琥珀色:仍是错误信息,但同轮后续已自愈,不该按未处理错误标红。
+  const recovered = direction === "output" && record.cell.isError === true && record.cell.recovered === true;
+  const error = direction === "output" && record.cell.isError === true && record.cell.recovered !== true;
   return (
     <pre
       className={[
         "pw-traj-payload",
         preview ? "is-preview" : "",
         error ? "is-error" : "",
+        recovered ? "is-recovered" : "",
         value === "No output" ? "is-no-output" : "",
       ]
         .filter(Boolean)
@@ -539,7 +549,7 @@ export function TrajectoryDetails({
             <dl className="pw-traj-overview">
               <div>
                 <dt>Status</dt>
-                <dd className={requestState === "error" ? "is-error" : undefined}>{statusLabel(requestState)}</dd>
+                <dd className={stateClassName(requestState)}>{statusLabel(requestState)}</dd>
               </div>
               <div>
                 <dt>Tool calls</dt>
@@ -646,7 +656,7 @@ export function TrajectoryDetails({
               )}
               <div>
                 <dt>Status</dt>
-                <dd className={selectedState === "error" ? "is-error" : undefined}>{statusLabel(selectedState)}</dd>
+                <dd className={stateClassName(selectedState)}>{statusLabel(selectedState)}</dd>
               </div>
               {selected.cell.kind === "message" && <TokenRows record={selected} />}
               {(selected.cell.kind === "user" || selected.cell.kind === "context") && (

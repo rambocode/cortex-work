@@ -26,6 +26,7 @@ import { tasksStore, tasksReminderScheduler, isTasksReminderOptInEnabled } from 
 import { startMcpHost, stopMcpHost } from "./capabilities/mcp-host/server";
 import { registerBrowserTools } from "./capabilities/browser/tools";
 import { startDocExtractHost, stopDocExtractHost } from "./capabilities/doc-extract/mcp";
+import { primeEnvironmentSnapshot } from "./capabilities/environment/probe";
 import { startMediaGenHost, stopMediaGenHost } from "./capabilities/media-gen/server";
 import { startLoopWorkflowsHost, stopLoopWorkflowsHost } from "./capabilities/loop-workflows/server";
 import { startResearchHost, stopResearchHost } from "./capabilities/research/server";
@@ -835,6 +836,9 @@ if (!singleInstanceLockHeld && !app.requestSingleInstanceLock()) {
     );
     // 文档抽取 MCP host:独立实例(独立 port/token),常驻可用;agent 经 extract_document 按需读附件。
     void startDocExtractHost();
+    // 运行环境探测:后台跑一次登录 shell 探测 python 模块 / CLI,供 <environment> 系统提示块使用。
+    // fire-and-forget:失败只是不注入该块,不影响任何会话启动。
+    void primeEnvironmentSnapshot();
     // 媒体生成 MCP host:独立实例,常驻;四模态全关时注入侧返回 null 不连接,host 仍在后台静默运行(U5)。
     void startMediaGenHost();
     // Loop 工作流 MCP host:独立实例,常驻;无 enabled+callable 工作流时注入侧返回 null（U14）。

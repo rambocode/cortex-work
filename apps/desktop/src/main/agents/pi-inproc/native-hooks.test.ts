@@ -543,12 +543,14 @@ describe("样例工具与斜杠命令", () => {
 
 describe("createPiNativeHooks", () => {
   const base: PiNativeHooksOptions = { hasUiOutlet: () => true };
+  // 无条件注入的常驻扩展:调试观测(临时)与 bash 失败纠偏提示;业务扩展断言时剔除它们。
+  const ALWAYS_ON_EXTENSIONS = new Set(["cortex-payload-debug", "cortex-tool-failure-hint"]);
 
   it("缺省只注册 todo_write，无扩展", () => {
     const hooks = createPiNativeHooks(base);
     expect(hooks.customTools.map((t) => t.name)).toEqual([TODO_TOOL_NAME]);
-    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),此处只断言业务扩展为空。
-    expect(hooks.extensionFactories.filter((e) => e.name !== "cortex-payload-debug")).toEqual([]);
+    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),bash 失败纠偏提示也是常驻;此处只断言业务扩展为空。
+    expect(hooks.extensionFactories.filter((e) => !ALWAYS_ON_EXTENSIONS.has(e.name))).toEqual([]);
   });
 
   it("全开时的工具与扩展集合，顺序与旧 pi-session.ts 的 push 顺序一致", () => {
@@ -567,6 +569,7 @@ describe("createPiNativeHooks", () => {
     ]);
     expect(hooks.extensionFactories.map((e) => (e as { name: string }).name)).toEqual([
       "cortex-payload-debug",
+      "cortex-tool-failure-hint",
       "cortex-approval",
       "cortex-sample-commands",
     ]);
@@ -584,8 +587,8 @@ describe("createPiNativeHooks", () => {
 
   it("审批开关关闭时不产出审批扩展", () => {
     const hooks = createPiNativeHooks({ ...base, approvalTools: ["bash"] });
-    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),此处只断言业务扩展为空。
-    expect(hooks.extensionFactories.filter((e) => e.name !== "cortex-payload-debug")).toEqual([]);
+    // 临时调试扩展 cortex-payload-debug 无条件注入(定案后删),bash 失败纠偏提示也是常驻;此处只断言业务扩展为空。
+    expect(hooks.extensionFactories.filter((e) => !ALWAYS_ON_EXTENSIONS.has(e.name))).toEqual([]);
   });
 
   it("hasUiOutlet 被透传给审批 hook（集成阶段接线的关键路径）", async () => {

@@ -34,6 +34,7 @@ import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate"
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
 import { buildKnowledgeSystemPromptBlock } from "../capabilities/knowledge/client";
+import { buildEnvironmentSystemPromptBlock } from "../capabilities/environment/probe";
 import { GROUNDING_MODEL_ENV, resolveComputerUse } from "../capabilities/computer-use/inject";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
 import { unregisterResearchSession } from "../capabilities/research/server";
@@ -547,6 +548,12 @@ export async function preparePiOpenRequest(
           .filter(Boolean)
           .join("\n\n");
       }
+    }
+    // 运行环境块:与 cli.ts 对称(三端同一份文案),pi 的系统提示在 open 时冻结,故只在这里注入一次;
+    // 无缓存返回空串不阻塞,快照到位后下次开会话生效。
+    const environmentBlock = buildEnvironmentSystemPromptBlock();
+    if (environmentBlock) {
+      prepared.appendSystemPrompt = [prepared.appendSystemPrompt, environmentBlock].filter(Boolean).join("\n\n");
     }
     // 媒体生成:pi 走 mcpInjection==="none",必须在此并入——否则「同一开关 claude 能生图、pi 不能」。
     // 工具集在 open 时冻结:改设置后重开会话生效(同 knowledge 语义,不计 extensionFingerprint);

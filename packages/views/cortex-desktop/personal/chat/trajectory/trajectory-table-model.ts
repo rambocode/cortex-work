@@ -20,8 +20,8 @@ export interface TableRecord {
   collapsedSummaryKind?: "turn" | "assistant";
 }
 
-/** 行状态:完成/在途/失败。 */
-export type RecordState = "complete" | "running" | "error";
+/** 行状态:完成/在途/失败/已恢复(失败但同轮后续同名调用成功,见 TrajectoryCellProps.recovered)。 */
+export type RecordState = "complete" | "running" | "error" | "recovered";
 
 /** 请求检查器选中标识。 */
 export interface SelectedRequest {
@@ -199,9 +199,10 @@ export function collapseAssistantRecords(
   return out;
 }
 
-/** 行状态推导:错误 > 在途(工具无结果/末段生成中) > 完成。 */
+/** 行状态推导:错误(已恢复的错误降为 recovered) > 在途(工具无结果/末段生成中) > 完成。 */
 export function stateOf(record: TableRecord, sessionRunning: boolean): RecordState {
-  if (record.cell.isError) return "error";
+  // 已恢复的失败仍是失败,但要和「未处理的错误」区分开,否则探路失败会把台账刷成一片红。
+  if (record.cell.isError) return record.cell.recovered ? "recovered" : "error";
   if (record.cell.kind === "tool" && record.cell.running) return "running";
   if (record.cell.kind === "message" && sessionRunning && record.cell.timeSeconds === null) return "running";
   return "complete";
@@ -210,6 +211,7 @@ export function stateOf(record: TableRecord, sessionRunning: boolean): RecordSta
 /** 状态标签(详情面板)。 */
 export function statusLabel(state: RecordState): string {
   if (state === "error") return "Failed";
+  if (state === "recovered") return "Recovered";
   if (state === "running") return "Pending";
   return "Completed";
 }

@@ -57,6 +57,23 @@ interface TurnState {
   prevTs: number | null;
 }
 
+/**
+ * 回填「已恢复」标记:同一轮内,失败的 tool 行若在其后(任意后续 step)存在同名且已成功落地的
+ * tool 行,则视为模型探路失败后自愈(如 bs4 缺包报错 → 换 html.parser 成功)。
+ * 这类失败不该把台账刷红,消费端按 recovered 降为琥珀。轮末 Error 行是 context 行天然不参与;
+ * interrupted 行由调用方传入排除集(它们是被打断而非被覆盖,不算恢复)。
+ */
+function markRecoveredCells(cells: TrajectoryCellProps[], excluded: ReadonlySet<TrajectoryCellProps>): void {
+  for (const [at, cell] of cells.entries()) {
+    if (cell.kind !== "tool" || cell.isError !== true || excluded.has(cell)) continue;
+    // 只看「之后」的行:先成功后失败是真失败,不能反向抵消。
+    const healed = cells
+      .slice(at + 1)
+      .some((later) => later.kind === "tool" && later.text === cell.text && !later.isError && !later.running);
+    if (healed) cell.recovered = true;
+  }
+}
+
 function newStep(step: number): StepState {
   return { step, cells: [], assistant: null, sawTool: false, startedAt: null, lastTs: null, retries: 0 };
 }
@@ -331,8 +348,10 @@ export function buildTrajectoryLayout(input: TrajectoryLayoutInput): TrajectoryL
       if (state.lastUsage.cacheRead !== undefined) lastAssistant.cacheRead = state.lastUsage.cacheRead;
       if (state.lastUsage.output !== undefined) lastAssistant.output = state.lastUsage.output;
     }
+    // 先对整轮编号并收口 interrupted,再回填 recovered:recovered 要看「同轮任意后续 step」,
+    // 必须在所有 step 的 interrupted 判定完成后统一算,不能在逐步循环里边走边判。
+    const interrupted = new Set<TrajectoryCellProps>();
     for (const step of state.steps) {
-      if (step.cells.length === 0) continue;
       for (const cell of step.cells) {
         cell.index = ++index;
         // 会话已不在运行却仍未配对的工具行:不能永远转圈,按失败画上句号。
@@ -340,9 +359,17 @@ export function buildTrajectoryLayout(input: TrajectoryLayoutInput): TrajectoryL
           cell.running = false;
           cell.isError = true;
           cell.result ??= "interrupted";
+          interrupted.add(cell);
         }
         // 末轮运行中:assistant 段耗时仍在增长,标 running 语义由消费端(状态列)判定。
       }
+    }
+    markRecoveredCells(
+      state.steps.flatMap((step) => step.cells),
+      interrupted,
+    );
+    for (const step of state.steps) {
+      if (step.cells.length === 0) continue;
       const usage: TrajectoryUsage | undefined =
         state.lastUsage && step.step === state.lastUsageStep
           ? {
@@ -370,7 +397,13 @@ export function buildTrajectoryLayout(input: TrajectoryLayoutInput): TrajectoryL
         step: step.step,
         group: `Step ${step.step}`,
         number: ++requestNumber,
-        status: step.error !== undefined || step.cells.some((c) => c.isError) ? "error" : stepRunning ? "running" : "complete",
+        // 步状态只看「未恢复」的错误:探路失败已被同轮后续同名调用自愈,不该把整步标红。
+        status:
+          step.error !== undefined || step.cells.some((c) => c.isError && !c.recovered)
+            ? "error"
+            : stepRunning
+              ? "running"
+              : "complete",
         ...(step.startedAt !== null ? { startedAt: step.startedAt } : {}),
         completedAt: stepRunning ? null : step.lastTs,
         ...(step.error !== undefined ? { error: step.error } : {}),

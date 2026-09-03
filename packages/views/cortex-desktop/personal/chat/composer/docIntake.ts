@@ -30,6 +30,8 @@ export const ACCEPTED_DOC_EXTS = [
   "csv",
   "txt",
   "md",
+  "html",
+  "htm",
 ] as const;
 export const MAX_DOC_BYTES = 50 * 1024 * 1024; // 50MB,与 main/ipc/doc.ts MAX_DOC_BYTES 同值
 export const MAX_DOCS_PER_MESSAGE = 6;
@@ -60,6 +62,8 @@ const EXT_MIME: Record<string, string> = {
   csv: "text/csv",
   txt: "text/plain",
   md: "text/markdown",
+  html: "text/html",
+  htm: "text/html",
 };
 
 export function docExtOf(name: string): string {
@@ -71,11 +75,12 @@ export function isAcceptedDoc(name: string): boolean {
   return (ACCEPTED_DOC_EXTS as readonly string[]).includes(docExtOf(name));
 }
 
-// 二进制文档(全集减纯文本):必须经抽取工具读,不能当文本注入。用于区分应用内 Files 面板拖入时
+// 二进制文档(全集减文本类):必须经抽取工具读,不能当文本注入。用于区分应用内 Files 面板拖入时
 // 「文本文件→既有 readFile 注入 prompt」vs「二进制文档→文档附件通道」,避免破坏文本文件注入功能。
-const DOC_BINARY_EXTS = new Set(
-  (ACCEPTED_DOC_EXTS as readonly string[]).filter((e) => e !== "csv" && e !== "txt" && e !== "md"),
-);
+// html/htm 归入文本类:Files 面板拖入 HTML 沿用 readFile 注入(与其它源码文件一致),只有从系统
+// 拖入/粘贴/选择的 HTML 才走文档通道由 extract_document 剥标签取正文。
+const DOC_TEXT_EXTS = new Set(["csv", "txt", "md", "html", "htm"]);
+const DOC_BINARY_EXTS = new Set((ACCEPTED_DOC_EXTS as readonly string[]).filter((e) => !DOC_TEXT_EXTS.has(e)));
 export function isBinaryDoc(name: string): boolean {
   return DOC_BINARY_EXTS.has(docExtOf(name));
 }
@@ -91,7 +96,7 @@ export function checkDocFile(file: { name: string; size: number }): DocRejectRea
 
 export function docRejectText(reason: DocRejectReason, name: string): string {
   return reason === "type"
-    ? `不支持的文档格式：${name || "文档"}（仅 PDF / Office / OpenDocument / RTF / EPUB / 纯文本）`
+    ? `不支持的文档格式：${name || "文档"}（仅 PDF / Office / OpenDocument / RTF / EPUB / 纯文本 / HTML）`
     : `文档过大：${name || "文档"}（上限 ${Math.round(MAX_DOC_BYTES / 1024 / 1024)}MB）`;
 }
 

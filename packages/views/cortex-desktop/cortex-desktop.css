@@ -15289,6 +15289,8 @@ button.sb-row {
 }
 .pw-traj-tl-span[data-timeline-span="tool"] { background: var(--amber); opacity: 1; }
 .pw-traj-tl-span[data-error="true"] { background: var(--red); }
+/* 已恢复的失败(同轮后续同名调用成功):琥珀而非红,与 tool 泳道底色同色系,靠 opacity 区分 */
+.pw-traj-tl-span[data-recovered="true"] { background: var(--amber); opacity: 0.55; }
 .pw-traj-tl-span[data-selected="false"] { opacity: 0.2; }
 .pw-traj-tl-span[data-hovered="true"]:not([data-current="true"]) {
   z-index: 1;
@@ -15514,6 +15516,11 @@ button.sb-row {
   background: color-mix(in srgb, var(--red) 22%, var(--bg-app));
 }
 .pw-traj-table tbody tr[data-error="true"] .pw-traj-selection-rail { background: var(--red); }
+/* 已恢复的失败行:琥珀轨道,提示「这里报过错但已自愈」 */
+.pw-traj-table tbody tr[data-recovered="true"] .pw-traj-turn-rail {
+  background: color-mix(in srgb, var(--amber) 22%, var(--bg-app));
+}
+.pw-traj-table tbody tr[data-recovered="true"] .pw-traj-selection-rail { background: var(--amber); }
 .pw-traj-table tbody tr[data-turn-start="true"] td { position: relative; overflow: visible; }
 .pw-traj-table tbody tr[data-turn-start="true"]:not(:first-child) td::before {
   position: absolute;
@@ -15688,6 +15695,8 @@ button.sb-row {
 }
 .pw-traj-inline-result.is-error,
 .pw-traj-inline-result.is-error .pw-traj-inline-result-text { color: var(--red); }
+.pw-traj-inline-result.is-recovered,
+.pw-traj-inline-result.is-recovered .pw-traj-inline-result-text { color: var(--amber); }
 .pw-traj-arrow { flex: none; margin-right: 8px; color: var(--text-4); }
 .pw-traj-inline-result-text.is-no-output { color: var(--text-4); }
 .pw-traj-running-dot {
@@ -15867,6 +15876,7 @@ button.sb-row {
   white-space: nowrap;
 }
 .pw-traj-overview dd.is-error { color: var(--red); }
+.pw-traj-overview dd.is-recovered { color: var(--amber); }
 .pw-traj-parent-links { display: flex; gap: 14px; }
 .pw-traj-hierarchy-link {
   all: unset;
@@ -15987,6 +15997,7 @@ button.sb-row {
 }
 .pw-traj-payload.is-preview { min-height: 0; padding: 6px 14px 8px; background: transparent; }
 .pw-traj-payload.is-error { color: var(--red); }
+.pw-traj-payload.is-recovered { color: var(--amber); }
 .pw-traj-payload.is-no-output { color: var(--text-4); }
 .pw-traj-no-payload { margin: 0; padding: 18px 14px; color: var(--text-3); font-size: 13px; }
 .pw-traj-thinking-quote {

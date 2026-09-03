@@ -385,7 +385,9 @@ export function TrajectoryTable({
                   : undefined;
               const requestInfo =
                 request === undefined ? undefined : requests.find((candidate) => candidate.number === request);
-              const requestStatus = requestInfo?.status === "error" || record.cell.isError ? "error" : undefined;
+              // 已恢复的失败不把请求边界圆点标红(与 layout 的 request status 口径一致)。
+              const requestStatus =
+                requestInfo?.status === "error" || (record.cell.isError && !record.cell.recovered) ? "error" : undefined;
               const requestLabel = request === undefined ? undefined : `Request #${request}`;
               const requestSelected =
                 request !== undefined &&
@@ -415,7 +417,8 @@ export function TrajectoryTable({
                   data-record-index={!isCollapsedSummary ? record.cell.index : undefined}
                   data-group-start={record.groupStart || undefined}
                   data-turn-start={record.turnStart || undefined}
-                  data-error={record.cell.isError || undefined}
+                  data-error={(record.cell.isError && !record.cell.recovered) || undefined}
+                  data-recovered={record.cell.recovered || undefined}
                   data-running={state === "running" || undefined}
                   data-turn-end={record.turnEnd || undefined}
                   data-collapsed-summary={record.collapsedSummaryKind}
@@ -543,7 +546,15 @@ export function TrajectoryTable({
                           )}
                         </span>
                         {resultText !== undefined && (
-                          <span className={record.cell.isError ? "pw-traj-inline-result is-error" : "pw-traj-inline-result"}>
+                          <span
+                            className={
+                              record.cell.isError
+                                ? record.cell.recovered
+                                  ? "pw-traj-inline-result is-recovered"
+                                  : "pw-traj-inline-result is-error"
+                                : "pw-traj-inline-result"
+                            }
+                          >
                             <span className="pw-traj-arrow">→</span>
                             <span
                               className={

@@ -29,6 +29,13 @@ export interface TrajectoryCellProps {
   /** tool 调用 id(结果配对/跳转)。 */
   callId?: string;
   isError?: boolean;
+  /**
+   * 「已恢复」的失败:tool 行 isError 为真,但同一轮后续又有同名 tool 调用成功落地
+   * (典型是模型探路失败后立刻换姿势重试成功)。语义上仍是失败,只是不应再按「未处理的错误」
+   * 标红;轮末 result 失败补的 Error 行与被判 interrupted 的行永远不会置此标记。
+   * 由 trajectory-layout 收尾阶段回填,消费端(表格/时间线/详情)据此降为琥珀色。
+   */
+  recovered?: boolean;
   /** tool 调用仍在途(无结果帧)。 */
   running?: boolean;
   /** 自身耗时秒;未知为 null(渲染 —)。 */

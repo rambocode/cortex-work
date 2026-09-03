@@ -28,6 +28,7 @@ import { resolveAgentBrowserBinary } from "../capabilities/agent-browser/locate"
 import { buildDocExtractMcpServerConfig } from "../capabilities/doc-extract/mcp";
 import { buildKnowledgeMcpServerConfig } from "../capabilities/knowledge/inject";
 import { buildKnowledgeSystemPromptBlock } from "../capabilities/knowledge/client";
+import { buildEnvironmentSystemPromptBlock } from "../capabilities/environment/probe";
 import { buildMediaGenMcpServerConfig, unregisterMediaGenSession } from "../capabilities/media-gen/server";
 import { buildLoopWorkflowsMcpServerConfig, unregisterLoopWorkflowsSession } from "../capabilities/loop-workflows/server";
 import { buildResearchMcpServerConfig } from "../capabilities/research/inject";
@@ -1094,6 +1095,13 @@ export function registerCliHandlers(): void {
       req.appendSystemPrompt = [req.appendSystemPrompt, CODEX_LONG_RUNNING_PROCESS_GUIDANCE]
         .filter(Boolean)
         .join("\n\n");
+    }
+
+    // 运行环境块:这台机器真实有的 python 模块 / CLI,让模型不用盲猜依赖(与 pi-session.ts 对称)。
+    // 静态文本(快照按 TTL 才换),恒定追加,不破坏供应商 prompt 缓存前缀;无缓存返回空串不阻塞。
+    const environmentBlock = buildEnvironmentSystemPromptBlock();
+    if (environmentBlock) {
+      req.appendSystemPrompt = [req.appendSystemPrompt, environmentBlock].filter(Boolean).join("\n\n");
     }
 
     // 公司知识库能力块:把服务端 tools/list **实际返回的方法名**动态注册进系统提示。

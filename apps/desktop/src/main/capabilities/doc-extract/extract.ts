@@ -1,5 +1,7 @@
 // 文档抽取的纯逻辑:把一个本地文档文件抽成 Markdown/纯文本。
 //  - 纯文本类(.txt/.csv/.md)直接 UTF-8 读取(直读非「解析」;csv 直读也比转 Markdown 表格省 token)。
+//  - HTML(.html/.htm)UTF-8 读入后经 html-to-text 剥掉 script/style/svg 等,只回可读正文(不经 anydoc,
+//    也不引 DOM 库;原因见 html-to-text.ts 文件头)。
 //  - 二进制类(pdf/Office 新旧全系/OpenDocument/rtf/epub)走 @firecrawl/anydoc → GFM Markdown。
 //  - **不启用 OCR**(KTD8):扫描件/图片型 PDF 抽不出文本时返回 empty=true + 提示,由 agent 转述。
 //  - 输出按字节上限截断(防恶意/超大文档把无界文本回传宿主)。
@@ -7,6 +9,7 @@
 
 import { promises as fsp } from "fs";
 import { extname } from "path";
+import { htmlToText } from "./html-to-text";
 
 // 抽取产出文本的字节上限;超出截断并附提示,而非无界回传(见 KTD9 / 安全 Risks)。
 export const MAX_EXTRACT_TEXT_BYTES = 10 * 1024 * 1024; // 10MB
@@ -14,6 +17,8 @@ export const MAX_EXTRACT_TEXT_BYTES = 10 * 1024 * 1024; // 10MB
 export const EXTRACT_TIMEOUT_MS = 30_000;
 
 const PLAIN_EXTS = new Set(["txt", "csv", "md"]);
+// HTML 单独一档:是文本但不能直读(原文满是标签/脚本,喂给模型既费 token 又干扰理解),要先剥成正文。
+const HTML_EXTS = new Set(["html", "htm"]);
 // anydoc 支持的二进制文档全集(与 ipc/doc.ts 的 DOC_EXTS 二进制部分同值,主进程落盘侧是权威闸门)。
 const BINARY_DOC_EXTS = new Set([
   "pdf",
@@ -71,6 +76,19 @@ export async function extractDocText(
     const raw = await fsp.readFile(absPath, "utf8");
     const { text, truncated } = capText(raw, maxBytes);
     return { text, truncated, empty: text.trim().length === 0 };
+  }
+
+  if (HTML_EXTS.has(ext)) {
+    const raw = await fsp.readFile(absPath, "utf8");
+    const { text, truncated } = capText(htmlToText(raw), maxBytes);
+    const empty = text.trim().length === 0;
+    return {
+      text,
+      truncated,
+      empty,
+      // 剥完标签为空:多半是纯脚本渲染的 SPA 壳或只有样式/脚本的页面,告诉 agent 别再猜内容。
+      note: empty ? "HTML 无可见正文(可能为纯脚本渲染页面或仅含 script/style)" : undefined,
+    };
   }
 
   if (BINARY_DOC_EXTS.has(ext)) {

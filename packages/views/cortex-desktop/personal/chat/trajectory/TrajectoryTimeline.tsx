@@ -587,6 +587,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                     data-timeline-span={span.kind}
                     data-timeline-record-index={span.index}
                     data-error={span.isError || undefined}
+                    data-recovered={span.recovered || undefined}
                     data-current={span.index === selectedIndex || undefined}
                     data-hovered={hover?.recordIndex === span.index || undefined}
                     data-search-match={
