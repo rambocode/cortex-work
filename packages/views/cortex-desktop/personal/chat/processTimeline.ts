@@ -7,7 +7,7 @@ import { collectRunInvocations, normalizedToolName, runTimeSpan, type RunEvent }
 import type { ArchivedToolInvocation } from "@cortex-work/core";
 import type { AgentLogItem, Message, RichText } from "@cortex-work/core/types";
 
-export type ProcessMessage = Extract<Message, { kind: "reasoning" | "agentLog" | "stageTitle" }>;
+export type ProcessMessage = Extract<Message, { kind: "reasoning" | "agentLog" | "stageTitle" | "retrieval" }>;
 
 /** 一次工具调用（含输入/输出快照）。结构由 core 定义，归档与内联时间线共用同一形状。 */
 export type ToolInvocation = ArchivedToolInvocation;
@@ -17,7 +17,10 @@ export { normalizedToolName };
 export type ProcessEntry =
   | { kind: "reasoning"; key: string; message: Extract<ProcessMessage, { kind: "reasoning" }> }
   | { kind: "stage"; key: string; label: string }
-  | { kind: "tool"; key: string; item: AgentLogItem; invocation?: ToolInvocation };
+  | { kind: "tool"; key: string; item: AgentLogItem; invocation?: ToolInvocation }
+  // 前置管线（改写+意图分类+联网检索）的首节点：数据由 kind:"retrieval" 消息自身携带，
+  // 状态推进靠消息原位更新，这里不做任何合并逻辑。
+  | { kind: "retrieval"; key: string; message: Extract<ProcessMessage, { kind: "retrieval" }> };
 
 /** 聊天流的紧凑活动行；详情仍由原始 invocation 与完整过程面板承担。 */
 export type ProcessActivityRow =
@@ -52,6 +55,25 @@ export type ProcessActivityRow =
       callId?: string;
       status: "running" | "done" | "failed";
       durationMs?: number;
+    }
+  | {
+      // 搜索/检索类工具行（放大镜图标）。只显示动作动词，不回显 query（规格 §2）。
+      kind: "search";
+      key: string;
+      subtype: SearchToolSubtype;
+      callId?: string;
+      status: "running" | "done" | "failed";
+      durationMs?: number;
+    }
+  | {
+      // 前置检索管线节点（发送路径的改写+意图分类+联网检索）。
+      kind: "retrieval";
+      key: string;
+      phase: "understanding" | "searching" | "done" | "skipped" | "failed";
+      resultCount?: number;
+      skipReason?: "greeting" | "chitchat" | "follow_up";
+      status: "running" | "done" | "failed";
+      durationMs?: number;
     };
 
 export interface ProcessPresentation {
@@ -67,6 +89,10 @@ export interface ProcessPresentation {
     files: number;
     commands: number;
     tools: number;
+    /** 思考轮数 = 合并后的 reasoning 行数（流式增量原位合并不计），WeKnora 式折叠头用。 */
+    thinkingRounds: number;
+    /** 工具调用总次数：read 每次调用+1、file/command/search 各+1、retrieval done/failed +1（skipped 不计）。 */
+    toolCalls: number;
     failed: number;
     running: boolean;
   };
@@ -100,6 +126,29 @@ const TARGET_KEYS = ["file_path", "filePath", "path", "filename", "query", "patt
 export function isReadTool(name: string | undefined): boolean {
   const normalized = normalizedToolName(name);
   return READ_TOOLS.has(normalized) || normalized.startsWith("read_") || normalized.endsWith("_read_file");
+}
+
+// 搜索/检索类工具三分类：时间线上统一用放大镜图标，文案按子类区分（文件/联网/知识库）。
+const SEARCH_FILE_TOOLS = new Set(["grep", "glob", "ripgrep", "rg", "find_files", "file_search", "codebase_search"]);
+const SEARCH_WEB_TOOLS = new Set(["web_search", "websearch", "web_fetch", "webfetch", "fetch_url"]);
+const SEARCH_KB_TOOLS = new Set(["kb_ask", "kb_search", "knowledge_search", "memory_search", "recall"]);
+
+export type SearchToolSubtype = "files" | "web" | "kb" | "generic";
+
+/**
+ * 判定搜索类工具及其子类；非搜索类返回 undefined。
+ * normalizedToolName 已把 `mcp__server__tool` 归一为末段小写，故 MCP 检索工具（如
+ * `mcp__kb__kb_ask` → `kb_ask`）能命中显式集合；兜底启发式覆盖未列举的 `*_search` / `search*`
+ * 工具名。调用方须先过 HIDDEN_ACTIVITY_TOOLS（tool_search 是查找工具本身，不是内容检索）。
+ */
+export function searchToolSubtype(name: string | undefined): SearchToolSubtype | undefined {
+  const normalized = normalizedToolName(name);
+  if (!normalized) return undefined;
+  if (SEARCH_FILE_TOOLS.has(normalized)) return "files";
+  if (SEARCH_WEB_TOOLS.has(normalized)) return "web";
+  if (SEARCH_KB_TOOLS.has(normalized)) return "kb";
+  if (normalized.endsWith("_search") || normalized.startsWith("search")) return "generic";
+  return undefined;
 }
 
 export function jsonPreview(data: unknown): string {
@@ -148,6 +197,9 @@ export function buildProcessEntries(messages: Message[], invocations: ToolInvoca
   for (const message of messages) {
     if (message.kind === "reasoning") {
       entries.push({ kind: "reasoning", key: message.uid ?? `reasoning-${entries.length}`, message });
+    } else if (message.kind === "retrieval") {
+      // 前置管线消息由发送路径保证是本轮过程流第一条，这里按序投影即天然成为首节点。
+      entries.push({ kind: "retrieval", key: message.uid ?? `retrieval-${entries.length}`, message });
     } else if (message.kind === "stageTitle") {
       entries.push({ kind: "stage", key: message.uid ?? `stage-${entries.length}`, label: message.label });
     } else if (message.kind === "agentLog") {
@@ -236,6 +288,8 @@ export function buildProcessPresentation(
     files: 0,
     commands: 0,
     tools: 0,
+    thinkingRounds: 0,
+    toolCalls: 0,
     failed: 0,
     running: false,
   };
@@ -257,8 +311,41 @@ export function buildProcessPresentation(
           previous.text = text || previous.text;
         } else {
           rows.push({ kind: "reasoning", key: entry.key, text, status });
+          // 「思考 N 轮」按合并后的行计：一轮 = 被工具调用隔开的一段连续思考，流式增量不虚增。
+          summary.thinkingRounds += 1;
         }
         summary.steps += 1;
+        summary.running ||= status === "running";
+        continue;
+      }
+
+      if (entry.kind === "retrieval") {
+        const message = entry.message;
+        const status =
+          message.phase === "failed"
+            ? "failed"
+            : message.phase === "done" || message.phase === "skipped"
+              ? "done"
+              : "running";
+        const durationMs =
+          message.startedAt !== undefined && message.endedAt !== undefined && message.endedAt >= message.startedAt
+            ? message.endedAt - message.startedAt
+            : undefined;
+        rows.push({
+          kind: "retrieval",
+          key: entry.key,
+          phase: message.phase,
+          ...(message.resultCount !== undefined ? { resultCount: message.resultCount } : {}),
+          ...(message.skipReason ? { skipReason: message.skipReason } : {}),
+          status,
+          ...(durationMs !== undefined ? { durationMs } : {}),
+        });
+        summary.steps += 1;
+        // 只有真的发生过联网检索才计入「调用 N 次工具」：skipped 与「done 无 resultCount
+        //（只做意图理解、检索链路未开启）」都没搜索，计入会虚高。
+        if (message.phase === "failed" || (message.phase === "done" && message.resultCount !== undefined))
+          summary.toolCalls += 1;
+        if (status === "failed") summary.failed += 1;
         summary.running ||= status === "running";
         continue;
       }
@@ -295,6 +382,27 @@ export function buildProcessPresentation(
         }
         if (status !== "failed") successfulReadTargets.add(target ?? path);
         summary.steps += 1;
+        // 读取聚合成一行展示，但「调用 N 次工具」按真实调用次数计，与聚合展示解耦。
+        summary.toolCalls += 1;
+        if (status === "failed") summary.failed += 1;
+        summary.running ||= status === "running";
+        continue;
+      }
+
+      const searchSubtype = searchToolSubtype(entry.item.toolName ?? entry.invocation?.name);
+      if (searchSubtype) {
+        rows.push({
+          kind: "search",
+          key: entry.key,
+          subtype: searchSubtype,
+          ...(callId ? { callId } : {}),
+          status,
+          ...(entryDuration(entry) !== undefined ? { durationMs: entryDuration(entry) } : {}),
+        });
+        summary.steps += 1;
+        summary.toolCalls += 1;
+        // 旧口径的 tools（非读取类工具）保持包含搜索类，避免既有摘要/测试语义漂移。
+        summary.tools += 1;
         if (status === "failed") summary.failed += 1;
         summary.running ||= status === "running";
         continue;
@@ -322,6 +430,7 @@ export function buildProcessPresentation(
         rows.push(TODO_TOOLS.has(name) ? { ...row, key: `todo-${entry.key}` } : row);
       }
       summary.steps += 1;
+      summary.toolCalls += 1;
       if (command) summary.commands += 1;
       else summary.tools += 1;
       if (status === "failed") summary.failed += 1;
@@ -379,6 +488,16 @@ export function groupProcessStages(entries: ProcessEntry[]): ProcessStage[] {
       stage.stepCount += 1;
       if (entry.kind === "reasoning") {
         stage.running ||= entry.message.active === true;
+        continue;
+      }
+      if (entry.kind === "retrieval") {
+        stage.running ||= entry.message.active === true;
+        stage.failed ||= entry.message.phase === "failed";
+        // 前置管线自带起止时刻：计入阶段跨度，让「只有前置检索」的阶段也算得出耗时。
+        const rStart = entry.message.startedAt;
+        const rEnd = entry.message.endedAt;
+        if (rStart !== undefined) firstTs = firstTs === undefined ? rStart : Math.min(firstTs, rStart);
+        if (rEnd !== undefined) lastTs = lastTs === undefined ? rEnd : Math.max(lastTs, rEnd);
         continue;
       }
       const running = toolEntryRunning(entry);

@@ -262,6 +262,8 @@ export function ResearchSettingsSection(): ReactElement {
           onChange={(v) => patch({ chatAutoRetrieve: v })}
           disabled={!settings.enabled}
         />
+        {/* 意图理解（发送前改写+意图分类）已是独立于研究引擎的一等公民功能，
+            「意图理解模型」在「Agent」设置页配置，不在本分区。 */}
         {/* 演示文稿联网与聊天一致，由会话栏 pill 按轮决定，不在全局设置里放第二个真源。 */}
         <FlagRow
           label="写作检索"

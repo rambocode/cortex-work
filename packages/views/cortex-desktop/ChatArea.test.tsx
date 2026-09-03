@@ -435,17 +435,17 @@ describe("个人会话过程时间线", () => {
       </CoreProvider>,
     );
 
-    // 回合开关只保留可扫描摘要；具体工具细节由完整过程面板负责。
+    // 回合开关只保留可扫描摘要（WeKnora 式「思考 N 轮 · 调用 N 次工具」）；具体工具细节由完整过程面板负责。
     const process = view.getByRole("button", {
-      name: /已处理.*读取了 1 个文件.*调用了 1 个工具/,
+      name: /已处理.*思考 1 轮.*调用 2 次工具/,
     });
     expect(process).toHaveAttribute("aria-expanded", "false");
     expect(view.queryByText("先定位消息渲染入口")).not.toBeInTheDocument();
     expect(view.queryByText("Read · src/chat.tsx")).not.toBeInTheDocument();
 
     const html = view.container.textContent ?? "";
-    expect(html.indexOf("检查会话过程")).toBeLessThan(html.indexOf("读取了 1 个文件"));
-    expect(html.indexOf("读取了 1 个文件")).toBeLessThan(html.indexOf("已经定位完成"));
+    expect(html.indexOf("检查会话过程")).toBeLessThan(html.indexOf("思考 1 轮"));
+    expect(html.indexOf("思考 1 轮")).toBeLessThan(html.indexOf("已经定位完成"));
 
     fireEvent.click(process);
     expect(process).toHaveAttribute("aria-expanded", "true");
@@ -453,7 +453,8 @@ describe("个人会话过程时间线", () => {
     const readRow = view.getByRole("button", { name: /读取 chat\.tsx/ });
     expect(view.queryByText(/old-turn/)).not.toBeInTheDocument();
     expect(view.queryByText(/transient-only-command/)).not.toBeInTheDocument();
-    expect(view.getByRole("button", { name: /执行命令/ })).toBeInTheDocument();
+    // grep 属搜索类工具：时间线上是「搜索文件」行（放大镜），不再落进「执行命令」兜底。
+    expect(view.getByRole("button", { name: /搜索文件/ })).toBeInTheDocument();
     fireEvent.click(readRow);
     expect(usePersonalStore.getState().processPanelOpenReq).toMatchObject({
       sessionId: "session-1",
@@ -555,7 +556,7 @@ describe("个人会话过程时间线", () => {
       </CoreProvider>,
     );
 
-    const process = view.getByRole("button", { name: /处理失败.*运行了 1 条命令/ });
+    const process = view.getByRole("button", { name: /处理失败.*调用 1 次工具/ });
     expect(process).toHaveAttribute("aria-expanded", "true");
     expect(view.getByRole("button", { name: /执行命令.*查看完整错误/ })).toBeInTheDocument();
   });
@@ -812,17 +813,19 @@ describe("历史轮过程归档（重开会话后仍可回看）", () => {
 
   it("归档轮渲染出摘要条，并插在它自己那条用户消息之后（不是流末尾）", () => {
     const view = renderWithArchive();
-    const head = view.getByRole("button", { name: /已处理 8\.8s.*运行了 1 条命令.*调用了 1 个工具/ });
+    const head = view.getByRole("button", { name: /已处理.*调用 2 次工具.*耗时 8\.8s/ });
     expect(head).toHaveAttribute("aria-expanded", "false"); // 历史轮恒为完成态，默认折叠
     const text = view.container.textContent ?? "";
-    expect(text.indexOf("第一轮问题")).toBeLessThan(text.indexOf("已处理 8.8s"));
-    expect(text.indexOf("已处理 8.8s")).toBeLessThan(text.indexOf("第一轮回答"));
+    expect(text.indexOf("第一轮问题")).toBeLessThan(text.indexOf("耗时 8.8s"));
+    expect(text.indexOf("耗时 8.8s")).toBeLessThan(text.indexOf("第一轮回答"));
   });
 
   it("归档轮展开后保持紧凑活动行，不内联渲染快照正文", () => {
     const view = renderWithArchive();
-    fireEvent.click(view.getByRole("button", { name: /已处理 8\.8s/ }));
-    expect(view.getAllByRole("button", { name: /执行命令/ })).toHaveLength(2);
+    fireEvent.click(view.getByRole("button", { name: /已处理.*耗时 8\.8s/ }));
+    // Bash → 执行命令；Grep → 搜索文件（搜索类工具新分类）。
+    expect(view.getByRole("button", { name: /执行命令/ })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: /搜索文件/ })).toBeInTheDocument();
     expect(view.queryByText(/\bls\b/)).not.toBeInTheDocument();
     expect(view.queryByText(/a\.ts/)).not.toBeInTheDocument();
     // 历史轮没有瞬态原始事件，「查看完整过程」入口不给（点开只会是空面板）。

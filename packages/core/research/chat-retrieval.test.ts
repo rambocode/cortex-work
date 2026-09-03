@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ResearchEngineSettings } from "./settings";
 import type { GatherResult } from "./quick-types";
 
-import { retrieveChatEvidence, shouldAutoRetrieve } from "./chat-retrieval";
+import { retrieveChatEvidence, retrieveChatEvidenceDetailed, shouldAutoRetrieve } from "./chat-retrieval";
 
 const ON: ResearchEngineSettings = {
   enabled: true,
@@ -182,5 +182,69 @@ describe("retrieveChatEvidence 不阻断发送", () => {
     });
     expect(result).toContain("已执行联网检索");
     expect(result).not.toContain("没有执行成功");
+  });
+});
+
+describe("retrieveChatEvidenceDetailed（结构化旁路）", () => {
+  it("功能关/无桥/空查询 → disabled + 无 append（与旧 undefined 语义一一对应）", async () => {
+    const off = await retrieveChatEvidenceDetailed({
+      gather: gatherOk([]),
+      settings: { ...ON, chatAutoRetrieve: false },
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(off).toEqual({ append: undefined, outcome: "disabled", documentCount: 0 });
+
+    const noBridge = await retrieveChatEvidenceDetailed({
+      gather: undefined,
+      settings: ON,
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(noBridge.outcome).toBe("disabled");
+  });
+
+  it("命中 N 条 → ok + documentCount，append 与旧函数逐字一致", async () => {
+    const gather = gatherOk([DOC]);
+    const detailed = await retrieveChatEvidenceDetailed({
+      gather,
+      settings: ON,
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(detailed.outcome).toBe("ok");
+    expect(detailed.documentCount).toBe(1);
+    const legacy = await retrieveChatEvidence({
+      gather: gatherOk([DOC]),
+      settings: ON,
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(detailed.append).toBe(legacy);
+  });
+
+  it("零结果 → empty（append 为零结果说明,非 undefined）", async () => {
+    const detailed = await retrieveChatEvidenceDetailed({
+      gather: gatherOk([]),
+      settings: ON,
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(detailed.outcome).toBe("empty");
+    expect(detailed.documentCount).toBe(0);
+    expect(detailed.append).toBeDefined();
+  });
+
+  it("gather 抛错 → failed（append 为故障说明）", async () => {
+    const detailed = await retrieveChatEvidenceDetailed({
+      gather: async () => {
+        throw new Error("网络失败");
+      },
+      settings: ON,
+      sessionWebSearch: true,
+      query: "q",
+    });
+    expect(detailed.outcome).toBe("failed");
+    expect(detailed.append).toContain("网络失败");
   });
 });

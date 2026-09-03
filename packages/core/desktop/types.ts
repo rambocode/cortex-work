@@ -627,6 +627,30 @@ export interface OpenAiCompleteRequest {
   prompt: string;
 }
 
+// 检索改写 + 意图分类的一次性小补全（`llm:queryUnderstand`）。
+// ⚠️ 与 apps/desktop/src/main/ipc/llm.ts 顶部的同名 interface 逐字镜像，改动两处必须同步。
+//
+// 为什么不复用 `llm:openaiComplete`：那条通道的契约是「单 user 消息、60s 超时、不传温度、
+// 悬空引用 = 阻断态」；改写需要 system/user 分离（供应商 prompt cache 命中）、0.3 低温、
+// 200 maxTokens、5s 硬超时，且**缺省模型引用 = 回落全局默认**而非阻断——语义差异塞进旧通道
+// 要加一堆可选字段并改变其悬空语义。专用通道让主进程把小额度参数写死，渲染端也无法把它
+// 当通用补全后门用。prompt 拼装与解析都在 core（renderer 侧）纯函数完成，主进程只发补全。
+export interface QueryUnderstandIpcRequest {
+  /// 缺省 = 主进程回落全局默认模型（getDefaultModelRef）；连默认也没有则返回 no-model。
+  providerId?: string;
+  modelId?: string;
+  /// 静态指令段（整段逐字节稳定，利于供应商 prompt cache）。
+  system: string;
+  /// 运行时上下文（历史 + 原文）。
+  user: string;
+}
+
+/// 结构化失败而非 throw 过桥：改写是锦上添花，调用方（chat-preflight）拿到 ok:false
+/// 一律按「未改写」降级，不需要也不应该收到异常。
+export type QueryUnderstandIpcResponse =
+  | { ok: true; content: string }
+  | { ok: false; reason: "no-model" | "error"; error?: string };
+
 // 个人工作区用户资料(昵称 + 头像:背景色 + 首字符/Emoji 两种模式)。
 // avatarId 仅为旧存档迁移保留,渲染层不再消费(见 personal/avatars.ts migrateProfile)。
 export interface PersonalProfile {
@@ -698,6 +722,12 @@ export interface GeneralSettings {
   // 新会话默认 agent;缺省 = 按安装情况派生（resolveDefaultAgent / defaultAgent）。
   // 落地页激励文案的每日 LLM 增强也基于此 agent 生成。
   defaultAgent?: AgentKind;
+  // 意图理解模型（发送前「改写+意图分类」,一等公民功能,每次发送默认生效）。Catalog 引用,
+  // 留空 = 主进程 llm:queryUnderstand 回落全局默认模型。仅 renderer 发送边界消费
+  // （模型 ref 随 IPC 入参逐次过桥）,主进程不读持久化,不进 main 镜像。
+  // 显式 `| undefined` 是刻意的:exactOptionalPropertyTypes 下允许 setGeneralSettings 传
+  // `{ queryUnderstandModel: undefined }` 清空引用（回到「跟随全局默认」）。
+  queryUnderstandModel?: { providerId: string; modelId: string } | undefined;
   desktopBehavior: DesktopBehavior;
   notifications: NotificationSettings;
   log: LogSettings;

@@ -470,3 +470,29 @@ describe("设置菜单分组 + 应用/浏览器分区", () => {
     expect(screen.getByRole("button", { name: "语音" })).toBeTruthy();
   });
 });
+
+describe("Agent 分区 · 意图理解模型（一等公民，恒显示）", () => {
+  beforeEach(() => {
+    usePersonalStore.setState({ settingsOpen: true, profile: {} });
+  });
+  afterEach(() => cleanup());
+
+  it("切到「Agent」分区即出现「意图理解模型」，无任何显隐条件", () => {
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByText("意图理解模型")).toBeTruthy();
+  });
+
+  it("已配置引用时「改回跟随全局默认」清空 generalSettings.queryUnderstandModel", () => {
+    usePersonalStore.setState((s) => ({
+      generalSettings: {
+        ...s.generalSettings,
+        queryUnderstandModel: { providerId: "p1", modelId: "m1" },
+      },
+    }));
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "改回跟随全局默认" }));
+    expect(usePersonalStore.getState().generalSettings.queryUnderstandModel).toBeUndefined();
+  });
+});

@@ -232,6 +232,29 @@ export type Message =
       uid?: string;
     }
   | {
+      // 发送路径前置管线（改写+意图分类+联网检索）的过程流投影。仅进瞬态过程流
+      // (personalProcessKeys.detail)，由发送路径在 agent run 开始前写入并按同 uid 原位更新，
+      // 作为本轮过程时间线的首节点（「正在理解问题…→检索到 N 条 / 已跳过检索」）。
+      kind: "retrieval";
+      who: string;
+      time: string;
+      /** 状态机：understanding → searching → done | skipped | failed；searching 可被跳过直达终态。 */
+      phase: "understanding" | "searching" | "done" | "skipped" | "failed";
+      /** done 时必带：命中的资料条数（0 也是合法终态）。 */
+      resultCount?: number;
+      /** skipped 时必带：意图分类判定无需检索的原因。 */
+      skipReason?: "greeting" | "chitchat" | "follow_up";
+      /** failed 的一句话错误；原始错误详情不入聊天流。 */
+      error?: string;
+      /** 改写后的检索查询。行内不展示（过程规格 §2），预留给过程面板。 */
+      query?: string;
+      startedAt?: number;
+      endedAt?: number;
+      /** 与 reasoning 同语义：非终态 true，终态必须置 false（时间线绝不留悬挂 spinner）。 */
+      active?: boolean;
+      uid?: string;
+    }
+  | {
       // 圆桌编排角色切换标题，出现在聊天正文流中（区别于 stageTitle 仅过程流）。
       // 由 roundtable.ts 的 init[roleId] 事件转化，标记后续文本来自哪个角色。
       kind: "roleHeader";

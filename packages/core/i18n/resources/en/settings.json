@@ -640,7 +640,11 @@
     "availabilityCard": "Availability",
     "builtin": "Built-in",
     "installed": "Installed",
-    "notDetected": "CLI not detected"
+    "notDetected": "CLI not detected",
+    "queryUnderstandCard": "Intent understanding",
+    "queryUnderstandLabel": "Intent understanding model",
+    "queryUnderstandHint": "Used before each message to understand intent and rewrite the question; leave empty to use the global default model.",
+    "queryUnderstandReset": "Reset to global default"
   },
   "subagents": {
     "title": "Sub-agents",

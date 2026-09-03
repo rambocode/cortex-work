@@ -167,7 +167,7 @@ export function runTimeSpan(
 }
 
 // 过程消息落归档前的清理:
-//  - 只留 agentLog / reasoning / stageTitle(其余不属于过程流);
+//  - 只留 agentLog / reasoning / stageTitle / retrieval(其余不属于过程流);
 //  - active/流式中间态归一为完成态(快照语义,历史轮不该有转圈);
 //  - reasoning 正文截断(长思考流是撑大文件的主因)。
 function sanitizeProcessMessages(messages: Message[]): Message[] {
@@ -184,6 +184,14 @@ function sanitizeProcessMessages(messages: Message[]): Message[] {
       });
     } else if (message.kind === "stageTitle") {
       kept.push(message);
+    } else if (message.kind === "retrieval") {
+      // 轮已结束仍停在非终态 = 前置管线被中断:诚实归一为 failed,不臆造成功(快照里不许有转圈)。
+      const terminal = message.phase === "done" || message.phase === "skipped" || message.phase === "failed";
+      kept.push(
+        terminal
+          ? { ...message, active: false }
+          : { ...message, phase: "failed", error: "interrupted", active: false },
+      );
     }
   }
   return kept;

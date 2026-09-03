@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { audioSpeechPayload, audioSpeechUrl, audioVoiceUrls } from "./push-sign";
 import { postChatCompletion } from "./openai-chat";
+import { getDefaultModelRef } from "../providers/default-model";
 // OQ4：在线转写逻辑已抽取为共享函数（capabilities/asr/online-transcribe.ts），
 // asr:transcribe（旧入口）与 stt:transcribe 在线分支（新入口）均调用它，
 // 确保 MAX_BYTES 约束与行为一致。
@@ -35,6 +36,26 @@ interface OpenAiCompleteRequest {
   modelId: string;
   prompt: string;
 }
+
+/**
+ * `llm:queryUnderstand` 的入参/出参（检索改写 + 意图分类的一次性小补全）。
+ * ⚠️ 与 `packages/core/desktop/types.ts` 的 `QueryUnderstandIpcRequest/Response` 逐字镜像。
+ *
+ * 与 `llm:openaiComplete` 的语义差异（因此单开通道）：system/user 分离（供应商 prompt cache）、
+ * 0.3 低温、200 maxTokens、5s 硬超时；且**缺省模型引用 = 回落全局默认**（getDefaultModelRef），
+ * 连默认也没有才返回 no-model——fail-open，绝不阻断发送路径。小额度参数在主进程写死，
+ * 渲染端无法把它当通用补全后门。
+ */
+interface QueryUnderstandIpcRequest {
+  providerId?: string;
+  modelId?: string;
+  system: string;
+  user: string;
+}
+
+type QueryUnderstandIpcResponse =
+  | { ok: true; content: string }
+  | { ok: false; reason: "no-model" | "error"; error?: string };
 
 const TIMEOUT_MS = 60_000;
 const TTS_STREAM_TIMEOUT_MS = 10 * 60_000;
@@ -77,6 +98,61 @@ function parseVoiceOptions(data: unknown): TtsVoiceOption[] {
 // 在途 TTS 流式请求(streamId → 中止句柄):tts:cancelStreams 据此把取消传导到上游服务。
 const activeTtsStreams = new Map<string, AbortController>();
 
+/// queryUnderstand 的超时与额度：改写只输出一行 JSON（intent + ≤30 词查询），
+/// 200 token 富余；5s 与语音意图分类器同档——超过它就该按「未改写」降级而不是拖住发送。
+const QUERY_UNDERSTAND_TIMEOUT_MS = 5_000;
+const QUERY_UNDERSTAND_MAX_TOKENS = 200;
+const QUERY_UNDERSTAND_TEMPERATURE = 0.3;
+
+/// 可注入 deps（仿 voice-intent understand.ts）：handler 本体只有装配，逻辑在这里可被单测。
+export interface QueryUnderstandHandlerDeps {
+  complete(params: {
+    providerId: string;
+    modelId: string;
+    messages: Array<{ role: "system" | "user"; content: string }>;
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+  }): Promise<string>;
+  defaultRef(): Promise<{ providerId: string; modelId: string } | null>;
+}
+
+const REAL_QUERY_UNDERSTAND_DEPS: QueryUnderstandHandlerDeps = {
+  complete: (params) => postChatCompletion(params),
+  defaultRef: getDefaultModelRef,
+};
+
+/// 执行一次检索改写补全。失败一律结构化返回（绝不 throw 过桥）：
+/// 调用方（renderer 的 chat-preflight）拿到 ok:false 按「未改写」降级，异常语义在这里终结。
+export async function handleQueryUnderstand(
+  req: QueryUnderstandIpcRequest,
+  deps: QueryUnderstandHandlerDeps = REAL_QUERY_UNDERSTAND_DEPS,
+): Promise<QueryUnderstandIpcResponse> {
+  // 显式引用优先；两段缺任一即视为未配置，回落全局默认模型（与设置 UI「留空=跟随默认」对应）。
+  const explicit =
+    req.providerId?.trim() && req.modelId?.trim()
+      ? { providerId: req.providerId.trim(), modelId: req.modelId.trim() }
+      : null;
+  const ref = explicit ?? (await deps.defaultRef().catch(() => null));
+  if (!ref) return { ok: false, reason: "no-model" };
+  try {
+    const content = await deps.complete({
+      providerId: ref.providerId,
+      modelId: ref.modelId,
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.user },
+      ],
+      temperature: QUERY_UNDERSTAND_TEMPERATURE,
+      maxTokens: QUERY_UNDERSTAND_MAX_TOKENS,
+      timeoutMs: QUERY_UNDERSTAND_TIMEOUT_MS,
+    });
+    return { ok: true, content };
+  } catch (error) {
+    return { ok: false, reason: "error", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function registerLlmHandlers(): void {
   ipcMain.handle("llm:openaiComplete", async (_e, req: OpenAiCompleteRequest) => {
     // 请求/错误契约收敛在 openai-chat.ts（现已改架在 Pi Model Gateway 之上）；
@@ -89,6 +165,13 @@ export function registerLlmHandlers(): void {
     });
     return content.trim();
   });
+
+  // 检索改写 + 意图分类（前置检索管线）。逻辑在 handleQueryUnderstand（可注入 deps 单测）。
+  ipcMain.handle(
+    "llm:queryUnderstand",
+    async (_e, req: QueryUnderstandIpcRequest): Promise<QueryUnderstandIpcResponse> =>
+      handleQueryUnderstand(req),
+  );
 
   // TTS：OpenAI 兼容 /v1/audio/speech,返回音频字节流（mp3）。
   ipcMain.handle("tts:synthesize", async (_e, req: TtsSynthesizeRequest) => {
