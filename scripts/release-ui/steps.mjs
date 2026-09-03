@@ -259,9 +259,17 @@ export function buildSteps() {
           if (!fs.readdirSync(ctx.stageDir).some((f) => re.test(f))) throw new Error(`缺产物：${re}`);
         }
 
+        // Release 必须在整个上传期保持 draft。即使 latest-mac.yml 排在最后，公开 Release
+        // 仍会被 electron-updater 发现并请求清单；这段窗口内会稳定报 404。
         const exists = await ctx.run.capture("gh", ["release", "view", ctx.tag, "--repo", REPO], { env });
         if (!exists.ok) {
-          await ctx.run.exec("gh", ["release", "create", ctx.tag, "--repo", REPO, "--title", ctx.tag.replace(/^v/, ""), "--notes-file", notes], { env });
+          await ctx.run.exec("gh", ["release", "create", ctx.tag, "--repo", REPO, "--title", ctx.tag.replace(/^v/, ""), "--notes-file", notes, "--draft"], { env });
+        } else {
+          // 已公开版本无法安全续传：客户端可能已经读取到缺失或旧的更新清单。
+          const draft = await ctx.run.capture("gh", ["release", "view", ctx.tag, "--repo", REPO, "--json", "isDraft", "--jq", ".isDraft"], { env });
+          if (!draft.ok || draft.stdout !== "true") {
+            throw new Error(`Release ${ctx.tag} 已公开，不能继续上传更新包；请使用新的版本号。`);
+          }
         }
 
         // 逐个上传而不是一次传完:单个 zip 有数百 MB,一次性传完时任何一个连接被重置都会让
@@ -271,7 +279,8 @@ export function buildSteps() {
         // 所有安装包都已传完,否则抢先更新的用户会撞上 404。
         assets.sort((a, b) => Number(a.endsWith("latest-mac.yml")) - Number(b.endsWith("latest-mac.yml")));
 
-        const relId = (await ctx.run.capture("gh", ["api", `repos/${REPO}/releases/tags/${ctx.tag}`, "--jq", ".id"], { env })).stdout;
+        // GitHub 的 releases/tags API 不返回 draft；gh release view 同时支持 draft 与公开 Release。
+        const relId = (await ctx.run.capture("gh", ["release", "view", ctx.tag, "--repo", REPO, "--json", "databaseId", "--jq", ".databaseId"], { env })).stdout;
         if (!relId) throw new Error("取不到 release id");
 
         for (const [i, asset] of assets.entries()) {
@@ -357,6 +366,8 @@ export function buildSteps() {
         if (missing.length) throw new Error(`发布校验失败，以下资产不完整：${missing.join("、")}`);
 
         ctx.run.log(`✓ 全部 ${assets.length} 个资产校验通过（名称/大小/state 均一致）`, "ok");
+        // 清单和全部安装包均已确认落盘后才公开，避免更新客户端观察到半成品 Release。
+        await ctx.run.exec("gh", ["release", "edit", ctx.tag, "--repo", REPO, "--draft=false", "--latest"], { env });
         ctx.run.log(`✓ 已发布 ${ctx.tag}(macOS arm64 + x64) → https://github.com/${REPO}/releases/tag/${ctx.tag}`, "ok");
       },
     },

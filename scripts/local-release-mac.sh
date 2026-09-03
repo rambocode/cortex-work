@@ -112,8 +112,13 @@ for pattern in "*-arm64.zip" "*-arm64.zip.blockmap" "*-x64.zip" "*-x64.zip.block
 done
 
 if ! gh release view "$BUILD_TAG" --repo "$REPO" >/dev/null 2>&1; then
-  gh release create "$BUILD_TAG" --repo "$REPO" --title "${BUILD_TAG#v}" --notes-file "$NOTES"
+  # 上传期保持 draft：公开 Release 会被 updater 立即发现，此时 latest-mac.yml 尚未上传会导致 404。
+  gh release create "$BUILD_TAG" --repo "$REPO" --title "${BUILD_TAG#v}" --notes-file "$NOTES" --draft
+elif [[ "$(gh release view "$BUILD_TAG" --repo "$REPO" --json isDraft --jq '.isDraft')" != "true" ]]; then
+  echo "✗ Release $BUILD_TAG 已公开，不能继续上传更新包；请使用新的版本号。" >&2
+  exit 1
 fi
 gh release upload "$BUILD_TAG" --repo "$REPO" --clobber \
   "$STAGE"/*.zip "$STAGE"/*.zip.blockmap "$STAGE/latest-mac.yml"
+gh release edit "$BUILD_TAG" --repo "$REPO" --draft=false --latest
 echo "✓ 已发布 ${BUILD_TAG}(macOS arm64 + x64)到 https://github.com/$REPO/releases/tag/$BUILD_TAG"
