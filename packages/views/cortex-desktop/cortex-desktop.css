@@ -14776,6 +14776,8 @@ button.sb-row {
   to { opacity: 1; transform: none; }
 }
 .pw-conversation-process-activity {
+  /* relative 是为了把状态图标绝对定位挂到左侧竖线轨道上（WeKnora 式节点图标）。 */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -14791,6 +14793,10 @@ button.sb-row {
   cursor: pointer;
   user-select: none;
 }
+/* 终点「完成」行是纯展示 div，不参与点击。 */
+.pw-conversation-process-activity[data-kind="complete"] { cursor: default; }
+.pw-conversation-process-activity[data-kind="complete"] .pw-conversation-process-item-state { color: var(--pcm-success); }
+.pw-conversation-process-activity[data-kind="complete"] .pw-conversation-process-activity-label { color: var(--pcm-meta); }
 .pw-conversation-process-activity:hover:not(:disabled) { color: var(--pcm-text); }
 .pw-conversation-process-activity:disabled { cursor: default; }
 .pw-conversation-process-activity:focus-visible {
@@ -14825,10 +14831,19 @@ button.sb-row {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 状态图标挂上竖线轨道：容器 padding-left 24px + 2px 线宽，线中轴在内容区 x=-25px；
+   图标槽 12px 宽 → left = -31px 恰好居中骑线。不透明底色把穿过图标的竖线遮干净——
+   底色必须与聊天中栏背景同源（--pw-workspace-surface，亮/暗主题都由它决定），不能用面板色。 */
 .pw-conversation-process-item-state {
+  position: absolute;
+  left: -31px;
+  top: 5px;
   display: inline-flex;
-  flex: none;
-  color: var(--pcm-success);
+  width: 12px;
+  justify-content: center;
+  padding: 3px 0;
+  background: var(--pw-workspace-surface);
+  color: var(--pcm-meta-2);
 }
 .pw-conversation-process-activity[data-error="true"] .pw-conversation-process-item-state { color: var(--pcm-danger); }
 .pw-conversation-process-item-time {
@@ -14856,13 +14871,15 @@ button.sb-row {
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
-.pw-conversation-process-live {
+/* 运行中扫光文字（WeKnora 同款节奏 1.5s）：折叠头运行态、运行中工具行与流式思考正文共用。 */
+.pw-conversation-process-live,
+.pw-conversation-process-reasoning-text.is-live {
   color: transparent;
   background: linear-gradient(90deg, var(--pcm-meta) 15%, var(--pcm-text) 50%, var(--pcm-meta) 85%);
   background-size: 220% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  animation: pw-process-shine 1.8s linear infinite;
+  animation: pw-process-shine 1.5s linear infinite;
 }
 @keyframes pw-process-shine { to { background-position: -220% 0; } }
 
@@ -14879,7 +14896,14 @@ button.sb-row {
 .pw-conversation-process-more:hover { color: var(--pcm-accent-hover); text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 扫光降级为实色：光停掉动画还留着渐变会呈现一条冻结的明暗带，比实色更像渲染故障。 */
   .pw-conversation-process-live,
+  .pw-conversation-process-reasoning-text.is-live {
+    animation: none;
+    background: none;
+    color: var(--pcm-text-2);
+  }
+  .pw-conversation-process-reasoning-text.is-live { color: var(--pcm-thinking); }
   .pw-conversation-process-spinner { animation: none; }
   .pw-conversation-process-list { animation: none; }
 }

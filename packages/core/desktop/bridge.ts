@@ -73,6 +73,8 @@ import type {
   StageTemplate,
   Member,
   OpenAiCompleteRequest,
+  QueryUnderstandIpcRequest,
+  QueryUnderstandIpcResponse,
   PersistedState,
   VoiceSettings,
   PiOpenRequest,
@@ -432,6 +434,9 @@ export interface DesktopBridge {
   }): Promise<string>;
   // OpenAI 兼容端点一次性补全（自定义日报模型;主进程发请求,密钥不出 main）
   openaiComplete(req: OpenAiCompleteRequest): Promise<string>;
+  // 检索改写 + 意图分类的一次性小补全（前置检索管线用;5s 超时/低温/限额由主进程写死）。
+  // 可选：web/旧壳无此方法 → chat-preflight 降级为不改写、原文进检索。
+  queryUnderstand?(req: QueryUnderstandIpcRequest): Promise<QueryUnderstandIpcResponse>;
   // ── Provider Catalog / 认证 / Model Gateway ────────────────────────────────
   // 类型见 ./provider-catalog.ts（主进程侧镜像 apps/desktop/src/main/providers/contract.ts）。
   // 三条红线：① 模型能力来自 Pi 内置目录、对用户只读；② 明文/密文凭据永不过桥，renderer

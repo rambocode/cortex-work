@@ -103,6 +103,9 @@ export interface ResearchEngineSettings {
   /// 同样是原新建表单上的勾选项。默认关闭：它会把本机记忆正文送进研究流程并可能随证据
   /// 发给云端模型，属于数据出站语义，与本文件其它出站开关一样必须用户显式开启。
   includeMemoryScope?: boolean;
+  // 注：意图理解（发送前「改写+意图分类」）已是独立于研究引擎的一等公民功能，模型引用在
+  // GeneralSettings.queryUnderstandModel（Agent 设置页），不在本切片。旧持久化档里的
+  // chatQueryUnderstand / queryUnderstandProviderId / queryUnderstandModelId 键经白名单重建自然丢弃。
 }
 
 /// 归一化之后的设置：研究默认档两项在这里是**非可选**的。

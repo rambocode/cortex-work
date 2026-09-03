@@ -322,6 +322,14 @@ export const Icon = {
       <path d="M8 12l3 3 5-5" />
     </IconBase>
   ),
+  // Lightbulb：灯泡（过程时间线的「思考」节点图标，lucide 线稿风）
+  Lightbulb: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M15 14c.2-1 .7-1.7 1.5-2.5a5.5 5.5 0 1 0-9 0c.8.8 1.3 1.5 1.5 2.5" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+    </IconBase>
+  ),
   // Circle：空心圆（任务「活动 / 未开始」状态标识，圆形状态族之首）
   Circle: (p: IconProps) => (
     <IconBase {...p}>

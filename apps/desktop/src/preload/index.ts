@@ -472,6 +472,9 @@ const personal = {
   // 阶段③·4.1 收编：寻址改为 Catalog 引用，明文 apiKey 不再过桥（凭据由主进程从金库取）。
   openaiComplete: (req: { providerId: string; modelId: string; prompt: string }): Promise<string> =>
     ipcRenderer.invoke("llm:openaiComplete", req),
+  // 检索改写 + 意图分类（前置检索管线;结构化返回,失败不 throw）。
+  queryUnderstand: (req: { providerId?: string; modelId?: string; system: string; user: string }) =>
+    ipcRenderer.invoke("llm:queryUnderstand", req),
 
   // ── Provider Catalog / 认证 / Model Gateway（跨进程契约见 main/providers/contract.ts）──
   // Catalog 只读、不含秘密；认证只回 configured/type/source/error，明文与密文永不过桥；

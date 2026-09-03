@@ -218,7 +218,7 @@ describe("buildProcessPresentation", () => {
     expect(rows?.some((row) => "label" in row && /git status|pnpm typecheck/.test(row.label))).toBe(false);
   });
 
-  it("读取、修改、删除只保留文件名，其它工具统一投影为执行命令", () => {
+  it("读取、修改、删除只保留文件名，搜索类工具单列，其余仍投影为执行命令", () => {
     const entries = buildProcessEntries(
       [log([
         { text: "Read source", toolName: "Read", ic: "check" },
@@ -242,9 +242,127 @@ describe("buildProcessPresentation", () => {
       { kind: "read-group", labels: ["chat.tsx"] },
       { kind: "file", action: "modify", label: "chat.tsx" },
       { kind: "file", action: "delete", label: "chat-old.ts" },
-      { kind: "command", action: "execute" },
+      { kind: "search", subtype: "files" },
     ]);
     expect(JSON.stringify(rows)).not.toContain("/repo/");
     expect(JSON.stringify(rows)).not.toContain("private-pattern");
+  });
+
+  it("搜索类工具按子类分类：文件/联网/知识库/兜底，MCP 前缀经归一化后也能命中", () => {
+    const items = [
+      { text: "grep", toolName: "Grep", ic: "check" as const },
+      { text: "web", toolName: "web_search", ic: "check" as const },
+      { text: "kb", toolName: "mcp__kb__kb_ask", ic: "check" as const },
+      { text: "custom", toolName: "custom_search", ic: "check" as const },
+    ];
+    const rows = buildProcessPresentation(groupProcessStages(buildProcessEntries([log(items)], []))).stages[0]?.rows;
+    expect(rows).toMatchObject([
+      { kind: "search", subtype: "files" },
+      { kind: "search", subtype: "web" },
+      { kind: "search", subtype: "kb" },
+      { kind: "search", subtype: "generic" },
+    ]);
+  });
+
+  it("thinkingRounds 按被工具隔开的思考段计：连续增量算 1 轮，思考→工具→思考算 2 轮", () => {
+    const streaming: Message[] = [
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r1", text: "a", active: false },
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r2", text: "ab", active: false },
+    ];
+    const one = buildProcessPresentation(groupProcessStages(buildProcessEntries(streaming, [])));
+    expect(one.summary.thinkingRounds).toBe(1);
+
+    const twoRounds: Message[] = [
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r1", text: "a", active: false },
+      log([{ text: "Bash", toolName: "Bash", ic: "check" }]),
+      { kind: "reasoning", who: "pi", time: "10:01", uid: "r2", text: "b", active: false },
+    ];
+    const two = buildProcessPresentation(groupProcessStages(buildProcessEntries(twoRounds, [])));
+    expect(two.summary.thinkingRounds).toBe(2);
+  });
+
+  it("toolCalls 按真实调用次数计：读取 2 次 + 命令 1 + 搜索 1 = 4（读取聚合展示不影响计数）", () => {
+    const messages: Message[] = [
+      log([
+        { text: "Read a", toolName: "Read", ic: "check" },
+        { text: "Read b", toolName: "Read", ic: "check" },
+        { text: "Bash", toolName: "Bash", ic: "check" },
+        { text: "Grep", toolName: "Grep", ic: "check" },
+      ]),
+    ];
+    const presentation = buildProcessPresentation(groupProcessStages(buildProcessEntries(messages, [])));
+    expect(presentation.summary.toolCalls).toBe(4);
+  });
+
+  it("retrieval 节点：五个 phase 投影正确，skipped 不计 toolCalls，运行中让阶段 running 置位", () => {
+    const retrieval = (phase: "understanding" | "searching" | "done" | "skipped" | "failed", extra?: object): Message =>
+      ({
+        kind: "retrieval",
+        who: "pi",
+        time: "10:00",
+        uid: `rt-${phase}`,
+        phase,
+        active: phase === "understanding" || phase === "searching",
+        ...extra,
+      }) as Message;
+
+    const running = groupProcessStages(buildProcessEntries([retrieval("understanding")], []));
+    expect(running[0]?.running).toBe(true);
+    const runningRows = buildProcessPresentation(running);
+    expect(runningRows.stages[0]?.rows).toMatchObject([{ kind: "retrieval", phase: "understanding", status: "running" }]);
+    expect(runningRows.summary.running).toBe(true);
+
+    const done = buildProcessPresentation(
+      groupProcessStages(
+        buildProcessEntries([retrieval("done", { resultCount: 3, startedAt: 1_000, endedAt: 2_500 })], []),
+      ),
+    );
+    expect(done.stages[0]?.rows).toMatchObject([
+      { kind: "retrieval", phase: "done", status: "done", resultCount: 3, durationMs: 1_500 },
+    ]);
+    expect(done.summary.toolCalls).toBe(1);
+
+    // done 无 resultCount = 只做了意图理解、没走联网检索（检索链路未开启时的正常终态）。
+    const understoodOnly = buildProcessPresentation(
+      groupProcessStages(buildProcessEntries([retrieval("done", { startedAt: 1_000, endedAt: 1_400 })], [])),
+    );
+    const understoodRow = understoodOnly.stages[0]?.rows[0];
+    expect(understoodRow).toMatchObject({ kind: "retrieval", phase: "done", status: "done", durationMs: 400 });
+    expect(understoodRow && "resultCount" in understoodRow).toBe(false);
+    // 没发生检索就不计入「调用 N 次工具」，口径与 skipped 一致。
+    expect(understoodOnly.summary.toolCalls).toBe(0);
+
+    const skipped = buildProcessPresentation(
+      groupProcessStages(buildProcessEntries([retrieval("skipped", { skipReason: "chitchat" })], [])),
+    );
+    expect(skipped.stages[0]?.rows).toMatchObject([
+      { kind: "retrieval", phase: "skipped", status: "done", skipReason: "chitchat" },
+    ]);
+    expect(skipped.summary.toolCalls).toBe(0);
+
+    const failed = buildProcessPresentation(
+      groupProcessStages(buildProcessEntries([retrieval("failed", { error: "timeout" })], [])),
+    );
+    expect(failed.stages[0]?.rows).toMatchObject([{ kind: "retrieval", phase: "failed", status: "failed" }]);
+    expect(failed.summary.failed).toBe(1);
+    expect(failed.summary.toolCalls).toBe(1);
+  });
+
+  it("retrieval 消息按序投影为首节点（发送路径保证其为过程流第一条）", () => {
+    const messages: Message[] = [
+      {
+        kind: "retrieval",
+        who: "pi",
+        time: "10:00",
+        uid: "rt-1",
+        phase: "done",
+        resultCount: 2,
+        active: false,
+      } as Message,
+      { kind: "reasoning", who: "pi", time: "10:00", uid: "r1", text: "想", active: false },
+    ];
+    const rows = buildProcessPresentation(groupProcessStages(buildProcessEntries(messages, []))).stages[0]?.rows;
+    expect(rows?.[0]).toMatchObject({ kind: "retrieval", phase: "done" });
+    expect(rows?.[1]).toMatchObject({ kind: "reasoning" });
   });
 });

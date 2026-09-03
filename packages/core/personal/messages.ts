@@ -65,8 +65,11 @@ import {
   unregisterSubagentChildStream,
   type SubagentStreamState,
 } from "./subagent-stream";
-// 会话内前置检索（可选开关）：发送前联网抓一次资料，失败静默降级，见其文件头。
-import { retrieveChatEvidence } from "../research/chat-retrieval";
+// 会话内前置管线（可选开关）：发送前先「改写+意图分类」（可跳过检索省 token），再联网抓资料，
+// 失败静默降级，见 chat-preflight 文件头。时间线条目状态机在 ./retrieval-status。
+import { runChatPreflight } from "../research/chat-preflight";
+import { extractRecentHistoryTurns } from "../research/query-understand";
+import { beginRetrievalTimeline } from "./retrieval-status";
 
 // 写类工具的 detail 携带目标路径。只在相对项目根可确定时裁剪前缀；截断内容不可信，不能误记为文件名。
 const WRITE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit|apply_patch|str_replace_editor)$/i;
@@ -4744,17 +4747,34 @@ export function usePersonalActions(): PersonalActions {
       const attachmentPrompt = buildAttachmentSystemPrompt(attachments);
       const docPrompt = docRefs ? buildDocFilesSystemPrompt(docRefs) : undefined;
       const globalAppend = buildGlobalAppend();
-      // 会话内前置检索（可选，默认关）：需要「该会话开了联网」+ 全局「总是先检索再回答」两者
-      // 同时成立，才在每轮发送前先联网抓一次资料并注入 system prompt。
+      // 会话内前置管线：意图理解（改写+意图分类）是**一等公民**，桥存在即每轮默认跑，
+      // 不受研究引擎任何开关限制；联网检索是其可选下游（「会话联网」+「总是先检索」成立才 gather）。
       // **必须在这里 await 而不是并进 buildGlobalAppend**：后者是同步函数，被三处调用，
-      // 改成异步会波及整条发送链路；而检索本身只在 chat 的这一个发送点需要。
-      // 失败/超时静默降级（见 retrieveChatEvidence 的注释），绝不阻断本轮发送。
-      const evidenceAppend = await retrieveChatEvidence({
+      // 改成异步会波及整条发送链路；而前置管线只在 chat 的这一个发送点需要。
+      // 失败/超时静默降级（见 chat-preflight 的失败矩阵），绝不阻断本轮发送。
+      // 时间线条目：首个状态事件才创建（understand 与检索都不具备 = 无条目），写入瞬态过程流；
+      // finalize 兜底把中断轮收敛成终态，时间线不留悬挂 spinner。
+      const retrievalTimeline = beginRetrievalTimeline(
+        (updater) => setProcessMessages(qc, session.id, updater),
+        session.agent,
+      );
+      const preflight = await runChatPreflight({
         gather: bridge.research?.gather?.bind(bridge.research),
+        complete: bridge.queryUnderstand?.bind(bridge),
+        // 意图理解模型（一等公民,Agent 设置页）;研究引擎 settings 仅用于判断检索链路。
+        modelRef: usePersonalStore.getState().generalSettings.queryUnderstandModel,
         settings: usePersonalStore.getState().generalSettings.researchEngine,
         sessionWebSearch: session.webSearch === true,
         query: text,
+        // 历史取自消息缓存（上方 ensureChatLoaded 已加载）；本轮刚 append 的用户消息是
+        // 尾部悬挂条，被 extractRecentHistoryTurns 的配对规则天然排除。
+        history: extractRecentHistoryTurns(qc.getQueryData<Message[]>(personalChatKeys.detail(session.id)) ?? []),
+        hasAttachments: attachments.length > 0 || !!docRefs,
+        onStatus: (status) => retrievalTimeline.update(status),
       });
+      retrievalTimeline.finalize();
+      const evidenceAppend = preflight.evidenceAppend;
+      const intentHintAppend = preflight.intentHintAppend;
       // 活动目标是会话级执行约束，必须同时进入 CLI fresh turn 与 Pi 长驻 RPC 两条发送链。
       // paused/complete/blocked 等状态由 builder 直接返回 undefined，暂停后下一轮不会再看到目标。
       const goalAppend = session.goal ? buildGoalSystemPrompt(session.goal) : undefined;
@@ -4769,8 +4789,9 @@ export function usePersonalActions(): PersonalActions {
       // prompt,附件走 append 只在拖入那一轮生效,续轮 skill 指令即丢失 → 经 buildTurnPromptText 并入
       // prompt 文本随历史持久。
       // 证据段排在最后：它是本轮一次性资料，优先级低于全局指令与记忆（那两者是长期约束）。
+      // intentHintAppend 与 evidenceAppend 互斥（chat-preflight 结构保证），同占末位。
       const appendSystemPrompt =
-        [globalAppend, workspaceAppend, goalAppend, extraSystemPrompt, docPrompt, evidenceAppend]
+        [globalAppend, workspaceAppend, goalAppend, extraSystemPrompt, docPrompt, evidenceAppend, intentHintAppend]
           .filter(Boolean)
           .join("\n\n") || undefined;
       // pi 例外:RPC 长驻会话,注入前缀随进程内历史持久,维持既有「附件并入 append 前缀」行为
@@ -4778,7 +4799,7 @@ export function usePersonalActions(): PersonalActions {
       // pi 不带 workspaceAppend:它是长驻会话,工作目录已在 buildPiOpenForSession 里进了**会话级**
       // system prompt（cwd 冻结于 open,改则重开）。每轮再带一份纯属重复付费。
       const piAppendSystemPrompt =
-        [globalAppend, goalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend]
+        [globalAppend, goalAppend, extraSystemPrompt, attachmentPrompt, docPrompt, evidenceAppend, intentHintAppend]
           .filter(Boolean)
           .join("\n\n") || undefined;
       // claude/codex 单发与编排:附件块前缀进 prompt 文本(run.promptText / 显示层仍存原始 text)。

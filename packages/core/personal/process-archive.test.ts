@@ -101,6 +101,46 @@ describe("buildTurnArchive", () => {
     expect(archive.endedAt).toBe(777);
   });
 
+  it("retrieval 终态消息被归档保留并归一 active=false", () => {
+    const archive = buildTurnArchive({
+      runId: "run-1",
+      processMessages: [
+        {
+          kind: "retrieval",
+          who: "pi",
+          time: "10:00",
+          uid: "rt-1",
+          phase: "done",
+          resultCount: 3,
+          active: false,
+        } as Message,
+        ...processMessages,
+      ],
+      events: [],
+      fallbackTs: 1,
+    })!;
+    const retrieval = archive.messages[0]!;
+    expect(retrieval).toMatchObject({ kind: "retrieval", phase: "done", resultCount: 3, active: false });
+  });
+
+  it("retrieval 非终态（轮已结束仍在 understanding/searching）被 coerce 为 failed/interrupted，不臆造成功", () => {
+    const archive = buildTurnArchive({
+      runId: "run-1",
+      processMessages: [
+        { kind: "retrieval", who: "pi", time: "10:00", uid: "rt-1", phase: "searching", active: true } as Message,
+        ...processMessages,
+      ],
+      events: [],
+      fallbackTs: 1,
+    })!;
+    expect(archive.messages[0]).toMatchObject({
+      kind: "retrieval",
+      phase: "failed",
+      error: "interrupted",
+      active: false,
+    });
+  });
+
   it("超长工具输出与思考正文按上限截断（归档是可丢数据，不能撑爆文件）", () => {
     const longOutput = "x".repeat(MAX_ARCHIVED_OUTPUT + 500);
     const longReasoning = "思".repeat(MAX_ARCHIVED_REASONING + 500);

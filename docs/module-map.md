@@ -153,7 +153,7 @@
 |---|---|
 | `design/` | 设计工作台：`canvas/`（画布）、`slides/`（演示文稿）、`directions/`（方向探索）、`design-system/`（设计系统/Tokens）、`code-binding/`（代码同步）、`prototype-flow/` + `prototype-player/`（原型）、`html-quality/`（质量检查）、`design-contract/` + `interop/`（交付/Penpot）、`agent-manager/` + `agent-actions/` + `agent-notes/`（设计智能体）、`run/`（回合派发）、`compat/`（Kun 移植兼容层）、`generator-lane/`（生成流水线） |
 | `writing/` | 写作台：spaces / threads / file-tree / doc-list（左栏列表：隐藏 md 后缀、重命名后缀回填、排序、时间格式化、目录定位与面包屑、文档计数）/ inline-edit / review-manager（评审 diff）/ attribution / `run/writing-run-manager.ts` |
-| `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头） |
+| `research/` | 深度研究：protocol / evidence / citation / coverage / trust-policy / ui-store / live-sync（常驻事件订阅）/ report-export（归档文件名与抬头）；会话前置管线：chat-retrieval（联网抓资料）+ query-understand（改写+意图分类纯函数；意图理解是**独立于研究引擎的一等公民**，桥存在即每轮发送默认跑，「意图理解模型」在「Agent」设置页 = GeneralSettings.queryUnderstandModel；问候/闲聊/追问注入行为 hint 并在检索链路成立时跳过 gather 省 token）+ chat-preflight（编排与失败矩阵），时间线条目状态机在 `personal/retrieval-status.ts`，改写补全走 `llm:queryUnderstand`（主进程 `ipc/llm.ts`，缺省回落全局默认模型） |
 | `personal/` | 个人工作区全部业务纯逻辑：任务、项目阶段、闪记、@提及、自动化、工作流、分支、推送、权限模式等（一名词一文件，按文件名找） |
 | `cortex/`、`live/`、`mock/`、`api/` | 团队工作区服务端态：React Query options / 实时查询 / 假数据 / HTTP client；`cortex/teams.ts`（squad/成员/邀请）、`cortex/server-workspaces.ts`（服务器工作区）、`cortex/session-stream.ts`（流式保序）、`cortex/realtime.ts`（WS 接线）、`cortex/task-registry.ts`（在途任务登记） |
 | `store/` | 全部 Zustand 客户端态：`ui.ts`（Tweaks）、`personal.ts`（视图开关总店）、`pet.ts`、`piArtifacts.ts`（pi 会话产物）、`memory.ts`、`reply.ts`、`archivedSessions.ts` |

@@ -334,3 +334,18 @@ describe("hasSearchBackend", () => {
     expect(hasSearchBackend({ ...bare, searchBackend: "server", directSearch: FULL_DIRECT })).toBe(false);
   });
 });
+
+describe("意图理解已解耦（模型引用在 GeneralSettings.queryUnderstandModel，不在本切片）", () => {
+  /// 该功能曾短暂寄居本切片；旧版本落盘的三个键必须被白名单重建静默丢弃，而不是报错或残留脏键。
+  it("旧档里的 chatQueryUnderstand / queryUnderstand* 键被自然丢弃", () => {
+    const normalized = normalizeResearchEngineSettings({
+      chatQueryUnderstand: true,
+      queryUnderstandProviderId: "p1",
+      queryUnderstandModelId: "m1",
+    });
+    expect("chatQueryUnderstand" in normalized).toBe(false);
+    expect("queryUnderstandProviderId" in normalized).toBe(false);
+    expect("queryUnderstandModelId" in normalized).toBe(false);
+    expect("chatQueryUnderstand" in DEFAULT_RESEARCH_ENGINE_SETTINGS).toBe(false);
+  });
+});

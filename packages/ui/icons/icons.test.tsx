@@ -24,4 +24,12 @@ describe("Icon", () => {
     const svg = container.querySelector("svg")!;
     expect(svg.getAttribute("stroke-width")).toBe("2.4");
   });
+
+  // 过程时间线新增的思考节点图标：确保存在且能渲染出路径（防止空实现）。
+  it("renders the Lightbulb icon with paths", () => {
+    const { container } = render(<Icon.Lightbulb size={12} />);
+    const svg = container.querySelector("svg")!;
+    expect(svg.getAttribute("width")).toBe("12");
+    expect(svg.querySelectorAll("path").length).toBeGreaterThan(0);
+  });
 });

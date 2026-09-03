@@ -640,7 +640,11 @@
     "availabilityCard": "可用性",
     "builtin": "内置",
     "installed": "已安装",
-    "notDetected": "未检测到 CLI"
+    "notDetected": "未检测到 CLI",
+    "queryUnderstandCard": "意图理解",
+    "queryUnderstandLabel": "意图理解模型",
+    "queryUnderstandHint": "发送消息前用它理解意图并改写问题；留空则使用全局默认模型。",
+    "queryUnderstandReset": "改回跟随全局默认"
   },
   "subagents": {
     "title": "子代理",

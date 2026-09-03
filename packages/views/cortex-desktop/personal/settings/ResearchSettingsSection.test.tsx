@@ -522,3 +522,14 @@ describe("ResearchSettingsSection 直连搜索", () => {
     expect(testFn).toHaveBeenCalledWith();
   });
 });
+
+describe("意图理解已迁出研究引擎设置", () => {
+  /// 意图理解是一等公民功能，模型选择在「Agent」设置页；本分区不得再出现相关表单，
+  /// 否则会回到「两处真源互相打脸」的老问题。
+  it("本分区不渲染「意图理解模型」与「先理解再检索」", () => {
+    setResearch({ chatAutoRetrieve: true });
+    renderSection();
+    expect(screen.queryByText("意图理解模型")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "先理解再检索" })).toBeNull();
+  });
+});

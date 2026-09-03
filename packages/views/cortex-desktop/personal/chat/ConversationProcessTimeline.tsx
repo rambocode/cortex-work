@@ -42,6 +42,32 @@ function reasoningPreview(text: string): { text: string; truncated: boolean } {
   return { text: `${characters.slice(0, REASONING_PREVIEW_CHARS).join("")}…`, truncated: true };
 }
 
+/**
+ * 按行类型/状态选轨道图标（WeKnora 式）：思考=灯泡、搜索与前置检索=放大镜、文件=文档、
+ * 命令与未识别工具=终端；运行中一律 spinner、失败一律 XCircle，状态优先于类型。
+ */
+function rowIcon(row: ProcessActivityRow) {
+  if (row.status === "running") return <ProcessSpinner />;
+  if (row.status === "failed") return <Icon.XCircle size={12} />;
+  if (row.kind === "reasoning") return <Icon.Lightbulb size={12} />;
+  if (row.kind === "search") return <Icon.Search size={12} />;
+  if (row.kind === "retrieval") {
+    // skipped 与「done 无 resultCount（只做了意图理解、未走联网检索）」都没发生搜索，
+    // 用对勾而非放大镜，避免暗示一次不存在的检索。
+    const noSearch = row.phase === "skipped" || (row.phase === "done" && row.resultCount === undefined);
+    return noSearch ? <Icon.Check size={12} /> : <Icon.Search size={12} />;
+  }
+  if (row.kind === "read-group" || row.kind === "file") return <Icon.File size={12} />;
+  return <Icon.Terminal size={12} />;
+}
+
+// skipReason → i18n key。改写模型给出的意图只会是这三种非检索意图（契约见 core/types 的 retrieval）。
+const RETRIEVAL_SKIP_KEYS = {
+  greeting: "processInline.retrievalSkippedGreeting",
+  chitchat: "processInline.retrievalSkippedChitchat",
+  follow_up: "processInline.retrievalSkippedFollowUp",
+} as const;
+
 /** 思考行在原位展开；工具行进入完整过程面板，聊天流绝不渲染原始 input/output。 */
 function ActivityRow({
   row,
@@ -72,7 +98,31 @@ function ActivityRow({
           )
         : row.kind === "file"
           ? t(row.action === "modify" ? "processInline.modifyFile" : "processInline.deleteFile", { file: row.label })
-          : t("processInline.executeCommand");
+          : row.kind === "search"
+            ? t(
+                row.subtype === "files"
+                  ? "processInline.searchFiles"
+                  : row.subtype === "web"
+                    ? "processInline.searchWeb"
+                    : row.subtype === "kb"
+                      ? "processInline.searchKb"
+                      : "processInline.searchAction",
+              )
+            : row.kind === "retrieval"
+              ? row.phase === "understanding"
+                ? t("processInline.retrievalUnderstanding")
+                : row.phase === "searching"
+                  ? t("processInline.retrievalSearching")
+                  : row.phase === "done"
+                    ? row.resultCount === undefined
+                      ? t("processInline.retrievalUnderstood")
+                      : row.resultCount > 0
+                        ? t("processInline.retrievalDone", { count: row.resultCount })
+                        : t("processInline.retrievalDoneEmpty")
+                    : row.phase === "skipped"
+                      ? t(row.skipReason ? RETRIEVAL_SKIP_KEYS[row.skipReason] : "processInline.retrievalSkipped")
+                      : t("processInline.retrievalFailed")
+              : t("processInline.executeCommand");
   const duration = "durationMs" in row && row.durationMs !== undefined ? formatDuration(row.durationMs) : undefined;
   const toolCallId = row.kind === "read-group" ? row.callIds[0] : "callId" in row ? row.callId : undefined;
 
@@ -81,6 +131,8 @@ function ActivityRow({
       if (reasoning?.truncated) setReasoningExpanded((value) => !value);
       return;
     }
+    // 前置检索节点没有对应的 invocation 数据，过程面板无从展开，行保持纯展示。
+    if (row.kind === "retrieval") return;
     if (!sessionId) return;
     onOpen({
       sessionId,
@@ -100,13 +152,19 @@ function ActivityRow({
       data-expanded={row.kind === "reasoning" ? reasoningExpanded : undefined}
       aria-expanded={row.kind === "reasoning" && reasoning?.truncated ? reasoningExpanded : undefined}
       onClick={open}
-      disabled={row.kind === "reasoning" ? !reasoning?.truncated : !sessionId}
+      disabled={row.kind === "reasoning" ? !reasoning?.truncated : row.kind === "retrieval" ? true : !sessionId}
     >
-      <span className="pw-conversation-process-item-state" aria-hidden="true">
-        {running ? <ProcessSpinner /> : failed ? <Icon.XCircle size={12} /> : row.kind === "read-group" || row.kind === "file" ? <Icon.File size={12} /> : <Icon.Check size={12} />}
-      </span>
+      <span className="pw-conversation-process-item-state" aria-hidden="true">{rowIcon(row)}</span>
       <span
-        className={row.kind === "reasoning" ? "pw-conversation-process-reasoning-text" : running ? "pw-conversation-process-live" : "pw-conversation-process-activity-label"}
+        className={
+          row.kind === "reasoning"
+            ? running
+              ? "pw-conversation-process-reasoning-text is-live"
+              : "pw-conversation-process-reasoning-text"
+            : running
+              ? "pw-conversation-process-live"
+              : "pw-conversation-process-activity-label"
+        }
       >
         {label}
       </span>
@@ -186,21 +244,29 @@ export function ConversationProcessTimeline({
   if (presentation.summary.steps === 0) return null;
 
   const duration = elapsedMs !== undefined ? formatDuration(elapsedMs) : "";
+  // WeKnora 式折叠头：状态词只留三态（耗时并入摘要段），摘要改为「思考 N 轮 · 调用 N 次工具 · 耗时 X」。
+  // 思考轮数与工具次数分开计数而不合并成「步骤数」——一个 agent loop 会产生 1 段思考 + N 次工具，
+  // 加总只会虚高。
   const headText = active
-    ? t(duration ? "processInline.turnRunning" : "processInline.turnRunningNoTime", { duration })
+    ? t("processInline.turnRunningNoTime")
     : failed
-      ? t(duration ? "processInline.turnFailed" : "processInline.turnFailedNoTime", { duration })
-      : t(duration ? "processInline.turnDone" : "processInline.turnDoneNoTime", { duration });
+      ? t("processInline.turnFailedNoTime")
+      : t("processInline.turnDoneNoTime");
   const headSummary = [
-    presentation.summary.files > 0
-      ? t(presentation.summary.files === 1 ? "processInline.readSummaryOne" : "processInline.readSummaryMany", { count: presentation.summary.files })
+    presentation.summary.thinkingRounds > 0
+      ? t(
+          presentation.summary.thinkingRounds === 1
+            ? "processInline.thinkingRoundsOne"
+            : "processInline.thinkingRoundsMany",
+          { count: presentation.summary.thinkingRounds },
+        )
       : undefined,
-    presentation.summary.commands > 0
-      ? t(presentation.summary.commands === 1 ? "processInline.commandSummaryOne" : "processInline.commandSummaryMany", { count: presentation.summary.commands })
+    presentation.summary.toolCalls > 0
+      ? t(presentation.summary.toolCalls === 1 ? "processInline.toolCallsOne" : "processInline.toolCallsMany", {
+          count: presentation.summary.toolCalls,
+        })
       : undefined,
-    presentation.summary.tools > 0
-      ? t(presentation.summary.tools === 1 ? "processInline.toolSummaryOne" : "processInline.toolSummaryMany", { count: presentation.summary.tools })
-      : undefined,
+    duration ? t("processInline.elapsed", { duration }) : undefined,
   ].filter((value): value is string => value !== undefined);
 
   return (
@@ -245,6 +311,15 @@ export function ConversationProcessTimeline({
               >
                 {t("processInline.openTranscript")}
               </button>
+            </div>
+          ) : null}
+          {/* WeKnora 式终点行：仅完成态出现（失败轮由失败行自己收尾），当前轮与归档共用。 */}
+          {!active && !failed ? (
+            <div className="pw-conversation-process-activity" data-kind="complete">
+              <span className="pw-conversation-process-item-state" aria-hidden="true">
+                <Icon.CheckCircle size={12} />
+              </span>
+              <span className="pw-conversation-process-activity-label">{t("processInline.completed")}</span>
             </div>
           ) : null}
         </div>

@@ -50,6 +50,7 @@ import { ResearchSettingsSection } from "./ResearchSettingsSection";
 import { KnowledgeSettingsSection } from "./KnowledgeSettingsSection";
 import { PiProvidersSection } from "./provider/PiProvidersSection";
 import { DefaultModelSelects } from "./provider/DefaultModelSelects";
+import { ModelRefField } from "./provider/ModelRefField";
 import { BareSelect, SBlock, SRow, SettingCard, SwitchRow } from "./settingsControls";
 import { detectIsMac } from "../shared/platform";
 import { SettingsSavedIndicator } from "./SettingsSavedIndicator";
@@ -566,6 +567,30 @@ function AgentSection() {
             onChange={(v) => setGeneral({ defaultAgent: v as AgentKind })}
           />
         </SRow>
+      </SettingCard>
+
+      {/* 意图理解（发送前「改写+意图分类」）：一等公民功能，每次发送默认生效，不受研究引擎
+          任何开关限制，故恒显示、无显隐条件。允许留空 = 跟随全局默认模型（主进程
+          llm:queryUnderstand 回落 getDefaultModelRef），悬空不阻断——fail-open 是该功能的
+          根语义（理解失败只降级为「不改写」，绝不阻断发送）。 */}
+      <SettingCard title={t("agent.queryUnderstandCard")}>
+        <ModelRefField
+          label={t("agent.queryUnderstandLabel")}
+          value={generalSettings.queryUnderstandModel}
+          onChange={(ref) => setGeneral({ queryUnderstandModel: ref })}
+          hint={t("agent.queryUnderstandHint")}
+        />
+        {generalSettings.queryUnderstandModel ? (
+          <div className="pw-srow-c pw-srow-c-end">
+            <button
+              type="button"
+              className="pw-btn-sm"
+              onClick={() => setGeneral({ queryUnderstandModel: undefined })}
+            >
+              {t("agent.queryUnderstandReset")}
+            </button>
+          </div>
+        ) : null}
       </SettingCard>
 
       <SettingCard title={t("agent.availabilityCard")}>

@@ -48,6 +48,20 @@ export interface ChatRetrievalInput {
   timeoutMs?: number;
 }
 
+/// detailed 版的结构化结论。append 的三种语义（见 retrieveChatEvidence 注释）原封不动，
+/// outcome/documentCount 是给前置管线（chat-preflight）与时间线条目用的旁路信息：
+///   - "disabled" = 功能没开/没有桥/空查询（append undefined）；
+///   - "ok"       = 检索到至少一条（append 为证据段）；
+///   - "empty"    = 检索执行了但零结果（append 为零结果说明）；
+///   - "failed"   = 检索没能执行（append 为故障说明）。
+export type ChatRetrievalOutcome = "disabled" | "ok" | "empty" | "failed";
+
+export interface ChatRetrievalDetailedResult {
+  append: string | undefined;
+  outcome: ChatRetrievalOutcome;
+  documentCount: number;
+}
+
 /// 跑一次前置检索并返回可注入的证据段；不该检索或检索不可用时返回 undefined。
 ///
 /// 返回值有**三种**语义，不能混：
@@ -60,10 +74,21 @@ export interface ChatRetrievalInput {
 export async function retrieveChatEvidence(
   input: ChatRetrievalInput,
 ): Promise<string | undefined> {
-  if (!shouldAutoRetrieve(input.settings, input.sessionWebSearch)) return undefined;
-  if (!input.gather) return undefined;
+  return (await retrieveChatEvidenceDetailed(input)).append;
+}
+
+/// retrieveChatEvidence 的结构化版本：行为逐字一致（旧函数已改为它的薄包装，既有测试
+/// 继续守住三语义红线），只是额外报告 outcome 与命中条数——前置管线要据此更新时间线条目，
+/// 而从 append 字符串反推结论是脆弱的。
+export async function retrieveChatEvidenceDetailed(
+  input: ChatRetrievalInput,
+): Promise<ChatRetrievalDetailedResult> {
+  if (!shouldAutoRetrieve(input.settings, input.sessionWebSearch)) {
+    return { append: undefined, outcome: "disabled", documentCount: 0 };
+  }
+  if (!input.gather) return { append: undefined, outcome: "disabled", documentCount: 0 };
   const query = input.query.trim();
-  if (query.length === 0) return undefined;
+  if (query.length === 0) return { append: undefined, outcome: "disabled", documentCount: 0 };
 
   const timeoutMs = input.timeoutMs ?? CHAT_RETRIEVAL_TIMEOUT_MS;
   try {
@@ -75,14 +100,25 @@ export async function retrieveChatEvidence(
       new Promise<typeof TIMEOUT>((resolve) => setTimeout(() => resolve(TIMEOUT), timeoutMs)),
     ]);
     if (result === TIMEOUT) {
-      return composeChatRetrievalFailureNotice(`检索超时（${Math.round(timeoutMs / 1000)} 秒）`);
+      return {
+        append: composeChatRetrievalFailureNotice(`检索超时（${Math.round(timeoutMs / 1000)} 秒）`),
+        outcome: "failed",
+        documentCount: 0,
+      };
     }
-    return composeChatEvidenceAppend(result?.documents ?? []);
+    const documents = result?.documents ?? [];
+    return {
+      append: composeChatEvidenceAppend(documents),
+      outcome: documents.length > 0 ? "ok" : "empty",
+      documentCount: documents.length,
+    };
   } catch (error) {
     // 任何异常（未配搜索后端、密钥解不开、网络失败、主进程报错）都吞掉——检索绝不阻断发送。
     // 但要把原因带给模型：它得以此如实告诉用户这轮没联网，用户才有排查的线索。
-    return composeChatRetrievalFailureNotice(
-      error instanceof Error ? error.message : String(error),
-    );
+    return {
+      append: composeChatRetrievalFailureNotice(error instanceof Error ? error.message : String(error)),
+      outcome: "failed",
+      documentCount: 0,
+    };
   }
 }
