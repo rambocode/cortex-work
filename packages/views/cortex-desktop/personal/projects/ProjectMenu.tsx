@@ -155,7 +155,7 @@ export function ProjectMenu({
       </div>
       {!archived ? (
         <button className="pw-tb-menu-item" role="menuitem" onClick={togglePin}>
-          <Icon.Pin size={13} />
+          <Icon.Pushpin size={13} />
           <span>{project.pinnedAt ? "取消置顶" : "置顶"}</span>
         </button>
       ) : null}

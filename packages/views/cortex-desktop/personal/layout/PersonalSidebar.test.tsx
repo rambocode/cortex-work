@@ -1,11 +1,11 @@
 // 个人工作区侧栏项目上下文布局测试：
 // - 顶部模式切换承载会话 / 写作 / 设计；
-// - 清爽化改版:新建会话是顶部图标钮;上下文名直接做会话分组标题(无嵌套卡片);
+// - 模式行:对话/写作下拉 + 搜索 + 消息铃铛;其下「新对话」整行入口;上下文名直接做会话分组标题(无嵌套卡片);
 //   项目管理收进「项目」分组标题的图标入口；
-// - 底部固定用户行承载头像菜单（闪记 / 自动化 / Loop / 显示宠物 / 设置）与消息铃铛。
+// - 闪记 / Loop / 自动化 入口在滚动区顶部,随会话滚动;底部固定用户行的头像菜单只剩 显示宠物 / 设置。
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { CoreProvider, usePersonalStore, usePetStore } from "@cortex-work/core";
+import { CoreProvider, useCortexUIStore, usePersonalStore, usePetStore } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { PET_ENABLED_KEY } from "../../pet/prefs";
@@ -43,6 +43,11 @@ function renderSidebar(
       />
     </CoreProvider>,
   );
+}
+
+// 模式(对话 / 写作)收进顶部下拉:先点开下拉,选项才进 DOM。
+function openModeMenu(container: HTMLElement) {
+  fireEvent.click(container.querySelector(".pw-sidebar-mode-trigger")!);
 }
 
 const projectA: ProjectMeta = {
@@ -93,9 +98,10 @@ afterEach(() => cleanup());
 describe("PersonalSidebar 模式切换与项目管理", () => {
   it("bridge 完整时渲染会话 / 写作模式且不再暴露独立设计入口", () => {
     const { container } = renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
+    openModeMenu(container);
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes).toBeTruthy();
-    expect(modes?.textContent).toContain("会话");
+    expect(modes?.textContent).toContain("对话");
     expect(modes?.textContent).toContain("写作");
     expect(modes?.textContent).not.toContain("设计");
     expect(container.querySelector('.pw-project-switcher button[title*="项目管理"]')).toBeTruthy();
@@ -104,15 +110,19 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
   it("点击「会话」触发 openHome（homeOpen=true、writingOpen 复位）", () => {
     // 从写作态起步,验证点击会话确实切回首页并清写作态。
     usePersonalStore.setState({ homeOpen: false, writingOpen: true });
-    renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
-    fireEvent.click(screen.getByText("会话"));
+    const { container } = renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
+    // 写作态下拉标题显示「写作」,点开后选「对话」。
+    expect(container.querySelector(".pw-sidebar-mode-trigger")?.textContent).toContain("写作");
+    openModeMenu(container);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "对话" }));
     expect(usePersonalStore.getState().homeOpen).toBe(true);
     expect(usePersonalStore.getState().writingOpen).toBe(false);
   });
 
   it("点击「写作」触发 openWriting（writingOpen=true、homeOpen 清空）", () => {
-    renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
-    fireEvent.click(screen.getByText("写作"));
+    const { container } = renderSidebar(bridgeWith(), { onOpenProjectsWindow: () => {} });
+    openModeMenu(container);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "写作" }));
     expect(usePersonalStore.getState().writingOpen).toBe(true);
     expect(usePersonalStore.getState().homeOpen).toBe(false);
   });
@@ -126,25 +136,38 @@ describe("PersonalSidebar 模式切换与项目管理", () => {
 
   it("bridge=null（web/旧壳）→ 写作、设计和项目管理降级隐藏，会话仍在", () => {
     const { container } = renderSidebar(null, { onOpenProjectsWindow: () => {} });
-    expect(screen.getByText("会话")).toBeTruthy();
+    // 只剩「对话」一个模式 → 退化为纯标题,没有下拉触发钮。
+    expect(container.querySelector(".pw-sidebar-mode-title")?.textContent).toBe("对话");
+    expect(container.querySelector(".pw-sidebar-mode-trigger")).toBeNull();
     expect(screen.queryByText("写作")).toBeNull();
     expect(screen.queryByText("设计")).toBeNull();
     expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
-    const modes = container.querySelector(".pw-sidebar-modes");
-    expect(modes).toBeTruthy();
-    expect(modes?.querySelectorAll("button").length).toBe(1);
   });
 
   it("缺任务能力（bridge 无 tasksListProjects）→ 项目管理隐藏，写作仍在（双门控臂一）", () => {
     const { container } = renderSidebar(bridgeWith({ projects: false }), { onOpenProjectsWindow: () => {} });
-    expect(screen.getByText("写作")).toBeTruthy();
+    openModeMenu(container);
+    expect(screen.getByRole("menuitemradio", { name: "写作" })).toBeTruthy();
     expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
   });
 
   it("缺窗口回调（onOpenProjectsWindow 未注入）→ 项目管理隐藏，写作仍在（双门控臂二）", () => {
     const { container } = renderSidebar(bridgeWith());
-    expect(screen.getByText("写作")).toBeTruthy();
+    openModeMenu(container);
+    expect(screen.getByRole("menuitemradio", { name: "写作" })).toBeTruthy();
     expect(container.querySelector('button[title*="项目管理"]')).toBeNull();
+  });
+
+  it("搜索对话在模式行右侧,红绿灯后的侧栏头不再有搜索;新对话为整行入口", () => {
+    const { container } = renderSidebar(bridgeWith());
+    const head = container.querySelector(".pw-sidebar-head");
+    const modes = container.querySelector(".pw-sidebar-modes");
+    expect(head?.querySelector('[aria-label="搜索对话"]')).toBeNull();
+    expect(modes?.querySelector('[aria-label="搜索对话"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "搜索对话" }));
+    expect(useCortexUIStore.getState().sessionSearchOpen).toBe(true);
+    useCortexUIStore.setState({ sessionSearchOpen: false });
+    expect(container.querySelector(".pw-sidebar-new")?.textContent).toContain("新对话");
   });
 
   it("项目管理入口位于「项目」分组标题行内", () => {
@@ -167,31 +190,44 @@ describe("PersonalSidebar 退役入口", () => {
 describe("PersonalSidebar 项目上下文结构", () => {
   it("把会话 / 写作渲染在模式切换区", () => {
     const { container } = renderSidebar(bridgeWith());
+    openModeMenu(container);
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes).toBeTruthy();
-    expect(modes?.textContent).toContain("会话");
+    expect(modes?.textContent).toContain("对话");
     expect(modes?.textContent).toContain("写作");
     expect(modes?.textContent).not.toContain("设计");
   });
 
-  // 四个入口已从底部平铺改为收进头像菜单，但「不随会话列表滚走」这条原意图不变：
-  // 承载它们的用户行仍须固定在滚动区外。
-  it("把用户行固定在滚动区外，四个入口收进头像菜单", () => {
+  // 闪记 / Loop / 自动化 放在滚动区顶部(对齐 ChatGPT「图像 / 定时任务」),随会话列表滚动;
+  // 头像菜单只剩 显示宠物 / 设置,用户行仍固定在滚动区外。
+  it("功能入口在滚动区内,头像菜单只留宠物与设置", () => {
     const { container } = renderSidebar(bridgeWith(), { onOpenFlashNote: vi.fn() });
+    const scroll = container.querySelector(".pw-sidebar-scroll");
+    const nav = container.querySelector(".pw-sidebar-nav");
+    expect(scroll?.contains(nav)).toBe(true);
+    expect(nav?.textContent).toContain("闪记");
+    expect(nav?.textContent).toContain("Loop");
+    expect(nav?.textContent).toContain("自动化");
+
     const userbar = container.querySelector(".pw-sb-userbar");
-    expect(userbar).toBeTruthy();
-    expect(container.querySelector(".pw-sidebar-scroll")?.contains(userbar)).toBe(false);
-
-    // 收起态不该有这些项（否则等于没收进去）。
-    expect(userbar?.textContent).not.toContain("自动化");
-
+    expect(scroll?.contains(userbar)).toBe(false);
     fireEvent.click(container.querySelector(".pw-sb-user")!);
     const menu = container.querySelector(".pw-sb-user-menu");
-    expect(menu?.textContent).toContain("闪记");
-    expect(menu?.textContent).toContain("自动化");
-    expect(menu?.textContent).toContain("Loop");
+    expect(menu?.textContent).not.toContain("自动化");
     expect(menu?.textContent).toContain("设置");
     expect(menu?.textContent).toContain("显示宠物");
+  });
+
+  it("缺能力时隐藏对应功能入口", () => {
+    const { container } = renderSidebar(bridgeWith({ automation: false, workflow: false }));
+    expect(container.querySelector(".pw-sidebar-nav")?.textContent).toBe("");
+  });
+
+  it("点自动化入口打开自动化工作区", () => {
+    const { container } = renderSidebar(bridgeWith());
+    fireEvent.click(screen.getByRole("button", { name: "自动化" }));
+    expect(usePersonalStore.getState().automationOpen).toBe(true);
+    expect(container.querySelector(".pw-sidebar-nav .is-active")?.textContent).toBe("自动化");
   });
 
   // 回归：头像菜单里切「显示宠物」曾只改 petStore 不落盘，重启后被 loadPetEnabled 覆盖回旧值。
@@ -209,14 +245,46 @@ describe("PersonalSidebar 项目上下文结构", () => {
     expect(localStorage.getItem(PET_ENABLED_KEY)).toBe("1");
   });
 
-  // 铃铛是 desktop-only 能力：桥缺 notificationCenterList（web / 旧壳）时整体隐藏，
-  // 而不是渲染一个点了没反应的按钮。
-  it("无消息中心桥能力时不渲染铃铛", () => {
+  // 铃铛切活动视图(对齐 Codex),不依赖消息中心桥能力,缺桥时也可用。
+  it("点铃铛切到活动视图:优先级 / 今天分组、两行归属;再点回到项目树", () => {
+    const unreadSession = { ...sessionA, id: "unread", title: "未读对话", unread: true, updatedAt: 3 };
+    const todaySession = {
+      ...sessionA,
+      id: "today",
+      projectId: undefined,
+      title: "今天的聊天",
+      updatedAt: Date.now(),
+    };
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [unreadSession, todaySession],
+      activeProjectId: projectA.id,
+      activeSessionId: undefined,
+      homeOpen: false,
+    });
     const { container } = renderSidebar(bridgeWith());
-    expect(container.querySelector(".pw-sb-bell")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /查看活动/ }));
+    expect(container.querySelector(".pw-project-switcher")).toBeNull();
+    const priority = screen.getByRole("region", { name: "优先级" });
+    expect(priority.textContent).toContain("未读对话");
+    expect(priority.textContent).toContain("cortex-work");
+    const today = screen.getByRole("region", { name: "今天" });
+    expect(today.textContent).toContain("今天的聊天");
+    expect(today.textContent).toContain("聊天");
+    fireEvent.click(screen.getByRole("button", { name: /关闭活动视图/ }));
+    expect(container.querySelector(".pw-project-switcher")).toBeTruthy();
   });
 
-  it("从活动会话派生当前项目且不在切换列表重复显示", () => {
+  it("⌥⌘U / ⌥Ctrl+U 切换活动视图", () => {
+    const { container } = renderSidebar(bridgeWith());
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+    fireEvent.keyDown(window, { code: "KeyU", key: "u", altKey: true, metaKey: isMac, ctrlKey: !isMac });
+    expect(container.querySelector(".pw-activity-view")).toBeTruthy();
+    fireEvent.keyDown(window, { code: "KeyU", key: "u", altKey: true, metaKey: isMac, ctrlKey: !isMac });
+    expect(container.querySelector(".pw-activity-view")).toBeNull();
+  });
+
+  it("项目树:活动对话所属项目自动展开并显示其对话,其它项目收起", () => {
     usePersonalStore.setState({
       projects: [projectA, projectB],
       sessions: [sessionA],
@@ -225,14 +293,33 @@ describe("PersonalSidebar 项目上下文结构", () => {
       homeOpen: false,
     });
     const { container } = renderSidebar(bridgeWith());
-    const contextSessions = container.querySelector(".pw-context-sessions");
-    expect(contextSessions).toBeTruthy();
-    expect(contextSessions?.textContent).toContain("cortex-work");
-    expect(contextSessions?.textContent).toContain("当前项目会话");
     const switcher = container.querySelector(".pw-project-switcher");
-    expect(switcher).toBeTruthy();
+    expect(switcher?.textContent).toContain("cortex-work");
     expect(switcher?.textContent).toContain("Tandem");
-    expect(switcher?.textContent).not.toContain("cortex-work");
+    expect(switcher?.textContent).toContain("当前项目会话");
+    expect(screen.getByRole("button", { name: /cortex-work/, expanded: true })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Tandem/, expanded: false })).toBeTruthy();
+    // 旧的「当前项目」顶部分组已并入项目树。
+    expect(container.querySelector(".pw-context-sessions")).toBeNull();
+  });
+
+  it("点击项目展开 / 收起其下对话,不切换当前对话", () => {
+    const tandemSession = { ...sessionA, id: "session-b", projectId: projectB.id, title: "Tandem 对话", updatedAt: 4 };
+    usePersonalStore.setState({
+      projects: [projectA, projectB],
+      sessions: [sessionA, tandemSession],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    renderSidebar(bridgeWith());
+    expect(screen.queryByText("Tandem 对话")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Tandem/ }));
+    expect(screen.getByText("Tandem 对话")).toBeTruthy();
+    expect(usePersonalStore.getState().activeSessionId).toBe(sessionA.id);
+    // 展开后对话行也含「Tandem」字样,按展开态精确定位项目行。
+    fireEvent.click(screen.getByRole("button", { name: /Tandem/, expanded: true }));
+    expect(screen.queryByText("Tandem 对话")).toBeNull();
   });
 
   it("删除当前会话后仍停留在该会话所属项目", () => {
@@ -247,13 +334,16 @@ describe("PersonalSidebar 项目上下文结构", () => {
     });
     const { container } = renderSidebar(bridgeWith());
 
-    fireEvent.click(screen.getByTitle("删除"));
-    fireEvent.click(screen.getByTitle("再点确认删除"));
+    // 删除在「⋯」菜单里,菜单内二次确认。
+    fireEvent.click(screen.getByRole("button", { name: /更多操作/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "确认删除？" }));
 
     const state = usePersonalStore.getState();
     expect(state.activeSessionId).toBeUndefined();
     expect(state.activeProjectId).toBe(projectA.id);
-    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("cortex-work");
+    // 所属项目仍展开(空态提示新建第一条对话)。
+    expect(container.querySelector(".pw-project-switcher")?.textContent).toContain("新建第一条对话");
   });
 
   it("删除当前无项目会话后仍停留在无项目会话列表", () => {
@@ -281,18 +371,19 @@ describe("PersonalSidebar 项目上下文结构", () => {
     });
     const { container } = renderSidebar(bridgeWith());
 
-    fireEvent.click(screen.getAllByTitle("删除")[0]!);
-    fireEvent.click(screen.getByTitle("再点确认删除"));
+    fireEvent.click(screen.getByRole("button", { name: "待删除无项目会话 更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "确认删除？" }));
 
     const state = usePersonalStore.getState();
     expect(state.activeSessionId).toBeUndefined();
     expect(state.activeProjectId).toBeUndefined();
     expect(state.sessions.map((session) => session.id)).toEqual([remaining.id]);
-    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("无项目会话");
-    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("保留无项目会话");
+    expect(container.querySelector(".pw-project-switcher")?.textContent).toContain("无项目");
+    expect(container.querySelector(".pw-project-switcher")?.textContent).toContain("保留无项目会话");
   });
 
-  it("当前项目上下文保留项目更多操作入口(在分组标题行)", () => {
+  it("项目行保留「更多」操作入口", () => {
     usePersonalStore.setState({
       projects: [projectA],
       sessions: [sessionA],
@@ -301,12 +392,11 @@ describe("PersonalSidebar 项目上下文结构", () => {
       homeOpen: false,
     });
     const { container } = renderSidebar(bridgeWith());
-    const head = container.querySelector(".pw-context-sessions .pw-section-h");
-    expect(head).toBeTruthy();
-    expect(head?.querySelector('button[title="更多项目操作"]')).toBeTruthy();
+    const row = container.querySelector(".pw-project-switch-row");
+    expect(row?.querySelector('button[title="更多"]')).toBeTruthy();
   });
 
-  it("当前项目可展开和隐藏已归档会话", () => {
+  it("侧栏不显示已归档对话(也没有显示已归档的切换)", () => {
     const archivedSession = { ...sessionA, id: "archived-session", title: "已归档会话", archivedAt: 10 };
     usePersonalStore.setState({
       projects: [projectA],
@@ -316,42 +406,29 @@ describe("PersonalSidebar 项目上下文结构", () => {
       homeOpen: false,
     });
     renderSidebar(bridgeWith());
+    expect(screen.getByText("当前项目会话")).toBeTruthy();
     expect(screen.queryByText("已归档会话")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "显示已归档会话 (1)" }));
-    expect(screen.getByText("已归档会话")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "隐藏已归档会话" }));
-    expect(screen.queryByText("已归档会话")).toBeNull();
+    expect(screen.queryByRole("button", { name: /已归档会话/ })).toBeNull();
   });
 
-  it("当前项目本身已归档时不在已归档切换组重复出现", () => {
-    const archivedProject = { ...projectA, archivedAt: 10 };
+  it("已归档项目收在底部「已归档」分组,展开后可再展开看对话", () => {
+    const archivedProject = { ...projectB, archivedAt: 10 };
+    const tandemSession = { ...sessionA, id: "session-b", projectId: projectB.id, title: "Tandem 对话", updatedAt: 4 };
     usePersonalStore.setState({
-      projects: [archivedProject],
-      sessions: [sessionA],
+      projects: [projectA, archivedProject],
+      sessions: [sessionA, tandemSession],
       activeProjectId: projectA.id,
       activeSessionId: sessionA.id,
       homeOpen: false,
     });
     renderSidebar(bridgeWith());
-    expect(screen.queryByText("已归档 (1)")).toBeNull();
-  });
-
-  it("点击项目切换项选择该项目最近更新的会话", () => {
-    const older = { ...sessionA, id: "session-b-old", projectId: projectB.id, title: "旧 Tandem 会话", updatedAt: 3 };
-    const latest = { ...sessionA, id: "session-b-latest", projectId: projectB.id, title: "新 Tandem 会话", updatedAt: 4 };
-    usePersonalStore.setState({
-      projects: [projectA, projectB],
-      sessions: [sessionA, older, latest],
-      activeProjectId: projectA.id,
-      activeSessionId: sessionA.id,
-      homeOpen: false,
-    });
-    renderSidebar(bridgeWith());
+    expect(screen.queryByRole("button", { name: /Tandem/ })).toBeNull();
+    fireEvent.click(screen.getByText("已归档 (1)"));
     fireEvent.click(screen.getByRole("button", { name: /Tandem/ }));
-    expect(usePersonalStore.getState().activeSessionId).toBe(latest.id);
+    expect(screen.getByText("Tandem 对话")).toBeTruthy();
   });
 
-  it("点击无项目入口后切换为无项目会话上下文", () => {
+  it("点击「无项目」展开无项目对话,点对话切换为当前对话", () => {
     const noProject = { ...sessionA, id: "no-project", projectId: undefined, title: "临时会话", updatedAt: 5 };
     usePersonalStore.setState({
       projects: [projectA],
@@ -360,10 +437,81 @@ describe("PersonalSidebar 项目上下文结构", () => {
       activeSessionId: sessionA.id,
       homeOpen: false,
     });
-    const { container } = renderSidebar(bridgeWith());
+    renderSidebar(bridgeWith());
+    expect(screen.queryByText("临时会话")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /无项目/ }));
+    fireEvent.click(screen.getByText("临时会话"));
     expect(usePersonalStore.getState().activeSessionId).toBe(noProject.id);
-    expect(container.querySelector(".pw-context-sessions")?.textContent).toContain("无项目会话");
+  });
+});
+
+describe("PersonalSidebar 对话「⋯」菜单 / 置顶 / 未读", () => {
+  afterEach(() => cleanup());
+
+  it("悬停操作只有「⋯」与置顶图钉;菜单含 重命名 / 置顶 / 标记为未读 / 归档 / 删除", () => {
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [sessionA],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+    const actions = container.querySelector(".pw-session-actions");
+    expect(actions?.querySelectorAll("button").length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "当前项目会话 更多操作" }));
+    const labels = screen.getAllByRole("menuitem").map((el) => el.textContent);
+    expect(labels).toEqual(["重命名", "置顶", "标记为未读", "归档", "删除"]);
+  });
+
+  it("置顶对话进顶部「置顶」分区且不在项目树重复;取消置顶后回到项目下", () => {
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [sessionA],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+    fireEvent.click(screen.getByRole("button", { name: "置顶 当前项目会话" }));
+    const pinned = container.querySelector(".pw-pinned-section");
+    expect(pinned?.textContent).toContain("当前项目会话");
+    expect(container.querySelector(".pw-project-switcher")?.textContent).not.toContain("当前项目会话");
+    fireEvent.click(screen.getByRole("button", { name: "取消置顶 当前项目会话" }));
+    expect(container.querySelector(".pw-pinned-section")).toBeNull();
+    expect(container.querySelector(".pw-project-switcher")?.textContent).toContain("当前项目会话");
+  });
+
+  it("「置顶」分区只放对话:置顶项目仍在「项目」列表(带图钉),不进置顶分区", () => {
+    usePersonalStore.setState({
+      projects: [projectA, { ...projectB, pinnedAt: 5 }],
+      sessions: [sessionA],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+    expect(container.querySelector(".pw-pinned-section")).toBeNull();
+    expect(container.querySelector(".pw-project-switcher")?.textContent).toContain("Tandem");
+    expect(container.querySelector(".pw-project-switcher .pw-project-pin")).toBeTruthy();
+  });
+
+  it("标记为未读显示蓝点;打开该对话后清除", () => {
+    const other = { ...sessionA, id: "other", title: "另一个对话", updatedAt: 1 };
+    usePersonalStore.setState({
+      projects: [projectA],
+      sessions: [sessionA, other],
+      activeProjectId: projectA.id,
+      activeSessionId: sessionA.id,
+      homeOpen: false,
+    });
+    const { container } = renderSidebar(bridgeWith());
+    fireEvent.click(screen.getByRole("button", { name: "另一个对话 更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "标记为未读" }));
+    expect(container.querySelectorAll(".pw-session-unread").length).toBe(1);
+    fireEvent.click(screen.getByText("另一个对话"));
+    expect(usePersonalStore.getState().sessions.find((x) => x.id === "other")?.unread).toBeUndefined();
+    expect(container.querySelector(".pw-session-unread")).toBeNull();
   });
 });
 
@@ -390,7 +538,7 @@ describe("PersonalSidebar 新建无项目会话带 noProjectDir", () => {
     });
     const dir = "/Users/me/Documents/cortex/2026-07-28";
     renderSidebar(bridgeWithNoProjectDir(dir));
-    fireEvent.click(screen.getByRole("button", { name: /新建会话/ }));
+    fireEvent.click(screen.getByRole("button", { name: /新对话/ }));
     await waitFor(() => expect(usePersonalStore.getState().sessions).toHaveLength(1));
     const created = usePersonalStore.getState().sessions[0]!;
     expect(created.projectId).toBeUndefined();
@@ -408,7 +556,7 @@ describe("PersonalSidebar 新建无项目会话带 noProjectDir", () => {
     });
     const bridge = bridgeWithNoProjectDir();
     renderSidebar(bridge);
-    fireEvent.click(screen.getByRole("button", { name: /新建会话/ }));
+    fireEvent.click(screen.getByRole("button", { name: /新对话/ }));
     await waitFor(() => expect(usePersonalStore.getState().sessions).toHaveLength(1));
     expect(usePersonalStore.getState().sessions[0]!.projectId).toBe(projectA.id);
     expect(bridge.ensureNoProjectDir).not.toHaveBeenCalled();
@@ -445,10 +593,11 @@ describe("PersonalSidebar 不再有深度研究入口", () => {
       },
     }));
     const { container } = renderSidebar(bridgeWithResearch());
+    openModeMenu(container);
     const modes = container.querySelector(".pw-sidebar-modes");
     expect(modes?.textContent).not.toContain("研究");
     // 其余模式不受影响。
-    expect(modes?.textContent).toContain("会话");
+    expect(modes?.textContent).toContain("对话");
     expect(modes?.textContent).toContain("写作");
   });
 });

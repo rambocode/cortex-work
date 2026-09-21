@@ -112,6 +112,16 @@ describe("WritingSidebar 新结构", () => {
     );
   });
 
+  it("快捷键 ⌘N / Ctrl+N 新建文章(等同顶部「新建文件」)", async () => {
+    const bridge = makeBridge();
+    renderSidebar(bridge);
+    await screen.findByText("a");
+    // 按当前平台选修饰键(与实现同一判定):Mac 发 ⌘,其它发 Ctrl。
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+    fireEvent.keyDown(window, { key: "n", metaKey: isMac, ctrlKey: !isMac });
+    await waitFor(() => expect(bridge.writeFile).toHaveBeenCalledWith("/space/untitled.md", ""));
+  });
+
   it("「添加写作空间」调用 pickDirectory", async () => {
     const bridge = makeBridge();
     renderSidebar(bridge);

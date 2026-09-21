@@ -36,6 +36,12 @@ function StoredSessionList({ onSelect = () => {} }: { onSelect?: (id: string) =>
   );
 }
 
+// 重命名入口在「⋯」菜单里:先点更多,再点菜单项「重命名」。
+function openRename(title: string) {
+  fireEvent.click(screen.getByRole("button", { name: `${title} 更多操作` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+}
+
 describe("SessionList 分组会话超 5 折叠", () => {
   const base = { activeSessionId: undefined, onSelect: () => {}, onToast: () => {} };
 
@@ -96,7 +102,7 @@ describe("SessionList 会话重命名", () => {
     const onSelect = vi.fn();
     renderUI(<StoredSessionList onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    openRename("会话0");
 
     const input = screen.getByRole("textbox", { name: "会话名称" });
     expect(input).toHaveFocus();
@@ -113,7 +119,7 @@ describe("SessionList 会话重命名", () => {
   it("输入框失焦时保存名称", () => {
     usePersonalStore.setState({ sessions: makeSessions(1) });
     renderUI(<StoredSessionList />);
-    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    openRename("会话0");
     const input = screen.getByRole("textbox", { name: "会话名称" });
 
     fireEvent.change(input, { target: { value: "失焦名称" } });
@@ -125,13 +131,13 @@ describe("SessionList 会话重命名", () => {
   it("Escape 或空名称取消修改", () => {
     usePersonalStore.setState({ sessions: makeSessions(1) });
     renderUI(<StoredSessionList />);
-    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    openRename("会话0");
     let input = screen.getByRole("textbox", { name: "会话名称" });
     fireEvent.change(input, { target: { value: "不应保存" } });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(usePersonalStore.getState().sessions[0]?.title).toBe("会话0");
 
-    fireEvent.click(screen.getByRole("button", { name: "重命名 会话0" }));
+    openRename("会话0");
     input = screen.getByRole("textbox", { name: "会话名称" });
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.keyDown(input, { key: "Enter" });

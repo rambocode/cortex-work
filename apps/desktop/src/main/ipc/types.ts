@@ -240,6 +240,8 @@ export interface SessionMeta {
   execPermission?: ExecPermission; // 执行权限（与 core 镜像;主进程仅 round-trip 持久化,不按字段消费）
   hiddenHistory?: HiddenHistoryMeta;
   archivedAt?: number;
+  pinnedAt?: number; // 侧栏置顶（与 core 镜像;主进程仅 round-trip 持久化）
+  unread?: boolean; // 手动标记未读（与 core 镜像;主进程仅 round-trip 持久化）
   createdAt: number;
   updatedAt: number;
 }

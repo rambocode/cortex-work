@@ -49,7 +49,7 @@ import {
   NODE_ICONS,
   TRIGGER_KINDS,
 } from "./workflow-flow";
-import { WorkflowCanvas } from "./WorkflowCanvas";
+import { WorkflowCanvas, type WorkflowCanvasApi } from "./WorkflowCanvas";
 import { NodeConfigPanel } from "./node-config/NodeConfigPanel";
 import { WorkflowRunLogPanel } from "./WorkflowRunLogPanel";
 import { WorkflowRunHistoryModal } from "./WorkflowRunHistoryModal";
@@ -176,6 +176,8 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
   >({});
   // 居中 loop 名称输入框 ref（铅笔图标点击聚焦用）
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // 画布命令式接口：点击左侧节点时取「当前视口中心」作为落点。
+  const canvasApiRef = useRef<WorkflowCanvasApi | null>(null);
 
   // 运行历史缓存最新在前（upsertRun/listRuns 均按 unshift 语义维护）。
   const latestRun = runs[0];
@@ -456,18 +458,40 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
     [],
   );
 
+  /**
+   * 点击左侧节点：放到用户当前看到的画布区域中心（跟随平移/缩放），而不是画布绝对坐标。
+   * 连点多次时，若中心已有节点就沿对角线错开，避免新节点完全叠在旧节点上看不出来。
+   */
   const onPaletteClick = useCallback(
     (kind: WorkflowNodeKind) => {
-      const offset = nodes.length * 28;
-      const node = createWorkflowNode(kind, {
-        x: 360 + (offset % 180),
-        y: 140 + offset,
-      });
+      const center = canvasApiRef.current?.getViewportCenterPosition();
+      let pos: { x: number; y: number };
+      if (center) {
+        pos = center;
+        const STEP = 28;
+        for (
+          let i = 0;
+          i < 20 &&
+          nodes.some(
+            (n) =>
+              Math.abs(n.position.x - pos.x) < 8 &&
+              Math.abs(n.position.y - pos.y) < 8,
+          );
+          i++
+        ) {
+          pos = { x: pos.x + STEP, y: pos.y + STEP };
+        }
+      } else {
+        // 画布尚未加载完（拿不到视口换算）时的兜底：沿用旧的固定位置阶梯排布。
+        const offset = nodes.length * 28;
+        pos = { x: 360 + (offset % 180), y: 140 + offset };
+      }
+      const node = createWorkflowNode(kind, pos);
       setNodes((prev) => [...prev, node]);
       setSelectedNodeId(node.id);
       setDirty(true);
     },
-    [nodes.length],
+    [nodes],
   );
 
   // ── 分组折叠 ─────────────────────────────────────────────────────────────
@@ -810,6 +834,7 @@ export function WorkflowEditorView({ workflow, onBack, onToast }: Props) {
               onToggleDisabled={handleToggleDisabled}
               onDeleteNode={handleDeleteNode}
               onNodeChange={handleNodeChange}
+              apiRef={canvasApiRef}
             />
 
             {/* 左侧面板折叠/展开按钮 */}

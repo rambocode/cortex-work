@@ -1,17 +1,13 @@
-// 个人工作区左栏：项目列表（本地文件夹），项目可折叠、下挂 session 列表。
+// 个人工作区左栏：项目树（本地文件夹）——点项目展开/收起其下对话，当前对话所在分组自动展开。
 // 项目行悬停浮现「⋯」菜单 + 「新建 Session」按钮;置顶项目名旁常驻 Pin 标识;
 // 已归档项目收进底部可折叠分组。
 
 import { useEffect, useState } from "react";
 import { Icon } from "@cortex-work/ui/icons";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  closePiSession,
   dayKey,
-  discardSessionChat,
   resolveDefaultAgent,
   partitionProjects,
-  reapSessionRun,
   useCortexUIStore,
   useDesktopBridge,
   usePersonalStore,
@@ -19,210 +15,19 @@ import {
 import type { EditorInfo, ProjectMeta, SessionMeta } from "@cortex-work/core";
 import { ProjectMenu } from "../projects/ProjectMenu";
 import { SidebarLeftControls } from "./SidebarControls";
+import { SidebarModeMenu } from "./SidebarModeMenu";
+import { NotificationBell, useNotificationCenter } from "./NotificationBell";
+import { SidebarActivityView, usePrioritySessionIds } from "./SidebarActivityView";
+import { detectIsMac } from "../shared/platform";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SidebarUserBar } from "./SidebarUserBar";
 import { relTime } from "./relTime";
-import { SESSION_DRAG_MIME } from "./conversation-drag";
+import { SessionRow } from "./SessionRow";
 
 // relTime 已抽到 ./relTime（侧栏底部的 NotificationBell 也要用，留在这里会与它循环依赖）。
 // import + export 两句都要：本文件的会话行自己也调它，光 re-export 不会引入本模块作用域。
 // 保留 export：闪记 / 任务 / 归档会话等六处既有 import 路径不必改动。
 export { relTime };
-
-// 会话行:悬停在右侧浮现「重命名」+「归档/取消归档」+「删除」图标按钮。
-// 删除就地二次确认（首点变红+✓,再点真删;鼠标移开重置）,不弹菜单/对话框。
-function SessionRow({
-  session,
-  active,
-  onSelect,
-  onToast,
-}: {
-  session: SessionMeta;
-  active: boolean;
-  onSelect: () => void;
-  onToast: (text: string) => void;
-}) {
-  const bridge = useDesktopBridge();
-  const archiveSession = usePersonalStore((s) => s.archiveSession);
-  const unarchiveSession = usePersonalStore((s) => s.unarchiveSession);
-  const removeSession = usePersonalStore((s) => s.removeSession);
-  const renameSession = usePersonalStore((s) => s.renameSession);
-  const qc = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
-  const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  const archived = session.archivedAt != null;
-
-  // 会话运行状态徽标三态派生:等待确认 > 正在运行 > 已结束(仅非活跃行)。
-  // 三个 selector 均返回布尔/store 内稳定引用——96+ 会话时避免整 map/数组订阅引发全列表重渲。
-  // 「等确认」谓词与 PiToolConfirmDialog(confirm)/AskQuestionCard(askquestion)一致,
-  // jsrepl/select/input 等不弹 UI 的 method 天然排除;delegate 子会话审批已映射到父会话 uiSessionId。
-  const awaitingConfirm = usePersonalStore((s) =>
-    s.piUiPending.some(
-      (p) =>
-        p.uiSessionId === session.id &&
-        (p.request.method === "confirm" || p.request.method === "askquestion"),
-    ),
-  );
-  const running = usePersonalStore((s) => Boolean(s.runningBySession[session.id]));
-  const outcome = usePersonalStore((s) => s.runOutcomeBySession[session.id]);
-  // 读侧 !active 与写侧 markRunOutcome 的 active 守卫、setActiveSession 清除构成三道保险。
-  const status = awaitingConfirm
-    ? ("confirm" as const)
-    : running
-      ? ("running" as const)
-      : !active && outcome
-        ? outcome.ok
-          ? ("ok" as const)
-          : ("fail" as const)
-        : null;
-  const statusLabel =
-    status === "confirm"
-      ? "等待确认"
-      : status === "running"
-        ? "正在运行"
-        : status === "ok"
-          ? `已完成 · ${relTime(outcome?.endedAt ?? Date.now())}`
-          : status === "fail"
-            ? `已失败 · ${relTime(outcome?.endedAt ?? Date.now())}`
-            : undefined;
-
-  const commitRename = () => {
-    if (renameDraft === null) return;
-    renameSession(session.id, renameDraft);
-    setRenameDraft(null);
-  };
-
-  const onArchive = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    if (archived) {
-      unarchiveSession(session.id);
-      onToast(`已取消归档 ${session.title}`);
-    } else {
-      archiveSession(session.id);
-      onToast(`已归档 ${session.title}`);
-    }
-  };
-
-  const onDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
-    const removedIds = removeSession(session.id); // 即时移除 UI，并级联取回 side 子会话 id。
-    for (const sessionId of removedIds) {
-      reapSessionRun(qc, sessionId); // 回收 renderer run(停看门狗/清 running),防孤儿 interval
-      discardSessionChat(qc, sessionId); // 取消 reap 排出的节流保存，防 chat:delete 后旧缓存复活磁盘文件。
-      void bridge?.deleteChat?.(sessionId); // 物理删父/子会话磁盘消息文件
-      void closePiSession(bridge, sessionId); // 终止对应 pi 长驻进程（非 pi 会话 no-op）
-    }
-    onToast(`已删除 ${session.title}`);
-  };
-
-  return (
-    <div
-      className="pw-session-row"
-      data-archived={archived}
-      onMouseLeave={() => setConfirming(false)}
-    >
-      {renameDraft !== null ? (
-        <div className={`pw-session pw-session-rename ${active ? "is-active" : ""}`}>
-          <input
-            autoFocus
-            className="pw-session-rename-input"
-            aria-label="会话名称"
-            value={renameDraft}
-            onFocus={(event) => event.currentTarget.select()}
-            onChange={(event) => setRenameDraft(event.target.value)}
-            onBlur={commitRename}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitRename();
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                setRenameDraft(null);
-              }
-            }}
-          />
-        </div>
-      ) : (
-        <button
-          className={`pw-session ${active ? "is-active" : ""}`}
-          draggable
-          title="拖到会话窗格的上、下、左、右以拆分"
-          onClick={onSelect}
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "copy";
-            event.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
-          }}
-        >
-          {status === "confirm" ? (
-            // 等确认点绝对定位于标题左侧 26px 缩进空白区,不挤压标题、不受 hover 时间隐藏规则影响。
-            <span
-              className="pw-session-status is-confirm"
-              data-status="confirm"
-              title={statusLabel}
-              aria-label={statusLabel}
-            />
-          ) : null}
-          <span className="pw-session-title">{session.title}</span>
-          {status === "running" ? (
-            // 运行中 loading 环占用右侧时间位(运行中相对时间无意义,hover 让位规则与时间同款)。
-            <span
-              className="pw-session-status is-running"
-              data-status="running"
-              title={statusLabel}
-              aria-label={statusLabel}
-            />
-          ) : status === "ok" || status === "fail" ? (
-            // 已结束成功/失败 icon 同样占右侧时间位;endedAt 详情在 title tooltip 里。
-            <span
-              className={`pw-session-status is-${status}`}
-              data-status={status}
-              title={statusLabel}
-              aria-label={statusLabel}
-            >
-              {status === "ok" ? <Icon.CheckCircle size={12} /> : <Icon.XCircle size={12} />}
-            </span>
-          ) : (
-            <span className="pw-session-time">{relTime(session.updatedAt)}</span>
-          )}
-        </button>
-      )}
-      {renameDraft === null ? (
-        <div className="pw-session-actions">
-          <button
-            className="pw-icon-btn pw-session-act"
-            title="重命名"
-            aria-label={`重命名 ${session.title}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setRenameDraft(session.title);
-            }}
-          >
-            <Icon.Edit size={13} />
-          </button>
-          <button
-            className="pw-icon-btn pw-session-act"
-            title={archived ? "取消归档" : "归档"}
-            onClick={onArchive}
-          >
-            {archived ? <Icon.Reply size={13} /> : <Icon.Archive size={13} />}
-          </button>
-          <button
-            className={`pw-icon-btn pw-session-act ${confirming ? "is-danger" : ""}`}
-            title={confirming ? "再点确认删除" : "删除"}
-            onClick={onDelete}
-          >
-            {confirming ? <Icon.Check size={13} /> : <Icon.Trash size={13} />}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 // 单个分组内默认显示的会话条数上限。超过则默认只显示前 N 条,底部挂「展开显示」按钮。
 const DEFAULT_VISIBLE_SESSIONS = 5;
@@ -269,17 +74,20 @@ export function SessionList({
   );
 }
 
+// 项目行(树节点):点击展开/收起其下对话;悬停浮现「⋯」菜单与「新建对话」。
 function ProjectSwitchRow({
   project,
   archived,
   editors,
-  onOpen,
+  expanded,
+  onToggle,
   onToast,
 }: {
   project: ProjectMeta;
   archived: boolean;
   editors: EditorInfo[];
-  onOpen: () => void;
+  expanded: boolean;
+  onToggle: () => void;
   onToast: (text: string) => void;
 }) {
   const createSession = usePersonalStore((s) => s.createSession);
@@ -294,10 +102,10 @@ function ProjectSwitchRow({
 
   return (
     <div className="pw-project-switch-row" data-archived={archived}>
-      <button className="pw-project-switch-main" onClick={onOpen} title={project.path}>
-        <Icon.Folder size={14} />
+      <button className="pw-project-switch-main" onClick={onToggle} title={project.path} aria-expanded={expanded}>
+        {expanded ? <Icon.FolderOpen size={16} /> : <Icon.Folder size={16} />}
         <span>{project.name}</span>
-        {project.pinnedAt ? <Icon.Pin size={11} className="pw-project-pin" /> : null}
+        {project.pinnedAt ? <Icon.Pushpin size={12} className="pw-project-pin" /> : null}
       </button>
       <div className={`pw-project-actions ${menuAnchor ? "is-menu-open" : ""}`}>
         <button className={`pw-icon-btn ${menuAnchor ? "is-active" : ""}`} title="更多" onClick={openMenu}>
@@ -305,10 +113,10 @@ function ProjectSwitchRow({
         </button>
         <button
           className="pw-icon-btn"
-          title="新建 Session"
+          title="新建对话"
           onClick={() => {
             createSession(project.id, resolveDefaultAgent({ generalSettings, agentsAvailable }));
-            onToast(`已在 ${project.name} 新建 Session`);
+            onToast(`已在 ${project.name} 新建对话`);
           }}
         >
           <Icon.Plus size={13} />
@@ -328,6 +136,38 @@ function ProjectSwitchRow({
   );
 }
 
+// 项目树展开后的子节点:该项目(或无项目)的未归档对话;没有对话时给一条「新建第一条对话」。
+// 侧栏刻意不显示已归档对话(用户要求),已归档对话在 设置 → 已归档 里查看 / 恢复。
+function ProjectTreeChildren({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onCreate,
+  onToast,
+}: {
+  sessions: SessionMeta[];
+  activeSessionId: string | undefined;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+  onToast: (text: string) => void;
+}) {
+  return (
+    <div className="pw-project-tree-children">
+      {sessions.length > 0 ? (
+        <SessionList sessions={sessions} activeSessionId={activeSessionId} onSelect={onSelect} onToast={onToast} />
+      ) : (
+        <button className="pw-context-empty" onClick={onCreate}>
+          <Icon.Plus size={12} />
+          <span>新建第一条对话</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 无项目分组在展开态集合里的 key(项目 id 不会与之冲突)。
+const NO_PROJECT_KEY = "__no-project__";
+
 export function PersonalSidebar({
   onToast,
   onOpenFlashNote,
@@ -343,24 +183,24 @@ export function PersonalSidebar({
   const projects = usePersonalStore((s) => s.projects);
   const addProject = usePersonalStore((s) => s.addProject);
   const openHome = usePersonalStore((s) => s.openHome);
-  // 自动化 / Loop / 设置的**打开动作**已移到 SidebarUserBar 的头像菜单；
-  // 这里只留「是否打开」的读取，它们参与下面 conversationModeOpen 的互斥判定。
+  // 自动化 / Loop 入口放在滚动区顶部(对齐 ChatGPT「图像 / 定时任务」行);「是否打开」同时
+  // 参与下面 conversationModeOpen 的互斥判定。设置仍在 SidebarUserBar 的头像菜单。
   const automationOpen = usePersonalStore((s) => s.automationOpen);
+  const openAutomation = usePersonalStore((s) => s.openAutomation);
   const workflowOpen = usePersonalStore((s) => s.workflowOpen);
+  const openWorkflow = usePersonalStore((s) => s.openWorkflow);
   // 写作工作区(整窗覆盖层);desktop-only,bridge 为 null(web 端)自动降级隐藏。
   const writingOpen = usePersonalStore((s) => s.writingOpen);
   const openWriting = usePersonalStore((s) => s.openWriting);
+  const setSessionSearchOpen = useCortexUIStore((s) => s.setSessionSearchOpen);
   const sessions = usePersonalStore((s) => s.sessions);
   const activeProjectId = usePersonalStore((s) => s.activeProjectId);
   const activeSessionId = usePersonalStore((s) => s.activeSessionId);
   const setActiveSession = usePersonalStore((s) => s.setActiveSession);
   const createSession = usePersonalStore((s) => s.createSession);
-  const activateProject = usePersonalStore((s) => s.activateProject);
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const agentsAvailable = usePersonalStore((s) => s.agentsAvailable);
   const generalSettings = usePersonalStore((s) => s.generalSettings);
-  const setRightView = usePersonalStore((s) => s.setRightView);
-  const setRightOpen = useCortexUIStore((s) => s.setRightOpen);
 
   // 系统已装编辑器（挂载时探测一次,传给所有 ProjectMenu）。
   const [editors, setEditors] = useState<EditorInfo[]>([]);
@@ -368,8 +208,29 @@ export function PersonalSidebar({
   const [archivedOpen, setArchivedOpen] = useState(false);
   // 「项目」分组展开态(默认只露前 DEFAULT_VISIBLE_PROJECTS 行)。
   const [projectsExpanded, setProjectsExpanded] = useState(false);
-  const [contextMenuAnchor, setContextMenuAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [revealedArchiveProjectId, setRevealedArchiveProjectId] = useState<string>();
+  // 活动视图(铃铛切换):打开时侧栏正文换成按活动排序的扁平列表,见 SidebarActivityView。
+  const [activityOpen, setActivityOpen] = useState(false);
+  const notifications = useNotificationCenter();
+  const priorityIds = usePrioritySessionIds(sessions);
+  // 打开活动视图即视为看到了消息:把未读消息标已读(与原 popover「展开即已读」一致)。
+  const { unread: unreadNotifications, markRead: markNotificationsRead } = notifications;
+  useEffect(() => {
+    if (activityOpen && unreadNotifications > 0) markNotificationsRead();
+  }, [activityOpen, unreadNotifications, markNotificationsRead]);
+  // ⌥⌘U(Win/Linux ⌥Ctrl+U)切换活动视图,对齐 Codex。按 e.code 判断:mac 上按住 ⌥ 时 e.key 会变成特殊字符。
+  useEffect(() => {
+    const isMac = detectIsMac();
+    const onKey = (e: KeyboardEvent) => {
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod || !e.altKey || e.shiftKey || e.code !== "KeyU" || e.repeat) return;
+      e.preventDefault();
+      setActivityOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // 项目树展开态(项目 id / NO_PROJECT_KEY)。当前上下文所在分组会被自动展开(见下方 effect)。
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -401,27 +262,38 @@ export function PersonalSidebar({
   const contextIsNoProject = activeSession
     ? !activeSession.projectId
     : !activeProjectId && noProjectSessions.length > 0;
-  const contextSessions = sessions
-    .filter((session) => {
-      if (session.archivedAt != null) return false;
-      if (session.relation === "side") return false;
-      if (contextProject) return session.projectId === contextProject.id;
-      return contextIsNoProject && !session.projectId;
-    })
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-  const contextArchivedSessions = contextProject
-    ? sessions
-        .filter((session) => session.projectId === contextProject.id && session.archivedAt != null)
-        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
-    : [];
-  const showContextArchived = contextProject?.id === revealedArchiveProjectId;
-  const projectChoices = visible.filter((project) => project.id !== contextProject?.id);
-  // 默认只露前 N 个项目,其余收进「全部项目」展开钮(与会话列表的「展开显示」同款交互)。
+  // 「置顶」分区只放置顶**对话**(用户明确:不把项目搬进来),并从下方项目树里移除,不重复出现。
+  // 置顶项目仍留在「项目」列表,由 partitionProjects 排在最前,名字旁带图钉标记。
+  const pinnedSessions = sessions
+    .filter((s) => s.relation !== "side" && s.archivedAt == null && s.pinnedAt != null)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0));
+  const treeProjects = visible;
+  // 某项目下的未归档、未置顶对话,按时间倒序。side 关系的子会话、已归档对话都不进侧栏。
+  const projectSessions = (projectId: string) =>
+    sessions
+      .filter(
+        (s) => s.relation !== "side" && s.projectId === projectId && s.archivedAt == null && s.pinnedAt == null,
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  const noProjectTreeSessions = noProjectSessions.filter((s) => s.pinnedAt == null);
+  // 默认只露前 N 个项目,其余收进「全部项目」展开钮;当前上下文项目若排在 N 之后也补进来,
+  // 否则用户正在用的项目会被折叠藏起来。
   const visibleProjectChoices = projectsExpanded
-    ? projectChoices
-    : projectChoices.slice(0, DEFAULT_VISIBLE_PROJECTS);
-  const archivedChoices = archived.filter((project) => project.id !== contextProject?.id);
+    ? treeProjects
+    : [
+        ...treeProjects.slice(0, DEFAULT_VISIBLE_PROJECTS),
+        ...treeProjects.slice(DEFAULT_VISIBLE_PROJECTS).filter((p) => p.id === contextProject?.id),
+      ];
+  const hiddenProjectCount = treeProjects.length - visibleProjectChoices.length;
   const defaultAgent = resolveDefaultAgent({ generalSettings, agentsAvailable });
+
+  // 当前上下文(活动对话所属项目 / 无项目)切换时自动展开对应分组,让用户一眼看到正在用的对话。
+  // 只「加」不「删」:用户手动收起别的分组不受影响;手动收起当前分组后,只有上下文再次变化才会重新展开。
+  const contextGroupKey = contextProject ? contextProject.id : contextIsNoProject ? NO_PROJECT_KEY : undefined;
+  useEffect(() => {
+    if (!contextGroupKey) return;
+    setExpandedGroups((prev) => (prev.has(contextGroupKey) ? prev : new Set(prev).add(contextGroupKey)));
+  }, [contextGroupKey]);
   // 深度研究**不再是左栏模式**：它已改为会话内的 `/skill:research`，进度与报告在会话右栏。
   // 门控与入口都收敛到 useSlashCommands 的 useResearchSkillAvailable + 落地页 skill chip，
   // 这里不该再留任何研究相关的读取。
@@ -447,17 +319,43 @@ export function PersonalSidebar({
     })();
   };
 
-  const openProject = (project: ProjectMeta) => {
-    const latest = sessions
-      .filter((session) => session.relation !== "side" && session.projectId === project.id && session.archivedAt == null)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    if (latest) {
-      setActiveSession(latest.id);
-      return;
-    }
-    activateProject(project.id);
-    setRightView("todos");
-    setRightOpen(true);
+  // 切换某分组的展开 / 收起(纯本地 UI 态,不改变当前对话)。
+  const toggleGroup = (key: string) =>
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  // 在指定项目下新建对话(展开后空项目的「新建第一条对话」用)。
+  const createInProject = (project: ProjectMeta) => {
+    createSession(project.id, defaultAgent);
+    onToast(`已在 ${project.name} 新建对话`);
+  };
+  // 渲染一个项目树节点:项目行 + 展开后的对话。已归档项目组复用同一渲染。
+  const renderProjectNode = (project: ProjectMeta, isArchived: boolean) => {
+    const open = expandedGroups.has(project.id);
+    return (
+      <div key={project.id} className="pw-project-tree-node">
+        <ProjectSwitchRow
+          project={project}
+          archived={isArchived}
+          editors={editors}
+          expanded={open}
+          onToggle={() => toggleGroup(project.id)}
+          onToast={onToast}
+        />
+        {open ? (
+          <ProjectTreeChildren
+            sessions={projectSessions(project.id)}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSession}
+            onCreate={() => createInProject(project)}
+            onToast={onToast}
+          />
+        ) : null}
+      </div>
+    );
   };
 
   const pickProject = async () => {
@@ -471,179 +369,187 @@ export function PersonalSidebar({
   return (
     <aside className="sidebar">
       {/* 左栏顶部头:三栏各自顶天后承担窗口拖拽区,并为 macOS 红绿灯预留左侧空间。
-          红绿灯右侧放「折叠侧栏 / 搜索会话」控制;右端是「新建会话」(清爽化改版:
-          原「当前项目」卡片里的大 primary 按钮降级为这颗顶部图标钮,语义不变——按当前上下文新建)。 */}
+          红绿灯右侧只留「折叠侧栏」;搜索挪到下方模式行右侧(对齐 ChatGPT 侧栏)。 */}
       <div className="pw-col-head pw-sidebar-head">
-        <SidebarLeftControls />
+        <SidebarLeftControls showSearch={false} />
         <div className="spacer" />
-        <button className="icon-btn" title="新建会话" aria-label="新建会话" onClick={createContextSession}>
-          <Icon.Plus />
-        </button>
       </div>
       {/* 「团队工作区 / 个人工作区」切换（feat/team-server-workspace）:此前只在无桥 web
           回落分支渲染,桌面端没有可见入口——挂在模式行上方,两侧工作区互达。 */}
       <WorkspaceTabs />
+      {/* 模式行(对齐 ChatGPT「ChatGPT ▾ …… 搜索 / 铃铛」):左侧 对话/写作 下拉,右侧搜索会话 + 消息铃铛。
+          铃铛原在底部用户行,挪到这里后弹层改为向下展开(见 .pw-sb-msgs)。 */}
       <div className="pw-sidebar-modes" aria-label="工作模式">
-        <button className={conversationModeOpen ? "is-active" : ""} onClick={openHome} aria-pressed={conversationModeOpen}>
-          会话
+        <SidebarModeMenu
+          modes={[
+            { key: "chat", label: "对话", active: conversationModeOpen, onSelect: openHome },
+            ...(bridge ? [{ key: "writing", label: "写作", active: writingOpen, onSelect: openWriting }] : []),
+          ]}
+        />
+        <div className="spacer" />
+        <button
+          className="icon-btn"
+          title="搜索对话"
+          aria-label="搜索对话"
+          onClick={() => setSessionSearchOpen(true)}
+        >
+          <Icon.Search />
         </button>
-        {bridge ? (
-          <button className={writingOpen ? "is-active" : ""} onClick={openWriting} aria-pressed={writingOpen}>
-            写作
-          </button>
-        ) : null}
+        <NotificationBell
+          active={activityOpen}
+          badge={notifications.unread + priorityIds.size}
+          onToggle={() => setActivityOpen((v) => !v)}
+        />
       </div>
+      {/* 新对话入口(对齐 ChatGPT「新对话」整行):按当前上下文新建——在当前项目下,或无项目会话。 */}
+      <button type="button" className="pw-sidebar-new" onClick={createContextSession}>
+        <Icon.Edit size={16} />
+        <span>新对话</span>
+      </button>
 
       <div className="pw-sidebar-scroll">
-        {/* 清爽化改版:原「当前项目」嵌套卡片(pw-context-card)拆除——上下文名直接做分组标题,
-            归档切换/项目菜单收进标题行右侧,消灭「无项目会话」标签出现两次的重复。 */}
-        <section className="pw-context-sessions">
-          <div className="pw-section-h">
-            {/* 标题避免用裸「会话」:与顶部模式 tab 文案撞车(a11y/测试 getByText 会歧义) */}
-            <span>{contextProject?.name ?? (contextIsNoProject ? "无项目会话" : "最近")}</span>
-            {contextProject && contextArchivedSessions.length > 0 ? (
-              <button
-                className={`pw-icon-btn ${showContextArchived ? "is-active" : ""}`}
-                title={showContextArchived ? "隐藏已归档会话" : `显示已归档会话 (${contextArchivedSessions.length})`}
-                onClick={() => setRevealedArchiveProjectId(showContextArchived ? undefined : contextProject.id)}
-              >
-                <Icon.File size={13} />
-              </button>
-            ) : null}
-            {contextProject ? (
-              <button
-                className={`pw-icon-btn ${contextMenuAnchor ? "is-active" : ""}`}
-                title="更多项目操作"
-                onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setContextMenuAnchor({ x: rect.right, y: rect.bottom + 4 });
-                }}
-              >
-                <Icon.More size={13} />
-              </button>
-            ) : null}
-          </div>
-          {contextProject && contextMenuAnchor ? (
-            <ProjectMenu
-              project={contextProject}
-              archived={contextProject.archivedAt != null}
-              editors={editors}
-              anchor={contextMenuAnchor}
-              onClose={() => setContextMenuAnchor(null)}
-              onToast={onToast}
-            />
+        {/* 功能入口(闪记 / 自动化 / Loop):放在滚动区内,随会话列表一起滚走,不占固定高度。
+            降级规则:壳没注入 onOpenFlashNote / bridge 缺 automationList、workflowList(web 或旧壳)时
+            对应行直接不渲染,而不是渲染一个点了没反应的入口。 */}
+        <nav className="pw-sidebar-nav" aria-label="功能入口">
+          {onOpenFlashNote ? (
+            <button type="button" className="pw-sidebar-new" onClick={onOpenFlashNote}>
+              <Icon.Pin size={16} />
+              <span>闪记</span>
+            </button>
           ) : null}
-          {contextSessions.length > 0 ? (
-            <SessionList
-              sessions={contextSessions}
-              activeSessionId={activeSessionId}
-              onSelect={setActiveSession}
-              onToast={onToast}
-            />
-          ) : (
-            <button className="pw-context-empty" onClick={createContextSession}>
-              <Icon.Plus size={12} />
-              <span>新建第一条会话</span>
-            </button>
-          )}
-          {showContextArchived
-            ? contextArchivedSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeSessionId}
-                  onSelect={() => setActiveSession(session.id)}
-                  onToast={onToast}
-                />
-              ))
-            : null}
-        </section>
-
-        <section className="pw-project-switcher">
-          <div className="pw-section-h">
-            <span>项目</span>
-            {/* 清爽化改版:原卡片里的「项目管理」文字按钮收进分组标题右侧的图标入口 */}
-            {bridge?.tasksListProjects && onOpenProjectsWindow ? (
-              <button
-                className="pw-icon-btn"
-                title="项目管理（独立窗口：项目树 / 任务清单 / 详情）"
-                onClick={onOpenProjectsWindow}
-              >
-                <Icon.Folder size={14} />
-              </button>
-            ) : null}
-            <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
-              <Icon.FolderPlus size={14} />
-            </button>
-          </div>
-          {visibleProjectChoices.map((project) => (
-            <ProjectSwitchRow
-              key={project.id}
-              project={project}
-              archived={false}
-              editors={editors}
-              onOpen={() => openProject(project)}
-              onToast={onToast}
-            />
-          ))}
-          {projectChoices.length > DEFAULT_VISIBLE_PROJECTS ? (
+          {bridge?.workflowList ? (
             <button
-              className="pw-session-more"
-              data-collapsed={!projectsExpanded}
-              onClick={() => setProjectsExpanded((v) => !v)}
+              type="button"
+              className={`pw-sidebar-new ${workflowOpen ? "is-active" : ""}`}
+              aria-current={workflowOpen ? "page" : undefined}
+              onClick={openWorkflow}
             >
-              <span className="chev">
-                <Icon.Chevron size={10} />
-              </span>
-              <span>
-                {projectsExpanded ? "折叠项目" : `全部项目 (${projectChoices.length - DEFAULT_VISIBLE_PROJECTS})`}
-              </span>
+              <Icon.GitBranch size={16} />
+              <span>Loop</span>
             </button>
           ) : null}
-          {noProjectSessions.length > 0 && !contextIsNoProject ? (
+          {bridge?.automationList ? (
             <button
-              className="pw-project-switch-main pw-no-project-switch"
-              onClick={() => setActiveSession(noProjectSessions[0]!.id)}
+              type="button"
+              className={`pw-sidebar-new ${automationOpen ? "is-active" : ""}`}
+              aria-current={automationOpen ? "page" : undefined}
+              onClick={openAutomation}
             >
-              <Icon.File size={14} />
-              <span>无项目</span>
-              <small>{noProjectSessions.length}</small>
+              <Icon.Workflow size={16} />
+              <span>自动化</span>
             </button>
           ) : null}
-          {projectChoices.length === 0 && noProjectSessions.length === 0 && archivedChoices.length === 0 ? (
-            <div className="pw-project-switch-empty">暂无其他项目</div>
-          ) : null}
-          {archivedChoices.length > 0 ? (
-            <div className="pw-archived-group">
-              <button
-                className="pw-archived-h"
-                data-collapsed={!archivedOpen}
-                onClick={() => setArchivedOpen((value) => !value)}
-              >
-                <span className="chev">
-                  <Icon.Chevron size={10} />
-                </span>
-                <span>已归档 ({archivedChoices.length})</span>
-              </button>
-              {archivedOpen
-                ? archivedChoices.map((project) => (
-                    <ProjectSwitchRow
-                      key={project.id}
-                      project={project}
-                      archived
-                      editors={editors}
-                      onOpen={() => openProject(project)}
+        </nav>
+        {activityOpen ? (
+          <SidebarActivityView
+            sessions={sessions}
+            projects={projects}
+            priorityIds={priorityIds}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSession}
+            onToast={onToast}
+            notifications={notifications.items}
+            onClearNotifications={notifications.clear}
+          />
+        ) : (
+          <>
+            {pinnedSessions.length > 0 ? (
+              <section className="pw-pinned-section" aria-label="置顶">
+                <div className="pw-section-h">
+                  <span>置顶</span>
+                </div>
+                {pinnedSessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === activeSessionId}
+                    onSelect={() => setActiveSession(session.id)}
+                    onToast={onToast}
+                    variant="pinned"
+                  />
+                ))}
+              </section>
+            ) : null}
+            {/* 项目树(对齐 Codex 侧栏):点项目展开 / 收起其下对话;当前对话所在分组自动展开。
+                原「当前项目」顶部分组已并入这棵树,项目不再被单拎出来、也不会在列表里消失。 */}
+            <section className="pw-project-switcher">
+              <div className="pw-section-h">
+                <span>项目</span>
+                {/* 清爽化改版:原卡片里的「项目管理」文字按钮收进分组标题右侧的图标入口 */}
+                {bridge?.tasksListProjects && onOpenProjectsWindow ? (
+                  <button
+                    className="pw-icon-btn"
+                    title="项目管理（独立窗口：项目树 / 任务清单 / 详情）"
+                    onClick={onOpenProjectsWindow}
+                  >
+                    <Icon.Folder size={14} />
+                  </button>
+                ) : null}
+                <button className="pw-icon-btn" title="添加项目（选择本地文件夹）" onClick={pickProject} disabled={!bridge}>
+                  <Icon.FolderPlus size={14} />
+                </button>
+              </div>
+              {visibleProjectChoices.map((project) => renderProjectNode(project, false))}
+              {treeProjects.length > DEFAULT_VISIBLE_PROJECTS ? (
+                <button
+                  className="pw-session-more"
+                  data-collapsed={!projectsExpanded}
+                  onClick={() => setProjectsExpanded((v) => !v)}
+                >
+                  <span className="chev">
+                    <Icon.Chevron size={10} />
+                  </span>
+                  <span>{projectsExpanded ? "折叠项目" : `全部项目 (${hiddenProjectCount})`}</span>
+                </button>
+              ) : null}
+              {noProjectTreeSessions.length > 0 || contextIsNoProject ? (
+                <div className="pw-project-tree-node">
+                  <button
+                    className="pw-project-switch-main pw-no-project-switch"
+                    aria-expanded={expandedGroups.has(NO_PROJECT_KEY)}
+                    onClick={() => toggleGroup(NO_PROJECT_KEY)}
+                  >
+                    <Icon.File size={16} />
+                    <span>无项目</span>
+                    <small>{noProjectTreeSessions.length}</small>
+                  </button>
+                  {expandedGroups.has(NO_PROJECT_KEY) ? (
+                    <ProjectTreeChildren
+                      sessions={noProjectTreeSessions}
+                      activeSessionId={activeSessionId}
+                      onSelect={setActiveSession}
+                      onCreate={createContextSession}
                       onToast={onToast}
                     />
-                  ))
-                : null}
-            </div>
-          ) : null}
-        </section>
+                  ) : null}
+                </div>
+              ) : null}
+              {treeProjects.length === 0 && noProjectTreeSessions.length === 0 && archived.length === 0 ? (
+                <div className="pw-project-switch-empty">暂无项目</div>
+              ) : null}
+              {archived.length > 0 ? (
+                <div className="pw-archived-group">
+                  <button
+                    className="pw-archived-h"
+                    data-collapsed={!archivedOpen}
+                    onClick={() => setArchivedOpen((value) => !value)}
+                  >
+                    <span className="chev">
+                      <Icon.Chevron size={10} />
+                    </span>
+                    <span>已归档 ({archived.length})</span>
+                  </button>
+                  {archivedOpen ? archived.map((project) => renderProjectNode(project, true)) : null}
+                </div>
+              ) : null}
+            </section>
+          </>
+        )}
       </div>
 
-      {/* 底部用户行：闪记 / 自动化 / Loop / 设置 已收进头像菜单，右侧让位给消息铃铛。 */}
-      <SidebarUserBar onOpenFlashNote={onOpenFlashNote} />
+      {/* 底部用户行：显示宠物 / 设置 收在头像菜单;闪记 / 自动化 / Loop 已移到滚动区顶部。 */}
+      <SidebarUserBar />
     </aside>
   );
 }

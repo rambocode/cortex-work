@@ -65,10 +65,21 @@ const KIND_ICON: Record<ToastKind, string> = {
   error: "XCircle",
 };
 
+// 界面基准字号(px)。14 = 缩放 1(即原「中」档的观感),故默认值不改变现有界面大小。
+export const UI_FONT_SIZE_DEFAULT = 14;
+export const UI_FONT_SIZE_MIN = 10;
+export const UI_FONT_SIZE_MAX = 24;
+
+// 把任意输入(含 NaN/小数/越界)规整为合法界面字号:取整后钳到 [MIN, MAX],非数回落默认。
+export function clampUiFontSize(n: number): number {
+  if (!Number.isFinite(n)) return UI_FONT_SIZE_DEFAULT;
+  return Math.min(UI_FONT_SIZE_MAX, Math.max(UI_FONT_SIZE_MIN, Math.round(n)));
+}
+
 export const DEFAULT_TWEAKS: Tweaks = {
   density: "regular" as Density,
   sidebar: "rich" as SidebarMode,
-  fontScale: "medium",
+  uiFontSize: UI_FONT_SIZE_DEFAULT,
   theme: "system",
   language: DEFAULT_LOCALE,
 };

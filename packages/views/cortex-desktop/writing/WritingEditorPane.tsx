@@ -454,7 +454,7 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
       };
     }, [bridge]);
 
-    // ghost text 续写扩展工厂(U3):挂载时以 CM 命名空间构建;isEnabled/requestCompletion 读 ref 取最新配置,
+    // 额外 CM 扩展工厂:ghost text 续写(U3)+ 空文档占位提示。挂载时以 CM 命名空间构建;isEnabled/requestCompletion 读 ref 取最新配置,
     // 故配置改动即时生效、无需重挂编辑器。仅在 CM 档(live/source)经 NoteCodeMirrorEditor 注入,rich 档不挂。
     // useMemo([]) 保证工厂稳定引用(NoteCodeMirrorEditor 挂载时读一次即可)。
     const buildGhostTextExtensions = useMemo(
@@ -478,6 +478,9 @@ export const WritingEditorPane = forwardRef<WritingEditorPaneHandle, Props>(
                 }
               },
             }),
+            // 空文档占位提示「开始写作…」(与 rich 档同文案),文档为空时由 CM 自动显示/隐藏。
+            // 工厂只在挂载时读一次、live/source 切档不重挂,故两档都注入,由 CSS 只在 live 档显示。
+            mods.view.placeholder("开始写作…"),
           ],
       [],
     );

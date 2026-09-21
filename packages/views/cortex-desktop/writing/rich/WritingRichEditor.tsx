@@ -9,6 +9,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -255,6 +256,35 @@ export function WritingRichEditor({
         },
       });
 
+      // 空文档占位提示:新建文章时只有一个空段落,光标又细,用户不知道往哪输入。
+      // 自己用 node decoration 打 is-empty-placeholder 类 + data-placeholder,CSS ::before 渲染灰字;
+      // 不引 @tiptap/extensions 的 Placeholder,避免给 views 新增直接依赖。纯装饰,不进序列化。
+      const emptyDocPlaceholder = Extension.create({
+        name: "writingRichPlaceholder",
+        addProseMirrorPlugins() {
+          return [
+            new PmPlugin({
+              props: {
+                decorations(state: PmEditorState) {
+                  const { doc } = state;
+                  const first = doc.firstChild;
+                  // 仅「整篇只有一个空文本块」时提示,写了任何内容即消失。
+                  if (doc.childCount !== 1 || !first || !first.isTextblock || first.content.size > 0) {
+                    return DecorationSet.empty;
+                  }
+                  return DecorationSet.create(doc, [
+                    Decoration.node(0, first.nodeSize, {
+                      class: "is-empty-placeholder",
+                      "data-placeholder": "开始写作…",
+                    }),
+                  ]);
+                },
+              },
+            }),
+          ];
+        },
+      });
+
       const editor = new EditorCtor({
         element: hostRef.current,
         extensions: [
@@ -264,6 +294,7 @@ export function WritingRichEditor({
           }),
           saveShortcut,
           focusBlockHighlight,
+          emptyDocPlaceholder,
         ],
         content: mm.parseWriteMarkdown(value),
         editable: !readOnlyRef.current,
@@ -384,6 +415,16 @@ export function WritingRichEditor({
       });
   };
 
+  // 点在编辑器外的空白处(host 自身,多为正文下方大片留白)→ 聚焦到文末。
+  // 否则 ProseMirror 只占内容高度,点下方空白没反应,用户「找不到输入位置」。
+  const focusFromBlankArea = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    if (e.target !== e.currentTarget || readOnly) return;
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) return;
+    e.preventDefault();
+    editor.commands.focus("end");
+  };
+
   // 审计不通过:顶部黄条提示 + 回落编辑器(CM live)。
   if (eligible === false) {
     return (
@@ -398,7 +439,7 @@ export function WritingRichEditor({
 
   return (
     <>
-      <div ref={hostRef} className="pw-writing-rich-host" />
+      <div ref={hostRef} className="pw-writing-rich-host" onMouseDown={focusFromBlankArea} />
       {/* 选区浮动工具条:仅在可编辑 + 有文本选区时浮现(position:fixed,不占布局) */}
       {activeEditor && selRect && !readOnly ? (
         <WritingRichToolbar

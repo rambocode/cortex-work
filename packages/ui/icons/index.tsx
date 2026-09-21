@@ -284,6 +284,19 @@ export const Icon = {
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
     </IconBase>
   ),
+  // 对话气泡(侧栏「置顶」分区里的置顶对话)。
+  MessageCircle: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 20.5l1.5-4.6A8.4 8.4 0 1 1 21 11.5z" />
+    </IconBase>
+  ),
+  // 打开的文件夹(侧栏项目树展开态)。
+  FolderOpen: (p: IconProps) => (
+    <IconBase {...p}>
+      <path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1" />
+      <path d="M3 18l2.4-6.2A2 2 0 0 1 7.3 10.5H21l-2.6 7.2a2 2 0 0 1-1.9 1.3H5a2 2 0 0 1-2-2z" />
+    </IconBase>
+  ),
   Settings: (p: IconProps) => (
     <IconBase {...p}>
       <circle cx="12" cy="12" r="3" />
@@ -303,6 +316,15 @@ export const Icon = {
   Pin: (p: IconProps) => (
     <IconBase {...p}>
       <path d="M12 2l3 6 5 1-4 4 1 5-5-3-5 3 1-5-4-4 5-1 3-6z" />
+    </IconBase>
+  ),
+  // 图钉(置顶语义,斜 45°,对齐 Codex / macOS 的置顶图标)。注意 Pin 实为五角星,被闪记当品牌图标用,别混用。
+  Pushpin: (p: IconProps) => (
+    <IconBase {...p}>
+      <g transform="rotate(45 12 12)">
+        <path d="M12 17v5" />
+        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+      </g>
     </IconBase>
   ),
   At: (p: IconProps) => (

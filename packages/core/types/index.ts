@@ -416,13 +416,14 @@ export interface Toast {
 export type Density = "compact" | "regular" | "cozy";
 export type SidebarMode = "rich" | "minimal" | "activity";
 export type ThemeMode = "system" | "light" | "dark";
+// 旧版三档字号;仅用于读旧存档时迁移到 uiFontSize,新代码不要再用。
 export type FontScale = "small" | "medium" | "large";
 
 export interface Tweaks {
   density: Density;
   sidebar: SidebarMode;
-  // 全局字号缩放（small/medium/large → --font-scale）。
-  fontScale: FontScale;
+  // 界面基准字号(px,整数,默认 14,范围见 UI_FONT_SIZE_MIN/MAX)。→ --font-scale = uiFontSize / 14。
+  uiFontSize: number;
   // 明暗主题（system 跟随系统）。
   theme: ThemeMode;
   // 界面语言（zh-Hans / en）—— 与 theme 同走 localStorage 持久化（KTD3）。

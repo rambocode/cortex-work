@@ -121,6 +121,32 @@ describe("设置入口与整页设置视图", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
+  it("通用分区:字号为可输入数字框(默认 14,失焦提交并钳位),密度/侧栏选项已本地化", () => {
+    useCortexUIStore.setState({ tweaks: { ...DEFAULT_TWEAKS } });
+    usePersonalStore.setState({ settingsOpen: true });
+    renderUI(<PersonalSettingsView />);
+    fireEvent.click(screen.getByRole("button", { name: "通用" }));
+    const input = screen.getByRole("spinbutton", { name: "字号" }) as HTMLInputElement;
+    expect(input.value).toBe("14");
+    // 越界中间值(1)不提交、输入框保留原样;合法值(16)即时生效。
+    fireEvent.change(input, { target: { value: "1" } });
+    expect(useCortexUIStore.getState().tweaks.uiFontSize).toBe(14);
+    expect(input.value).toBe("1");
+    fireEvent.change(input, { target: { value: "16" } });
+    expect(useCortexUIStore.getState().tweaks.uiFontSize).toBe(16);
+    // 越界值失焦后钳位提交。
+    fireEvent.change(input, { target: { value: "99" } });
+    fireEvent.blur(input);
+    expect(useCortexUIStore.getState().tweaks.uiFontSize).toBe(24);
+    expect(input.value).toBe("24");
+    // 密度 / 侧栏选项显示中文,点击仍写回英文枚举。
+    fireEvent.click(screen.getByRole("radio", { name: "紧凑" }));
+    expect(useCortexUIStore.getState().tweaks.density).toBe("compact");
+    fireEvent.click(screen.getByRole("radio", { name: "活动栏" }));
+    expect(useCortexUIStore.getState().tweaks.sidebar).toBe("activity");
+    useCortexUIStore.setState({ tweaks: { ...DEFAULT_TWEAKS } });
+  });
+
   it("统一「语音」分区聚合语音助手、听写与模型管理，旧语音转文字入口不再出现", () => {
     usePersonalStore.setState({ settingsOpen: true });
     renderUI(<PersonalSettingsView />);

@@ -274,10 +274,7 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "fontSize": "Font size",
-    "fontSizeDesc": "Adjust the overall interface text size.",
-    "fontSmall": "Small",
-    "fontMedium": "Medium",
-    "fontLarge": "Large",
+    "fontSizeDesc": "Base interface font size. Default 14px (10–24px).",
     "density": "Layout density",
     "sidebar": "Sidebar style",
     "showTeamWorkspace": "Show team workspace",
@@ -323,7 +320,13 @@
     "logRetentionDesc": "Old logs beyond the retention period are cleaned automatically on startup.",
     "logDir": "Log directory",
     "openLogDir": "Open log directory",
-    "logRetentionDays": "{{count}} days"
+    "logRetentionDays": "{{count}} days",
+    "densityCompact": "Compact",
+    "densityRegular": "Regular",
+    "densityCozy": "Cozy",
+    "sidebarRich": "Full",
+    "sidebarMinimal": "Minimal",
+    "sidebarActivity": "Activity bar"
   },
   "updateStatus": {
     "checking": "Checking for a new version",

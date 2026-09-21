@@ -33,6 +33,10 @@ export type {
 export {
   useCortexUIStore,
   DEFAULT_TWEAKS,
+  UI_FONT_SIZE_DEFAULT,
+  UI_FONT_SIZE_MIN,
+  UI_FONT_SIZE_MAX,
+  clampUiFontSize,
   type CortexUIState,
   type Section,
   type WorkspaceKind,

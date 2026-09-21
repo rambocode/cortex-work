@@ -204,6 +204,10 @@ export interface SessionMeta {
   hiddenHistory?: HiddenHistoryMeta;
   // 归档时间戳;缺省 = 在会话列表。归档后默认从列表隐藏。
   archivedAt?: number;
+  // 侧栏置顶时间戳;缺省 = 未置顶。置顶对话进侧栏顶部「置顶」分区,按 pinnedAt 倒序。归档时清掉。
+  pinnedAt?: number;
+  // 用户手动「标记为未读」:侧栏行尾显示蓝点;再次打开该对话(setActiveSession)即清除。
+  unread?: boolean;
   createdAt: number;
   updatedAt: number;
 }

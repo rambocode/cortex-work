@@ -184,7 +184,7 @@ export function ContactRow({
       ) : null}
       {item.pinned ? (
         <span className="pin">
-          <Icon.Pin size={11} />
+          <Icon.Pushpin size={11} />
         </span>
       ) : null}
     </div>

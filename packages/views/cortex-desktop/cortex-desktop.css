@@ -3589,7 +3589,8 @@ input, textarea { font: inherit; color: inherit; }
 [data-density="cozy"] .pw-askq { width: calc(100% - 112px); }
 
 /* ──────── Tweaks: Sidebar mode ──────── */
-[data-sidebar="minimal"] .sidebar { width: 220px; }
+/* 精简档是侧栏最窄一档:240px(原 220px 放下项目名 + 悬停「⋯」/图钉后标题过窄)。 */
+[data-sidebar="minimal"] .sidebar { width: 240px; }
 [data-sidebar="minimal"] .contact {
   grid-template-columns: 28px 1fr auto;
   grid-template-rows: auto;
@@ -3875,29 +3876,53 @@ button.sb-row {
 /* ---------- Personal workspace (pw-*) ---------- */
 /* 清爽化改版:模式条从「灰底槽 + 白色抬块」的分段控件退为安静文字 tab,
    选中项黑色下划线(与落地页场景 tab 同款语言),少一层底色容器。 */
+/* 模式行(对齐 ChatGPT 侧栏「ChatGPT ▾ …… 搜索 / 铃铛」):左侧模式下拉,右侧图标钮。 */
 .pw-sidebar-modes {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin: 6px 16px 8px;
+  gap: 2px;
+  margin: 4px 10px 2px 8px;
   flex-shrink: 0;
 }
-.pw-sidebar-modes button {
-  min-width: 0;
-  padding: 4px 0 5px;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  color: var(--text-3);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 0.14s ease, border-color 0.14s ease;
-}
-.pw-sidebar-modes button:hover { color: var(--text-1); }
-.pw-sidebar-modes button.is-active {
-  color: var(--text-1);
-  border-bottom-color: var(--accent);
+.pw-sidebar-modes .spacer { flex: 1; }
+.pw-sidebar-mode-trigger,
+.pw-sidebar-mode-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 17px;
   font-weight: 600;
+  color: var(--text-1);
 }
+.pw-sidebar-mode-trigger { cursor: pointer; }
+.pw-sidebar-mode-trigger svg { color: var(--text-3); transition: transform 0.14s ease; }
+.pw-sidebar-mode-trigger:hover,
+.pw-sidebar-mode-trigger.is-open { background: var(--bg-hover); }
+.pw-sidebar-mode-trigger.is-open svg { transform: rotate(180deg); }
+.pw-sidebar-mode-menu { min-width: 160px; }
+.pw-sidebar-mode-menu .pw-tb-menu-item > span { flex: 1; text-align: left; }
+/* 新会话整行入口(对齐 ChatGPT「新对话」):图标与下方项目行图标同列(左 6+8=14px)。 */
+.pw-sidebar-new {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 12px);
+  margin: 2px 6px 4px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pw-sidebar-new:hover { background: var(--bg-hover); }
+/* 滚动区顶部的功能入口行(闪记 / Loop / 自动化),复用「新对话」行样式;选中态标记当前打开的工作区。 */
+.pw-sidebar-nav { display: flex; flex-direction: column; margin-bottom: 8px; }
+.pw-sidebar-nav .pw-sidebar-new { margin: 0 6px; }
+.pw-sidebar-new.is-active { background: var(--bg-active, var(--bg-hover)); }
 /* 模式按钮上的运行中角标（当前只有「研究」用）。按钮格子很窄，所以角标紧贴文字排在同一行，
    而不是绝对定位到角上——后者在只有 1/4 栏宽的按钮上会压住文字。 */
 .pw-nav-badge {
@@ -3923,16 +3948,9 @@ button.sb-row {
   overflow-y: auto;
   padding-bottom: 8px;
 }
-.pw-context-sessions .pw-session {
-  width: calc(100% - 12px);
-  margin-left: 6px;
-  padding-left: 10px;
-}
-.pw-context-sessions .pw-session-more {
-  width: calc(100% - 12px);
-  margin-left: 6px;
-  padding-left: 10px;
-}
+/* 项目树子节点:对话行沿用 .pw-session(左 8+32=40px,与项目名对齐);空态与之同列。 */
+.pw-project-tree-children { padding-bottom: 4px; }
+.pw-project-tree-children .pw-context-empty { margin-left: 40px; }
 .pw-context-empty {
   display: flex;
   align-items: center;
@@ -3955,19 +3973,24 @@ button.sb-row {
 }
 .pw-project-switch-row:hover { background: var(--bg-hover); }
 .pw-project-switch-row[data-archived="true"] { opacity: 0.62; }
+/* 侧栏项目行:真 14px + 深色字 + 16px 图标/10px 间距(对齐 Codex 侧栏观感)。
+   原先继承 body 13.5px 且用 --text-2 灰字,同为「14 号」设置下显得小且虚。 */
 .pw-project-switch-main {
   min-width: 0;
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   padding: 7px 8px;
-  color: var(--text-2);
+  font-size: 14px;
+  color: var(--text-1);
   text-align: left;
   cursor: pointer;
 }
 .pw-project-switch-main:hover { color: var(--text-1); }
+/* 项目名加粗(600),与下方 14px 常规字重的会话标题拉开层级。 */
 .pw-project-switch-main > span {
+  font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4049,7 +4072,6 @@ button.sb-row {
 /* 头像菜单向上弹（底部行没有下方空间）。宽度略宽于顶栏菜单，容得下「显示宠物 + 开关」。 */
 .pw-sb-user-menu { min-width: 176px; }
 /* ── 消息铃铛与列表 popover ─────────────────────────────────────────── */
-.pw-sb-bell-wrap { flex: 0 0 auto; }
 .pw-sb-bell {
   position: relative;
   width: 30px;
@@ -4063,61 +4085,34 @@ button.sb-row {
   cursor: pointer;
   transition: color 0.14s ease, background 0.14s ease;
 }
-.pw-sb-bell:hover,
-.pw-sb-bell.is-open { color: var(--text-1); background: var(--bg-hover); }
+.pw-sb-bell:hover { color: var(--text-1); background: var(--bg-hover); }
+/* 活动视图打开时铃铛高亮(对齐 Codex 的浅蓝底)。主题 --blue 是中性灰,故用字面强调蓝。 */
+.pw-sb-bell.is-open {
+  color: #3b82f6;
+  background: color-mix(in srgb, #3b82f6 14%, transparent);
+}
 /* 未读红点叠在铃铛右上角。数字最多 99+，故用 min-width + 横向 padding 而非固定圆。 */
+/* 待关注提示:铃铛右上角蓝色小圆点(对齐 Codex),只标「有」不标数量;具体条数在 aria-label 里。
+   主题 --blue 是中性灰,故用字面强调蓝。白色描边把圆点和铃铛线条隔开,激活态浅蓝底上也清晰。 */
 .pw-sb-bell-dot {
   position: absolute;
-  top: 1px;
-  right: 0;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--danger, #e5484d);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
+  top: 5px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 0 1.5px var(--bg-sidebar, #fff);
 }
-/* 侧栏底部浮层（消息列表 / 用户菜单）向右溢出时的层级修正。
+/* 侧栏底部浮层（用户菜单）向右溢出时的层级修正。
    侧栏自身 position+z-index:1 会自建层叠上下文,内部再高的 z-index 也出不去这一层;
    而中栏落地页输入框 .pw-landing-composer 同样是 z-index:1 且 DOM 更靠后,平级比较时
    后者胜出 → 溢出的消息面板被输入框整块盖住(实测)。只在浮层打开期间把整条侧栏提层,
    关闭立即还原,避免常态下改变侧栏与中栏其它浮层的相对层级。 */
-.body:has(.pw-main) > .sidebar:has(.pw-sb-msgs),
 .body:has(.pw-main) > .sidebar:has(.pw-sb-user-menu) {
   z-index: 30;
 }
-/* 列表 popover：贴侧栏底部向上弹，**向右展开**盖到主区上。
-   不能向左（right:0）——侧栏只有 270px 宽且紧贴窗口左缘，288px 的面板会有一截被窗口
-   边缘直接切掉（实测左侧约 30px 不可见）。向右溢出要盖住中栏，还需上面那条侧栏提层规则
-   配合（本元素的 z-index 只在侧栏自建的层叠上下文内有效）。 */
-.pw-sb-msgs {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  width: 288px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-menu, var(--bg-sidebar));
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-  z-index: 40;
-  overflow: hidden;
-}
-.pw-sb-msgs-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 11px 7px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.pw-sb-msgs-title { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+/* 消息中心列表(原铃铛 popover)已并入侧栏活动视图顶部「消息」分组,只保留条目样式。 */
 .pw-sb-msgs-clear {
   font-size: 11.5px;
   color: var(--text-3);
@@ -4126,20 +4121,14 @@ button.sb-row {
   border: none;
 }
 .pw-sb-msgs-clear:hover { color: var(--text-1); }
-/* 限高内部滚动：60 天上限 500 条，不限高会顶穿屏幕。 */
-.pw-sb-msgs-list { max-height: 320px; overflow-y: auto; padding: 4px; }
-.pw-sb-msgs-empty,
 .pw-sb-msgs-foot {
-  padding: 14px 11px;
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--text-3);
-}
-.pw-sb-msgs-foot {
-  padding: 6px 11px 8px;
-  border-top: 1px solid var(--border-soft);
+  padding: 2px 14px 6px;
   font-size: 10.5px;
+  color: var(--text-4);
 }
+/* 活动视图「消息」分组:限高内部滚动(60 天上限 500 条,不限高会把下面的对话顶没)。 */
+.pw-activity-msgs .pw-sb-msg { margin: 0 6px; }
+.pw-activity-msgs { max-height: 40vh; overflow-y: auto; }
 .pw-sb-msg {
   display: flex;
   gap: 8px;
@@ -4206,6 +4195,7 @@ button.sb-row {
   border-color: var(--border-soft);
 }
 .pw-sidebar-modes button:focus-visible,
+.pw-sidebar-new:focus-visible,
 .pw-project-switch-main:focus-visible,
 .pw-sidebar-shortcut:focus-visible {
   outline: 2px solid var(--accent);
@@ -4228,6 +4218,20 @@ button.sb-row {
 }
 /* 标题占满剩余宽度:右侧可能有多颗图标钮(归档/项目菜单/项目管理/添加项目),
    标题吃掉中间空间让按钮靠右成组;超长项目名省略号截断。 */
+/* 侧栏分组标题(「项目」等):13px 常规字重、不大写不加字距,对齐 Codex 侧栏。
+   原 10.5px 粗体小标签在 14px 列表项上方显得过小。只限侧栏,首页等其它 .pw-section-h 不变。 */
+.pw-sidebar-scroll .pw-section-h {
+  font-size: 13px; font-weight: 400;
+  text-transform: none; letter-spacing: 0;
+}
+/* 「项目」标题右侧的 项目管理 / 添加项目 图标:平时隐藏,鼠标移到标题行(或键盘聚焦其中按钮)才显示,
+   让侧栏更清爽。用 opacity 而非 display:按钮始终占位,显隐时标题不跳动,Tab 仍能聚焦到。 */
+.pw-project-switcher > .pw-section-h > .pw-icon-btn {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.pw-project-switcher > .pw-section-h:hover > .pw-icon-btn,
+.pw-project-switcher > .pw-section-h:focus-within > .pw-icon-btn { opacity: 1; }
 .pw-section-h > span:first-child {
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -4305,20 +4309,36 @@ button.sb-row {
 .pw-archived-h:hover { color: var(--text-3); }
 .pw-archived-h .chev { display: inline-flex; color: var(--text-4); transition: transform 0.12s; }
 .pw-archived-h[data-collapsed="true"] .chev { transform: rotate(-90deg); }
+/* 会话行与项目行同为 14px 深色字;左内边距 32px 让标题与上方项目名左对齐
+   (项目行:外边距 6 + 内边距 8 + 图标 16 + 间距 10 = 40 = 本行外边距 8 + 32)。 */
 .pw-session {
   display: flex; align-items: center; gap: 8px;
   width: calc(100% - 8px);
   margin: 0 0 1px 8px;
-  padding: 5px 8px 5px 26px;
+  padding: 5px 8px 5px 32px;
   border-radius: 7px;
-  font-size: 12.5px;
-  color: var(--text-2);
+  font-size: 14px;
+  color: var(--text-1);
   cursor: pointer;
   text-align: left;
 }
 .pw-session:hover { background: var(--bg-hover); color: var(--text-1); }
 .pw-session.is-active { background: var(--bg-active); color: var(--text-1); font-weight: 500; }
 .pw-session-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 悬停滚动超长标题(useHoverMarquee 量出溢出量后加 .is-scrolling):滚动时去掉省略号,
+   内层文字改 inline-block 才能 transform 平移;两端各停一会儿再往回走。 */
+.pw-session-title.is-scrolling { text-overflow: clip; }
+.pw-session-title.is-scrolling > .pw-session-title-text {
+  display: inline-block;
+  animation: pw-title-marquee var(--pw-marquee-duration, 3s) ease-in-out 0.4s infinite alternate;
+}
+@keyframes pw-title-marquee {
+  0%, 12% { transform: translateX(0); }
+  88%, 100% { transform: translateX(var(--pw-marquee-shift, 0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-session-title.is-scrolling > .pw-session-title-text { animation: none; }
+}
 .pw-session-time { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
 .pw-session-rename { padding-top: 3px; padding-bottom: 3px; cursor: text; }
 .pw-session-rename-input {
@@ -4337,14 +4357,68 @@ button.sb-row {
   display: inline-flex; gap: 2px;
   opacity: 0; transition: opacity 0.12s;
 }
-.pw-session-row:hover .pw-session-actions { opacity: 1; }
-.pw-session-row:hover .pw-session-time { opacity: 0; }
+/* 菜单打开时(data-menu-open)鼠标已移到菜单上,操作钮与让位仍须保持,否则「⋯」会在菜单旁消失。 */
+.pw-session-row:hover .pw-session-actions,
+.pw-session-row:focus-within .pw-session-actions,
+.pw-session-row[data-menu-open] .pw-session-actions { opacity: 1; }
+/* 悬停时给右侧操作钮让位(借鉴 Codex):操作钮是叠在行上的绝对定位层,若不让位,长标题会从
+   按钮底下穿过去、文字与图标重叠。故悬停时收起时间 / 状态 / 未读点,并给标题按钮加右内边距 =
+   操作组宽度(「⋯」+ 图钉两颗 20px 钮 + 2px 间距 = 42px)+ 右偏移 8px + 余量 6px,标题在此之前截断。 */
+.pw-session-row:hover .pw-session-time,
+.pw-session-row:focus-within .pw-session-time,
+.pw-session-row[data-menu-open] .pw-session-time,
+.pw-session-row:hover .pw-session-unread,
+.pw-session-row:focus-within .pw-session-unread,
+.pw-session-row[data-menu-open] .pw-session-unread,
+.pw-session-row:hover .pw-session-status:not(.is-confirm),
+.pw-session-row:focus-within .pw-session-status:not(.is-confirm),
+.pw-session-row[data-menu-open] .pw-session-status:not(.is-confirm) { display: none; }
+.pw-session-row:hover .pw-session,
+.pw-session-row:focus-within .pw-session,
+.pw-session-row[data-menu-open] .pw-session { padding-right: 56px; }
+/* 已置顶的图钉钮高亮,一眼看出当前状态。 */
+.pw-session-act.is-on, .pw-session-act.is-on svg { color: var(--text-1); }
+/* 手动「标记为未读」的蓝点,占右侧时间位。主题 --blue 是中性灰(单色主题),未读点要真蓝才醒目,
+   故直接用字面色(同 #3b82f6 为项目内既有强调蓝),明暗两套主题下都清晰。 */
+.pw-session-unread {
+  flex-shrink: 0;
+  width: 8px; height: 8px; margin-right: 4px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+/* 「置顶」分区里的对话行:前置对话气泡图标,图标/标题列与项目行对齐(左 6+8=14px 图标、10px 间距)。 */
+.pw-session-row[data-variant="pinned"] .pw-session {
+  width: calc(100% - 12px);
+  margin-left: 6px;
+  padding-left: 8px;
+  gap: 10px;
+}
+.pw-session-lead { flex-shrink: 0; color: var(--text-2); }
+/* 置顶行左侧没有缩进空白,等确认点挪到图标左缘外侧,避免压在气泡图标上。 */
+.pw-session-row[data-variant="pinned"] .pw-session-status.is-confirm,
+.pw-session-row[data-variant="activity"] .pw-session-status.is-confirm { left: 2px; }
+/* 活动视图对话行(对齐 Codex):两行——标题 + 归属(项目名 / 聊天),无缩进,与分组标题左对齐。 */
+.pw-session-row[data-variant="activity"] .pw-session {
+  width: calc(100% - 12px);
+  margin-left: 6px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-left: 8px;
+}
+.pw-session-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pw-session-main > .pw-session-title { flex: none; }
+.pw-session-meta {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 12px; color: var(--text-3);
+}
+.pw-session-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-session-meta svg { flex-shrink: 0; }
 
 /* ── 侧栏样式三档(设置 → 通用)· 个人工作区左栏 ──
    [data-sidebar] 的行样式规则原本只作用于团队工作区联系人列表(.contact),个人左栏仅联动
-   宽度(220/270/320,见团队区块的 .sidebar 宽度规则),三档感知上「无效」。此处按档语义补齐:
+   宽度(240/270/320,见团队区块的 .sidebar 宽度规则),三档感知上「无效」。此处按档语义补齐:
    rich = 默认(270px,时间戳 hover 让位);
-   minimal = 极简(220px,隐藏时间戳/置顶星标/会话计数,只留标题);
+   minimal = 极简(240px,隐藏时间戳/置顶图钉/会话计数,只留标题);
    activity = 活动(320px,行距更松,信息保持全量)。 */
 [data-sidebar="minimal"] .pw-session-time,
 [data-sidebar="minimal"] .pw-project-pin { display: none; }
@@ -4357,10 +4431,10 @@ button.sb-row {
 /* 会话运行状态徽标。三态:confirm(等确认,琥珀点,急促脉冲+光环,提示需要行动) >
    running(蓝色旋转 loading 环) > ok/fail(绿勾/红叉 icon)。
    running/ok/fail 走 flex 布局占右侧时间位(运行中/刚结束时相对时间意义不大,详情在 title tooltip);
-   仅 confirm 绝对定位于标题左侧 26px 缩进空白区(定位锚 .pw-session-row),
+   仅 confirm 绝对定位于标题左侧 32px 缩进空白区(定位锚 .pw-session-row,居中于 8~40px),
    避开右侧 hover 操作按钮与时间显隐逻辑;pw-traj-pulse keyframes 复用轨迹面板既有定义。 */
 .pw-session-status {
-  position: absolute; left: 19px; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 21px; top: 50%; transform: translateY(-50%);
   width: 6px; height: 6px; border-radius: 50%;
   pointer-events: none;
 }
@@ -4398,7 +4472,7 @@ button.sb-row {
   display: flex; align-items: center; gap: 6px;
   width: calc(100% - 8px);
   margin: 1px 0 2px 8px;
-  padding: 4px 8px 4px 26px;
+  padding: 4px 8px 4px 32px;
   font-size: 11.5px;
   color: var(--text-4);
   cursor: pointer;
@@ -9256,6 +9330,9 @@ button.sb-row {
 .pw-wty-slider input[type="range"] { flex: 1; min-width: 120px; }
 .pw-wty-val { min-width: 44px; text-align: right; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .pw-wty-num { width: 90px; }
+/* 通用设置「字号」:数字框 + px 单位后缀(对齐 ChatGPT 设置的 UI 字号行)。 */
+.pw-ui-font-size { display: inline-flex; align-items: center; gap: 8px; }
+.pw-ui-font-size-unit { font-size: 13px; color: var(--text-3); }
 .pw-wty-advanced { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
 .pw-wty-advanced > summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); user-select: none; }
 .pw-wty-advanced > summary:hover { color: var(--text-1); }
@@ -13679,7 +13756,9 @@ button.sb-row {
 /* ── 富文本(rich)编辑器:所见即所得,文档式排版(720px 读列,对齐 Kun),字号跟随顶栏步进 ── */
 .pw-writing-rich-host {
   flex: 1; min-height: 0; min-width: 0; overflow-y: auto;
-  padding: clamp(28px, 5vh, 56px) 0 120px;
+  /* 顶部只留 16px:原 clamp(28px,5vh,56px) 让新建空文档的光标离模式栏太远,用户找不到输入位置。 */
+  padding: 16px 0 120px;
+  cursor: text;
 }
 .pw-writing-center .write-rich-editor {
   max-width: none; padding: 0 28px; outline: none;
@@ -13721,6 +13800,18 @@ button.sb-row {
 .write-rich-editor ul[data-type="taskList"] li > label { margin-top: 0.2em; }
 /* 光标聚焦时无边框 */
 .write-rich-editor.ProseMirror-focused { outline: none; }
+/* 实时预览档空文档占位(WritingEditorPane 注入 CM placeholder):源码档同实例共用该扩展,这里只让 live 档显示。 */
+.pw-writing-center .cm-editor .cm-placeholder { color: var(--text-3); }
+.pw-writing-center .cm-editor:not(.cm-write-live-preview) .cm-placeholder { display: none !important; }
+/* 空文档占位提示(WritingRichEditor 的 writingRichPlaceholder 装饰打类);只读时不显示。 */
+.write-rich-editor .is-empty-placeholder::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.write-rich-editor[contenteditable="false"] .is-empty-placeholder::before { content: none; }
 
 /* 保真审计不通过的回落:顶部黄条提示 + 下方回落编辑器(CM live) */
 .pw-writing-rich-fallback { display: flex; flex-direction: column; min-height: 0; flex: 1; }
@@ -13765,7 +13856,15 @@ button.sb-row {
   min-height: 52px; padding: 8px 14px; flex-shrink: 0;
   background: transparent;
   font-size: 13px;   /* 标题栏基准字号 */
+  /* 窗口是 hiddenInset 无原生标题栏:整条工具栏当拖拽区,按住空白/标题即可拖动窗口(Web 端忽略此属性)。 */
+  user-select: none;
+  -webkit-app-region: drag;
 }
+/* 可交互控件必须挖成 no-drag,否则点击被窗口拖拽吞掉;下拉菜单浮层同理(整块挖,含菜单内留白)。 */
+.pw-wt button,
+.pw-wt input,
+.pw-wt [role="tablist"],
+.pw-wt-menu { -webkit-app-region: no-drag; }
 /* 左栏折叠时,中栏移到窗口最左 → 左侧让位 macOS 红绿灯。 */
 .pw-wt.is-inset { padding-left: 84px; }
 .pw-wt-left { grid-area: title; display: flex; align-items: center; gap: 10px; min-width: 0; }

@@ -8,7 +8,7 @@ const coreWrapper = ({ children }: { children: ReactNode }) =>
   createElement(CoreProvider, { wsId: "test-ws", identity: { userId: "me", name: "我" }, desktopBridge: null, children });
 import {
   applyTweaksToDom,
-  fontScaleRatio,
+  uiFontSizeRatio,
   loadStoredTweaks,
   resolveTheme,
   useTweaksPersistence,
@@ -42,11 +42,12 @@ afterEach(async () => {
   await changeLanguage("zh-Hans");
 });
 
-describe("fontScaleRatio", () => {
-  it("映射 small/medium/large 为缩放比", () => {
-    expect(fontScaleRatio("small")).toBe("0.9");
-    expect(fontScaleRatio("medium")).toBe("1");
-    expect(fontScaleRatio("large")).toBe("1.1");
+describe("uiFontSizeRatio", () => {
+  it("以 14px 为 1 换算缩放比,越界先钳位", () => {
+    expect(uiFontSizeRatio(14)).toBe("1");
+    expect(uiFontSizeRatio(21)).toBe("1.5");
+    expect(uiFontSizeRatio(7)).toBe(uiFontSizeRatio(10));
+    expect(uiFontSizeRatio(99)).toBe(uiFontSizeRatio(24));
   });
 });
 
@@ -71,8 +72,18 @@ describe("loadStoredTweaks", () => {
     localStorage.setItem("cortex.tweaks", JSON.stringify({ density: "compact" }));
     const out = loadStoredTweaks();
     expect(out.density).toBe("compact");
-    expect(out.fontScale).toBe(DEFAULT_TWEAKS.fontScale);
+    expect(out.uiFontSize).toBe(14);
     expect(out.theme).toBe(DEFAULT_TWEAKS.theme);
+  });
+  it("旧档 fontScale 三档迁移为 uiFontSize,且不再带出旧字段", () => {
+    localStorage.setItem("cortex.tweaks", JSON.stringify({ fontScale: "large" }));
+    const out = loadStoredTweaks();
+    expect(out.uiFontSize).toBe(15);
+    expect("fontScale" in out).toBe(false);
+  });
+  it("新旧字段并存时以 uiFontSize 为准,越界钳位", () => {
+    localStorage.setItem("cortex.tweaks", JSON.stringify({ fontScale: "small", uiFontSize: 99 }));
+    expect(loadStoredTweaks().uiFontSize).toBe(24);
   });
   it("损坏 JSON 回退 DEFAULT_TWEAKS,不抛", () => {
     localStorage.setItem("cortex.tweaks", "{not json");
@@ -83,9 +94,9 @@ describe("loadStoredTweaks", () => {
 describe("applyTweaksToDom", () => {
   it("写 documentElement 的 data-theme 与 --font-scale", () => {
     mockMatchMedia(false);
-    applyTweaksToDom({ ...DEFAULT_TWEAKS, theme: "dark", fontScale: "large" });
+    applyTweaksToDom({ ...DEFAULT_TWEAKS, theme: "dark", uiFontSize: 21 });
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe("1.1");
+    expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe("1.5");
   });
   it("theme=system 解析为系统明暗", () => {
     mockMatchMedia(true);

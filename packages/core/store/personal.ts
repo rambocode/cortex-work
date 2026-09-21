@@ -355,6 +355,10 @@ export interface PersonalState {
   renameSession: (id: string, title: string) => void;
   archiveSession: (id: string) => void;
   unarchiveSession: (id: string) => void;
+  // 置顶 / 取消置顶对话(切换 pinnedAt)。不刷新 updatedAt,避免打乱列表排序。
+  toggleSessionPin: (id: string) => void;
+  // 标记对话未读 / 已读(unread 标志)。打开对话会自动清除,见 setActiveSession。
+  setSessionUnread: (id: string, unread: boolean) => void;
   // 删除父会话时级联移除其 side 子会话，并返回需要物理删除 chat 文件的全部 id。
   removeSession: (id: string) => string[];
   addTodo: (projectId: string, title: string, detailPath: string) => TodoMeta;
@@ -1157,7 +1161,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   // 归档当前会话时让出焦点（仿 archiveProject）。
   archiveSession: (id) =>
     set((s) => ({
-      sessions: s.sessions.map((x) => (x.id === id ? { ...x, archivedAt: Date.now() } : x)),
+      // 归档同时清置顶(仿 archiveProject):已归档对话不该继续占着侧栏「置顶」分区。
+      sessions: s.sessions.map((x) =>
+        x.id === id ? { ...x, archivedAt: Date.now(), pinnedAt: undefined } : x,
+      ),
       activeSessionId: s.activeSessionId === id ? undefined : s.activeSessionId,
     })),
 
@@ -1165,6 +1172,22 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     set((s) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, archivedAt: undefined } : x)),
     })),
+
+  toggleSessionPin: (id) =>
+    set((s) => ({
+      sessions: s.sessions.map((x) =>
+        x.id === id ? { ...x, pinnedAt: x.pinnedAt ? undefined : Date.now() } : x,
+      ),
+    })),
+
+  setSessionUnread: (id, unread) =>
+    set((s) => {
+      const session = s.sessions.find((x) => x.id === id);
+      if (!session || !!session.unread === unread) return s;
+      return {
+        sessions: s.sessions.map((x) => (x.id === id ? { ...x, unread: unread || undefined } : x)),
+      };
+    }),
 
   removeSession: (id) => {
     const sessions = get().sessions;
@@ -1233,6 +1256,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       // 选中会话即离开时间线/首页/工作流视图。
       return {
         activeSessionId: sessionId,
+        // 打开即已读:清掉手动「标记为未读」(无标记时保持原数组引用,避免无谓重渲与落盘)。
+        ...(sess?.unread
+          ? { sessions: s.sessions.map((x) => (x.id === sessionId ? { ...x, unread: undefined } : x)) }
+          : {}),
         // 「已结束」徽标看过即清:切回该会话即视为已读(无值时保持原引用,避免无谓重渲)。
         ...(s.runOutcomeBySession[sessionId]
           ? { runOutcomeBySession: { ...s.runOutcomeBySession, [sessionId]: undefined } }

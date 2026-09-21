@@ -1,23 +1,31 @@
-// 外观项（theme / fontScale / density / sidebar）的持久化 wiring。
+// 外观项（theme / uiFontSize / density / sidebar）的持久化 wiring。
 // useCortexUIStore 本身无持久化（裸 create）,此处在 views 层用 localStorage 补齐：
 // mount 时恢复并应用到根节点,变更即写盘 + 重应用,theme=system 随系统明暗切换重算。
 // （core 不得直接用 localStorage,故持久化逻辑放 views 层。）
 
 import { useEffect } from "react";
-import { DEFAULT_TWEAKS, useCortexUIStore, useDesktopBridge } from "@cortex-work/core";
+import {
+  DEFAULT_TWEAKS,
+  UI_FONT_SIZE_DEFAULT,
+  clampUiFontSize,
+  useCortexUIStore,
+  useDesktopBridge,
+} from "@cortex-work/core";
 import { changeLanguage } from "@cortex-work/core/i18n";
 import type { FontScale, ThemeMode, Tweaks } from "@cortex-work/core/types";
 
 const STORAGE_KEY = "cortex.tweaks";
 
-const FONT_SCALE_RATIO: Record<FontScale, string> = {
-  small: "0.9",
-  medium: "1",
-  large: "1.1",
+// 旧版三档 fontScale → 新 uiFontSize(px)。按原缩放比 0.9/1/1.1 × 14 取整,迁移后观感基本不变。
+const LEGACY_FONT_SCALE_PX: Record<FontScale, number> = {
+  small: 13,
+  medium: 14,
+  large: 15,
 };
 
-export function fontScaleRatio(scale: FontScale): string {
-  return FONT_SCALE_RATIO[scale] ?? "1";
+// 界面字号 → 全局缩放比(--font-scale)。整体 UI 走 .app-frame 的 zoom,14px 为 1。
+export function uiFontSizeRatio(px: number): string {
+  return String(Number((clampUiFontSize(px) / UI_FONT_SIZE_DEFAULT).toFixed(4)));
 }
 
 // 解析有效主题：system → 跟随 matchMedia；其余直接返回。
@@ -33,8 +41,16 @@ export function resolveTheme(theme: ThemeMode): "light" | "dark" {
 export function loadStoredTweaks(): Tweaks {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const saved = raw ? (JSON.parse(raw) as Partial<Tweaks>) : {};
-    return { ...DEFAULT_TWEAKS, ...saved };
+    const saved = raw ? (JSON.parse(raw) as Partial<Tweaks> & { fontScale?: FontScale }) : {};
+    const { fontScale: legacyScale, ...rest } = saved;
+    // 旧存档只有 fontScale(三档)没有 uiFontSize → 迁移;两者都在时以新字段为准。
+    const migratedPx =
+      rest.uiFontSize ?? (legacyScale ? LEGACY_FONT_SCALE_PX[legacyScale] : undefined);
+    return {
+      ...DEFAULT_TWEAKS,
+      ...rest,
+      uiFontSize: clampUiFontSize(migratedPx ?? UI_FONT_SIZE_DEFAULT),
+    };
   } catch {
     return { ...DEFAULT_TWEAKS };
   }
@@ -54,7 +70,7 @@ export function applyTweaksToDom(t: Tweaks): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.dataset.theme = resolveTheme(t.theme);
-  root.style.setProperty("--font-scale", fontScaleRatio(t.fontScale));
+  root.style.setProperty("--font-scale", uiFontSizeRatio(t.uiFontSize));
   // <html lang> 随活动语言更新(无障碍 + 覆盖 layout.tsx 的服务端默认值）。
   root.lang = t.language;
 }

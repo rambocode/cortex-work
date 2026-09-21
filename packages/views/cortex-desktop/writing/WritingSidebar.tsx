@@ -14,6 +14,7 @@
 //   - 文稿列表偏好(排序键/序 + 显示创建时间/概要)在 spaces store,随 writingUi 分片持久化;
 //     时间与概要经 writing:docMeta 批量拉取,仅在「需要」时拉(见 needsMeta)。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { detectIsMac } from "../personal/shared/platform";
 import { FilePlus2, FolderOpen, Plus } from "lucide-react";
 import { useDesktopBridge } from "@cortex-work/core/provider";
 import type { DesktopBridge, PromptNode } from "@cortex-work/core";
@@ -351,6 +352,22 @@ export function WritingSidebar({
     void createNewFile(active.id, active.root);
   }, [spaces, activeSpaceId, createNewFile, toast]);
 
+  // 快捷键 ⌘N(Win/Linux 为 Ctrl+N)新建文章,等同点顶部「新建文件」。
+  // 挂在侧栏而非工作区:侧栏折叠时只加类名不卸载,监听始终在;写作页关闭即随组件卸载,不影响其它页面。
+  // mac 只认 ⌘:Ctrl+N 在编辑器里是 emacs 式「下移一行」,不能抢。重命名弹窗打开时不响应,防连按叠建。
+  useEffect(() => {
+    const isMac = detectIsMac();
+    const onKey = (e: KeyboardEvent): void => {
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod || e.shiftKey || e.altKey || e.repeat || e.key.toLowerCase() !== "n") return;
+      if (renaming || !b) return;
+      e.preventDefault();
+      onTopCreateFile();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onTopCreateFile, renaming, b]);
+
   // 打开新建目录输入行(定位到 spaceId 的 dir 目录);确保该空间已展开,并把列表切到该目录——
   // 输入行渲染在「当前目录」顶部,不先切进去的话用户看不到自己正在哪儿建。
   const startCreateDir = useCallback((spaceId: string, dir: string): void => {
@@ -469,6 +486,7 @@ export function WritingSidebar({
         <button
           type="button"
           className="pw-writing-newbtn"
+          title="新建文件(⌘N)"
           onClick={onTopCreateFile}
           disabled={!b}
         >

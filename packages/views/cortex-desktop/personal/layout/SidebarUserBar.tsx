@@ -1,15 +1,11 @@
 // 侧栏底部用户行：左侧「头像 + 昵称」点开功能菜单，右侧消息铃铛。
 //
-// 取代原先平铺的四按钮快捷入口（闪记 / 自动化 / Loop / 设置）——那一排把侧栏底部占满，
-// 且随功能增加只会越挤。收进头像菜单后底部空出的位置给了消息铃铛。
-//
-// 菜单项的可用性沿用原快捷入口的降级规则：onOpenFlashNote / bridge.automationList /
-// bridge.workflowList 缺失（web 端或旧壳）时对应项直接不渲染，而不是渲染一个点了没反应的项。
+// 菜单只放「显示宠物 / 设置」;闪记 / 自动化 / Loop 已移到侧栏滚动区顶部的功能入口行
+//(见 PersonalSidebar 的 .pw-sidebar-nav),对齐 ChatGPT 侧栏。
 
 import {
   profileInitial,
   resolveAvatar,
-  useDesktopBridge,
   usePersonalProfile,
   usePersonalStore,
   usePetStore,
@@ -18,25 +14,14 @@ import { useTranslation } from "@cortex-work/core/i18n";
 import { Icon } from "@cortex-work/ui/icons";
 import { patchPetPrefs } from "../../pet/prefs";
 import { useDismissableMenu } from "../shared/useDismissableMenu";
-import { NotificationBell } from "./NotificationBell";
 
-export function SidebarUserBar({
-  onOpenFlashNote,
-}: {
-  // 闪记浮层入口（壳注入；web/旧壳缺省 → 该菜单项隐藏）。
-  onOpenFlashNote?: () => void;
-}) {
+export function SidebarUserBar() {
   const { t } = useTranslation();
-  const bridge = useDesktopBridge();
   const menu = useDismissableMenu();
   const profile = usePersonalProfile();
   const avatar = resolveAvatar(profile);
   const nickname = profile.nickname?.trim() || "我";
 
-  const automationOpen = usePersonalStore((s) => s.automationOpen);
-  const openAutomation = usePersonalStore((s) => s.openAutomation);
-  const workflowOpen = usePersonalStore((s) => s.workflowOpen);
-  const openWorkflow = usePersonalStore((s) => s.openWorkflow);
   const settingsOpen = usePersonalStore((s) => s.settingsOpen);
   const openSettings = usePersonalStore((s) => s.openSettings);
   // 宠物开关直接读写 petStore（与设置里的「显示宠物」同一份状态，两处联动）。
@@ -71,35 +56,6 @@ export function SidebarUserBar({
         </button>
         {menu.open ? (
           <div className="pw-tb-menu pw-tb-menu--up pw-tb-menu--left pw-sb-user-menu" role="menu">
-            {onOpenFlashNote ? (
-              <button type="button" className="pw-tb-menu-item" role="menuitem" onClick={run(onOpenFlashNote)}>
-                <Icon.Pin size={15} />
-                <span>闪记</span>
-              </button>
-            ) : null}
-            {bridge?.automationList ? (
-              <button
-                type="button"
-                className={`pw-tb-menu-item ${automationOpen ? "is-on" : ""}`}
-                role="menuitem"
-                onClick={run(openAutomation)}
-              >
-                <Icon.Workflow size={15} />
-                <span>自动化</span>
-              </button>
-            ) : null}
-            {bridge?.workflowList ? (
-              <button
-                type="button"
-                className={`pw-tb-menu-item ${workflowOpen ? "is-on" : ""}`}
-                role="menuitem"
-                onClick={run(openWorkflow)}
-              >
-                <Icon.GitBranch size={15} />
-                <span>Loop</span>
-              </button>
-            ) : null}
-            <div className="pw-tb-menu-sep" />
             {/* 宠物是开关而非跳转：点击就地切换、菜单**不关**，方便用户看着宠物出现/消失再决定。
                 选中态用 Check 而非自绘 switch —— 与本菜单其它项、以及 AgentSelect 等下拉一致。 */}
             <button
@@ -125,7 +81,6 @@ export function SidebarUserBar({
           </div>
         ) : null}
       </div>
-      <NotificationBell />
     </div>
   );
 }

@@ -274,10 +274,7 @@
     "themeLight": "浅色",
     "themeDark": "深色",
     "fontSize": "字号",
-    "fontSizeDesc": "调整整体界面的文字尺寸。",
-    "fontSmall": "小",
-    "fontMedium": "中",
-    "fontLarge": "大",
+    "fontSizeDesc": "界面基准字号，默认 14px（10–24px）。",
     "density": "布局密度",
     "sidebar": "侧栏样式",
     "showTeamWorkspace": "显示团队工作区",
@@ -323,7 +320,13 @@
     "logRetentionDesc": "超过天数的旧日志启动时自动清理。",
     "logDir": "日志目录",
     "openLogDir": "打开日志目录",
-    "logRetentionDays": "{{count}} 天"
+    "logRetentionDays": "{{count}} 天",
+    "densityCompact": "紧凑",
+    "densityRegular": "标准",
+    "densityCozy": "宽松",
+    "sidebarRich": "完整",
+    "sidebarMinimal": "精简",
+    "sidebarActivity": "活动栏"
   },
   "updateStatus": {
     "checking": "正在检查新版本",

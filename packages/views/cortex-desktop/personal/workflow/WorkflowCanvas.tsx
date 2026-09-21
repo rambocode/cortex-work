@@ -55,6 +55,22 @@ type WorkflowNodesModule = typeof import("./WorkflowNodes");
 // ── DnD 类型常量 ─────────────────────────────────────────────────────────────
 const DND_MIME = "application/x-workflow-node";
 
+// 功能节点卡片的近似半宽/半高（卡片 w-[216px]），用于把「落点」换算成节点左上角，
+// 让新节点的视觉中心对准落点，而不是左上角贴在落点上。
+const NODE_HALF_W = 108;
+const NODE_HALF_H = 28;
+
+type ScreenToFlow = (p: { x: number; y: number }) => { x: number; y: number };
+
+/** 画布对外暴露的命令式接口（供左侧节点面板「点击添加」取落点）。 */
+export type WorkflowCanvasApi = {
+  /**
+   * 返回「用户当前看到的画布区域」中心、并已减去节点半尺寸的流坐标（可直接作为节点 position）。
+   * 画布未加载完（拿不到 screenToFlowPosition）时返回 null，调用方自行兜底。
+   */
+  getViewportCenterPosition: () => { x: number; y: number } | null;
+};
+
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export type WorkflowCanvasProps = {
@@ -76,6 +92,8 @@ export type WorkflowCanvasProps = {
   onDeleteNode: (nodeId: string) => void;
   /** 画布内节点编辑回调（便签双击改文本/改色），与右面板 onNodeChange 同语义。 */
   onNodeChange: (node: WorkflowNode) => void;
+  /** 可选：接收画布命令式接口（见 WorkflowCanvasApi）。 */
+  apiRef?: React.MutableRefObject<WorkflowCanvasApi | null>;
 };
 
 // ── WorkflowCanvas ────────────────────────────────────────────────────────────
@@ -96,9 +114,36 @@ export function WorkflowCanvas({
   onToggleDisabled,
   onDeleteNode,
   onNodeChange,
+  apiRef,
 }: WorkflowCanvasProps) {
   // 容器 ref（动态加载后 ReactFlow 挂载到此 div）
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // screenToFlowPosition 只能在 ReactFlowProvider 内经 useReactFlow 取得，
+  // 由 ReactFlowInner 回填到这里，供外层（拖放落点 / apiRef）换算坐标——它已含平移与缩放。
+  const screenToFlowRef = useRef<ScreenToFlow | null>(null);
+
+  // 暴露「当前视口中心」：取画布容器可见矩形的中心点（屏幕坐标）再换算成流坐标。
+  // 不能用固定坐标——用户平移/缩放后，固定坐标可能落在视口之外，看起来像「节点没加上」。
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      getViewportCenterPosition: () => {
+        const toFlow = screenToFlowRef.current;
+        const container = containerRef.current;
+        if (!toFlow || !container) return null;
+        const rect = container.getBoundingClientRect();
+        const c = toFlow({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
+        return { x: c.x - NODE_HALF_W, y: c.y - NODE_HALF_H };
+      },
+    };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef]);
 
   // 动态加载的模块缓存（避免重复 import）
   const rfModRef = useRef<ReactFlowModule | null>(null);
@@ -270,17 +315,11 @@ export function WorkflowCanvas({
       const rfMod = rfModRef.current;
       if (!rfMod) return;
 
-      // 将屏幕坐标转换为 flow 坐标（如有 ReactFlow 实例）
-      // 无法直接访问 useReactFlow()（hooks 只能在 RF 内调用），
-      // 因此降级用容器 boundingRect 估算（误差可接受；U6 正式落地后可用 project API 精确化）
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      // 简单估算：偏移量 - 容器左上角，再除以画布缩放（初始 1.0）
-      const position = {
-        x: e.clientX - rect.left - 80,
-        y: e.clientY - rect.top - 20,
-      };
+      // 落点屏幕坐标 → 流坐标（含平移与缩放），再让节点中心对准鼠标位置。
+      const toFlow = screenToFlowRef.current;
+      if (!toFlow) return;
+      const p = toFlow({ x: e.clientX, y: e.clientY });
+      const position = { x: p.x - NODE_HALF_W, y: p.y - NODE_HALF_H };
       const newNode = createWorkflowNode(kind, position);
       setRfNodes((prev) => {
         const next = [
@@ -356,6 +395,7 @@ export function WorkflowCanvas({
               connectMenu={connectMenu}
               setConnectMenu={setConnectMenu}
               setStickyMenu={setStickyMenu}
+              screenToFlowRef={screenToFlowRef}
               onSelectNode={onSelectNode}
               onNodesChangeExternal={(changes) => {
                 setRfNodes((prev) => {
@@ -638,6 +678,8 @@ type InnerProps = {
     } | null>
   >;
   setStickyMenu: (m: StickyMenuState | null) => void;
+  /** 回填 screenToFlowPosition 给外层（外层不在 ReactFlowProvider 内，拿不到 useReactFlow）。 */
+  screenToFlowRef: React.MutableRefObject<ScreenToFlow | null>;
   onSelectNode: (id: string | null) => void;
   onNodesChangeExternal: (
     changes: ReturnType<ReactFlowModule["applyNodeChanges"]> extends never[]
@@ -660,6 +702,7 @@ function ReactFlowInner({
   connectingRef,
   setConnectMenu,
   setStickyMenu,
+  screenToFlowRef,
   onSelectNode,
   onNodesChangeExternal,
   onEdgesChangeExternal,
@@ -675,6 +718,13 @@ function ReactFlowInner({
   } = rfMod;
 
   const { screenToFlowPosition } = useReactFlow();
+
+  useEffect(() => {
+    screenToFlowRef.current = screenToFlowPosition;
+    return () => {
+      screenToFlowRef.current = null;
+    };
+  }, [screenToFlowRef, screenToFlowPosition]);
 
   const onConnectStart = useCallback(
     (

@@ -1,12 +1,13 @@
-// 消息铃铛测试：未读红点、打开即已读、订阅推送、无桥降级。
+// 铃铛 + 消息中心测试：未读角标、打开活动视图即已读、订阅推送、无桥降级。
 // 数据全部来自主进程，故这里用假 bridge 驱动，不碰真实 IPC。
 
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { CoreProvider } from "@cortex-work/core";
 import { i18nReady } from "@cortex-work/core/i18n";
 import type { DesktopBridge, NotificationRecord } from "@cortex-work/core";
-import { NotificationBell } from "./NotificationBell";
+import { NotificationBell, NotificationList, useNotificationCenter } from "./NotificationBell";
 
 const NOW = Date.now();
 
@@ -30,10 +31,25 @@ function bridgeWith(items: NotificationRecord[], extra: Partial<DesktopBridge> =
   } as unknown as DesktopBridge;
 }
 
+// 用侧栏同款接法渲染:hook 取数据,铃铛切换 open,打开时渲染消息列表并标已读。
+function Harness() {
+  const center = useNotificationCenter();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open && center.unread > 0) center.markRead();
+  }, [open, center]);
+  return (
+    <>
+      <NotificationBell active={open} badge={center.unread} onToggle={() => setOpen((v) => !v)} />
+      {open && center.items.length > 0 ? <NotificationList items={center.items} onClear={center.clear} /> : null}
+    </>
+  );
+}
+
 function renderBell(bridge: DesktopBridge | null) {
   return render(
     <CoreProvider wsId="test-ws" identity={{ userId: "me", name: "我" }} desktopBridge={bridge}>
-      <NotificationBell />
+      <Harness />
     </CoreProvider>,
   );
 }
@@ -43,55 +59,37 @@ beforeAll(async () => {
 });
 afterEach(cleanup);
 
-describe("NotificationBell", () => {
-  it("未读数打在红点上，读完不再显示", async () => {
+describe("NotificationBell / useNotificationCenter", () => {
+  it("有未读时显示蓝点(不显示数字),条数写在无障碍名称里", async () => {
     const { container } = renderBell(bridgeWith([rec(), rec(), rec({ readAt: NOW })]));
-    await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")?.textContent).toBe("2"));
+    await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")).toBeTruthy());
+    expect(container.querySelector(".pw-sb-bell-dot")?.textContent).toBe("");
+    expect(screen.getByRole("button", { name: /2 条待关注/ })).toBeTruthy();
   });
 
-  it("未读超过 99 显示 99+，不撑破圆点", async () => {
-    const many = Array.from({ length: 120 }, () => rec());
-    const { container } = renderBell(bridgeWith(many));
-    await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")?.textContent).toBe("99+"));
-  });
-
-  it("全部已读时无红点", async () => {
+  it("全部已读时无角标", async () => {
     const { container } = renderBell(bridgeWith([rec({ readAt: NOW })]));
     await waitFor(() => expect(container.querySelector(".pw-sb-bell")).toBeTruthy());
     expect(container.querySelector(".pw-sb-bell-dot")).toBeNull();
   });
 
-  // 展开即视为看到了，不该再要求用户逐条点「已读」。
-  it("打开 popover 即把未读标为已读", async () => {
-    const bridge = bridgeWith([rec()]);
+  // 打开活动视图即视为看到了消息，不该再要求用户逐条点「已读」。
+  it("点铃铛切换为激活态,消息标为已读并展示列表", async () => {
+    const bridge = bridgeWith([rec({ title: "日报生成完成", body: "共 12 条" })]);
     const { container } = renderBell(bridge);
     await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")).toBeTruthy());
-
-    fireEvent.click(container.querySelector(".pw-sb-bell")!);
-    expect(bridge.notificationCenterMarkRead).toHaveBeenCalled();
-    expect(container.querySelector(".pw-sb-msgs")).toBeTruthy();
-  });
-
-  it("空列表给出占位而不是空白面板", async () => {
-    const { container } = renderBell(bridgeWith([]));
-    await waitFor(() => expect(container.querySelector(".pw-sb-bell")).toBeTruthy());
-    fireEvent.click(container.querySelector(".pw-sb-bell")!);
-    expect(screen.getByText("暂无消息")).toBeTruthy();
-    // 空列表时不给「清空」（没东西可清）。
-    expect(container.querySelector(".pw-sb-msgs-clear")).toBeNull();
-  });
-
-  it("列表渲染标题与正文，并告知 60 天保留期", async () => {
-    const { container } = renderBell(bridgeWith([rec({ title: "日报生成完成", body: "共 12 条" })]));
-    await waitFor(() => expect(container.querySelector(".pw-sb-bell")).toBeTruthy());
-    fireEvent.click(container.querySelector(".pw-sb-bell")!);
+    fireEvent.click(screen.getByRole("button", { name: /查看活动/ }));
+    expect(screen.getByRole("button", { name: /关闭活动视图/ }).getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(bridge.notificationCenterMarkRead).toHaveBeenCalled());
     expect(screen.getByText("日报生成完成")).toBeTruthy();
     expect(screen.getByText("共 12 条")).toBeTruthy();
     expect(screen.getByText("消息保留 60 天")).toBeTruthy();
+    fireEvent.click(screen.getByText("清空"));
+    expect(bridge.notificationCenterClear).toHaveBeenCalled();
   });
 
   // 主进程推全量快照 → 列表即时刷新，不必等下次手动拉取。
-  it("订阅主进程推送后刷新列表", async () => {
+  it("订阅主进程推送后刷新", async () => {
     let push: ((list: NotificationRecord[]) => void) | undefined;
     const bridge = bridgeWith([], {
       onNotificationCenterChanged: (cb: (list: NotificationRecord[]) => void) => {
@@ -101,13 +99,14 @@ describe("NotificationBell", () => {
     } as Partial<DesktopBridge>);
     const { container } = renderBell(bridge);
     await waitFor(() => expect(push).toBeTruthy());
-
-    push!([rec({ title: "新来的" })]);
-    await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")?.textContent).toBe("1"));
+    act(() => push!([rec({ title: "新来的" })]));
+    await waitFor(() => expect(container.querySelector(".pw-sb-bell-dot")).toBeTruthy());
   });
 
-  it("无桥能力（web / 旧壳）整体不渲染", () => {
+  // 活动视图不依赖消息中心:无桥(web / 旧壳)时铃铛照常可用,只是没有消息。
+  it("无桥能力时铃铛仍渲染、无角标", () => {
     const { container } = renderBell(null);
-    expect(container.querySelector(".pw-sb-bell")).toBeNull();
+    expect(container.querySelector(".pw-sb-bell")).toBeTruthy();
+    expect(container.querySelector(".pw-sb-bell-dot")).toBeNull();
   });
 });

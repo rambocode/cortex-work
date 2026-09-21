@@ -63,25 +63,23 @@ type Props = {
  * 且切供应商时会自动落到「第一个模型」——工作流是自动执行的，静默换模型没人会察觉。
  * 这里改成显式选择 + 悬空引用阻断，绝不自动回退。
  */
+// 注意：providerId 与 model 必须经一次 onChange 原子写入。
+// 曾拆成 onProviderChange + onModelChange 两次 updateConfig，两次都基于同一份旧 cfg 展开，
+// 后一次会把前一次写入的 providerId 覆盖回空值 → 选完模型仍显示「未配置模型」。
 function ProviderModelPicker({
   providerId,
   model,
-  onProviderChange,
-  onModelChange,
+  onChange,
 }: {
   providerId: string;
   model: string;
-  onProviderChange: (pid: string) => void;
-  onModelChange: (mid: string) => void;
+  onChange: (patch: { providerId: string; model: string }) => void;
 }) {
   return (
     <ModelRefField
       label="模型"
       value={providerId && model ? { providerId, modelId: model } : undefined}
-      onChange={(ref) => {
-        onProviderChange(ref.providerId);
-        onModelChange(ref.modelId);
-      }}
+      onChange={(ref) => onChange({ providerId: ref.providerId, model: ref.modelId })}
     />
   );
 }
@@ -148,8 +146,7 @@ function AiAgentForm({
       <ProviderModelPicker
         providerId={cfg.providerId}
         model={cfg.model}
-        onProviderChange={(pid) => updateConfig({ providerId: pid })}
-        onModelChange={(mid) => updateConfig({ model: mid })}
+        onChange={(patch) => updateConfig(patch)}
       />
 
       {/* 推理强度 */}
@@ -244,8 +241,7 @@ function ParameterExtractorForm({
       <ProviderModelPicker
         providerId={cfg.providerId}
         model={cfg.model}
-        onProviderChange={(pid) => updateConfig({ providerId: pid })}
-        onModelChange={(mid) => updateConfig({ model: mid })}
+        onChange={(patch) => updateConfig(patch)}
       />
 
       {/* 推理强度 */}
@@ -419,8 +415,7 @@ function QuestionClassifierForm({
       <ProviderModelPicker
         providerId={cfg.providerId}
         model={cfg.model}
-        onProviderChange={(pid) => updateConfig({ providerId: pid })}
-        onModelChange={(mid) => updateConfig({ model: mid })}
+        onChange={(patch) => updateConfig(patch)}
       />
 
       {/* 推理强度 */}

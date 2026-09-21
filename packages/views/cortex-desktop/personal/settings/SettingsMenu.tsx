@@ -15,6 +15,9 @@ import {
   AVATAR_BG_COLORS,
   AVATAR_EMOJIS,
   DEFAULT_PUSH_TEMPLATE,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+  clampUiFontSize,
   profileInitial,
   resolveAvatar,
   resolveDefaultAgent,
@@ -36,7 +39,7 @@ import type {
   UpdateState,
   WecomPushConfig,
 } from "@cortex-work/core";
-import type { Density, FontScale, SidebarMode, ThemeMode } from "@cortex-work/core/types";
+import type { Density, SidebarMode, ThemeMode } from "@cortex-work/core/types";
 import { useTranslation, type Locale } from "@cortex-work/core/i18n";
 import { PetSettingsSection } from "./PetSettingsSection";
 import { PluginManager } from "../plugins/PluginManager";
@@ -227,11 +230,61 @@ const THEME_OPTIONS: { themeKey: string; value: ThemeMode }[] = [
   { themeKey: "general.themeLight", value: "light" },
   { themeKey: "general.themeDark", value: "dark" },
 ];
-const FONT_SCALE_KEY: Record<FontScale, string> = {
-  small: "general.fontSmall",
-  medium: "general.fontMedium",
-  large: "general.fontLarge",
+// 布局密度 / 侧栏样式:存储值保持英文枚举不变,展示走 i18n 键(SegmentedRadio 以展示文案为值,需反查)。
+const DENSITY_KEY: Record<Density, string> = {
+  compact: "general.densityCompact",
+  regular: "general.densityRegular",
+  cozy: "general.densityCozy",
 };
+const SIDEBAR_KEY: Record<SidebarMode, string> = {
+  rich: "general.sidebarRich",
+  minimal: "general.sidebarMinimal",
+  activity: "general.sidebarActivity",
+};
+
+// 界面字号输入框(px)。本地草稿:值已是范围内整数就即时生效(含上下箭头/微调按钮);
+// 不合法的中间值(如从 14 改 12 时删到的「1」)先不动,失焦/回车再钳位提交——
+// 否则每次按键都钳位会把「1」立刻变成 10,用户根本输不进去。
+function UiFontSizeInput({ value, onCommit, ariaLabel }: {
+  value: number;
+  onCommit: (px: number) => void;
+  ariaLabel: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  // 外部值变化(如启动恢复存档)时同步草稿。
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = (raw: string) => {
+    const next = raw.trim() === "" ? value : clampUiFontSize(Number(raw));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <span className="pw-ui-font-size">
+      <input
+        type="number"
+        className="pw-set-input pw-wty-num"
+        min={UI_FONT_SIZE_MIN}
+        max={UI_FONT_SIZE_MAX}
+        step={1}
+        value={draft}
+        aria-label={ariaLabel}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setDraft(raw);
+          const n = Number(raw);
+          if (raw.trim() !== "" && Number.isInteger(n) && clampUiFontSize(n) === n && n !== value) {
+            onCommit(n);
+          }
+        }}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(e.currentTarget.value);
+        }}
+      />
+      <span className="pw-ui-font-size-unit">px</span>
+    </span>
+  );
+}
 const LOG_RETENTION_DAYS = [1, 2, 3, 5, 7];
 
 function updateStatusText(state: UpdateState, t: TFunction): string {
@@ -312,11 +365,8 @@ function GeneralSection() {
     const dir = await bridge?.pickDirectory?.();
     if (dir) setGeneral({ workspaceRoot: dir });
   };
-  const fontScales = Object.keys(FONT_SCALE_KEY) as FontScale[];
-  const setFontScale = (label: string) => {
-    const f = fontScales.find((k) => t(FONT_SCALE_KEY[k]) === label);
-    if (f) setTweak("fontScale", f);
-  };
+  const densities = Object.keys(DENSITY_KEY) as Density[];
+  const sidebars = Object.keys(SIDEBAR_KEY) as SidebarMode[];
   return (
     <>
       <div className="pw-dlg-title">{t("general.title")}</div>
@@ -337,25 +387,31 @@ function GeneralSection() {
             onChange={(v) => setTweak("theme", v as ThemeMode)}
           />
         </SRow>
-        <SRow label={t("general.fontSize")} desc={t("general.fontSizeDesc")}>
-          <SegmentedRadio
-            value={t(FONT_SCALE_KEY[tweaks.fontScale])}
-            options={fontScales.map((f) => t(FONT_SCALE_KEY[f]))}
-            onChange={setFontScale}
+        <SRow label={t("general.fontSize")} desc={t("general.fontSizeDesc")} end>
+          <UiFontSizeInput
+            value={tweaks.uiFontSize}
+            ariaLabel={t("general.fontSize")}
+            onCommit={(px) => setTweak("uiFontSize", px)}
           />
         </SRow>
         <SRow label={t("general.density")}>
           <SegmentedRadio
-            value={tweaks.density}
-            options={["compact", "regular", "cozy"]}
-            onChange={(v) => setTweak("density", v as Density)}
+            value={t(DENSITY_KEY[tweaks.density])}
+            options={densities.map((d) => t(DENSITY_KEY[d]))}
+            onChange={(label) => {
+              const d = densities.find((k) => t(DENSITY_KEY[k]) === label);
+              if (d) setTweak("density", d);
+            }}
           />
         </SRow>
         <SRow label={t("general.sidebar")}>
           <SegmentedRadio
-            value={tweaks.sidebar}
-            options={["rich", "minimal", "activity"]}
-            onChange={(v) => setTweak("sidebar", v as SidebarMode)}
+            value={t(SIDEBAR_KEY[tweaks.sidebar])}
+            options={sidebars.map((m) => t(SIDEBAR_KEY[m]))}
+            onChange={(label) => {
+              const m = sidebars.find((k) => t(SIDEBAR_KEY[k]) === label);
+              if (m) setTweak("sidebar", m);
+            }}
           />
         </SRow>
         {/* 团队工作区入口。缺省关闭（只有显式 true 才显示），关掉时若正停在团队工作区，
